@@ -16,6 +16,8 @@ interface SettingsState {
   setTheme: (theme: ThemeId) => void;
   cycleTheme: () => void;
   setFontSize: (fontSize: number) => void;
+  defaultPromptDismissed: boolean;
+  setDefaultPromptDismissed: (v: boolean) => void;
 }
 
 const order: ThemeId[] = THEMES.map((t) => t.id);
@@ -33,6 +35,9 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setFontSize: (fontSize) =>
         set({ fontSize: Math.min(24, Math.max(13, fontSize)) }),
+      defaultPromptDismissed: false,
+      setDefaultPromptDismissed: (defaultPromptDismissed) =>
+        set({ defaultPromptDismissed }),
     }),
     { name: "mdopener-settings" },
   ),

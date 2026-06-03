@@ -1,9 +1,11 @@
 //! Ashlr MD — Tauri application entry point.
 
 mod afm;
+mod agent_setup;
 mod ai;
 mod cli_install;
 mod deep_link;
+mod default_handler;
 mod document;
 mod export;
 mod file_handler;
@@ -45,6 +47,13 @@ pub fn run() {
             ipc::mcp_sync_state,
             cli_install::install_cli,
             run::run_shell,
+            default_handler::is_default_md_handler,
+            default_handler::set_default_md_handler,
+            default_handler::open_default_apps_help,
+            agent_setup::detect_agent_clis,
+            agent_setup::connect_claude_code,
+            agent_setup::connect_cursor,
+            agent_setup::mcp_command_string,
         ])
         .setup(|app| {
             file_handler::buffer_cli_args(app.handle());

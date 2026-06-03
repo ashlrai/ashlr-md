@@ -41,7 +41,13 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Plan progress tracking that syncs checkboxes ↔ the agent's task list
 - [ ] Recognize and pretty-render common agent doc schemas (plans, reviews, specs)
 
+**Integrations**
+- [x] Obsidian plugin — "Open in Ashlr MD" (ribbon, commands, file-menu, editor-menu, settings)
+- [ ] VS Code extension — open the active `.md` in Ashlr MD from the editor toolbar
+- [ ] Alfred / Raycast workflows for `mdopener://` quick-open
+
 **Deeper agent integration**
+- [x] One-click MCP setup for Claude Code, Cursor, and Codex — see [`docs/AGENTS.md`](./docs/AGENTS.md)
 - [ ] MCP: multi-document & project awareness, export-to-path, "render this string"
 - [ ] Let agents register doc "kinds" + custom renderers (an extension API)
 - [ ] A tiny URL/inline-preview mode so an agent can show a doc without a file

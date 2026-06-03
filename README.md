@@ -48,6 +48,9 @@ non-technical people. Ashlr MD does exactly that, and nothing you don't need.
   your own key. Nothing leaves your device unless you opt in.
 - **Agent-native** — `mdopen file.md`, the `mdopener://` URL scheme, and an **MCP
   server** so Claude Code / Codex can open, read, edit, and export the live doc.
+- **Obsidian integration** — the [Open in Ashlr MD](./integrations/obsidian/)
+  plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
+  right-click) via the `mdopener://` scheme.
 - **Smart agent output** — callouts, interactive checkboxes that save back to the
   file, and automatic plan / diff / multi-file detection.
 - **Three themes** — Paper, Sepia, Midnight — switch live.
@@ -63,6 +66,19 @@ open "mdopener://open?path=$PWD/notes.md"
 
 # Let Claude Code drive the app (open / read / edit / export the current doc):
 claude mcp add mdopener /path/to/mdopener-mcp
+```
+
+## One-click agent setup
+
+Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
+**Connect to Cursor** — no terminal required. For Codex, copy the command from the
+same panel. Full guide + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
+
+There's also a one-shot installer that builds from source, installs the `mdopen`
+CLI, and wires up Claude Code:
+
+```bash
+bash scripts/install.sh
 ```
 
 ## Develop

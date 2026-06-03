@@ -314,40 +314,208 @@ function CliSection() {
   );
 }
 
-// ─── MCP section ─────────────────────────────────────────────────────────────
+// ─── Default Markdown app ─────────────────────────────────────────────────────
 
-/**
- * The canonical MCP binary path bundled inside the .app.
- * In development builds the sidecar lives alongside the executable, so the path
- * will differ — users should run `cargo tauri dev` and follow the console output.
- */
-const MCP_BINARY_PATH = "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp";
-const MCP_COMMAND = `claude mcp add mdopener ${MCP_BINARY_PATH}`;
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M8.5 11.5a4.5 4.5 0 0 0 6.364 0l1.768-1.768a4.5 4.5 0 0 0-6.364-6.364L9.5 4.136"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M11.5 8.5a4.5 4.5 0 0 0-6.364 0L3.368 10.268a4.5 4.5 0 0 0 6.364 6.364l.768-.768"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** "Set as default Markdown app" — calls the macOS LaunchServices helper. */
+function DefaultHandlerSection() {
+  const [status, setStatus] = useState<InstallStatus>({ kind: "idle" });
+  const [isDefault, setIsDefault] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    import("../../lib/defaultHandler").then(({ isDefaultMdHandler }) =>
+      isDefaultMdHandler().then(setIsDefault),
+    );
+  }, []);
+
+  async function makeDefault() {
+    setStatus({ kind: "busy" });
+    try {
+      const { setDefaultMdHandler, isDefaultMdHandler } = await import(
+        "../../lib/defaultHandler"
+      );
+      await setDefaultMdHandler();
+      setIsDefault(await isDefaultMdHandler());
+      setStatus({ kind: "ok", path: "" });
+    } catch (e) {
+      const msg = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
+      setStatus({ kind: "error", message: msg });
+    }
+  }
+
+  const busy = status.kind === "busy";
+
+  return (
+    <div className="settings-cli">
+      <p className="settings-description">
+        Make Ashlr MD the app that opens when you double-click a{" "}
+        <code className="settings-inline-code">.md</code> file in Finder.
+      </p>
+      <div className="settings-cli-row">
+        {isDefault ? (
+          <span className="settings-cli-result settings-result-ok">
+            ✓ Ashlr MD is your default
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="settings-action-btn"
+            onClick={makeDefault}
+            disabled={busy}
+            aria-busy={busy}
+          >
+            {busy && <SpinnerIcon />}
+            Set as default
+          </button>
+        )}
+        {status.kind === "error" && (
+          <span className="settings-cli-result settings-result-error">
+            {status.message}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── MCP / agent setup section ────────────────────────────────────────────────
+
+/** Tracks the async state of a one-click agent-connect command. */
+type ConnectStatus =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "ok"; message: string }
+  | { kind: "error"; message: string };
 
 function McpSection() {
+  const [agentClis, setAgentClis] = useState<{
+    claude: boolean;
+    codex: boolean;
+    cursor: boolean;
+  } | null>(null);
+  const [claudeStatus, setClaudeStatus] = useState<ConnectStatus>({ kind: "idle" });
+  const [cursorStatus, setCursorStatus] = useState<ConnectStatus>({ kind: "idle" });
+  const [mcpCmd, setMcpCmd] = useState<string>(
+    "claude mcp add ashlr-md /Applications/Ashlr\\ MD.app/Contents/MacOS/mdopener-mcp",
+  );
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+
+  useEffect(() => {
+    invoke<{ claude: boolean; codex: boolean; cursor: boolean }>("detect_agent_clis")
+      .then(setAgentClis)
+      .catch(() => setAgentClis({ claude: false, codex: false, cursor: false }));
+    invoke<string>("mcp_command_string")
+      .then(setMcpCmd)
+      .catch(() => {});
+  }, []);
+
+  async function connect(
+    cmd: "connect_claude_code" | "connect_cursor",
+    set: (s: ConnectStatus) => void,
+  ) {
+    set({ kind: "busy" });
+    try {
+      const msg = await invoke<string>(cmd);
+      set({ kind: "ok", message: msg });
+    } catch (e) {
+      const msg = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
+      set({ kind: "error", message: msg });
+    }
+  }
 
   async function copyCommand() {
     try {
-      await navigator.clipboard.writeText(MCP_COMMAND);
+      await navigator.clipboard.writeText(mcpCmd);
       setCopyStatus("copied");
       setTimeout(() => setCopyStatus("idle"), 2000);
     } catch {
-      // Clipboard may be unavailable in some sandbox configurations — fail silently.
+      // Clipboard unavailable in some sandbox configs — fail silently.
     }
   }
+
+  function Result({ status }: { status: ConnectStatus }) {
+    if (status.kind === "ok") {
+      return <p className="settings-cli-result settings-result-ok">{status.message}</p>;
+    }
+    if (status.kind === "error") {
+      return (
+        <p className="settings-cli-result settings-result-error">{status.message}</p>
+      );
+    }
+    return null;
+  }
+
+  const claudeBusy = claudeStatus.kind === "busy";
+  const cursorBusy = cursorStatus.kind === "busy";
 
   return (
     <div className="settings-mcp">
       <p className="settings-description">
-        Register Ashlr MD as an MCP server to let Claude Code (and compatible AI agents)
-        open, read, and edit the current document without leaving the editor.
+        Connect Ashlr MD to your AI coding agent so it can open, read, and edit the
+        current document without leaving the coding environment.
       </p>
-      <p className="settings-description settings-description-muted">
-        Run this once in your terminal, then restart Claude Code:
+
+      <div className="settings-cli-row" style={{ flexWrap: "wrap", gap: "8px" }}>
+        <button
+          type="button"
+          className="settings-action-btn"
+          onClick={() => connect("connect_claude_code", setClaudeStatus)}
+          disabled={claudeBusy || agentClis?.claude === false}
+          aria-busy={claudeBusy}
+          title={
+            agentClis?.claude === false
+              ? "Claude Code CLI not found"
+              : "Register ashlr-md in Claude Code"
+          }
+        >
+          {claudeBusy && <SpinnerIcon />}
+          Connect to Claude Code
+        </button>
+        <button
+          type="button"
+          className="settings-action-btn"
+          onClick={() => connect("connect_cursor", setCursorStatus)}
+          disabled={cursorBusy || agentClis?.cursor === false}
+          aria-busy={cursorBusy}
+          title={
+            agentClis?.cursor === false
+              ? "Cursor not detected"
+              : "Write ashlr-md to ~/.cursor/mcp.json"
+          }
+        >
+          {cursorBusy && <SpinnerIcon />}
+          Connect to Cursor
+        </button>
+      </div>
+      <Result status={claudeStatus} />
+      <Result status={cursorStatus} />
+
+      <p
+        className="settings-description settings-description-muted"
+        style={{ marginTop: "14px" }}
+      >
+        For Codex or manual setup — run once in your terminal:
       </p>
       <div className="settings-mcp-command-row">
-        <code className="settings-mcp-command">{MCP_COMMAND}</code>
+        <code className="settings-mcp-command">{mcpCmd}</code>
         <button
           type="button"
           className={`settings-copy-btn${copyStatus === "copied" ? " copied" : ""}`}
@@ -360,8 +528,16 @@ function McpSection() {
         </button>
       </div>
       <p className="settings-mcp-note">
-        Development builds: the binary is a Tauri sidecar — path will differ. Check the
-        Tauri dev console for the exact location.
+        Buttons are disabled when the tool isn't detected. See{" "}
+        <a
+          href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent)" }}
+        >
+          docs/AGENTS.md
+        </a>{" "}
+        for Codex setup.
       </p>
     </div>
   );
@@ -481,7 +657,15 @@ export function SettingsPanel() {
 
           <div className="settings-divider" />
 
-          {/* 3 · AI agents (MCP) */}
+          {/* 3 · Default Markdown app */}
+          <section className="settings-section">
+            <SectionHeader icon={<LinkIcon />} title="Default Markdown app" />
+            <DefaultHandlerSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 4 · AI agents (MCP) */}
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="AI agents (MCP)" />
             <McpSection />

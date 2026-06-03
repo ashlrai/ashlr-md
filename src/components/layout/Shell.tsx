@@ -4,6 +4,7 @@ import { useDocumentStore } from "../../store/documentStore";
 import { useUiStore } from "../../store/uiStore";
 import { AISidebar } from "../ai/AISidebar";
 import { SelectionPopover } from "../ai/SelectionPopover";
+import { DefaultHandlerBanner } from "../DefaultHandlerBanner";
 import { MarkdownEditor } from "../editor/MarkdownEditor";
 import { SourceEditor } from "../editor/SourceEditor";
 import { ExportDialog } from "../export/ExportDialog";
@@ -49,6 +50,7 @@ export function Shell({ dragOver }: ShellProps) {
     <div className={`app-shell${dragOver ? " drag-over" : ""}`}>
       <TitleBar />
       {externalChange && <ExternalChangeBanner />}
+      <DefaultHandlerBanner />
       <main
         className={`app-content${scrolls ? "" : " no-scroll"}`}
         ref={contentRef}

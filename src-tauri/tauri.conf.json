@@ -43,6 +43,12 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "resources": [
+      "../target/release/mdopen",
+      "../target/release/mdopener-mcp",
+      "../target/release/mdopener-afm",
+      "../target/release/mdopener-setdefault"
+    ],
     "category": "public.app-category.productivity",
     "shortDescription": "An AI-native Markdown viewer, editor, and exporter.",
     "icon": [
