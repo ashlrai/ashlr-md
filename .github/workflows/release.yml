@@ -240,10 +240,15 @@ jobs:
       # updates the same GitHub Release draft and appends platform-specific
       # entries to the updater latest.json on each run.
 
-      - name: Build Tauri app & publish release
+      # Build only — we do NOT publish from CI. The ashlrai org disables write
+      # for the workflow GITHUB_TOKEN, so the release is assembled and published
+      # with a maintainer's credentials from the per-platform artifacts uploaded
+      # below. Omitting tagName makes tauri-action build without touching the
+      # release API. Updater signing still runs so each bundle has its .sig.
+      - name: Build Tauri app
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN:               ${{ secrets.GITHUB_TOKEN }}
           # Apple signing / notarization (macOS only; no-op when empty)
           APPLE_SIGNING_IDENTITY:     ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID:                   ${{ secrets.APPLE_ID }}
@@ -253,13 +258,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY:          ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName:       ${{ github.ref_name }}
-          releaseName:   "MD Opener ${{ github.ref_name }}"
-          releaseBody:   |
-            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for what's new.
-          releaseDraft:  true
-          prerelease:    ${{ contains(github.ref_name, '-') }}
           args:          ${{ matrix.tauri-args }}
+
+      # Upload the built bundles (installers + updater .sig) as workflow
+      # artifacts. This uses the Actions runtime token (not GITHUB_TOKEN), so it
+      # works regardless of the org's read-only workflow-token policy.
+      - name: Upload bundle artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.platform }}
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/release/bundle/**/*
+            src-tauri/target/*/release/bundle/**/*
 
       # ---- Cleanup ---------------------------------------------------------
 
