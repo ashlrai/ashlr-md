@@ -20,6 +20,7 @@ free, private, **on-device AI** built in.
 [**Website**](https://md-opener.vercel.app) ·
 [Download](https://github.com/ashlrai/md-opener/releases) ·
 [Contributing](./CONTRIBUTING.md) ·
+[Roadmap](./ROADMAP.md) ·
 [Vision](./docs/VISION.md)
 
 <img src="./docs/og.png" width="820" alt="MD Opener — a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
