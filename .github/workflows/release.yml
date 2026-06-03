@@ -178,6 +178,33 @@ jobs:
         run: |
           chmod +x src-tauri/target/release/mdopen
           chmod +x src-tauri/target/release/mdopener-mcp
+          # Swift sidecars are best-effort (need Xcode 26); chmod only if present.
+          chmod +x src-tauri/target/release/mdopener-afm 2>/dev/null || true
+          chmod +x src-tauri/target/release/mdopener-setdefault 2>/dev/null || true
+
+      # The macOS Swift sidecars (afm, setdefault) need the macOS 26 SDK. When
+      # the runner's Xcode can't build them, drop them from bundle.resources so
+      # `tauri build` still succeeds — the app degrades gracefully at runtime
+      # (Apple on-device AI falls back to Ollama/cloud; native set-default
+      # reports unavailable). A full-featured macOS build is produced on a real
+      # macOS 26 machine.
+      - name: Reconcile macOS bundle resources to what built
+        if: matrix.os == 'macOS'
+        run: |
+          python3 - <<'PY'
+          import json, os
+          p = "src-tauri/tauri.macos.conf.json"
+          with open(p) as f:
+              cfg = json.load(f)
+          res = cfg.get("bundle", {}).get("resources", {})
+          kept = {k: v for k, v in res.items() if os.path.exists(os.path.join("src-tauri", k))}
+          dropped = sorted(set(res) - set(kept))
+          if dropped:
+              print("Dropping sidecar resources that did not build:", dropped)
+          cfg["bundle"]["resources"] = kept
+          with open(p, "w") as f:
+              json.dump(cfg, f, indent=2)
+          PY
 
       # ---- Apple code signing (macOS only, gated on secret) ----------------
 
