@@ -6,7 +6,9 @@ author: Claude Code
 # Ashlr MD Showcase
 
 A single document that exercises every renderer feature. If this all looks
-great, **M1 works**.
+great, the app is working. Try **⌘K** for the command palette, **⌘⇧L** to cycle
+themes, **⌘B** for the Agent Activity drawer, and — while editing — **⌘I** for an
+inline AI rewrite. (Use **Ctrl** instead of ⌘ on Windows & Linux.)
 
 ## Text & inline formatting
 
@@ -58,10 +60,11 @@ def fibonacci(n: int) -> int:
 ```
 
 ```bash
-# macOS (Homebrew cask — coming soon)
-brew install --cask md-opener
+# macOS (Homebrew cask)
+brew install --cask ashlr-md
 
-# All platforms: download from GitHub Releases
+# Windows (winget) · Linux (AUR): see docs/INSTALL.md
+# All platforms: download from GitHub Releases, then:
 mdopen ./README.md
 ```
 
@@ -73,7 +76,10 @@ mdopen ./README.md
 | Code blocks  |   ✅   | Shiki, dual-theme              |
 | Diagrams     |   ✅   | Mermaid                        |
 | Math         |   ✅   | KaTeX                          |
-| Editing      |   🚧   | Milkdown (M2)                  |
+| Editing      |   ✅   | WYSIWYG (Milkdown) + source    |
+| Command palette | ✅ | ⌘K · fuzzy, keyboard-first     |
+| Agent activity  | ✅ | ⌘B · watch an agent's folder   |
+| Inline AI       | ✅ | ⌘I · rewrite while editing     |
 
 ## Math
 
@@ -95,7 +101,7 @@ flowchart LR
 
 ## Image
 
-![A placeholder](https://placehold.co/600x200/0969da/ffffff/png?text=MD+Opener)
+![A placeholder](https://placehold.co/600x200/0969da/ffffff/png?text=Ashlr+MD)
 
 ---
 

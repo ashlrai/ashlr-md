@@ -39,22 +39,36 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
 ## Features
 
 - **Instant, beautiful rendering** — GFM, Shiki-highlighted code, Mermaid
-  diagrams, KaTeX math, tables, footnotes.
+  diagrams, KaTeX math, GitHub-style callouts, tables, footnotes.
 - **Edit without the syntax** — Typora-style WYSIWYG (Milkdown) + a lossless
-  source mode (CodeMirror). Atomic save, external-change aware.
+  source mode (CodeMirror) + a clean Read view. Atomic save; external-change
+  detection with a conflict banner.
 - **Export anywhere** — one-click **PDF / DOCX / HTML**, fully offline, no Pandoc.
+- **⌘K command palette** — fuzzy, keyboard-first access to every action and your
+  recent files.
 - **Free, private, on-device AI** — summarize / explain / rewrite / translate.
-  On **macOS 26+ (Apple Silicon)**: zero-install via **Apple Foundation Models**.
-  On **Windows & Linux** (and as a fallback on Mac): local **Ollama** or your own
-  cloud key. Nothing leaves your device unless you opt in.
+  On **macOS 26+ (Apple Silicon)**: zero-install via **Apple Foundation Models**
+  (macOS only). On **Windows & Linux** (and as a fallback on Mac): local
+  **Ollama** → your own cloud key → optional hosted. Nothing leaves your device
+  unless you opt in.
+- **AI superpowers** — select text to Explain / Summarize / Rewrite / Translate;
+  **inline AI rewrite in the editor (⌘I)** with Rewrite / Fix grammar / Make
+  concise / Expand; **"Explain changes"** when a file changes on disk; and
+  chat-with-document.
+- **Agent activity drawer (⌘B)** — watch the folder your AI agent writes to and
+  new Markdown files appear live; click to open instantly. The answer to "buried
+  in agent `.md` files."
+- **Outline navigation (⌘⇧O)** — an auto table-of-contents with scrollspy for
+  long docs.
 - **Agent-native** — `mdopen file.md`, the `mdopener://` URL scheme, and an **MCP
-  server** so Claude Code / Codex can open, read, edit, and export the live doc.
+  server** so Claude Code / Codex / Cursor can open, read, edit, and export the
+  live doc. One-click MCP setup in Settings.
 - **Obsidian integration** — the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.
 - **Smart agent output** — callouts, interactive checkboxes that save back to the
-  file, and automatic plan / diff / multi-file detection.
-- **Three themes** — Paper, Sepia, Midnight — switch live.
+  file, and automatic plan / diff / multi-file detection with badges.
+- **Three themes** — Paper, Sepia, Midnight (light + dark) — switch live.
 - **Native & instant** — built on [Tauri 2](https://tauri.app); a tiny native binary
   on every OS, no Electron bloat. MIT, local-first, no telemetry.
 
@@ -68,6 +82,25 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
 | Free local AI (zero-install) | ✅ Apple Foundation Models (macOS 26+, Apple Silicon) | Ollama (install separately) | Ollama (install separately) |
 | `mdopen` CLI & `mdopener://` deep link | ✅ | ✅ | ✅ |
 | MCP server | ✅ | ✅ | ✅ |
+| Command palette · activity drawer · inline AI · outline | ✅ | ✅ | ✅ |
+
+## Keyboard shortcuts
+
+Shown with ⌘ on macOS — use **Ctrl** on Windows & Linux.
+
+| Action | Shortcut |
+|---|---|
+| Command palette | `⌘K` |
+| AI assistant | `⌘L` |
+| Inline AI rewrite (in editor) | `⌘I` |
+| Cycle theme | `⌘⇧L` |
+| Open file | `⌘O` |
+| Save | `⌘S` |
+| Export | `⌘E` |
+| Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
+| Agent activity drawer | `⌘B` |
+| Outline | `⌘⇧O` |
+| Settings | `⌘,` |
 
 ## Use it with an AI agent
 
@@ -77,28 +110,34 @@ mdopen notes.md
 open "mdopener://open?path=$PWD/notes.md"
 
 # Let Claude Code drive the app (open / read / edit / export the current doc):
-claude mcp add mdopener /path/to/mdopener-mcp
+claude mcp add --scope user ashlr-md /path/to/mdopener-mcp
 ```
 
 ## One-click agent setup
 
 Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
 **Connect to Cursor** — no terminal required. For Codex, copy the command from the
-same panel. Full guide + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
+same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch an
+agent's output folder and open new `.md` files the moment they appear. Full guide
++ config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
 
 ## Download & install
 
 Downloads are on the [GitHub Releases page](https://github.com/ashlrai/ashlr-md/releases).
+Full, per-OS instructions live in [**docs/INSTALL.md**](./docs/INSTALL.md).
 
-| Platform | Artifact |
-|---|---|
-| macOS | `.dmg` (drag to `/Applications`); Homebrew cask coming soon |
-| Windows | `.msi` / NSIS `.exe` installer |
-| Linux | `.deb` (Debian/Ubuntu) · `.AppImage` (universal, unsigned) |
+| Platform | Artifact | Package manager |
+|---|---|---|
+| macOS | `.dmg` (drag to `/Applications`) | `brew install --cask ashlr-md` |
+| Windows | `.msi` / NSIS `.exe` installer | `winget install ashlrai.AshlrMD` |
+| Linux | `.deb` (Debian/Ubuntu) · `.AppImage` (universal) | AUR: `yay -S ashlr-md` |
+
+Auto-update is built in on every platform.
 
 > **Note:** Windows code-signing is not yet set up — you may see a SmartScreen
 > warning; click "More info → Run anyway". macOS builds are notarized. Linux
-> AppImages ship unsigned.
+> AppImages ship unsigned. Homebrew / winget / AUR availability tracks the
+> first signed release — see [docs/RELEASING.md](./docs/RELEASING.md).
 
 There's also a one-shot installer that builds from source, installs the `mdopen`
 CLI, and wires up Claude Code:

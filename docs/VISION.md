@@ -10,7 +10,7 @@ When Ashlr MD is finished, this is true:
 2. **Beautiful by default.** Agent output (`PLAN.md`, `README.md`, research dumps) looks like a polished document with zero configuration — gorgeous themes, perfect code, diagrams, math, tables.
 3. **Effortless to edit.** Non-technical people edit in a Typora-style WYSIWYG and never see raw syntax. Power users get a lossless source mode. Saving is instant and safe.
 4. **Free, private AI built in.** Summarize / explain / rewrite / translate runs **locally and free** by default — Apple on-device models on macOS 26+ (Apple Silicon), Ollama on Windows & Linux — with cloud as an optional upgrade. Nothing leaves the device unless the user explicitly opts in.
-5. **Agent-native.** Claude Code / Codex can open a file (`mdopen file.md` / `mdopener://…`) and *drive* the app over MCP (open, read, edit, export). The app is a first-class citizen in an agentic workflow.
+5. **Agent-native.** Claude Code / Codex / Cursor can open a file (`mdopen file.md` / `mdopener://…`) and *drive* the app over MCP (open, read, edit, export) — with one-click setup. An **Agent Activity drawer** watches the folder your agent writes to so new docs surface live, and a **⌘K command palette** makes every action keyboard-first. The app is a first-class citizen in an agentic workflow.
 6. **Shareable in one click.** Export to PDF / DOCX / HTML that looks great, with no Pandoc, no Terminal, no account.
 7. **Trustworthy & open.** MIT, local-first, no telemetry by default, no GPL bundled. A great open-source project the world can rely on; a premium hosted-AI tier funds it.
 
@@ -60,11 +60,11 @@ Each increment runs the same loop. We do not move on until the loop closes.
 |---|---|---|
 | M0 | Scaffold | App builds and runs; CI-ready. ✅ |
 | M1 | Instant viewer + default handler | Double-click → beautiful render; 3 themes; GFM/code/math/mermaid/footnotes. ✅ |
-| M2 | Editor + save | WYSIWYG (Crepe) + lossless source mode; safe atomic save; external-change aware; recents; outline. |
-| M3 | Export | One-click PDF / DOCX / HTML that looks great, fully offline, no Pandoc. |
-| M4 | Local-first AI | Tiered provider (Apple on-device → Ollama → BYO key → hosted); selection actions + chat; privacy badge; free by default. |
-| M5 | Agent hand-off + MCP | `mdopen` CLI + `mdopener://` scheme + MCP server agents can drive; one-line setup. |
-| M6 | Smart rendering + distribution | Interactive checkboxes, code Copy/Run, callouts, plan/diff detection; macOS notarized DMG + Homebrew cask; Windows MSI/NSIS; Linux .deb/.AppImage; auto-update. |
+| M2 | Editor + save | WYSIWYG (Milkdown) + lossless source mode + Read view; safe atomic save; external-change aware; recents; outline (⌘⇧O) with scrollspy. ✅ |
+| M3 | Export | One-click PDF / DOCX / HTML that looks great, fully offline, no Pandoc. ✅ |
+| M4 | Local-first AI | Tiered provider (Apple on-device, macOS only → Ollama → BYO key → hosted); selection actions, inline rewrite (⌘I), "Explain changes" + chat; privacy badge; free by default. ✅ |
+| M5 | Agent hand-off + MCP | `mdopen` CLI + `mdopener://` scheme + MCP server agents can drive; one-click setup; ⌘K command palette; Agent Activity drawer (⌘B). ✅ |
+| M6 | Smart rendering + distribution | Interactive checkboxes, code Copy/Run, callouts, plan/diff/multi-file detection; cross-platform builds (macOS DMG + Homebrew cask; Windows MSI/NSIS + winget; Linux .deb/.AppImage + AUR); auto-update. |
 
 ## Non-goals (so we stay sharp)
 

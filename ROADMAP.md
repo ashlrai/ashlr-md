@@ -19,12 +19,17 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 ## Shipped (v0.1)
 
-- Instant, beautiful rendering (GFM · Shiki · Mermaid · KaTeX)
-- WYSIWYG + lossless source editing, atomic save, external-change aware
+- **Cross-platform** — macOS, Windows, and Linux (Tauri 2)
+- Instant, beautiful rendering (GFM · Shiki · Mermaid · KaTeX · callouts)
+- WYSIWYG + lossless source + Read views, atomic save, external-change detection with conflict banner
 - Export to PDF / DOCX / HTML (offline, no Pandoc)
-- **Free, private, on-device AI** (Apple Foundation Models on macOS 26+ → Ollama on Windows/Linux → BYO key)
-- Agent hand-off: `mdopen` CLI · `mdopener://` scheme · **MCP server**
-- Smart agent output: callouts, interactive checkboxes, plan/diff/multi-file detection
+- **Free, private, on-device AI** (Apple Foundation Models on macOS 26+ → Ollama on Windows/Linux → BYO key → optional hosted)
+- **AI superpowers**: selection actions, **inline AI rewrite (⌘I)**, "Explain changes" on disk-change, chat-with-document
+- **⌘K command palette** — fuzzy access to every action + recent files
+- **Agent Activity drawer (⌘B)** — watch an agent's output folder, open new docs live
+- **Outline navigation (⌘⇧O)** — auto table-of-contents with scrollspy
+- Agent hand-off: `mdopen` CLI · `mdopener://` scheme · **MCP server** (one-click setup)
+- Smart agent output: callouts, interactive checkboxes, plan/diff/multi-file detection with badges
 - Three themes, Settings, custom icon, CI + signed-release pipeline, landing site
 
 ## Next
@@ -55,12 +60,16 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] A tiny URL/inline-preview mode so an agent can show a doc without a file
 
 **AI**
-- [ ] Inline selection rewrite actions; per-document chat memory
+- [x] Inline selection rewrite actions (⌘I: Rewrite / Fix grammar / Make concise / Expand)
+- [ ] Per-document chat memory
 - [ ] Local embeddings for "ask across my recent docs" (fully on-device)
 - [ ] Premium hosted tier (the sustainability model) — strictly opt-in, zero-retention
 
 **Polish**
-- [ ] Outline / table-of-contents sidebar; find-in-document
+- [x] Outline / table-of-contents sidebar (⌘⇧O, with scrollspy)
+- [x] Command palette (⌘K)
+- [x] Agent Activity drawer (⌘B)
+- [ ] Find-in-document
 - [ ] Image paste → saved relative to the file; drag-drop ordering
 - [ ] More export themes; "copy as rich text" for email/Slack
 - [ ] Accessibility pass (full keyboard nav, screen-reader labels)

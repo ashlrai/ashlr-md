@@ -7,6 +7,12 @@ open, read, edit, and export the document that is live in your Ashlr MD window
 It also ships **`mdopen`**, a tiny CLI companion for opening any `.md` file
 from a terminal or agent script.
 
+> **Tip:** To watch everything an agent produces, open the **Agent Activity
+> drawer** (`⌘B` on macOS, `Ctrl+B` on Windows/Linux) and point it at the folder
+> your agent writes to. New Markdown files appear live as they're created — click
+> any one to open it instantly. It's the recommended way to keep an eye on an
+> agent's `.md` output without polling the filesystem yourself.
+
 ---
 
 ## Quick start: one-click setup (in-app)

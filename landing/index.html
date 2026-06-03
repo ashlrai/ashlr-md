@@ -1262,10 +1262,11 @@
     <nav id="nav">
       <div class="wrap nav-inner">
         <a class="brand" href="#top"><span class="mark">M</span> Ashlr MD</a>
-        <div class="nav-links">
+                  <div class="nav-links">
           <a href="#features">Features</a>
           <a href="#ai">On-device AI</a>
           <a href="#agents">For agents</a>
+          <a href="#shortcuts">Shortcuts</a>
           <a href="#themes">Themes</a>
         </div>
         <div class="nav-cta">
@@ -1286,7 +1287,9 @@
           Your AI agents write Markdown all day. Ashlr MD turns those raw
           <code style="font-family: var(--mono); font-size: 0.92em">.md</code>
           files into clean, readable documents you can open, edit, export, and
-          actually understand — with free, private, on-device AI built in.
+          actually understand — with a <b>⌘K command palette</b>, an
+          <b>agent-activity drawer</b>, inline AI, and free, private, on-device
+          AI built in. On macOS, Windows, and Linux.
         </p>
         <div class="hero-cta">
           <a class="btn btn-primary" href="#download">
@@ -1334,7 +1337,7 @@
               <div class="codecard">
                 <div class="ch"><span>bash</span><span>Copy</span></div>
                 <pre><span class="t-com"># install &amp; open</span>
-<span class="t-fn">brew</span> install --cask md-opener
+<span class="t-fn">brew</span> install --cask ashlr-md
 <span class="t-fn">mdopen</span> <span class="t-str">PLAN.md</span></pre>
               </div>
             </div>
@@ -1402,7 +1405,7 @@ mdopen PLAN.md
         <div class="sec-head reveal">
           <div class="kicker">Everything you need</div>
           <h2 class="title">A real app for your <em>.md</em> files.</h2>
-          <p>Open, read, edit, and share Markdown — beautifully, instantly, on macOS, Windows, and Linux.</p>
+          <p>Open, read, edit, and share Markdown — beautifully, instantly, keyboard-first, on macOS, Windows, and Linux.</p>
         </div>
         <div class="grid">
           <div class="feat reveal">
@@ -1423,7 +1426,27 @@ mdopen PLAN.md
           <div class="feat reveal">
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l2 2 4-4M4 6h16v12H4z" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <h3>Smart agent output</h3>
-            <p>Callouts, interactive checkboxes that save back to the file, and automatic plan / diff / multi-file detection — agent docs come alive.</p>
+            <p>Callouts, interactive checkboxes that save back to the file, and automatic plan / diff / multi-file detection with badges — agent docs come alive.</p>
+          </div>
+          <div class="feat reveal">
+            <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 10l2.5 2L8 14M13 14h3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <h3>⌘K command palette</h3>
+            <p>Fuzzy, keyboard-first access to every action and your recent files. Open, save, export, switch themes, jump to AI — without lifting your hands.</p>
+          </div>
+          <div class="feat reveal">
+            <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/><circle cx="19" cy="6" r="2.4" fill="currentColor" stroke="none"/></svg></div>
+            <h3>Agent activity, live (⌘B)</h3>
+            <p>Point the activity drawer at the folder your AI agent writes to and new Markdown files appear the instant they land. Click to open — never dig through buried <code style="font-family: var(--mono)">.md</code> again.</p>
+          </div>
+          <div class="feat reveal">
+            <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.2 5.6L20 9l-4.5 3.4L17 18l-5-3-5 3 1.5-5.6L4 9l5.8-.4L12 3Z" stroke-linejoin="round"/></svg></div>
+            <h3>Inline AI rewrite (⌘I)</h3>
+            <p>Right where you're editing: Rewrite, Fix grammar, Make concise, or Expand a selection. And when a file changes on disk, ask the AI to <b>explain the changes</b>.</p>
+          </div>
+          <div class="feat reveal">
+            <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6M4 12h10M4 18h7" stroke-linecap="round"/><circle cx="17" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+            <h3>Outline navigation (⌘⇧O)</h3>
+            <p>An auto table-of-contents with scrollspy lets you jump around long documents and always know where you are.</p>
           </div>
           <div class="feat reveal">
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/></svg></div>
@@ -1452,7 +1475,8 @@ mdopen PLAN.md
               <ul class="ai-points reveal">
                 <li><span class="ck">✓</span><div><b>Genuinely free.</b> Apple on-device models on Mac (zero setup) or Ollama on Windows &amp; Linux — zero cost either way.</div></li>
                 <li><span class="ck">✓</span><div><b>Genuinely private.</b> Your documents never touch a server on any platform. The green badge proves it.</div></li>
-                <li><span class="ck">✓</span><div><b>Tiered fallback.</b> Apple Foundation Models → Ollama → your own cloud key. You always control where inference runs.</div></li>
+                <li><span class="ck">✓</span><div><b>Tiered fallback.</b> Apple Foundation Models (macOS only) → Ollama → your own cloud key → optional hosted. You always control where inference runs.</div></li>
+                <li><span class="ck">✓</span><div><b>Everywhere you work.</b> Select text to Explain / Summarize / Rewrite / Translate, rewrite inline in the editor with ⌘I, or chat with the whole document.</div></li>
               </ul>
             </div>
             <div class="ai-mock reveal">
@@ -1477,12 +1501,13 @@ mdopen PLAN.md
             <div class="sec-head reveal" style="margin-bottom: 28px">
               <div class="kicker">Agent-native</div>
               <h2 class="title">Your agents can <em>drive it.</em></h2>
-              <p>Ashlr MD speaks the language of coding agents. Open a file from the terminal, a URL, or let Claude Code read and edit the live document over MCP.</p>
+              <p>Ashlr MD speaks the language of coding agents. Open a file from the terminal, a URL, or let Claude Code, Codex, or Cursor read and edit the live document over MCP.</p>
             </div>
             <ul class="ai-points reveal">
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">›</span><div><b>mdopen file.md</b> — open from any terminal or script.</div></li>
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">↗</span><div><b>mdopener://</b> — deep-link straight to a document.</div></li>
-              <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">⚙</span><div><b>MCP server</b> — agents open, read, edit &amp; export the current doc.</div></li>
+              <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">⚙</span><div><b>MCP server</b> — agents open, read, edit &amp; export the current doc. One-click setup in Settings.</div></li>
+              <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">◉</span><div><b>Agent activity drawer (⌘B)</b> — watch your agent's output folder and open new docs the moment they appear.</div></li>
             </ul>
           </div>
           <div class="term reveal">
@@ -1526,6 +1551,27 @@ mdopen PLAN.md
       </div>
     </section>
 
+    <section id="shortcuts">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <div class="kicker">Keyboard-first</div>
+          <h2 class="title">Every action, a <em>keystroke</em> away.</h2>
+          <p>Drive the whole app from the keyboard — or just press <b>⌘K</b> and search for anything.</p>
+        </div>
+        <div class="reveal" style="max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 28px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Command palette</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘K</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">AI assistant</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘L</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Inline AI rewrite (in editor)</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘I</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Agent activity drawer</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘B</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Outline / table of contents</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘⇧O</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Cycle theme</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘⇧L</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Read / Edit / Source</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘1 ⌘2 ⌘3</kbd></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Open · Save · Export</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘O ⌘S ⌘E</kbd></div>
+        </div>
+        <p class="reveal" style="text-align:center;color:var(--muted);margin-top:18px;font-size:15px">Shown with ⌘ on macOS — Ctrl on Windows &amp; Linux.</p>
+      </div>
+    </section>
+
     <section id="download" style="padding-bottom: 20px">
       <div class="wrap">
         <div class="cta reveal">
@@ -1553,6 +1599,7 @@ mdopen PLAN.md
           <a href="#features">Features</a>
           <a href="#ai">AI</a>
           <a href="#agents">Agents</a>
+          <a href="#shortcuts">Shortcuts</a>
           <a href="https://github.com/ashlrai/ashlr-md">GitHub</a>
         </div>
         <div>
