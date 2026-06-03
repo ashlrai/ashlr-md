@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for MD Opener
+about: Suggest an idea for Ashlr MD
 title: "[feat] "
 labels: enhancement
 ---
@@ -9,7 +9,7 @@ labels: enhancement
 What are you trying to do that's hard today?
 
 **The idea**
-What would you like MD Opener to do?
+What would you like Ashlr MD to do?
 
 **Who's it for**
 Non-technical readers, power users, agents, all of the above?

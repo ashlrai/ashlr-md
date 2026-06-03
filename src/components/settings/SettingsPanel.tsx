@@ -286,7 +286,7 @@ function CliSection() {
     <div className="settings-cli">
       <p className="settings-description">
         <code className="settings-inline-code">mdopen</code> is a CLI companion that
-        opens any Markdown file directly in MD Opener from your terminal.
+        opens any Markdown file directly in Ashlr MD from your terminal.
       </p>
       <div className="settings-cli-row">
         <button
@@ -321,7 +321,7 @@ function CliSection() {
  * In development builds the sidecar lives alongside the executable, so the path
  * will differ — users should run `cargo tauri dev` and follow the console output.
  */
-const MCP_BINARY_PATH = "/Applications/MD Opener.app/Contents/MacOS/mdopener-mcp";
+const MCP_BINARY_PATH = "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp";
 const MCP_COMMAND = `claude mcp add mdopener ${MCP_BINARY_PATH}`;
 
 function McpSection() {
@@ -340,8 +340,8 @@ function McpSection() {
   return (
     <div className="settings-mcp">
       <p className="settings-description">
-        Register MD Opener as an MCP server to let Claude Code (and compatible AI
-        agents) open, read, and edit the current document without leaving the editor.
+        Register Ashlr MD as an MCP server to let Claude Code (and compatible AI agents)
+        open, read, and edit the current document without leaving the editor.
       </p>
       <p className="settings-description settings-description-muted">
         Run this once in your terminal, then restart Claude Code:

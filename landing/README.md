@@ -1,4 +1,4 @@
-# MD Opener — landing page
+# Ashlr MD — landing page
 
 A self-contained, dependency-free marketing page (`index.html`). Editorial
 "paper" aesthetic: Fraunces display + Hanken Grotesk body + JetBrains Mono,
@@ -23,6 +23,6 @@ It's a single static file — host it anywhere:
 
 ## Notes
 
-- Replace the placeholder repo URL `github.com/ashlrai/md-opener` and the
+- Replace the placeholder repo URL `github.com/ashlrai/ashlr-md` and the
   download link (`/releases`) once the repo + first release exist.
 - Fonts load from Google Fonts; for a fully offline page, self-host them.

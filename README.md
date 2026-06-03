@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./src-tauri/icons/128x128@2x.png" width="84" height="84" alt="MD Opener" />
+<img src="./src-tauri/icons/128x128@2x.png" width="84" height="84" alt="Ashlr MD" />
 
-# MD Opener
+# Ashlr MD
 
 ### Markdown, finally beautiful.
 
@@ -12,18 +12,18 @@ free, private, **on-device AI** built in.
 
 *Think Preview.app, but Markdown-aware, editable, and AI-native.*
 
-[![CI](https://github.com/ashlrai/md-opener/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/md-opener/actions/workflows/ci.yml)
+[![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-1a1a17.svg)](#)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
 
-[**Website**](https://md-opener.vercel.app) ·
-[Download](https://github.com/ashlrai/md-opener/releases) ·
+[**Website**](https://md.ashlr.ai) ·
+[Download](https://github.com/ashlrai/ashlr-md/releases) ·
 [Contributing](./CONTRIBUTING.md) ·
 [Roadmap](./ROADMAP.md) ·
 [Vision](./docs/VISION.md)
 
-<img src="./docs/og.png" width="820" alt="MD Opener — a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
+<img src="./docs/og.png" width="820" alt="Ashlr MD — a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
 
 </div>
 
@@ -34,7 +34,7 @@ free, private, **on-device AI** built in.
 Your AI agents write Markdown all day — `README.md`, `PLAN.md`, research dumps.
 On macOS those open in **Preview** (a blank page) or **TextEdit** (raw syntax).
 No app owns the simple job of making them *look right* instantly, especially for
-non-technical people. MD Opener does exactly that, and nothing you don't need.
+non-technical people. Ashlr MD does exactly that, and nothing you don't need.
 
 ## Features
 
@@ -110,4 +110,4 @@ short version: local-first, no GPL in the bundle, and verify in the real app.
 
 ## License
 
-[MIT](./LICENSE) © MD Opener contributors
+[MIT](./LICENSE) © Ashlr MD contributors

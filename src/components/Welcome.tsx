@@ -15,7 +15,7 @@ export function Welcome() {
   return (
     <div className="welcome">
       <div className="welcome-mark">M</div>
-      <h1>MD Opener</h1>
+      <h1>Ashlr MD</h1>
       <p>
         A fast, beautiful home for your Markdown files. Drop a <code>.md</code> here, or
         open one — it just looks right.
@@ -48,8 +48,8 @@ export function Welcome() {
       )}
 
       <div className="welcome-hint">
-        Tip: set MD Opener as your default — right-click any <code>.md</code> → Open
-        With → Always Open With
+        Tip: set Ashlr MD as your default — right-click any <code>.md</code> → Open With
+        → Always Open With
       </div>
     </div>
   );

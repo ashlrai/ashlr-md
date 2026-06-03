@@ -118,7 +118,7 @@ export function TitleBar() {
     <header className="titlebar" data-tauri-drag-region>
       <div className="titlebar-left">{path && <ModeToggle />}</div>
       <div className="titlebar-title" data-tauri-drag-region>
-        {fileName || "MD Opener"}
+        {fileName || "Ashlr MD"}
         {isDirty && (
           <span
             className="dirty-dot"

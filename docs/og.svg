@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2b85ff"/>
+      <stop offset="0" stop-color="#1A2B3C"/>
       <stop offset="0.55" stop-color="#0969da"/>
       <stop offset="1" stop-color="#0a4ea3"/>
     </linearGradient>
@@ -23,7 +23,7 @@
   <g transform="translate(96, 92)">
     <rect width="64" height="64" rx="16" fill="url(#m)"/>
     <text x="32" y="48" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="44" fill="#ffffff">M</text>
-    <text x="84" y="42" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="30" letter-spacing="-0.5" fill="#1a1a17">MD Opener</text>
+    <text x="84" y="42" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="30" letter-spacing="-0.5" fill="#1a1a17">Ashlr MD</text>
   </g>
 
   <!-- eyebrow -->

@@ -1,4 +1,4 @@
-# Homebrew Cask for MD Opener
+# Homebrew Cask for Ashlr MD
 #
 # -----------------------------------------------------------------------
 # STATUS: TEMPLATE — not yet submitted to homebrew-cask.
@@ -38,22 +38,22 @@ cask "md-opener" do
   url "https://github.com/OWNER/md-opener/releases/download/v#{version}/MD.Opener_#{version}_aarch64.dmg",
       verified: "github.com/OWNER/md-opener/"
 
-  name "MD Opener"
+  name "Ashlr MD"
   desc "AI-native Markdown viewer, editor, and exporter"
   homepage "https://github.com/OWNER/md-opener"
 
   # -----------------------------------------------------------------------
   # Artifact stanza
-  # Adjust the .app name if it differs from "MD Opener.app".
+  # Adjust the .app name if it differs from "Ashlr MD.app".
   # -----------------------------------------------------------------------
-  app "MD Opener.app"
+  app "Ashlr MD.app"
 
   # -----------------------------------------------------------------------
   # CLI tools bundled with the app (optional — remove if not shipping these
   # as part of the cask).
-  # If MD Opener installs `mdopen` to ~/Library/Application Support, you can
+  # If Ashlr MD installs `mdopen` to ~/Library/Application Support, you can
   # expose it via a binary stanza instead:
-  #   binary "#{appdir}/MD Opener.app/Contents/MacOS/mdopen"
+  #   binary "#{appdir}/Ashlr MD.app/Contents/MacOS/mdopen"
   # -----------------------------------------------------------------------
 
   # -----------------------------------------------------------------------
@@ -75,10 +75,10 @@ cask "md-opener" do
   # Caveats shown after installation
   # -----------------------------------------------------------------------
   caveats <<~EOS
-    MD Opener was installed to your Applications folder.
+    Ashlr MD was installed to your Applications folder.
 
-    To open Markdown files with MD Opener by default, right-click any .md
-    file in Finder → Get Info → Open with → Change All → select MD Opener.
+    To open Markdown files with Ashlr MD by default, right-click any .md
+    file in Finder → Get Info → Open with → Change All → select Ashlr MD.
 
     The `mdopen` CLI tool (if included) can be installed separately via:
       bun add -g @md-opener/cli    # (if published to npm)

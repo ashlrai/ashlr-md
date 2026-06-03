@@ -1,6 +1,6 @@
-# Contributing to MD Opener
+# Contributing to Ashlr MD
 
-Thanks for your interest! MD Opener aims to be the instant, beautiful, AI-native
+Thanks for your interest! Ashlr MD aims to be the instant, beautiful, AI-native
 home for Markdown — local-first and open source. See [`docs/VISION.md`](./docs/VISION.md)
 for the north star and the quality bar every change should clear.
 

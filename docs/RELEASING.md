@@ -1,4 +1,4 @@
-# Releasing MD Opener
+# Releasing Ashlr MD
 
 This document covers the full release pipeline: icon generation, GitHub Secrets
 configuration, the auto-updater, and the Homebrew cask.

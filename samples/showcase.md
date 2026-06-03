@@ -1,9 +1,9 @@
 ---
-title: MD Opener Showcase
+title: Ashlr MD Showcase
 author: Claude Code
 ---
 
-# MD Opener Showcase
+# Ashlr MD Showcase
 
 A single document that exercises every renderer feature. If this all looks
 great, **M1 works**.
@@ -84,7 +84,7 @@ $$
 
 ```mermaid
 flowchart LR
-    A[Double-click .md] --> B{MD Opener}
+    A[Double-click .md] --> B{Ashlr MD}
     B --> C[Beautiful render]
     B --> D[Edit]
     B --> E[Export PDF/DOCX]

@@ -254,7 +254,7 @@ class HostedProvider implements AIProvider {
   readonly id = "hosted";
   readonly capabilities: AICapabilities = {
     tier: 3,
-    modelName: "MD Opener Cloud",
+    modelName: "Ashlr MD Cloud",
     isLocal: false,
     isFree: false,
     streaming: true,

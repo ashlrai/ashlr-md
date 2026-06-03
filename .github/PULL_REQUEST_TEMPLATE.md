@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to MD Opener! -->
+<!-- Thanks for contributing to Ashlr MD! -->
 
 ## What & why
 

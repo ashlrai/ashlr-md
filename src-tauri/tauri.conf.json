@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MD Opener",
+  "productName": "Ashlr MD",
   "version": "0.1.0",
   "identifier": "app.mdopener.desktop",
   "plugins": {
@@ -12,7 +12,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlCNzMxNEVCMzgzNTgzNzUKUldSMWd6VTQ2eFJ6bTdtaW1kcmg0Y0l2WnI1bjV6Q0ZBOTJIOG5TbFVSa2I4SVdrYzIrSDcveWYK",
       "endpoints": [
-        "https://github.com/ashlrai/md-opener/releases/latest/download/latest.json"
+        "https://github.com/ashlrai/ashlr-md/releases/latest/download/latest.json"
       ]
     }
   },
@@ -25,7 +25,7 @@
   "app": {
     "windows": [
       {
-        "title": "MD Opener",
+        "title": "Ashlr MD",
         "width": 1000,
         "height": 720,
         "minWidth": 480,

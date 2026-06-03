@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Website
-    url: https://md-opener.vercel.app
+    url: https://md.ashlr.ai
     about: See what MD Opener does.
   - name: Vision & roadmap
-    url: https://github.com/ashlrai/md-opener/blob/main/ROADMAP.md
+    url: https://github.com/ashlrai/ashlr-md/blob/main/ROADMAP.md
     about: Where the project is headed and how to shape it.

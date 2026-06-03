@@ -1,10 +1,10 @@
-# MD Opener — North Star & Goal Loop
+# Ashlr MD — North Star & Goal Loop
 
 ## The goal (end state)
 
 > **The instant, beautiful, AI-native home for every Markdown file — so good that a non-technical person never thinks about "Markdown" again, and an AI agent can drive it like a tool.**
 
-When MD Opener is finished, this is true:
+When Ashlr MD is finished, this is true:
 
 1. **Instant.** Double-click any `.md` and it's on screen in well under a second, rendered beautifully. It is the obvious default `.md` handler on macOS.
 2. **Beautiful by default.** Agent output (`PLAN.md`, `README.md`, research dumps) looks like a polished document with zero configuration — gorgeous themes, perfect code, diagrams, math, tables.

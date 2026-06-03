@@ -14,7 +14,7 @@ export async function checkForUpdates(): Promise<void> {
     const update = await check();
     if (!update) return;
 
-    const yes = await ask(`MD Opener ${update.version} is available. Install it now?`, {
+    const yes = await ask(`Ashlr MD ${update.version} is available. Install it now?`, {
       title: "Update available",
       kind: "info",
       okLabel: "Install",

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Something isn't working right in MD Opener
+about: Something isn't working right in Ashlr MD
 title: "[bug] "
 labels: bug
 ---
@@ -20,7 +20,7 @@ What you expected to happen.
 Paste a minimal Markdown snippet that triggers it.
 
 **Environment**
-- MD Opener version:
+- Ashlr MD version:
 - macOS version:
 - Apple Silicon or Intel:
 - AI provider in use (Apple FM / Ollama / BYO key / none):
