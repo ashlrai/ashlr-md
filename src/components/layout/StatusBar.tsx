@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { computeDocStats } from "../../lib/wordcount";
 import { useDocumentStore } from "../../store/documentStore";
 import { THEMES, useSettingsStore } from "../../store/settingsStore";
 
@@ -9,11 +10,7 @@ export function StatusBar() {
   const theme = useSettingsStore((s) => s.theme);
   const themeLabel = THEMES.find((t) => t.id === theme)?.label ?? "";
 
-  const stats = useMemo(() => {
-    const words = content.trim() ? content.trim().split(/\s+/).length : 0;
-    const minutes = Math.max(1, Math.round(words / 220));
-    return { words, minutes };
-  }, [content]);
+  const stats = useMemo(() => computeDocStats(content), [content]);
 
   if (!path) {
     return (

@@ -1,7 +1,8 @@
-import { isValidElement, memo, type ReactNode, useMemo } from "react";
+import { createElement, isValidElement, memo, type ReactNode, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
@@ -9,11 +10,19 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
+import { remarkWikilinks } from "../../lib/remark-wikilinks";
+import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
 import "../../styles/callouts.css";
+import "../../styles/reading.css";
+import "../../styles/wikilinks.css";
 import { Callout } from "./Callout";
 import { CodeBlock } from "./CodeBlock";
+import { FootnoteRef } from "./FootnoteRef";
+import { HeadingAnchor } from "./HeadingAnchor";
 import { MermaidBlock } from "./MermaidBlock";
 import { TaskCheckbox } from "./TaskCheckbox";
+import { WikiEmbed } from "./WikiEmbed";
+import { Wikilink } from "./Wikilink";
 
 const CALLOUT_TYPES: CalloutType[] = ["note", "tip", "warning", "important", "caution"];
 
@@ -40,6 +49,23 @@ function calloutTypeOf(className: unknown): CalloutType | null {
   return type && CALLOUT_TYPES.includes(type) ? type : null;
 }
 
+interface HeadingProps {
+  node?: { properties?: { id?: string } };
+  children?: ReactNode;
+  id?: string;
+}
+
+/** Render h1–h6 with a hover-revealed copy-anchor button keyed off the slug id. */
+function heading(level: number, props: HeadingProps) {
+  const id = props.id ?? props.node?.properties?.id;
+  return createElement(
+    `h${level}`,
+    { id },
+    props.children,
+    id ? <HeadingAnchor key="anchor" slug={id} /> : null,
+  );
+}
+
 const components: Components = {
   // Replace the default <pre> with our themed code block / mermaid renderer.
   pre({ children }) {
@@ -55,13 +81,39 @@ const components: Components = {
     return <pre>{children}</pre>;
   },
   // Open links in a new context; strip the react-markdown `node` prop.
-  a({ href, children, node: _node, ...rest }) {
+  a({ href, children, node, ...rest }) {
+    const classes = node?.properties?.className;
+    // Obsidian-style [[internal link]] (tagged by remark-wikilinks).
+    if (Array.isArray(classes) && classes.includes("wikilink")) {
+      const target = String(node?.properties?.dataWikitarget ?? "");
+      const aliasProp = node?.properties?.dataWikialias;
+      return (
+        <Wikilink
+          target={target}
+          alias={aliasProp != null ? String(aliasProp) : undefined}
+        />
+      );
+    }
+    // GFM footnote references get a hover preview of their definition.
+    if (href?.startsWith("#user-content-fn-")) {
+      return (
+        <FootnoteRef href={href} {...rest}>
+          {children}
+        </FootnoteRef>
+      );
+    }
     return (
       <a href={href} target="_blank" rel="noreferrer noopener" {...rest}>
         {children}
       </a>
     );
   },
+  h1: (p) => heading(1, p),
+  h2: (p) => heading(2, p),
+  h3: (p) => heading(3, p),
+  h4: (p) => heading(4, p),
+  h5: (p) => heading(5, p),
+  h6: (p) => heading(6, p),
   // Interactive GFM task-list checkboxes (write back to the source file).
   input(props) {
     if (props.type === "checkbox") {
@@ -72,11 +124,20 @@ const components: Components = {
   },
   // Callout cards: remark-callouts marks blockquotes as <div class="callout callout-*">.
   div(props) {
-    const { node: _node, className, children, ...rest } = props;
+    const { node, className, children, ...rest } = props;
+    // ![[embed]] transclusion (tagged by remark-wikilinks).
+    const classList = Array.isArray(className)
+      ? (className as string[])
+      : typeof className === "string"
+        ? className.split(/\s+/)
+        : [];
+    if (classList.includes("wikiembed")) {
+      return <WikiEmbed target={String(node?.properties?.dataEmbedTarget ?? "")} />;
+    }
     const calloutType = calloutTypeOf(className);
     if (calloutType) {
       return (
-        <Callout calloutType={calloutType} node={_node}>
+        <Callout calloutType={calloutType} node={node}>
           {children}
         </Callout>
       );
@@ -138,8 +199,22 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
         <DocKindBadge kind={info.kind} total={info.taskTotal} done={info.taskDone} />
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath, remarkCallouts]}
-        rehypePlugins={[rehypeRaw, rehypeKatex, rehypeSlug]}
+        remarkPlugins={[
+          remarkFrontmatter,
+          remarkGfm,
+          remarkWikilinks,
+          remarkMath,
+          remarkCallouts,
+        ]}
+        // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
+        // (its trusted styled output bypasses the sanitizer), then headings get
+        // slug ids. See SANITIZE_SCHEMA for the rationale.
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, SANITIZE_SCHEMA],
+          rehypeKatex,
+          rehypeSlug,
+        ]}
         components={components}
       >
         {content}

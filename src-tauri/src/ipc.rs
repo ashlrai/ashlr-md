@@ -121,10 +121,7 @@ fn run_server(server: Server, app: AppHandle) {
         let method = req.method().clone();
         let url = req.url().to_string();
         // Separate path from query string.
-        let (path, query) = url
-            .split_once('?')
-            .map(|(p, q)| (p, q))
-            .unwrap_or((url.as_str(), ""));
+        let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
 
         match (method, path) {
             (Method::Get, "/health") => send_json(req, serde_json::json!({"ok": true})),

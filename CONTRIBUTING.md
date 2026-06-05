@@ -30,7 +30,11 @@ bun run typecheck        # tsc --noEmit
 bunx biome check src     # lint + format
 bun run test             # Vitest unit tests
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
+cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --workspace   --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 bunx vite build          # production frontend build
+bun audit                # known-vuln JS deps (advisory)
+cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-audit)
 ```
 
 Run `bunx biome check --write src` to auto-fix formatting and imports.

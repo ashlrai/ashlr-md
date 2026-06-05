@@ -11,6 +11,7 @@
  * predicate for availability and a `shortcut` string if it should bind a key.
  */
 
+import { openSearchPanel } from "@codemirror/search";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useActivityStore } from "../store/activityStore";
 import { useAIStore } from "../store/aiStore";
@@ -20,6 +21,7 @@ import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { exportDocx, exportHtml, exportPdf } from "./export";
 import { pickAndOpen } from "./openFile";
+import { getSourceView } from "./sourceSearchBridge";
 
 /**
  * Prompt for a folder and start watching it for agent Markdown activity.
@@ -171,6 +173,79 @@ export function getCommands(): Command[] {
       shortcut: "mod+3",
       when: hasDoc,
       run: () => doc().setViewMode("source"),
+    },
+    {
+      id: "view.split.toggle",
+      title: "Toggle split preview",
+      group: "View",
+      hint: "Editor + live preview",
+      keywords: ["split", "preview", "side by side", "dual", "pane"],
+      shortcut: "mod+\\",
+      when: () => hasDoc() && doc().viewMode !== "read",
+      run: () => doc().toggleSplitView(),
+    },
+    {
+      id: "view.zen.toggle",
+      title: "Toggle Zen mode",
+      group: "View",
+      hint: "Distraction-free",
+      keywords: ["zen", "focus", "distraction free", "fullscreen", "minimal"],
+      shortcut: "mod+shift+z",
+      run: () => ui().toggleZen(),
+    },
+    {
+      id: "find.document",
+      title: "Find in document",
+      group: "View",
+      keywords: ["find", "search", "locate", "highlight"],
+      shortcut: "mod+f",
+      when: hasDoc,
+      run: () => {
+        const mode = doc().viewMode;
+        if (mode === "source") {
+          const cm = getSourceView();
+          if (cm) {
+            openSearchPanel(cm);
+            cm.focus();
+          }
+        } else if (mode === "edit") {
+          // Milkdown has no find UI — switch to read, then open the bar once the
+          // read view is actually in the DOM (else the first highlight is empty).
+          doc().setViewMode("read");
+          window.setTimeout(() => ui().openFind(), 60);
+        } else {
+          ui().openFind();
+        }
+      },
+    },
+    {
+      id: "find.replace",
+      title: "Find and replace",
+      group: "View",
+      hint: "Source view",
+      keywords: ["replace", "substitute", "find", "swap"],
+      shortcut: "mod+alt+f",
+      when: hasDoc,
+      run: () => {
+        // Replace is source-only; switch there, then open the panel once mounted.
+        if (doc().viewMode !== "source") doc().setViewMode("source");
+        window.setTimeout(() => {
+          const cm = getSourceView();
+          if (cm) {
+            openSearchPanel(cm);
+            cm.focus();
+          }
+        }, 60);
+      },
+    },
+    {
+      id: "view.search.toggle",
+      title: "Search across files",
+      group: "View",
+      hint: "Recent & watched files",
+      keywords: ["search", "files", "grep", "project", "global", "across"],
+      shortcut: "mod+shift+f",
+      run: () => ui().toggleSearch(),
     },
 
     // ── AI ────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import { useEffect, useRef, useState } from "react";
 import { useSettingsStore } from "../../store/settingsStore";
 
@@ -26,7 +27,13 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
         });
         const { svg } = await mermaid.render(idRef.current, code);
         if (active) {
-          setSvg(svg);
+          // Defense-in-depth: even with mermaid's strict security level, scrub
+          // the generated SVG before injecting it as raw HTML.
+          setSvg(
+            DOMPurify.sanitize(svg, {
+              USE_PROFILES: { svg: true, svgFilters: true },
+            }),
+          );
           setError(null);
         }
       } catch (e) {

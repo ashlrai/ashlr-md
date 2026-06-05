@@ -9,6 +9,31 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+/** Tri-state default-handler status (mirrors the Rust `DefaultHandlerStatus`). */
+export interface DefaultHandlerStatus {
+  /** `"default"` | `"not-default"` | `"unknown"`. */
+  state: "default" | "not-default" | "unknown";
+  /** Machine-readable reason, e.g. `"ok"`, `"helper-missing"`, `"dev-unbundled"`. */
+  reason: string;
+  /** Whether `setDefaultMdHandler` can plausibly succeed in this environment. */
+  canSet: boolean;
+}
+
+/**
+ * Tri-state check of whether Ashlr MD is the default `.md` handler.
+ *
+ * Unlike {@link isDefaultMdHandler}, this distinguishes "definitely not the
+ * default" from "could not determine" — so the UI only prompts on a definitive
+ * `not-default`, never when detection simply failed.  Never throws.
+ */
+export async function defaultHandlerStatus(): Promise<DefaultHandlerStatus> {
+  try {
+    return await invoke<DefaultHandlerStatus>("default_handler_status");
+  } catch {
+    return { state: "unknown", reason: "ipc-error", canSet: false };
+  }
+}
+
 /**
  * Check whether Ashlr MD is currently the default app for `.md` files.
  *

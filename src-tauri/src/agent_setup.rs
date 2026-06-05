@@ -166,10 +166,9 @@ pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let msg = if stdout.trim().is_empty() {
-            format!(
-                "Ashlr MD registered as an MCP server in Claude Code.\n\
+            "Ashlr MD registered as an MCP server in Claude Code.\n\
                  Restart Claude Code (or run `claude restart`) to pick it up."
-            )
+                .to_string()
         } else {
             format!(
                 "{}\nRestart Claude Code to pick up the new server.",
@@ -190,10 +189,9 @@ pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
         // Treat "already exists" variants as success.
         let detail_lc = detail.to_lowercase();
         if detail_lc.contains("already") || detail_lc.contains("exists") {
-            return Ok(format!(
-                "ashlr-md is already registered in Claude Code. \
+            return Ok("ashlr-md is already registered in Claude Code. \
                  Restart Claude Code if you haven't already."
-            ));
+                .to_string());
         }
 
         Err(if detail.is_empty() {

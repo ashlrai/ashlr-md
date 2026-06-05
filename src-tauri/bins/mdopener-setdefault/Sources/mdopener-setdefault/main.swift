@@ -61,7 +61,14 @@ func checkIsDefault(bundleURL: URL) -> Bool {
         return false
     }
     let ws = NSWorkspace.shared
+    // The macOS 26 SDK renamed the parameter label `toOpenContentType:` → `toOpen:`.
+    // Compile against whichever label the build SDK exposes so this helper builds
+    // on Xcode 15/16 (GitHub runners today) AND Xcode 26 — both run on macOS 12+.
+    #if compiler(>=6.2)
     let currentDefault = ws.urlForApplication(toOpen: utType)
+    #else
+    let currentDefault = ws.urlForApplication(toOpenContentType: utType)
+    #endif
     // Normalise both URLs by resolving symlinks so /private/var and /var compare equal.
     let a = bundleURL.resolvingSymlinksInPath().standardizedFileURL
     let b = currentDefault?.resolvingSymlinksInPath().standardizedFileURL
@@ -94,6 +101,10 @@ func setAsDefault(bundleURL: URL) {
 
         let box = ErrBox()
         let sema = DispatchSemaphore(value: 0)
+        // macOS 26 SDK exposes the async/throws `setDefaultApplication(at:toOpen:)`;
+        // older SDKs expose the completion-handler `setDefaultApplication(at:toOpenContentType:)`.
+        // Pick the right one at compile time so the helper builds on any Xcode.
+        #if compiler(>=6.2)
         Task {
             do {
                 try await ws.setDefaultApplication(at: bundleURL, toOpen: utType)
@@ -102,6 +113,12 @@ func setAsDefault(bundleURL: URL) {
             }
             sema.signal()
         }
+        #else
+        ws.setDefaultApplication(at: bundleURL, toOpenContentType: utType) { error in
+            box.message = error?.localizedDescription
+            sema.signal()
+        }
+        #endif
         sema.wait()
         if let message = box.message {
             errors.append("\(ext): \(message)")

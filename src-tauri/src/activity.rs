@@ -278,7 +278,7 @@ pub fn list_markdown_files(
     collect_markdown_files(&root, 0, &mut files);
 
     // Sort newest first.
-    files.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms));
+    files.sort_by_key(|f| std::cmp::Reverse(f.mtime_ms));
     files.truncate(cap);
 
     Ok(files)

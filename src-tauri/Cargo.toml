@@ -36,6 +36,14 @@ dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 notify = "6"
+# Secure storage for AI API keys in the OS keychain (macOS Keychain / Windows
+# Credential Manager / Linux Secret Service via pure-Rust zbus — no libdbus dep).
+keyring = { version = "3", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+    "crypto-rust",
+] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }

@@ -32,6 +32,8 @@ export interface Tab {
   externalChange: boolean;
   pendingDisk: string | null;
   reloadNonce: number;
+  /** When true, show a live read-preview pane beside the editor. */
+  splitView: boolean;
 }
 
 interface DocumentState {
@@ -57,6 +59,8 @@ interface DocumentState {
   pendingDisk: string | null;
   /** Bumped to force editors to remount with fresh content (e.g. after reload). */
   reloadNonce: number;
+  /** When true, render a live read preview beside the editor (per-document). */
+  splitView: boolean;
 
   // ── Multi-document state ────────────────────────────────────────────────
   tabs: Tab[];
@@ -65,6 +69,7 @@ interface DocumentState {
   openPath: (path: string) => Promise<void>;
   setContent: (content: string) => void;
   setViewMode: (mode: ViewMode) => void;
+  toggleSplitView: () => void;
   save: () => Promise<void>;
   handleDiskUpdate: (diskContent: string) => void;
   acceptExternalChange: () => void;
@@ -92,6 +97,7 @@ const EMPTY_TOP = {
   externalChange: false,
   pendingDisk: null,
   viewMode: "read" as ViewMode,
+  splitView: false,
 };
 
 let tabSeq = 0;
@@ -113,6 +119,7 @@ function topToTabFields(s: DocumentState): TabFields {
     externalChange: s.externalChange,
     pendingDisk: s.pendingDisk,
     reloadNonce: s.reloadNonce,
+    splitView: s.splitView,
   };
 }
 
@@ -129,6 +136,7 @@ function tabFieldsToTop(t: TabFields) {
     externalChange: t.externalChange,
     pendingDisk: t.pendingDisk,
     reloadNonce: t.reloadNonce,
+    splitView: t.splitView,
   };
 }
 
@@ -155,6 +163,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   externalChange: false,
   pendingDisk: null,
   reloadNonce: 0,
+  splitView: false,
 
   tabs: [],
   activeId: null,
@@ -184,6 +193,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         pendingDisk: null,
         // Bump nonce so editors keying on path+reloadNonce remount fresh.
         reloadNonce: get().reloadNonce + 1,
+        splitView: false,
       };
       set((s) => ({
         // Mirror the new tab into the top-level active fields.
@@ -213,8 +223,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   setViewMode: (viewMode) =>
     set((s) => {
-      const next = { ...s, viewMode };
-      return { viewMode, tabs: syncActiveTab(next) };
+      // Read view has no editor, so a split preview is meaningless — clear it.
+      const splitView = viewMode === "read" ? false : s.splitView;
+      const next = { ...s, viewMode, splitView };
+      return { viewMode, splitView, tabs: syncActiveTab(next) };
+    }),
+
+  toggleSplitView: () =>
+    set((s) => {
+      // Split only applies to the editor views; ignore it in read view.
+      if (s.viewMode === "read") return {};
+      const splitView = !s.splitView;
+      const next = { ...s, splitView };
+      return { splitView, tabs: syncActiveTab(next) };
     }),
 
   save: async () => {

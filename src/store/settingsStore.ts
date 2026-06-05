@@ -9,6 +9,15 @@ export const THEMES: { id: ThemeId; label: string }[] = [
   { id: "midnight", label: "Midnight" },
 ];
 
+/**
+ * Sentinel for "never ask again" about the default-handler prompt.
+ *
+ * It is the maximum timestamp ECMAScript `Date` supports, so it is always in
+ * the future, is finite (survives `JSON.stringify`, unlike `Infinity` which
+ * serializes to `null`), and reads naturally as "snoozed until the end of time".
+ */
+export const NEVER_ASK_DEFAULT = 8_640_000_000_000_000;
+
 interface SettingsState {
   theme: ThemeId;
   fontSize: number;
@@ -16,11 +25,25 @@ interface SettingsState {
   setTheme: (theme: ThemeId) => void;
   cycleTheme: () => void;
   setFontSize: (fontSize: number) => void;
-  defaultPromptDismissed: boolean;
-  setDefaultPromptDismissed: (v: boolean) => void;
+
+  /**
+   * When (epoch ms) the default-handler prompt may show again.
+   *   - `null`               → not snoozed; show whenever the app is not default.
+   *   - future timestamp     → snoozed until then ("Not now").
+   *   - `NEVER_ASK_DEFAULT`  → permanently dismissed ("Don't ask again").
+   */
+  defaultPromptSnoozedUntil: number | null;
+  /** Snooze the prompt for `days` (default 14). */
+  snoozeDefaultPrompt: (days?: number) => void;
+  /** Permanently stop asking. */
+  neverAskDefault: () => void;
+  /** Clear any snooze so the prompt can show again. */
+  resetDefaultPrompt: () => void;
 }
 
 const order: ThemeId[] = THEMES.map((t) => t.id);
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
@@ -35,10 +58,36 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setFontSize: (fontSize) =>
         set({ fontSize: Math.min(24, Math.max(13, fontSize)) }),
-      defaultPromptDismissed: false,
-      setDefaultPromptDismissed: (defaultPromptDismissed) =>
-        set({ defaultPromptDismissed }),
+
+      defaultPromptSnoozedUntil: null,
+      snoozeDefaultPrompt: (days = 14) =>
+        set({ defaultPromptSnoozedUntil: Date.now() + days * DAY_MS }),
+      neverAskDefault: () => set({ defaultPromptSnoozedUntil: NEVER_ASK_DEFAULT }),
+      resetDefaultPrompt: () => set({ defaultPromptSnoozedUntil: null }),
     }),
-    { name: "mdopener-settings" },
+    {
+      name: "mdopener-settings",
+      version: 1,
+      // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
+      // prompt to the "never ask" sentinel so prior choices are honored.
+      migrate: (persisted, version) => {
+        const s = (persisted ?? {}) as Record<string, unknown> & {
+          defaultPromptDismissed?: boolean;
+          defaultPromptSnoozedUntil?: number | null;
+        };
+        if (version < 1) {
+          s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
+            ? NEVER_ASK_DEFAULT
+            : null;
+          delete s.defaultPromptDismissed;
+        }
+        return s as unknown as SettingsState;
+      },
+    },
   ),
 );
+
+/** True when the default-handler prompt is currently snoozed (or never-ask). */
+export function isDefaultPromptSnoozed(snoozedUntil: number | null): boolean {
+  return snoozedUntil !== null && snoozedUntil > Date.now();
+}

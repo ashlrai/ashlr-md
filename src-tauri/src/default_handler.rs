@@ -53,6 +53,7 @@
 // Imports — platform-gated to avoid unused-import warnings on other targets.
 // ---------------------------------------------------------------------------
 
+use serde::Serialize;
 use tauri::AppHandle;
 
 // `Manager` is only needed for `app.path()` in the macOS helper-binary lookup.
@@ -140,8 +141,8 @@ fn find_helper_binary(app: &AppHandle) -> Option<PathBuf> {
 /// Returns `Err` when running unbundled under `cargo tauri dev`.
 #[cfg(target_os = "macos")]
 fn bundle_url() -> Result<String, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Could not determine executable path: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Could not determine executable path: {e}"))?;
 
     // Production: exe → MacOS/ → Contents/ → Foo.app/
     if let Some(macos_dir) = exe.parent() {
@@ -160,11 +161,9 @@ fn bundle_url() -> Result<String, String> {
         }
     }
 
-    Err(
-        "App is not running from a .app bundle. \
+    Err("App is not running from a .app bundle. \
          Default-handler operations require a built/installed app, not `tauri dev`."
-            .to_string(),
-    )
+        .to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -204,33 +203,90 @@ mod win_reg_helpers {
 }
 
 // ---------------------------------------------------------------------------
-// Tauri command — is_default_md_handler
+// Default-handler status — tri-state detection
 // ---------------------------------------------------------------------------
 
-/// Returns `true` when Ashlr MD is already the default handler for `.md` files.
+/// Tri-state default-handler status returned to the frontend.
 ///
-/// Never returns `Err` — in all failure cases it returns `false` so the
-/// frontend can always render a meaningful UI without error handling.
+/// Crucially distinguishes "we could not determine the status" (`Unknown`) from
+/// "the app is definitely not the default" (`NotDefault`).  The UI must only
+/// prompt the user to set the default when the state is `NotDefault` — showing
+/// the prompt on `Unknown` is exactly the bug this struct fixes (the prompt
+/// would appear even when the app already is the default but detection failed).
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultHandlerStatus {
+    /// `"default"` | `"not-default"` | `"unknown"`.
+    pub state: String,
+    /// Machine-readable reason, e.g. `"ok"`, `"helper-missing"`,
+    /// `"dev-unbundled"`, `"unsupported-os-version"`, `"xdg-missing"`,
+    /// `"no-user-choice"`, `"parse-failed"`, `"ipc-error"`.
+    pub reason: String,
+    /// Whether `set_default_md_handler` can plausibly succeed in this
+    /// environment.  `false` when the helper is missing or the OS is too old —
+    /// the UI should then offer "Show me how" instead of a one-click button.
+    pub can_set: bool,
+}
+
+impl DefaultHandlerStatus {
+    fn is_default() -> Self {
+        Self {
+            state: "default".to_string(),
+            reason: "ok".to_string(),
+            can_set: true,
+        }
+    }
+
+    fn not_default(reason: &str, can_set: bool) -> Self {
+        Self {
+            state: "not-default".to_string(),
+            reason: reason.to_string(),
+            can_set,
+        }
+    }
+
+    fn unknown(reason: &str) -> Self {
+        Self {
+            state: "unknown".to_string(),
+            reason: reason.to_string(),
+            can_set: false,
+        }
+    }
+}
+
+/// Tri-state check of whether Ashlr MD is the default `.md` handler.
+///
+/// Never returns `Err` — every failure shape is mapped to an `Unknown` status
+/// with a descriptive `reason` so the frontend can decide what to render.
+#[tauri::command]
+pub fn default_handler_status(app: AppHandle) -> DefaultHandlerStatus {
+    status_impl(app)
+}
+
+/// Legacy boolean command, retained for back-compat.  `true` only when the
+/// status is definitively `Default`.
 #[tauri::command]
 pub fn is_default_md_handler(app: AppHandle) -> bool {
-    is_default_impl(app)
+    status_impl(app).state == "default"
 }
 
 // --- macOS implementation ---
 
 #[cfg(target_os = "macos")]
-fn is_default_impl(app: AppHandle) -> bool {
+fn status_impl(app: AppHandle) -> DefaultHandlerStatus {
     let Ok(url) = bundle_url() else {
-        return false; // dev mode — not bundled
+        // Running unbundled under `tauri dev` — we genuinely cannot tell.
+        return DefaultHandlerStatus::unknown("dev-unbundled");
     };
 
     let Some(bin) = find_helper_binary(&app) else {
-        return false; // helper not built yet
+        // Helper sidecar absent from the bundle — cannot check or set.
+        return DefaultHandlerStatus::unknown("helper-missing");
     };
 
     let output = match Command::new(&bin).args(["check", &url]).output() {
         Ok(o) => o,
-        Err(_) => return false,
+        Err(_) => return DefaultHandlerStatus::unknown("helper-exec-failed"),
     };
 
     // Parse {"isDefault":true|false} from stdout.
@@ -238,18 +294,23 @@ fn is_default_impl(app: AppHandle) -> bool {
     for line in stdout.lines() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
             if let Some(b) = v.get("isDefault").and_then(|x| x.as_bool()) {
-                return b;
+                return if b {
+                    DefaultHandlerStatus::is_default()
+                } else {
+                    DefaultHandlerStatus::not_default("ok", true)
+                };
             }
         }
     }
 
-    false
+    // Helper ran but produced no parseable verdict.
+    DefaultHandlerStatus::unknown("parse-failed")
 }
 
 // --- Linux implementation ---
 
 #[cfg(target_os = "linux")]
-fn is_default_impl(_app: AppHandle) -> bool {
+fn status_impl(_app: AppHandle) -> DefaultHandlerStatus {
     // `xdg-mime query default text/markdown` prints the .desktop filename
     // (or an empty string when no handler is registered).
     match Command::new("xdg-mime")
@@ -257,31 +318,41 @@ fn is_default_impl(_app: AppHandle) -> bool {
         .output()
     {
         Ok(out) => {
+            if !out.status.success() {
+                return DefaultHandlerStatus::unknown("xdg-query-failed");
+            }
             let current = String::from_utf8_lossy(&out.stdout);
-            current.trim().eq_ignore_ascii_case(LINUX_DESKTOP_FILE)
+            if current.trim().eq_ignore_ascii_case(LINUX_DESKTOP_FILE) {
+                DefaultHandlerStatus::is_default()
+            } else {
+                DefaultHandlerStatus::not_default("ok", true)
+            }
         }
-        Err(_) => false, // xdg-utils not installed — treat as not-default
+        // xdg-utils not installed — we cannot determine or set the default.
+        Err(_) => DefaultHandlerStatus::unknown("xdg-missing"),
     }
 }
 
 // --- Windows implementation ---
 
 #[cfg(target_os = "windows")]
-fn is_default_impl(_app: AppHandle) -> bool {
+fn status_impl(_app: AppHandle) -> DefaultHandlerStatus {
     // Win10+ stores the user's explicit choice in:
     //   HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.md\UserChoice
     //   value: ProgId  (REG_SZ)
     //
     // This key only exists after the user has made a manual selection via the
-    // Settings UI; if absent, the system default applies (= not us).
+    // Settings UI; if absent, the system default applies (= not us).  Either
+    // way we *can* attempt a set, so `can_set` stays true.
     let prog_id = win_reg_helpers::read_sz(
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.md\UserChoice",
         "ProgId",
     );
 
     match prog_id {
-        Some(id) => id.eq_ignore_ascii_case(WINDOWS_PROG_ID),
-        None => false, // no user choice recorded yet
+        Some(id) if id.eq_ignore_ascii_case(WINDOWS_PROG_ID) => DefaultHandlerStatus::is_default(),
+        Some(_) => DefaultHandlerStatus::not_default("other-app", true),
+        None => DefaultHandlerStatus::not_default("no-user-choice", true),
     }
 }
 
@@ -399,8 +470,8 @@ fn set_default_impl(app: AppHandle) -> Result<(), String> {
 /// Write the ProgID entries and `.md` → ProgID pointer under `HKCU\Software\Classes`.
 #[cfg(target_os = "windows")]
 fn register_windows_prog_id() -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Could not determine executable path: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Could not determine executable path: {e}"))?;
     let exe_str = exe
         .to_str()
         .ok_or("Executable path contains non-UTF-8 characters")?;
@@ -469,15 +540,13 @@ fn open_default_apps_help_impl(app: AppHandle) -> Result<(), String> {
     // macOS 13+ System Settings deep-link.
     let deep_link = "x-apple.systempreferences:com.apple.preference.general";
     use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_url(deep_link, None::<&str>)
-        .map_err(|e| {
-            format!(
-                "Could not open System Settings ({e}). \
+    app.opener().open_url(deep_link, None::<&str>).map_err(|e| {
+        format!(
+            "Could not open System Settings ({e}). \
                  To set Ashlr MD as default: right-click any .md file in Finder → \
                  Get Info → Open With → select Ashlr MD → Change All."
-            )
-        })
+        )
+    })
 }
 
 // --- Linux implementation ---
@@ -511,4 +580,40 @@ fn open_default_apps_help_impl(app: AppHandle) -> Result<(), String> {
                  search for \".md\" → choose Ashlr MD."
             )
         })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::DefaultHandlerStatus;
+
+    #[test]
+    fn default_status_serializes_camel_case() {
+        let s = DefaultHandlerStatus::is_default();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"state\":\"default\""));
+        assert!(json.contains("\"canSet\":true"));
+        assert!(json.contains("\"reason\":\"ok\""));
+    }
+
+    #[test]
+    fn not_default_carries_reason_and_can_set() {
+        let s = DefaultHandlerStatus::not_default("no-user-choice", true);
+        assert_eq!(s.state, "not-default");
+        assert_eq!(s.reason, "no-user-choice");
+        assert!(s.can_set);
+    }
+
+    #[test]
+    fn unknown_is_never_settable() {
+        let s = DefaultHandlerStatus::unknown("helper-missing");
+        assert_eq!(s.state, "unknown");
+        assert!(!s.can_set);
+        // The UI keys off `state == "not-default"` to show the prompt, so
+        // `unknown` must never be mistaken for a definitive not-default.
+        assert_ne!(s.state, "not-default");
+    }
 }

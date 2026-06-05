@@ -12,6 +12,8 @@ mod export;
 mod file_handler;
 mod ipc;
 mod run;
+mod search;
+mod secrets;
 mod watcher;
 
 use std::sync::Mutex;
@@ -38,6 +40,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             document::read_markdown_file,
             document::write_markdown_file,
+            document::resolve_wikilink,
             export::write_file_bytes,
             file_handler::take_pending_files,
             watcher::watch_file,
@@ -49,7 +52,12 @@ pub fn run() {
             ipc::mcp_sync_state,
             cli_install::install_cli,
             run::run_shell,
+            secrets::set_ai_key,
+            secrets::get_ai_key,
+            secrets::delete_ai_key,
+            search::search_files,
             default_handler::is_default_md_handler,
+            default_handler::default_handler_status,
             default_handler::set_default_md_handler,
             default_handler::open_default_apps_help,
             agent_setup::detect_agent_clis,

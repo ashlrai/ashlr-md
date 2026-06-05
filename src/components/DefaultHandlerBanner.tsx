@@ -1,28 +1,38 @@
 /**
  * DefaultHandlerBanner.tsx
  *
- * A slim, dismissible top banner shown when:
- *   1. Ashlr MD is NOT the current default app for .md files, AND
- *   2. The user hasn't permanently dismissed the prompt.
+ * A slim, dismissible top banner shown ONLY when Ashlr MD is *definitively* not
+ * the default app for `.md` files and the user hasn't snoozed/dismissed it.
  *
- * Sits directly below the TitleBar (above the main content area) — mount it
- * in Shell.tsx immediately after <ExternalChangeBanner />.
+ * Key correctness rule: detection is tri-state (`default` | `not-default` |
+ * `unknown`).  The banner must NEVER show on `unknown` — that's the bug where
+ * the prompt appeared even when the app already was the default but detection
+ * couldn't run (e.g. helper binary missing, dev build).  It also re-checks on
+ * window focus so it self-heals after the user confirms in System Settings.
  *
- * Styling reuses the existing `.change-banner` family defined in global.css so
- * it blends seamlessly with the rest of the app chrome.
+ * Mount in Shell.tsx immediately after <ExternalChangeBanner />.  Styling
+ * reuses the existing `.change-banner` family defined in global.css.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { isDefaultMdHandler, setDefaultMdHandler } from "../lib/defaultHandler";
-import { useSettingsStore } from "../store/settingsStore";
+import {
+  type DefaultHandlerStatus,
+  defaultHandlerStatus,
+  openDefaultAppsHelp,
+  setDefaultMdHandler,
+} from "../lib/defaultHandler";
+import { isDefaultPromptSnoozed, useSettingsStore } from "../store/settingsStore";
 
 // ---------------------------------------------------------------------------
-// Status type for the "Make Default" async action
+// Status type for the async "Make Default" action
 // ---------------------------------------------------------------------------
 
 type ActionStatus =
   | { kind: "idle" }
   | { kind: "busy" }
+  // Windows / fallback: the registry write or help page opened, but the OS
+  // requires the user to confirm in Settings before we become the default.
+  | { kind: "pending-confirm" }
   | { kind: "success" }
   | { kind: "error"; message: string };
 
@@ -73,57 +83,97 @@ function SpinnerIcon() {
 // ---------------------------------------------------------------------------
 
 export function DefaultHandlerBanner() {
-  const dismissed = useSettingsStore((s) => s.defaultPromptDismissed);
-  const setDismissed = useSettingsStore((s) => s.setDefaultPromptDismissed);
+  const snoozedUntil = useSettingsStore((s) => s.defaultPromptSnoozedUntil);
+  const snooze = useSettingsStore((s) => s.snoozeDefaultPrompt);
+  const neverAsk = useSettingsStore((s) => s.neverAskDefault);
 
-  // null = unknown (still checking), false = not default, true = is default
-  const [isDefault, setIsDefault] = useState<boolean | null>(null);
-  const [status, setStatus] = useState<ActionStatus>({ kind: "idle" });
+  const [status, setStatus] = useState<DefaultHandlerStatus | null>(null);
+  const [action, setAction] = useState<ActionStatus>({ kind: "idle" });
 
-  // Check once on mount — fast IPC call, no visible delay.
+  const snoozed = isDefaultPromptSnoozed(snoozedUntil);
+
+  // Re-check on mount AND whenever the window regains focus / becomes visible.
+  // This is what makes the banner self-heal after the user sets the default in
+  // System Settings and tabs back to the app.
   useEffect(() => {
-    if (dismissed) return; // No need to hit IPC at all if already dismissed.
     let cancelled = false;
-    isDefaultMdHandler().then((v) => {
-      if (!cancelled) setIsDefault(v);
-    });
+    const check = () => {
+      defaultHandlerStatus().then((s) => {
+        if (cancelled) return;
+        setStatus(s);
+        // Only advance to the success confirmation if we were actively waiting
+        // for the user to confirm (Windows). A passive re-check on an already-
+        // default machine must NOT flash the banner on every window focus.
+        setAction((prev) =>
+          s.state === "default" && prev.kind === "pending-confirm"
+            ? { kind: "success" }
+            : prev,
+        );
+      });
+    };
+    check();
+    const onFocus = () => check();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [dismissed]);
+  }, []);
+
+  // A confirmed success briefly shows "Set as default!" then the banner hides
+  // (status is now `default`, so the base condition stops rendering it).
+  useEffect(() => {
+    if (action.kind !== "success") return;
+    const t = setTimeout(() => setAction({ kind: "idle" }), 2200);
+    return () => clearTimeout(t);
+  }, [action.kind]);
 
   const handleMakeDefault = useCallback(async () => {
-    setStatus({ kind: "busy" });
+    setAction({ kind: "busy" });
     try {
       await setDefaultMdHandler();
-      setStatus({ kind: "success" });
-      // Re-verify so the banner hides on confirmed success.
-      const confirmed = await isDefaultMdHandler();
-      if (confirmed) {
-        setIsDefault(true);
-      }
+      // Re-verify. macOS/Linux flip to `default` immediately; Windows stays
+      // `not-default` until the user confirms in the Settings page we opened.
+      const s = await defaultHandlerStatus();
+      setStatus(s);
+      setAction(
+        s.state === "default" ? { kind: "success" } : { kind: "pending-confirm" },
+      );
     } catch (e) {
       const message =
         typeof e === "string"
           ? e
           : ((e as Error)?.message ?? "An unknown error occurred.");
-      setStatus({ kind: "error", message });
+      setAction({ kind: "error", message });
     }
   }, []);
 
-  const handleDismiss = useCallback(() => {
-    setDismissed(true);
-  }, [setDismissed]);
+  const handleHelp = useCallback(() => {
+    void openDefaultAppsHelp();
+    setAction({ kind: "pending-confirm" });
+  }, []);
 
-  // Hide when: dismissed by user, still loading, or already the default app.
-  if (dismissed || isDefault === null || isDefault === true) {
-    return null;
-  }
+  const succeeded = action.kind === "success";
+  const transient =
+    action.kind === "busy" ||
+    action.kind === "pending-confirm" ||
+    action.kind === "error" ||
+    succeeded;
 
-  // After a confirmed success, hide the banner (isDefault flips to true above).
-  // While the success state is briefly visible, show inline confirmation.
-  const busy = status.kind === "busy";
-  const succeeded = status.kind === "success";
+  // Base visibility: a DEFINITIVE not-default that isn't snoozed. `unknown` and
+  // `default` never trigger the prompt. Transient action states keep the banner
+  // up long enough to show progress/confirmation/errors.
+  const baseVisible = status?.state === "not-default" && !snoozed;
+  if (!baseVisible && !transient) return null;
+
+  const busy = action.kind === "busy";
+  const pendingConfirm = action.kind === "pending-confirm";
+  const canSet = status?.canSet ?? false;
 
   return (
     <>
@@ -150,12 +200,25 @@ export function DefaultHandlerBanner() {
           max-width: 320px;
           line-height: 1.4;
         }
+        .dh-banner-link {
+          background: none;
+          border: none;
+          padding: 0 2px;
+          font-size: 11px;
+          color: var(--text-muted, #8a8a8a);
+          cursor: pointer;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .dh-banner-link:hover { color: var(--text, #333); }
       `}</style>
 
       <div className="change-banner" role="status" aria-live="polite">
         <span className="change-banner-text">
-          {status.kind === "error" ? (
-            <span className="dh-banner-error-msg">{status.message}</span>
+          {action.kind === "error" ? (
+            <span className="dh-banner-error-msg">{action.message}</span>
+          ) : pendingConfirm ? (
+            "Almost there — confirm Ashlr MD in the system settings that just opened."
           ) : (
             "Make Ashlr MD your default for Markdown files"
           )}
@@ -163,34 +226,43 @@ export function DefaultHandlerBanner() {
 
         <div className="change-banner-actions">
           {succeeded ? (
-            /* Brief confirmation before isDefault flips and the banner unmounts. */
             <span className="dh-banner-success-msg">
               <CheckCircleIcon />
               Set as default!
             </span>
-          ) : (
+          ) : pendingConfirm ? null : (
             <button
               type="button"
               className="banner-btn banner-btn-primary"
-              onClick={handleMakeDefault}
+              onClick={canSet ? handleMakeDefault : handleHelp}
               disabled={busy}
               aria-busy={busy}
             >
               {busy && <SpinnerIcon />}
-              {busy ? "Setting…" : "Make Default"}
+              {busy ? "Setting…" : canSet ? "Make Default" : "Show me how"}
             </button>
           )}
 
-          {/* Dismiss — only hide when not mid-flight so we don't lose error feedback. */}
+          {/* Snooze / dismiss — hidden mid-flight and on success. */}
           {!busy && !succeeded && (
-            <button
-              type="button"
-              className="banner-btn"
-              onClick={handleDismiss}
-              aria-label="Dismiss this suggestion"
-            >
-              Not now
-            </button>
+            <>
+              <button
+                type="button"
+                className="banner-btn"
+                onClick={() => snooze(14)}
+                aria-label="Remind me later"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                className="dh-banner-link"
+                onClick={() => neverAsk()}
+                aria-label="Don't ask again about the default Markdown app"
+              >
+                Don't ask again
+              </button>
+            </>
           )}
         </div>
       </div>

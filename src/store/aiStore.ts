@@ -1,12 +1,58 @@
 // AI assistant Zustand store.
-// Persists apiKey and provider preferences to localStorage (zustand/persist).
-// TODO: migrate apiKey storage to macOS Keychain via a Tauri plugin once
-//       tauri-plugin-stronghold or similar is available, to avoid storing
-//       secrets in plaintext localStorage.
+//
+// Provider preferences persist to localStorage (zustand/persist), but the
+// Anthropic API key does NOT — it lives in the OS keychain (see secrets.rs) and
+// is loaded into memory at startup via `loadApiKey()`. This keeps the secret out
+// of any XSS blast radius. A legacy plaintext key from an older build is
+// migrated into the keychain (and stripped from localStorage) on first load.
 
+import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AICapabilities } from "../ai/types";
+
+/** Keychain account label for the Anthropic key (see secrets.rs `SERVICE`). */
+const AI_KEY_ACCOUNT = "anthropic";
+
+/** Write/clear the key in the OS keychain. Returns whether it succeeded. */
+async function persistKeyToKeychain(key: string | null): Promise<boolean> {
+  try {
+    if (key) await invoke("set_ai_key", { account: AI_KEY_ACCOUNT, key });
+    else await invoke("delete_ai_key", { account: AI_KEY_ACCOUNT });
+    return true;
+  } catch {
+    // Keychain unavailable (e.g. headless CI) — the key stays in memory only.
+    return false;
+  }
+}
+
+/** Read a legacy plaintext key from the old persisted blob WITHOUT removing it. */
+function peekLegacyKey(): string | null {
+  try {
+    const raw = localStorage.getItem("mdopener-ai");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { apiKey?: unknown } };
+    const legacy = parsed?.state?.apiKey;
+    return typeof legacy === "string" && legacy.length > 0 ? legacy : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Strip the legacy plaintext key from localStorage (only after it's safe). */
+function clearLegacyKey(): void {
+  try {
+    const raw = localStorage.getItem("mdopener-ai");
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { state?: { apiKey?: unknown } };
+    if (parsed?.state && "apiKey" in parsed.state) {
+      delete parsed.state.apiKey;
+      localStorage.setItem("mdopener-ai", JSON.stringify(parsed));
+    }
+  } catch {
+    // Malformed blob — nothing to clear.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Chat message type (extends AIMessage with UI metadata)
@@ -37,8 +83,8 @@ interface AIState {
   messages: ChatMessage[];
   /** true while a generation is in flight */
   busy: boolean;
-  /** Anthropic (or future provider) API key — persisted to localStorage.
-   *  TODO: move to Keychain (see note above). */
+  /** Anthropic (or future provider) API key — held in memory only; the source
+   *  of truth is the OS keychain. Loaded via `loadApiKey()` at startup. */
   apiKey: string | null;
   /** Persisted user preference for which tier to use when multiple available */
   preferredTier: 0 | 1 | 2 | 3 | null;
@@ -55,6 +101,8 @@ interface AIState {
   clearMessages(): void;
   setBusy(busy: boolean): void;
   setApiKey(key: string | null): void;
+  /** Load the key from the OS keychain (migrating any legacy plaintext key). */
+  loadApiKey(): Promise<void>;
   setPreferredTier(tier: 0 | 1 | 2 | 3 | null): void;
 }
 
@@ -154,6 +202,29 @@ export const useAIStore = create<AIState>()(
 
       setApiKey(key) {
         set({ apiKey: key });
+        // Source of truth is the keychain, never localStorage.
+        void persistKeyToKeychain(key);
+      },
+
+      async loadApiKey() {
+        // Migrate a legacy plaintext key first. Only scrub it from localStorage
+        // AFTER it is confirmed written to the keychain, so a keychain failure
+        // can never lose the user's key.
+        const legacy = peekLegacyKey();
+        if (legacy) {
+          set({ apiKey: legacy });
+          const ok = await persistKeyToKeychain(legacy);
+          if (ok) clearLegacyKey();
+          return;
+        }
+        try {
+          const key = await invoke<string | null>("get_ai_key", {
+            account: AI_KEY_ACCOUNT,
+          });
+          if (key) set({ apiKey: key });
+        } catch {
+          // Keychain unavailable — tier-2 detection just won't auto-resolve.
+        }
       },
 
       setPreferredTier(tier) {
@@ -162,9 +233,9 @@ export const useAIStore = create<AIState>()(
     }),
     {
       name: "mdopener-ai",
-      // Only persist user preferences and credentials — never chat history.
+      // Only persist non-secret preferences. The API key is NEVER written here —
+      // it lives in the OS keychain (see secrets.rs / loadApiKey).
       partialize: (s) => ({
-        apiKey: s.apiKey,
         preferredTier: s.preferredTier,
       }),
     },

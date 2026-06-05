@@ -1,11 +1,13 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionId } from "../../ai/actions";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
+import { setSourceView } from "../../lib/sourceSearchBridge";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import "../../styles/editor.css";
@@ -194,6 +196,10 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
               },
             },
           ]),
+          // Native find/replace panel (Mod-f, Mod-Alt-f) anchored at the top.
+          search({ top: true }),
+          highlightSelectionMatches(),
+          keymap.of(searchKeymap),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
           EditorView.lineWrapping,
@@ -216,15 +222,31 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
             },
             ".cm-content": { padding: "16px 0" },
             "&.cm-focused": { outline: "none" },
+            // Match the search panel to the app chrome across themes.
+            ".cm-panels": {
+              background: "var(--surface)",
+              color: "var(--text)",
+              borderBottom: "1px solid var(--border)",
+            },
+            ".cm-panel.cm-search input, .cm-panel.cm-search button": {
+              fontSize: "12px",
+            },
+            ".cm-textfield": {
+              background: "var(--bg)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+            },
           }),
           themeCompartment.current.of([]),
         ],
       }),
     });
     viewRef.current = view;
+    setSourceView(view); // expose to the find/replace commands
     view.focus();
     return () => {
       abortRef.current?.abort();
+      setSourceView(null);
       view.destroy();
       viewRef.current = null;
     };

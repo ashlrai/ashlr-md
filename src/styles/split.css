@@ -1,0 +1,63 @@
+/* split.css — side-by-side editor+preview, and zen (distraction-free) mode. */
+
+/* ── Split view ─────────────────────────────────────────────────────────── */
+
+.split-view {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.split-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.split-editor {
+  border-right: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Let the editor fill its pane and own its internal scrolling. */
+.split-editor > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.split-preview {
+  background: var(--bg, #fff);
+}
+
+/* On narrow windows a split is unreadable — stack to a single editor pane. */
+@media (max-width: 720px) {
+  .split-view {
+    flex-direction: column;
+  }
+  .split-preview {
+    display: none;
+  }
+}
+
+/* ── Zen / distraction-free mode ────────────────────────────────────────── */
+
+.app-shell.zen .titlebar,
+.app-shell.zen .tabbar,
+.app-shell.zen .statusbar,
+.app-shell.zen .outline-panel,
+.app-shell.zen .activity-drawer,
+.app-shell.zen .change-banner {
+  display: none !important;
+}
+
+.app-shell.zen .app-content {
+  /* Give the prose room to breathe and center vertically a touch. */
+  padding-top: 6vh;
+}
+
+.app-shell.zen .reading-surface {
+  margin-inline: auto;
+}

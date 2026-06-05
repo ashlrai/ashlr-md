@@ -1,0 +1,63 @@
+/* wikilinks.css — internal [[links]] and ![[embeds]]. */
+
+.wikilink {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent, #2563eb);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent, #2563eb) 35%, transparent);
+}
+.wikilink:hover:not(:disabled) {
+  border-bottom-color: var(--accent, #2563eb);
+}
+.wikilink:disabled {
+  cursor: default;
+}
+
+.wikilink--broken {
+  color: #c2410c;
+  border-bottom: 1px dashed #c2410c;
+  opacity: 0.85;
+}
+
+/* ── Embeds (transclusion) ──────────────────────────────────────────────── */
+
+.wikiembed {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-left: 3px solid var(--accent, #2563eb);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 5%, transparent);
+}
+
+.wikiembed__title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #8a8a8a);
+  margin-bottom: 6px;
+}
+
+.wikiembed--loading,
+.wikiembed--broken,
+.wikiembed--limit {
+  font-size: 0.9em;
+  color: var(--text-muted, #8a8a8a);
+  font-style: italic;
+}
+.wikiembed--broken {
+  color: #c2410c;
+  border-left-color: #c2410c;
+  font-style: normal;
+}
+
+/* Embedded documents shouldn't double their own outer margins. */
+.wikiembed .markdown-body {
+  padding: 0;
+}

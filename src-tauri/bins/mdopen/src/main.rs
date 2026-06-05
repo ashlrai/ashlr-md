@@ -115,8 +115,8 @@ fn open_in_app(abs_path: &str, mode: Option<&str>) {
 ///
 /// - macOS   → `open <url>`          (built-in, routes registered URL schemes)
 /// - Linux   → `xdg-open <url>`      (xdg-utils; handles registered MIME/scheme)
-/// - Windows → `cmd /C start "" <url>` (the empty title "" is required when the
-///             first argument begins with a quote or special character)
+/// - Windows → `cmd /C start "" <url>` (the empty title "" is required when
+///   the first argument begins with a quote or special character)
 fn launch_url(url: &str) {
     #[cfg(target_os = "macos")]
     let (prog, args): (&str, &[&str]) = ("open", &[url]);

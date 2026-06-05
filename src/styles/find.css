@@ -1,0 +1,70 @@
+/* find.css — in-document find bar + match highlights. */
+
+.find-bar {
+  position: fixed;
+  top: calc(var(--dock-top, 44px) + 8px);
+  right: 18px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: var(--shadow-lg);
+}
+
+.find-input {
+  width: 200px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.find-input:focus {
+  border-color: var(--accent);
+}
+
+.find-count {
+  min-width: 44px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted, #8a8a8a);
+  font-variant-numeric: tabular-nums;
+}
+
+.find-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.find-btn:hover:not(:disabled) {
+  background: var(--hover, rgba(0, 0, 0, 0.06));
+}
+.find-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Match highlights injected into the rendered body. */
+mark.find-hit {
+  background: rgba(255, 213, 0, 0.4);
+  color: inherit;
+  border-radius: 2px;
+}
+mark.find-hit--active {
+  background: var(--accent, #f59e0b);
+  color: #fff;
+}

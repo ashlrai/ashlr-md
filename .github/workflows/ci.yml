@@ -44,6 +44,12 @@ jobs:
       - name: Unit tests
         run: bun run test
 
+      # Surface known-vulnerable JS dependencies. Soft-gated (continue-on-error)
+      # so an upstream advisory annotates the run without blocking unrelated PRs.
+      - name: Audit JS dependencies
+        run: bun audit
+        continue-on-error: true
+
       - name: Frontend build
         run: bunx vite build
 
@@ -60,6 +66,18 @@ jobs:
 
       - name: Rust check (workspace)
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
+
+      - name: Rust clippy (workspace)
+        run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # Audit Rust dependencies for known CVEs. Soft-gated like the JS audit.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+        continue-on-error: true
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file src-tauri/Cargo.lock
+        continue-on-error: true
 
   # ---------------------------------------------------------------------------
   # Linux check: catches cross-platform Rust compile breakage on PRs cheaply.

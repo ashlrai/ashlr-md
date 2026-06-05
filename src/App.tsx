@@ -7,8 +7,10 @@ import { getShortcutCommands } from "./lib/commands";
 import { matchShortcut } from "./lib/keymap";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
+import { useAIStore } from "./store/aiStore";
 import { useDocumentStore } from "./store/documentStore";
 import { useSettingsStore } from "./store/settingsStore";
+import { useUiStore } from "./store/uiStore";
 import "./styles/themes.css";
 import "./styles/global.css";
 import "./styles/markdown.css";
@@ -77,6 +79,12 @@ export default function App() {
   // list and run the first available command whose shortcut matches.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Escape leaves Zen mode first — it isn't expressible as a mod-shortcut.
+      if (e.key === "Escape" && useUiStore.getState().zenMode) {
+        e.preventDefault();
+        useUiStore.getState().closeZen();
+        return;
+      }
       for (const cmd of getShortcutCommands()) {
         if (cmd.shortcut && matchShortcut(e, cmd.shortcut)) {
           if (cmd.when && !cmd.when()) return; // shortcut owned but unavailable
@@ -117,6 +125,12 @@ export default function App() {
       checkForUpdates();
     }, 3000);
     return () => clearTimeout(t);
+  }, []);
+
+  // Load the AI API key from the OS keychain (migrating any legacy plaintext
+  // key out of localStorage) so tier-2 detection works without re-entry.
+  useEffect(() => {
+    void useAIStore.getState().loadApiKey();
   }, []);
 
   return <Shell dragOver={dragOver} />;

@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useAIStore } from "../store/aiStore";
 import type { AIMessage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -42,16 +43,9 @@ export async function detectOllama(): Promise<string | null> {
  * time, so this is a purely local check.
  */
 export function detectAnthropicKey(): string | null {
-  // The aiStore persists apiKey to localStorage under the key below.
-  // We read it directly here so the bridge has no Zustand import.
-  try {
-    const raw = localStorage.getItem("mdopener-ai");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { state?: { apiKey?: string | null } };
-    return parsed?.state?.apiKey ?? null;
-  } catch {
-    return null;
-  }
+  // The key lives in memory in aiStore (loaded from the OS keychain at startup),
+  // never in localStorage. Read it from the store's current state.
+  return useAIStore.getState().apiKey ?? null;
 }
 
 // ---------------------------------------------------------------------------

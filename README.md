@@ -63,6 +63,18 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
 - **Tabs** — open several documents at once; the tab bar appears only when more
   than one is open, so the single-file view stays clean. `⌘⇧]` / `⌘⇧[` to switch,
   `⌘W` to close.
+- **Find & search** — find-in-document (`⌘F`) in both rendered and source views,
+  find-and-replace in source (`⌘⌥F`), and full-text **search across your recent &
+  watched files** (`⌘⇧F`).
+- **Split view & Zen mode** — edit with a live preview side-by-side (`⌘\`, synced
+  scrolling), or go distraction-free with **Zen mode** (`⌘⇧Z`, `Esc` to exit).
+- **Wikilinks & embeds** — Obsidian-style `[[links]]` that resolve and open, and
+  `![[embeds]]` that transclude another file inline; broken links are flagged.
+- **Reading polish** — word count & reading time, footnote hover previews,
+  a path breadcrumb, and copy-link-to-heading on hover.
+- **Secure by default** — malicious Markdown is sanitized (no script/HTML
+  injection), API keys live in the OS keychain (never plaintext), and a strict
+  CSP is enforced. See [SECURITY.md](./SECURITY.md).
 - **Agent-native** — `mdopen file.md`, the `mdopener://` URL scheme, and an **MCP
   server** so Claude Code / Codex / Cursor can open, read, edit, and export the
   live doc. One-click MCP setup in Settings.
@@ -101,6 +113,11 @@ Shown with ⌘ on macOS — use **Ctrl** on Windows & Linux.
 | Save | `⌘S` |
 | Export | `⌘E` |
 | Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
+| Find in document | `⌘F` |
+| Find & replace (source) | `⌘⌥F` |
+| Search across files | `⌘⇧F` |
+| Split preview | `⌘\` |
+| Zen mode | `⌘⇧Z` |
 | Next / Previous tab | `⌘⇧]` / `⌘⇧[` |
 | Close tab | `⌘W` |
 | Agent activity drawer | `⌘B` |

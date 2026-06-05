@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import type { DefaultHandlerStatus } from "../../lib/defaultHandler";
 import { THEMES, useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/settings.css";
@@ -335,25 +336,39 @@ function LinkIcon() {
   );
 }
 
-/** "Set as default Markdown app" — calls the macOS LaunchServices helper. */
+/** "Set as default Markdown app" — tri-state, mirrors the top banner. */
 function DefaultHandlerSection() {
   const [status, setStatus] = useState<InstallStatus>({ kind: "idle" });
-  const [isDefault, setIsDefault] = useState<boolean | null>(null);
+  const [handler, setHandler] = useState<DefaultHandlerStatus | null>(null);
 
+  // Re-check on open AND on window focus, so confirming in System Settings is
+  // reflected here without reopening the panel.
   useEffect(() => {
-    import("../../lib/defaultHandler").then(({ isDefaultMdHandler }) =>
-      isDefaultMdHandler().then(setIsDefault),
-    );
+    let cancelled = false;
+    const check = () => {
+      import("../../lib/defaultHandler").then(({ defaultHandlerStatus }) =>
+        defaultHandlerStatus().then((s) => {
+          if (!cancelled) setHandler(s);
+        }),
+      );
+    };
+    check();
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   async function makeDefault() {
     setStatus({ kind: "busy" });
     try {
-      const { setDefaultMdHandler, isDefaultMdHandler } = await import(
+      const { setDefaultMdHandler, defaultHandlerStatus } = await import(
         "../../lib/defaultHandler"
       );
       await setDefaultMdHandler();
-      setIsDefault(await isDefaultMdHandler());
+      setHandler(await defaultHandlerStatus());
       setStatus({ kind: "ok", path: "" });
     } catch (e) {
       const msg = typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
@@ -361,7 +376,15 @@ function DefaultHandlerSection() {
     }
   }
 
+  async function showHelp() {
+    const { openDefaultAppsHelp } = await import("../../lib/defaultHandler");
+    void openDefaultAppsHelp();
+  }
+
   const busy = status.kind === "busy";
+  const isDefault = handler?.state === "default";
+  const isUnknown = handler?.state === "unknown";
+  const canSet = handler?.canSet ?? false;
 
   return (
     <div className="settings-cli">
@@ -374,16 +397,25 @@ function DefaultHandlerSection() {
           <span className="settings-cli-result settings-result-ok">
             ✓ Ashlr MD is your default
           </span>
+        ) : isUnknown ? (
+          <>
+            <button type="button" className="settings-action-btn" onClick={showHelp}>
+              Open system settings…
+            </button>
+            <span className="settings-cli-result settings-description-muted">
+              Couldn't determine the current default.
+            </span>
+          </>
         ) : (
           <button
             type="button"
             className="settings-action-btn"
-            onClick={makeDefault}
+            onClick={canSet ? makeDefault : showHelp}
             disabled={busy}
             aria-busy={busy}
           >
             {busy && <SpinnerIcon />}
-            Set as default
+            {canSet ? "Set as default" : "Show me how"}
           </button>
         )}
         {status.kind === "error" && (
