@@ -8,6 +8,7 @@ mod cli_install;
 mod deep_link;
 mod default_handler;
 mod document;
+mod embed;
 mod export;
 mod file_handler;
 mod ipc;
@@ -38,6 +39,7 @@ pub fn run() {
         .manage(ipc::RecentMirror::default())
         .manage(afm::AfmState::default())
         .manage(activity::ActivityWatcher::default())
+        .manage(embed::EmbedState::default())
         .invoke_handler(tauri::generate_handler![
             document::read_markdown_file,
             document::write_markdown_file,
@@ -58,6 +60,10 @@ pub fn run() {
             secrets::get_ai_key,
             secrets::delete_ai_key,
             search::search_files,
+            embed::embed_available,
+            embed::embed_index,
+            embed::embed_search,
+            embed::embed_status,
             default_handler::is_default_md_handler,
             default_handler::default_handler_status,
             default_handler::set_default_md_handler,

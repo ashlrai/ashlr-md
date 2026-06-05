@@ -13,6 +13,7 @@
 import { useActivityStore } from "../store/activityStore";
 import { useRecentStore } from "../store/recentStore";
 import { searchFiles } from "./crossSearch";
+import { embedAvailable, embedSearch, type SemanticMatch } from "./embedSearch";
 
 const STOPWORDS = new Set([
   "the",
@@ -80,6 +81,24 @@ function keywords(query: string): string[] {
 
 const MAX_CITED_FILES = 5;
 const SNIPPETS_PER_FILE = 4;
+/** Minimum cosine score for a semantic hit to count (below = likely unrelated). */
+const SEMANTIC_MIN_SCORE = 0.35;
+
+/** Build a LibraryContext from ranked semantic chunk matches (grouped by file). */
+function buildFromSemantic(hits: SemanticMatch[]): LibraryContext {
+  const byFile = new Map<string, { fileName: string; snippets: string[] }>();
+  for (const h of hits) {
+    const e = byFile.get(h.path) ?? { fileName: h.fileName, snippets: [] };
+    if (e.snippets.length < SNIPPETS_PER_FILE) e.snippets.push(h.snippet);
+    byFile.set(h.path, e);
+  }
+  const entries = Array.from(byFile.entries()).slice(0, MAX_CITED_FILES);
+  const block =
+    "Relevant excerpts from the user's Markdown library:\n\n" +
+    entries.map(([, e]) => `### ${e.fileName}\n${e.snippets.join("\n")}`).join("\n\n");
+  const citations = entries.map(([path, e]) => ({ fileName: e.fileName, path }));
+  return { block, citations };
+}
 
 /**
  * Retrieve the most relevant excerpts from the user's library for `query`.
@@ -99,6 +118,19 @@ export async function retrieveLibraryContext(
   }
   const pathList = Array.from(paths);
   if (pathList.length === 0) return { block: "", citations: [] };
+
+  // Semantic-first: when a local embed model is present and the index has
+  // confident hits, use them. Otherwise fall through to keyword retrieval.
+  if (await embedAvailable()) {
+    // Scope hits to the current library (the index may hold formerly-watched
+    // files), exclude the open doc, and require a confident score.
+    const inScope = new Set(pathList);
+    const hits = (await embedSearch(query, 8)).filter(
+      (h) =>
+        inScope.has(h.path) && !exclude.has(h.path) && h.score >= SEMANTIC_MIN_SCORE,
+    );
+    if (hits.length >= 2) return buildFromSemantic(hits);
+  }
 
   const terms = keywords(query);
   if (terms.length === 0) return { block: "", citations: [] };

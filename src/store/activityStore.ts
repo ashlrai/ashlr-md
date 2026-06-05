@@ -64,6 +64,25 @@ function flushNewFileToast() {
   }
 }
 
+// Debounce per-file semantic re-indexing so a burst of agent writes collapses
+// into one batched embed call (one Ollama round-trip, one index save).
+const EMBED_DEBOUNCE_MS = 2000;
+const pendingEmbedPaths = new Set<string>();
+let embedTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleEmbedIndex(path: string) {
+  pendingEmbedPaths.add(path);
+  if (embedTimer) clearTimeout(embedTimer);
+  embedTimer = setTimeout(() => {
+    embedTimer = null;
+    const paths = Array.from(pendingEmbedPaths);
+    pendingEmbedPaths.clear();
+    import("../lib/embedSearch").then(({ embedIndex }) => {
+      void embedIndex(paths, false); // incremental — additive, never prunes
+    });
+  }, EMBED_DEBOUNCE_MS);
+}
+
 /** Queue a newly-created file for the coalesced "New: …" toast. */
 function queueNewFileToast(file: MdFileInfo) {
   pendingNew.push(file);
@@ -157,6 +176,11 @@ export const useActivityStore = create<ActivityState>()(
               ? s.unseen
               : [...s.unseen, ev.path],
         }));
+        // Incremental semantic re-index for the changed file, debounced so a
+        // burst of agent writes becomes one batched call (no-op without a model).
+        if (ev.kind === "created" || ev.kind === "modified") {
+          scheduleEmbedIndex(ev.path);
+        }
       },
 
       markAllSeen: () => set({ unseen: [] }),

@@ -174,6 +174,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
+  // Build/refresh the on-device semantic index in the background — a no-op when
+  // no embed model is installed. Incremental: only changed files are re-embedded.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void (async () => {
+        const { embedAvailable, embedIndex } = await import("./lib/embedSearch");
+        if (!(await embedAvailable())) return;
+        const { useRecentStore } = await import("./store/recentStore");
+        const { useActivityStore } = await import("./store/activityStore");
+        // Ensure the watched-folder file list is populated before indexing.
+        await useActivityStore.getState().loadFiles();
+        const paths = new Set<string>();
+        for (const r of useRecentStore.getState().recents) paths.add(r.path);
+        for (const f of useActivityStore.getState().files) paths.add(f.path);
+        // Full reindex (prune stale files) since this is the complete library.
+        if (paths.size > 0) void embedIndex(Array.from(paths), true);
+      })();
+    }, 4000);
+    return () => clearTimeout(t);
+  }, []);
+
   // Activation bookkeeping + the "while you were away" Agent Activity Digest.
   // touchLastSeen returns the PRIOR launch time; if there's a prior session and
   // a watched folder, summarize what changed since then.

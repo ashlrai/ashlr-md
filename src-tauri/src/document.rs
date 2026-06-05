@@ -159,8 +159,15 @@ mod tests {
     use std::io::Write;
 
     fn make_tree() -> std::path::PathBuf {
+        // Unique dir per call so the (parallel) tests don't race on a shared path.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let mut root = std::env::temp_dir();
-        root.push(format!("mdopener-wikilink-test-{}", std::process::id()));
+        root.push(format!(
+            "mdopener-wikilink-test-{}-{n}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("notes")).unwrap();
         let mut a = std::fs::File::create(root.join("Alpha.md")).unwrap();
