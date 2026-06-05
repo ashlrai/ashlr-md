@@ -12,9 +12,12 @@ import {
   runSelectionAction,
 } from "../../ai/registry";
 import type { AIProvider } from "../../ai/types";
+import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
 import type { ChatMessage } from "../../store/aiStore";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
+import { memoryBlock } from "../../store/memoryStore";
+import { RelatedNotes } from "./RelatedNotes";
 
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
@@ -219,6 +222,8 @@ export function AISidebar() {
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
+  const libraryScope = useAIStore((s) => s.libraryScope);
+  const setLibraryScope = useAIStore((s) => s.setLibraryScope);
 
   const docContent = useDocumentStore((s) => s.content);
 
@@ -297,8 +302,36 @@ export function AISidebar() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      // Build full message history with system context prepended.
-      const systemMsg = buildSystemContext();
+      // System context: current document + what we remember about the user +
+      // (optionally) grounded excerpts retrieved from their whole library.
+      let systemMsg = buildSystemContext();
+      const mem = memoryBlock();
+      if (mem) systemMsg += `\n\n${mem}`;
+      let citations: LibraryCitation[] = [];
+      if (libraryScope) {
+        try {
+          // Exclude the current doc — it's already in the system context above.
+          const here = useDocumentStore.getState().path;
+          const lib = await retrieveLibraryContext(text.trim(), here ? [here] : []);
+          if (lib.block) {
+            systemMsg +=
+              `\n\n${lib.block}\n\n` +
+              "Ground your answer in these excerpts and name the files you drew from.";
+            citations = lib.citations;
+          }
+        } catch {
+          // Retrieval failed — answer without library grounding.
+        }
+        // The user may have hit Stop during retrieval — bail before generating.
+        if (controller.signal.aborted) {
+          finalizeLast();
+          setBusy(false);
+          abortRef.current = null;
+          return;
+        }
+      }
+
+      // Build full message history.
       const history = useAIStore
         .getState()
         .messages.filter((m) => !m.streaming)
@@ -319,6 +352,9 @@ export function AISidebar() {
           (delta) => updateLast(delta),
           controller.signal,
         );
+        if (citations.length > 0) {
+          updateLast(`\n\n*Sources: ${citations.map((c) => c.fileName).join(" · ")}*`);
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg !== "Aborted") updateLast(`\n\n*Error: ${msg}*`);
@@ -336,6 +372,7 @@ export function AISidebar() {
       finalizeLast,
       setBusy,
       docContent,
+      libraryScope,
     ],
   );
 
@@ -349,7 +386,14 @@ export function AISidebar() {
         docContent.length > MAX_CONTEXT_CHARS
           ? docContent.slice(0, MAX_CONTEXT_CHARS)
           : docContent;
-      const msgs = action.buildMessages(truncated);
+      // Inject what we remember about the user so quick actions honor it too.
+      const mem = memoryBlock();
+      const msgs = mem
+        ? [
+            { role: "system" as const, content: mem },
+            ...action.buildMessages(truncated),
+          ]
+        : action.buildMessages(truncated);
       pushMessage({ role: "user", content: action.label });
       pushMessage({ role: "assistant", content: "", streaming: true });
       setBusy(true);
@@ -461,21 +505,43 @@ export function AISidebar() {
           {/* Messages */}
           <div className="ai-messages" role="log" aria-live="polite">
             {messages.length === 0 && (
-              <div
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: "12.5px",
-                  textAlign: "center",
-                  marginTop: "20px",
-                }}
-              >
-                Ask anything about your document, or use the quick actions above.
-              </div>
+              <>
+                <div
+                  style={{
+                    color: "var(--text-muted)",
+                    fontSize: "12.5px",
+                    textAlign: "center",
+                    marginTop: "20px",
+                  }}
+                >
+                  Ask anything about your document, or use the quick actions above.
+                </div>
+                <RelatedNotes />
+              </>
             )}
             {messages.map((m) => (
               <MessageBubble key={m.id} msg={m} />
             ))}
             <div ref={messagesEndRef} />
+          </div>
+
+          {/* Scope toggle: ground answers in the whole library, not just this doc. */}
+          <div className="ai-scope-row">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={libraryScope}
+              className={`ai-scope-toggle${libraryScope ? " on" : ""}`}
+              onClick={() => setLibraryScope(!libraryScope)}
+              title={
+                libraryScope
+                  ? "Answers are grounded in your whole Markdown library"
+                  : "Answers use only the current document"
+              }
+            >
+              <span className="ai-scope-dot" aria-hidden="true" />
+              {libraryScope ? "My library" : "This doc"}
+            </button>
           </div>
 
           {/* Input row */}

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import type { DefaultHandlerStatus } from "../../lib/defaultHandler";
+import { useMemoryStore } from "../../store/memoryStore";
 import { THEMES, useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/settings.css";
@@ -452,7 +453,92 @@ function DefaultHandlerSection() {
   );
 }
 
-// ─── MCP / agent setup section ────────────────────────────────────────────────
+// ─── AI memory section ────────────────────────────────────────────────────────
+
+function MemoryIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M10 3.5c-2.2 0-4 1.6-4 3.6 0 .5.1 1 .3 1.4C5.5 9 5 9.9 5 11c0 1.7 1.5 3 3.3 3 .4 0 .8-.07 1.1-.2v1.7M10 3.5c2.2 0 4 1.6 4 3.6 0 .5-.1 1-.3 1.4 1.1.5 1.6 1.4 1.6 2.5 0 1.7-1.5 3-3.3 3-.4 0-.8-.07-1.1-.2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** "What Ashlr remembers" — local AI memory, fully transparent + editable. */
+function MemorySection() {
+  const items = useMemoryStore((s) => s.items);
+  const add = useMemoryStore((s) => s.add);
+  const remove = useMemoryStore((s) => s.remove);
+  const clear = useMemoryStore((s) => s.clear);
+  const [draft, setDraft] = useState("");
+
+  const submit = () => {
+    if (!draft.trim()) return;
+    add(draft, "user");
+    setDraft("");
+  };
+
+  return (
+    <div className="settings-memory">
+      <p className="settings-description">
+        Facts the AI remembers about you and your projects — injected into every chat so
+        it gets more useful over time. Stored locally; never leaves your device.
+      </p>
+      <div className="settings-cli-row">
+        <input
+          className="settings-memory-input"
+          placeholder="e.g. I prefer concise answers and TypeScript"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+        />
+        <button
+          type="button"
+          className="settings-action-btn"
+          onClick={submit}
+          disabled={!draft.trim()}
+        >
+          Remember
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="settings-description settings-description-muted">
+          Nothing remembered yet.
+        </p>
+      ) : (
+        <ul className="settings-memory-list">
+          {items.map((i) => (
+            <li key={i.id} className="settings-memory-item">
+              <span className="settings-memory-text">{i.text}</span>
+              <button
+                type="button"
+                className="settings-memory-del"
+                onClick={() => remove(i.id)}
+                aria-label="Forget this"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {items.length > 0 && (
+        <button type="button" className="settings-memory-clear" onClick={() => clear()}>
+          Forget everything
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── MCP / agent setup section ───────────────────────────────────────
 
 /** Tracks the async state of a one-click agent-connect command. */
 type ConnectStatus =
@@ -726,7 +812,15 @@ export function SettingsPanel() {
 
           <div className="settings-divider" />
 
-          {/* 4 · AI agents (MCP) */}
+          {/* 4 · AI memory */}
+          <section className="settings-section">
+            <SectionHeader icon={<MemoryIcon />} title="AI memory" />
+            <MemorySection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 5 · AI agents (MCP) */}
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="AI agents (MCP)" />
             <McpSection />

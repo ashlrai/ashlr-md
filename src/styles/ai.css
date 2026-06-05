@@ -556,3 +556,72 @@
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
+
+/* ── Library/doc scope toggle ──────────────────────────────────────────────── */
+.ai-scope-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 0;
+}
+.ai-scope-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ai-scope-toggle .ai-scope-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.ai-scope-toggle.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.ai-scope-toggle.on .ai-scope-dot {
+  background: var(--accent);
+}
+
+/* ── Related notes (auto-link) ─────────────────────────────────────────────── */
+.ai-related {
+  margin: 18px 12px 0;
+}
+.ai-related__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.ai-related__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+.ai-related__chip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-related__chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -88,6 +88,9 @@ interface AIState {
   apiKey: string | null;
   /** Persisted user preference for which tier to use when multiple available */
   preferredTier: 0 | 1 | 2 | 3 | null;
+  /** When true, chat answers are grounded in the user's whole Markdown library. */
+  libraryScope: boolean;
+  setLibraryScope: (v: boolean) => void;
 
   // Actions
   toggle(): void;
@@ -124,6 +127,7 @@ export const useAIStore = create<AIState>()(
       busy: false,
       apiKey: null,
       preferredTier: null,
+      libraryScope: false,
 
       toggle() {
         set((s) => ({ open: !s.open }));
@@ -230,6 +234,10 @@ export const useAIStore = create<AIState>()(
       setPreferredTier(tier) {
         set({ preferredTier: tier });
       },
+
+      setLibraryScope(libraryScope) {
+        set({ libraryScope });
+      },
     }),
     {
       name: "mdopener-ai",
@@ -237,6 +245,7 @@ export const useAIStore = create<AIState>()(
       // it lives in the OS keychain (see secrets.rs / loadApiKey).
       partialize: (s) => ({
         preferredTier: s.preferredTier,
+        libraryScope: s.libraryScope,
       }),
     },
   ),

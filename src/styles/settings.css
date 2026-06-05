@@ -539,3 +539,69 @@
 .settings-switch.on .settings-switch-knob::after {
   transform: translateX(8px);
 }
+
+/* ── AI memory panel ───────────────────────────────────────────────────────── */
+.settings-memory-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.settings-memory-input:focus {
+  border-color: var(--accent);
+}
+.settings-memory-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-memory-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+}
+.settings-memory-text {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.settings-memory-del {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.settings-memory-del:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.06));
+  color: #d1242f;
+}
+.settings-memory-clear {
+  margin-top: 10px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.settings-memory-clear:hover {
+  color: #d1242f;
+}
