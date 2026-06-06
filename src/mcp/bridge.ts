@@ -31,6 +31,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
+import { useReviewStore } from "../store/reviewStore";
 import { useUiStore } from "../store/uiStore";
 
 // ── Payload shapes from Rust ──────────────────────────────────────────────────
@@ -48,6 +49,13 @@ interface SetContentPayload {
 interface ExportPayload {
   format: "pdf" | "docx" | "html";
   outputPath?: string | null;
+}
+
+interface ReviewPayload {
+  reviewId: string;
+  path: string | null;
+  content: string | null;
+  timeoutMs: number;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -125,6 +133,21 @@ export function useMcpBridge(): void {
         if (useDocumentStore.getState().path) {
           useUiStore.getState().openExport();
         }
+      }),
+    );
+
+    // mcp://review — an agent requested human review; show the review panel.
+    // (If a path was given, mcp://open fires separately to open the doc.)
+    unlisteners.push(
+      listen<ReviewPayload>("mcp://review", (e) => {
+        const { reviewId, path, content, timeoutMs } = e.payload;
+        useReviewStore.getState().registerReview({
+          reviewId,
+          path,
+          content,
+          timeoutMs,
+          registeredAt: Date.now(),
+        });
       }),
     );
 

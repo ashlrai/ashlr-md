@@ -52,6 +52,28 @@ pub struct RecentFileEntry {
 #[derive(Default)]
 pub struct RecentMirror(pub Mutex<Vec<RecentFileEntry>>);
 
+/// One pending or completed human-review request (from the `request_review`
+/// MCP tool). Keyed by reviewId in [`ReviewState`].
+#[derive(Clone, Serialize)]
+pub struct ReviewRecord {
+    /// "pending" | "approved" | "changes_requested" | "dismissed".
+    pub status: String,
+    pub verdict: Option<String>,
+    pub comments: Option<String>,
+    pub path: Option<String>,
+    pub created_at: u64,
+}
+
+#[derive(Default)]
+pub struct ReviewState(pub Mutex<std::collections::HashMap<String, ReviewRecord>>);
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 // ── Tauri commands (called by the frontend) ───────────────────────────────────
 
 /// Called by the frontend (debounced) whenever path or content changes.
@@ -66,6 +88,31 @@ pub fn mcp_sync_state(
 ) {
     *mirror.0.lock().unwrap() = DocMirrorInner { path, content };
     *recent_mirror.0.lock().unwrap() = recents;
+}
+
+/// Called by the frontend review panel when the human clicks Approve / Request-
+/// changes / Dismiss. Records the verdict so the polling MCP binary returns it
+/// to the agent.
+#[tauri::command]
+pub fn set_review_verdict(
+    review_id: String,
+    verdict: String,
+    comments: Option<String>,
+    state: tauri::State<ReviewState>,
+) -> Result<(), String> {
+    if !["approved", "changes_requested", "dismissed"].contains(&verdict.as_str()) {
+        return Err(format!("Invalid verdict: {verdict}"));
+    }
+    let mut map = state.0.lock().unwrap();
+    match map.get_mut(&review_id) {
+        None => Err(format!("Review {review_id} not found")),
+        Some(r) => {
+            r.status = verdict.clone();
+            r.verdict = Some(verdict);
+            r.comments = comments;
+            Ok(())
+        }
+    }
 }
 
 // ── IPC port file helpers ─────────────────────────────────────────────────────
@@ -83,8 +130,48 @@ fn write_port(port: u16) {
     }
 }
 
+fn ipc_token_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".mdopener").join("ipc-token"))
+}
+
+/// 32 bytes of OS CSPRNG randomness as 64 lowercase hex chars.
+fn generate_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).map_err(|e| format!("Token generation failed: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn write_token(token: &str) {
+    let Some(path) = ipc_token_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // On Unix, create the file owner-only in a single syscall (O_CREAT with
+    // mode 0600) so the token is never momentarily world-readable between the
+    // write and a follow-up chmod (TOCTOU).
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .and_then(|mut f| f.write_all(token.as_bytes()));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::write(&path, token.as_bytes());
+    }
+}
+
 pub fn remove_port_file() {
     if let Some(path) = ipc_port_path() {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(path) = ipc_token_path() {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -104,11 +191,14 @@ pub fn start(app: AppHandle) -> Result<u16, String> {
         .map(|a| a.port())
         .ok_or("could not get IPC server port")?;
 
+    let token = generate_token()?;
     write_port(port);
+    write_token(&token);
+    let bearer = std::sync::Arc::new(format!("Bearer {token}"));
 
     std::thread::Builder::new()
         .name("mdopener-ipc".into())
-        .spawn(move || run_server(server, app))
+        .spawn(move || run_server(server, app, bearer))
         .map_err(|e| format!("IPC thread spawn failed: {e}"))?;
 
     Ok(port)
@@ -116,15 +206,49 @@ pub fn start(app: AppHandle) -> Result<u16, String> {
 
 // ── Request dispatch ──────────────────────────────────────────────────────────
 
-fn run_server(server: Server, app: AppHandle) {
+/// Constant-time byte comparison so a token mismatch leaks no timing signal.
+/// Returns false on length mismatch (after a full-length compare of the longer
+/// input against itself to keep timing independent of where they diverge).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// True if the request carries the correct `Authorization: Bearer <token>`.
+fn check_auth(req: &Request, bearer: &str) -> bool {
+    req.headers().iter().any(|h| {
+        h.field.equiv("Authorization") && ct_eq(h.value.as_str().as_bytes(), bearer.as_bytes())
+    })
+}
+
+fn run_server(server: Server, app: AppHandle, bearer: std::sync::Arc<String>) {
     for req in server.incoming_requests() {
         let method = req.method().clone();
         let url = req.url().to_string();
         // Separate path from query string.
         let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
 
+        // /health is unauthenticated — a liveness probe carrying no data.
+        if method == Method::Get && path == "/health" {
+            send_json(req, serde_json::json!({"ok": true}));
+            continue;
+        }
+        // Every other endpoint requires the loopback auth token.
+        if !check_auth(&req, &bearer) {
+            send_error(req, 401, "Unauthorized");
+            continue;
+        }
+
         match (method, path) {
-            (Method::Get, "/health") => send_json(req, serde_json::json!({"ok": true})),
+            (Method::Post, "/review") => handle_review_post(req, &app),
+            (Method::Get, "/review/result") => handle_review_result(req, query, &app),
+            (Method::Get, "/annotations") => handle_annotations(req, query, &app),
 
             (Method::Get, "/content") => {
                 let mirror = app.state::<DocMirror>();
@@ -230,6 +354,148 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     }
 }
 
+// ── Review handlers ───────────────────────────────────────────────────────────
+
+fn handle_review_post(mut req: Request, app: &AppHandle) {
+    #[derive(Deserialize)]
+    struct Body {
+        #[serde(rename = "reviewId")]
+        review_id: String,
+        path: Option<String>,
+        content: Option<String>,
+        #[serde(rename = "timeoutMs", default)]
+        timeout_ms: Option<u64>,
+    }
+    let body = match read_json_body::<Body>(&mut req) {
+        Ok(b) => b,
+        Err(e) => return send_error(req, 400, &e),
+    };
+    if body.review_id.is_empty() {
+        return send_error(req, 400, "reviewId is required");
+    }
+    let timeout_ms = body.timeout_ms.unwrap_or(300_000).clamp(5_000, 600_000);
+    let abs_path = body.path.as_deref().map(|p| {
+        std::fs::canonicalize(p)
+            .map(|c| c.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string())
+    });
+
+    {
+        let state = app.state::<ReviewState>();
+        let mut map = state.0.lock().unwrap();
+        if map.contains_key(&body.review_id) {
+            return send_error(req, 409, "reviewId already exists");
+        }
+        map.insert(
+            body.review_id.clone(),
+            ReviewRecord {
+                status: "pending".into(),
+                verdict: None,
+                comments: None,
+                path: abs_path.clone(),
+                created_at: now_ms(),
+            },
+        );
+    }
+
+    // If a file was given, open it (reuses the existing open machinery).
+    if let Some(ref p) = abs_path {
+        let _ = app.emit("mcp://open", serde_json::json!({ "path": p, "mode": "read" }));
+    }
+    // Tell the frontend a review is pending so it shows the review panel.
+    let _ = app.emit(
+        "mcp://review",
+        serde_json::json!({
+            "reviewId": body.review_id,
+            "path": abs_path,
+            "content": body.content,
+            "timeoutMs": timeout_ms,
+        }),
+    );
+    send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
+}
+
+fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
+    let id = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("id="))
+        .unwrap_or("");
+    if id.is_empty() {
+        return send_error(req, 400, "id query param required");
+    }
+    // Clone the record out before responding so the mutex isn't held across the
+    // blocking socket write in send_json (which would stall set_review_verdict
+    // and every other ReviewState reader against a slow client).
+    let record = {
+        let state = app.state::<ReviewState>();
+        let map = state.0.lock().unwrap();
+        map.get(id)
+            .map(|r| (r.status.clone(), r.verdict.clone(), r.comments.clone()))
+    };
+    match record {
+        None => send_json(req, serde_json::json!({ "status": "not_found" })),
+        Some((status, verdict, comments)) => send_json(req, serde_json::json!({
+            "status": status,
+            "verdict": verdict,
+            "comments": comments,
+        })),
+    }
+}
+
+/// Parse GFM task-list checkboxes (`- [ ]` / `- [x]`, also `*`/`+` bullets).
+fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let t = line.trim_start();
+            let rest = t
+                .strip_prefix("- ")
+                .or_else(|| t.strip_prefix("* "))
+                .or_else(|| t.strip_prefix("+ "))?
+                .trim_start();
+            let checked = if rest.starts_with("[ ]") {
+                false
+            } else if rest.starts_with("[x]") || rest.starts_with("[X]") {
+                true
+            } else {
+                return None;
+            };
+            let text = rest[3..].trim().to_string();
+            Some(serde_json::json!({ "text": text, "checked": checked }))
+        })
+        .collect()
+}
+
+fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
+    let raw_path = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("path="))
+        .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
+        .unwrap_or_default();
+
+    let content = app.state::<DocMirror>().0.lock().unwrap().content.clone();
+    let tasks = parse_tasks(&content);
+
+    // Resolve the latest matching verdict/comments, then drop the lock before
+    // the blocking send_json response.
+    let (verdict, comments) = {
+        let review_state = app.state::<ReviewState>();
+        let map = review_state.0.lock().unwrap();
+        map.values()
+            .filter(|r| r.path.as_deref() == Some(raw_path.as_str()))
+            .max_by_key(|r| r.created_at)
+            .map(|r| (r.verdict.clone(), r.comments.clone()))
+            .unwrap_or((None, None))
+    };
+
+    send_json(req, serde_json::json!({
+        "path": raw_path,
+        "verdict": verdict,
+        "comments": comments,
+        "tasks": tasks,
+    }));
+}
+
 // ── HTTP response helpers ─────────────────────────────────────────────────────
 
 fn send_json(req: Request, value: serde_json::Value) {
@@ -253,9 +519,81 @@ fn send_error(req: Request, code: u16, msg: &str) {
 }
 
 fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T, String> {
+    // Cap the body so a malformed/hostile local caller can't OOM the server
+    // thread with an unbounded POST. 16 MiB is generous for any real document.
+    const MAX_BODY: u64 = 16 * 1024 * 1024;
+    use std::io::Read;
     let mut buf = String::new();
     req.as_reader()
+        .take(MAX_BODY)
         .read_to_string(&mut buf)
         .map_err(|e| format!("Failed to read request body: {e}"))?;
     serde_json::from_str(&buf).map_err(|e| format!("Invalid JSON body: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tasks;
+
+    /// Helper: extract (text, checked) pairs for terse assertions.
+    fn pairs(content: &str) -> Vec<(String, bool)> {
+        parse_tasks(content)
+            .into_iter()
+            .map(|v| {
+                (
+                    v["text"].as_str().unwrap().to_string(),
+                    v["checked"].as_bool().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parses_unchecked_and_checked() {
+        let md = "- [ ] todo one\n- [x] done two\n";
+        assert_eq!(
+            pairs(md),
+            vec![
+                ("todo one".to_string(), false),
+                ("done two".to_string(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_all_bullet_markers_and_uppercase_x() {
+        let md = "- [ ] dash\n* [X] star\n+ [x] plus\n";
+        assert_eq!(
+            pairs(md),
+            vec![
+                ("dash".to_string(), false),
+                ("star".to_string(), true),
+                ("plus".to_string(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_non_task_lines() {
+        // Plain bullets, prose, and headings are not tasks.
+        let md = "# Heading\n- a normal bullet\nsome prose\n- [ ] real task\n";
+        assert_eq!(pairs(md), vec![("real task".to_string(), false)]);
+    }
+
+    #[test]
+    fn handles_indented_tasks_and_empty_text() {
+        let md = "  - [ ] indented\n- [x]\n";
+        assert_eq!(
+            pairs(md),
+            vec![
+                ("indented".to_string(), false),
+                (String::new(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_input_yields_no_tasks() {
+        assert!(parse_tasks("").is_empty());
+    }
 }

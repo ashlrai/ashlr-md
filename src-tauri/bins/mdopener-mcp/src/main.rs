@@ -226,6 +226,31 @@ fn tool_list() -> Value {
                 },
                 "required": ["format"]
             }
+        },
+        {
+            "name": "request_review",
+            "description": "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            "annotations": { "title": "Request Human Review", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
+                    "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
+                    "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
+                    "timeout_ms": { "type": "integer", "description": "Max milliseconds to wait for a verdict. Default 300000 (5 min), max 600000." }
+                },
+                "anyOf": [{ "required": ["path"] }, { "required": ["content"] }]
+            }
+        },
+        {
+            "name": "get_user_annotations",
+            "description": "Return the human's current review verdict, comments, and task-checkbox states for a document.",
+            "annotations": { "title": "Get User Annotations", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "Absolute path to the Markdown file." } },
+                "required": ["path"]
+            }
         }
     ])
 }
@@ -239,6 +264,8 @@ fn handle_tool_call(id: Value, name: &str, args: Value) -> Response {
         "set_content" => tool_set_content(id, &args),
         "list_recent" => tool_list_recent(id, &args),
         "export" => tool_export(id, &args),
+        "request_review" => tool_request_review(id, &args),
+        "get_user_annotations" => tool_get_annotations(id, &args),
         other => Response::err(id, -32602, format!("Unknown tool: {other}")),
     }
 }
@@ -331,8 +358,95 @@ fn tool_export(id: Value, args: &Value) -> Response {
     }
 }
 
-// ── IPC helpers ───────────────────────────────────────────────────────────────
+// ── Human-review loop ────────────────────────────────────────────────────
 
+/// Register a review with the app, then POLL for the human's verdict in a loop
+/// (each poll is a fresh request well within the 5s TCP timeout). Returns the
+/// verdict to the agent, or a timeout if no decision arrives in time.
+fn tool_request_review(id: Value, args: &Value) -> Response {
+    let path = args["path"].as_str().map(|p| {
+        std::fs::canonicalize(p)
+            .map(|c| c.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string())
+    });
+    let content = args["content"].as_str().map(str::to_string);
+    let blocking = args["blocking"].as_bool().unwrap_or(true);
+    let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(300_000).clamp(5_000, 600_000);
+
+    if path.is_none() && content.is_none() {
+        return Response::err(id, -32602, "Either `path` or `content` is required");
+    }
+
+    // reviewId generated here: nanosecond timestamp + pid (no uuid crate). Using
+    // nanos + the full 32-bit pid makes a collision between two concurrently
+    // launched MCP processes effectively impossible.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let review_id = format!("rev_{nanos}_{:08x}", std::process::id());
+
+    let post_body = json!({
+        "reviewId": review_id,
+        "path": path,
+        "content": content,
+        "timeoutMs": timeout_ms,
+    });
+    if let Err(e) = ipc_post("/review", post_body) {
+        return Response::err(id, -32000, app_not_running_msg(&e));
+    }
+
+    if !blocking {
+        return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
+    }
+
+    let poll = std::time::Duration::from_millis(1_500);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    let endpoint = format!("/review/result?id={review_id}");
+    loop {
+        // Check the deadline first, then sleep no longer than the time left, so
+        // the total wait can't overshoot timeout_ms by a full poll interval.
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return tool_result(id, json!({
+                "verdict": "timeout",
+                "reviewId": review_id,
+                "message": "No verdict received within the timeout period."
+            }));
+        }
+        std::thread::sleep(poll.min(deadline - now));
+        match ipc_get(&endpoint) {
+            Err(e) => return Response::err(id, -32000, format!("App unreachable during review: {e}")),
+            Ok(resp) => match resp["status"].as_str().unwrap_or("") {
+                "pending" => continue,
+                "not_found" => return tool_result(id, json!({
+                    "verdict": "timeout",
+                    "reviewId": review_id,
+                    "message": "Review record lost (app may have restarted)."
+                })),
+                _ => return tool_result(id, json!({
+                    "verdict": resp["verdict"],
+                    "reviewId": review_id,
+                    "comments": resp["comments"],
+                })),
+            },
+        }
+    }
+}
+
+fn tool_get_annotations(id: Value, args: &Value) -> Response {
+    let path = match args["path"].as_str() {
+        Some(p) => p,
+        None => return Response::err(id, -32602, "`path` is required"),
+    };
+    let encoded = urlencoding::encode(path);
+    match ipc_get(&format!("/annotations?path={encoded}")) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+// ── IPC helpers ────────────────────────────────────────────────────────────────
 /// Read the port written by the running app.
 fn read_ipc_port() -> Result<u16, String> {
     let path = dirs::home_dir()
@@ -348,33 +462,56 @@ fn read_ipc_port() -> Result<u16, String> {
         .map_err(|e| format!("Invalid port in ipc-port file: {e}"))
 }
 
+/// Read the per-session auth token written by the running app.
+fn read_ipc_token() -> Result<String, String> {
+    let path = dirs::home_dir()
+        .map(|h| h.join(".mdopener").join("ipc-token"))
+        .ok_or("Cannot determine home directory")?;
+    std::fs::read_to_string(&path)
+        .map_err(|_| "~/.mdopener/ipc-token not found — is Ashlr MD running?".to_string())
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                // File exists but is empty — the app is mid-startup or wrote a
+                // truncated token. Fail loudly rather than send an empty bearer.
+                Err("~/.mdopener/ipc-token is empty — is Ashlr MD finished starting?".to_string())
+            } else {
+                Ok(t)
+            }
+        })
+}
+
 /// Make a GET request to the IPC server and return the parsed JSON body.
 fn ipc_get(path: &str) -> Result<Value, String> {
     let port = read_ipc_port()?;
+    let token = read_ipc_token()?;
     let url = format!("http://127.0.0.1:{port}{path}");
-    http_get(&url)
+    http_get(&url, &token)
 }
 
 /// Make a POST request with a JSON body and return the parsed JSON response.
 fn ipc_post(path: &str, body: Value) -> Result<Value, String> {
     let port = read_ipc_port()?;
+    let token = read_ipc_token()?;
     let url = format!("http://127.0.0.1:{port}{path}");
-    http_post(&url, &body)
+    http_post(&url, &body, &token)
 }
 
 // Minimal HTTP client using only std (no reqwest/ureq to keep the binary tiny).
-fn http_get(url: &str) -> Result<Value, String> {
+fn http_get(url: &str, token: &str) -> Result<Value, String> {
     let (host, port, path) = parse_url(url)?;
-    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    let request = format!(
+        "GET {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+    );
     let response_body = tcp_roundtrip(&host, port, request.as_bytes())?;
     parse_http_body(&response_body)
 }
 
-fn http_post(url: &str, body: &Value) -> Result<Value, String> {
+fn http_post(url: &str, body: &Value, token: &str) -> Result<Value, String> {
     let (host, port, path) = parse_url(url)?;
     let body_str = body.to_string();
     let request = format!(
-        "POST {path} HTTP/1.0\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
+        "POST {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
         body_str.len()
     );
     let response_body = tcp_roundtrip(&host, port, request.as_bytes())?;
@@ -429,6 +566,27 @@ fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
         .position(|w| w == sep)
         .map(|p| p + sep.len())
         .unwrap_or(0);
+
+    // Surface HTTP error statuses (e.g. 401 auth failure) as Err rather than
+    // letting an {"error":…} body bubble up as a successful parse.
+    if let Ok(head) = std::str::from_utf8(&raw[..body_start]) {
+        if let Some(code) = head
+            .lines()
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<u16>().ok())
+        {
+            if code == 401 {
+                return Err(
+                    "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".to_string(),
+                );
+            }
+            if code >= 400 {
+                return Err(format!("IPC server returned HTTP {code}"));
+            }
+        }
+    }
+
     let body = &raw[body_start..];
     serde_json::from_slice(body).map_err(|e| format!("IPC JSON parse error: {e}"))
 }

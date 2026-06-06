@@ -16,6 +16,7 @@ import { SourceEditor } from "../editor/SourceEditor";
 import { ExportDialog } from "../export/ExportDialog";
 import { FindBar } from "../find/FindBar";
 import { Outline } from "../Outline";
+import { ReviewPanel } from "../review/ReviewPanel";
 import { SearchPanel } from "../search/SearchPanel";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { Toast } from "../Toast";
@@ -155,6 +156,7 @@ export function Shell({ dragOver }: ShellProps) {
       {exportOpen && <ExportDialog />}
       {settingsOpen && <SettingsPanel />}
       <CommandPalette />
+      <ReviewPanel />
       <Toast />
     </div>
   );

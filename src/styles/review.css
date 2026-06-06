@@ -1,0 +1,171 @@
+/* review.css — the human-in-the-loop review surface (ReviewPanel.tsx).
+   A bottom docked bar shown when an agent calls the request_review MCP tool.
+   Shares the app's elevation, radius, and motion vocabulary; themed via tokens
+   only; reduced-motion aware. Sits above the side docks and toasts (z 360) but
+   below the command palette (z 400) so ⌘K can still surface over it. */
+
+.review-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 38px; /* clears the 26px status bar, like the toast stack */
+  transform: translateX(-50%);
+  z-index: 360;
+  width: min(680px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--ui-font);
+  color: var(--text);
+  animation: review-in 0.2s var(--ease-out);
+}
+
+@keyframes review-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-panel {
+    animation: none;
+  }
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.review-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-panel__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.review-panel__title strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.review-panel__spark {
+  color: var(--accent);
+  margin-right: 4px;
+}
+
+.review-panel__countdown {
+  flex: 0 0 auto;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  background: var(--code-bg);
+  border-radius: var(--radius-sm);
+}
+
+.review-panel__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.review-panel__close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ── Comment box ───────────────────────────────────────────────────────── */
+
+.review-panel__comment {
+  width: 100%;
+  resize: vertical;
+  min-height: 38px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.review-panel__comment::placeholder {
+  color: var(--text-muted);
+}
+.review-panel__comment:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+/* ── Action buttons ────────────────────────────────────────────────────── */
+
+.review-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.review-panel__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+.review-panel__btn--changes {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+.review-panel__btn--changes:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.review-panel__btn--approve {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.review-panel__btn--approve:hover {
+  opacity: 0.9;
+}
