@@ -3,7 +3,7 @@
 All notable changes to Ashlr MD are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] — Unreleased
+## [0.4.0] — 2026-06-06
 
 ### Agent integration & human review
 - **One-click connect for your coding agent** — wire Ashlr MD into **Claude
