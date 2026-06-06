@@ -68,16 +68,23 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
   watched files** (`⌘⇧F`).
 - **Split view & Zen mode** — edit with a live preview side-by-side (`⌘\`, synced
   scrolling), or go distraction-free with **Zen mode** (`⌘⇧Z`, `Esc` to exit).
-- **Wikilinks & embeds** — Obsidian-style `[[links]]` that resolve and open, and
-  `![[embeds]]` that transclude another file inline; broken links are flagged.
+- **Obsidian-compatible** — reads your vault natively: `[[wikilinks]]` (with
+  `#heading` / `#^block` anchors and `|aliases`) that resolve vault-wide and open,
+  `![[embeds]]` and partial transclusion, sized `![[image.png|300]]` embeds,
+  `==highlights==`, hidden `%%comments%%`, and KaTeX math. Read-only **JSON
+  Canvas** (`.canvas`) viewing with pan/zoom, plus an **Open in Obsidian** command
+  to hand a note back. Never writes to your `.obsidian/` config. Details:
+  [**docs/OBSIDIAN.md**](./docs/OBSIDIAN.md).
 - **Reading polish** — word count & reading time, footnote hover previews,
   a path breadcrumb, and copy-link-to-heading on hover.
 - **Secure by default** — malicious Markdown is sanitized (no script/HTML
   injection), API keys live in the OS keychain (never plaintext), and a strict
   CSP is enforced. See [SECURITY.md](./SECURITY.md).
-- **Agent-native** — `mdopen file.md`, the `mdopener://` URL scheme, and an **MCP
-  server** so Claude Code / Codex / Cursor can open, read, edit, and export the
-  live doc. One-click MCP setup in Settings.
+- **Agent-native review loop** — `mdopen file.md`, the `mdopener://` URL scheme,
+  and an **MCP server** so Claude Code / Codex / Cursor can open, read, edit, and
+  export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
+  the instant they land and **"Explain changes"** narrates each on-disk edit.
+  One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](./docs/AGENTS.md).
 - **Obsidian integration** — the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.

@@ -37,10 +37,12 @@ export async function resolveWikilink(target: string): Promise<string | null> {
       target,
       vaultRoot,
     });
+    // Cache the real answer (incl. a genuine "broken link" null).
     cache.set(key, resolved ?? null);
     return resolved ?? null;
   } catch {
-    cache.set(key, null);
+    // Don't cache transient IPC failures (e.g. cold start) — a permanent null
+    // would render a valid link as broken for the rest of the session.
     return null;
   }
 }

@@ -159,15 +159,6 @@ fn ipc_port_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".mdopener").join("ipc-port"))
 }
 
-fn write_port(port: u16) {
-    if let Some(path) = ipc_port_path() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&path, port.to_string());
-    }
-}
-
 fn ipc_token_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".mdopener").join("ipc-token"))
 }
@@ -179,14 +170,15 @@ fn generate_token() -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn write_token(token: &str) {
-    let Some(path) = ipc_token_path() else { return };
+/// Write `bytes` to `path`, owner-only. On Unix the file is created with mode
+/// 0600 in a single syscall (no world-readable TOCTOU window between write and
+/// chmod). Both the IPC token and port live under the user's home dir; keeping
+/// them 0600 means no *other* user can read them (a same-user process is trusted
+/// by the threat model — see SECURITY.md).
+fn write_private(path: &std::path::Path, bytes: &[u8]) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // On Unix, create the file owner-only in a single syscall (O_CREAT with
-    // mode 0600) so the token is never momentarily world-readable between the
-    // write and a follow-up chmod (TOCTOU).
     #[cfg(unix)]
     {
         use std::io::Write;
@@ -196,12 +188,24 @@ fn write_token(token: &str) {
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(&path)
-            .and_then(|mut f| f.write_all(token.as_bytes()));
+            .open(path)
+            .and_then(|mut f| f.write_all(bytes));
     }
     #[cfg(not(unix))]
     {
-        let _ = std::fs::write(&path, token.as_bytes());
+        let _ = std::fs::write(path, bytes);
+    }
+}
+
+fn write_port(port: u16) {
+    if let Some(path) = ipc_port_path() {
+        write_private(&path, port.to_string().as_bytes());
+    }
+}
+
+fn write_token(token: &str) {
+    if let Some(path) = ipc_token_path() {
+        write_private(&path, token.as_bytes());
     }
 }
 
@@ -230,8 +234,10 @@ pub fn start(app: AppHandle) -> Result<u16, String> {
         .ok_or("could not get IPC server port")?;
 
     let token = generate_token()?;
-    write_port(port);
+    // Write the token first, then the port — the port file is the MCP binary's
+    // "app is ready" signal, so it must not appear before the token exists.
     write_token(&token);
+    write_port(port);
     let bearer = std::sync::Arc::new(format!("Bearer {token}"));
 
     std::thread::Builder::new()

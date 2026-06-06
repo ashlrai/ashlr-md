@@ -118,7 +118,14 @@ export function useMcpBridge(): void {
     syncVaultNow();
 
     // ── 2. Listen for Tauri events from the IPC server ──────────────────────
+    // `listen()` is async; collect each resolved unlisten fn synchronously into
+    // `live` and tear down on unmount. If cleanup runs before a listener has
+    // finished registering (e.g. React StrictMode's mount→unmount→mount in dev),
+    // `disposed` makes the late-resolving listener unlisten itself immediately —
+    // so a remount never ends up with two live copies double-firing every event.
     const unlisteners: Promise<UnlistenFn>[] = [];
+    let disposed = false;
+    const live: UnlistenFn[] = [];
 
     // mcp://open — open a file (path + optional mode)
     unlisteners.push(
@@ -199,17 +206,25 @@ export function useMcpBridge(): void {
       }),
     );
 
+    // Track each listener's unlisten fn as it resolves (or unlisten on the spot
+    // if we've already been disposed).
+    for (const p of unlisteners) {
+      p.then((fn) => {
+        if (disposed) fn();
+        else live.push(fn);
+      });
+    }
+
     // ── Cleanup ──────────────────────────────────────────────────────────────
     return () => {
+      disposed = true;
       unsubDoc();
       unsubRecent();
       unsubActivity();
       if (syncTimer.current !== null) clearTimeout(syncTimer.current);
       if (vaultTimer.current !== null) clearTimeout(vaultTimer.current);
-      // Resolve all unlisten promises and call each one.
-      Promise.all(unlisteners).then((fns) => {
-        for (const fn of fns) fn();
-      });
+      // Unlisten everything already registered; late arrivals self-unlisten above.
+      for (const fn of live) fn();
     };
   }, []); // Mount once — stores are singletons, no deps needed.
 }

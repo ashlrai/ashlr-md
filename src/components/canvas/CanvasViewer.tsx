@@ -13,7 +13,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   type CanvasBounds,
   type CanvasEdge,
@@ -37,6 +37,11 @@ const MIN_SCALE = 0.05;
 const MAX_SCALE = 2;
 const FIT_PADDING = 60;
 
+// Stable empty references so the parse-failed render path doesn't churn the
+// nodes/edges memo identities.
+const EMPTY_NODES: CanvasNode[] = [];
+const EMPTY_EDGES: CanvasEdge[] = [];
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -57,16 +62,18 @@ export function CanvasViewer({ content }: { content: string }) {
   const [view, setView] = useState<ViewTransform>({ scale: 1, offsetX: 0, offsetY: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
-  const bounds = useMemo(
-    () => (parsed.ok ? canvasBounds(parsed.canvas.nodes) : null),
-    [parsed],
-  );
+  // Derive nodes/edges once, then memoize the bounds + id-index so neither is
+  // recomputed on every pan tick (each pan fires setView → a full re-render).
+  const nodes = parsed.ok ? parsed.canvas.nodes : EMPTY_NODES;
+  const edges = parsed.ok ? parsed.canvas.edges : EMPTY_EDGES;
+  const bounds = useMemo(() => canvasBounds(nodes), [nodes]);
+  const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   // Fit the whole canvas into view (used by the effect below and the Fit button).
   const fit = useMemo(
     () => () => {
       const el = containerRef.current;
-      if (!el || !bounds || el.clientWidth === 0 || el.clientHeight === 0) return;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
       setView(fitTransform(bounds, el.clientWidth, el.clientHeight, FIT_PADDING));
     },
     [bounds],
@@ -101,9 +108,6 @@ export function CanvasViewer({ content }: { content: string }) {
       </div>
     );
   }
-
-  const { nodes, edges } = parsed.canvas;
-  const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
   // ── Pan / zoom handlers ────────────────────────────────────────────────────
   const onWheel = (e: React.WheelEvent) => {
@@ -184,7 +188,7 @@ export function CanvasViewer({ content }: { content: string }) {
             transform: `translate(${view.offsetX}px, ${view.offsetY}px) scale(${view.scale})`,
           }}
         >
-          <CanvasEdges nodes={nodeById} edges={edges} bounds={canvasBounds(nodes)} />
+          <CanvasEdges nodes={nodeById} edges={edges} bounds={bounds} />
           {nodes.map((n) => (
             <CanvasNodeView key={n.id} node={n} />
           ))}
@@ -282,7 +286,9 @@ function CanvasEdges({
 
 // ── Nodes ─────────────────────────────────────────────────────────────────────
 
-function CanvasNodeView({ node }: { node: CanvasNode }) {
+// Memoized: nodes don't change during a pan/zoom (only the world transform
+// does), so they never need to re-render on a pan tick.
+const CanvasNodeView = memo(function CanvasNodeView({ node }: { node: CanvasNode }) {
   const color = resolveCanvasColor(node.color);
   const style: React.CSSProperties = {
     left: node.x,
@@ -337,7 +343,7 @@ function CanvasNodeView({ node }: { node: CanvasNode }) {
   }
 
   return <CanvasFileNodeView node={node} style={style} />;
-}
+});
 
 function CanvasFileNodeView({
   node,
