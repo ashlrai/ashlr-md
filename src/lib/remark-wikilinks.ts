@@ -53,12 +53,16 @@ export function remarkWikilinks() {
         const label = alias ?? (heading ? `${target} › ${heading}` : target);
 
         if (bang === "!") {
+          // For embeds the `|alias` slot is Obsidian's size hint (e.g.
+          // `![[img.png|300]]` or `|300x200`). Pass it through for images.
+          const embedProps: Record<string, unknown> = {
+            className: ["wikiembed"],
+            dataEmbedTarget: fullTarget,
+          };
+          if (alias) embedProps.dataEmbedSize = alias;
           replacement.push({
             type: "wikiembed",
-            data: {
-              hName: "div",
-              hProperties: { className: ["wikiembed"], dataEmbedTarget: fullTarget },
-            },
+            data: { hName: "div", hProperties: embedProps },
             children: [],
           });
         } else {

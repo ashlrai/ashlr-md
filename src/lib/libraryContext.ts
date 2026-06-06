@@ -10,10 +10,13 @@
  * future enhancement; keyword retrieval is the dependency-free baseline.)
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { useActivityStore } from "../store/activityStore";
+import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { searchFiles } from "./crossSearch";
 import { embedAvailable, embedSearch, type SemanticMatch } from "./embedSearch";
+import { effectiveVaultRoot } from "./vault";
 
 const STOPWORDS = new Set([
   "the",
@@ -115,6 +118,22 @@ export async function retrieveLibraryContext(
   }
   for (const f of useActivityStore.getState().files) {
     if (!exclude.has(f.path)) paths.add(f.path);
+  }
+  // Span the whole vault (auto-detected or overridden), not just recently-touched
+  // files — this is what makes "ask your vault" cover the entire knowledge base.
+  try {
+    const root = await effectiveVaultRoot(useDocumentStore.getState().path);
+    if (root) {
+      const vaultFiles = await invoke<Array<{ path: string }>>("list_markdown_files", {
+        path: root,
+        limit: 500,
+      });
+      for (const f of vaultFiles) {
+        if (!exclude.has(f.path)) paths.add(f.path);
+      }
+    }
+  } catch {
+    // Best-effort — fall back to recents + watched if enumeration fails.
   }
   const pathList = Array.from(paths);
   if (pathList.length === 0) return { block: "", citations: [] };

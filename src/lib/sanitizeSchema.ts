@@ -10,6 +10,7 @@
  * Extensions over the GitHub-derived `defaultSchema`:
  *   - `className` on any element (callout cards, KaTeX `.math` placeholders).
  *   - `input[type=checkbox]` for interactive GFM task lists.
+ *   - `mark` for Obsidian `==highlights==`.
  *   - wikilink `data-*` props on `<a>`/`<span>` and embed prop on `<div>`.
  */
 
@@ -17,7 +18,7 @@ import { defaultSchema } from "rehype-sanitize";
 
 export const SANITIZE_SCHEMA = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), "input"],
+  tagNames: [...(defaultSchema.tagNames ?? []), "input", "mark"],
   attributes: {
     ...defaultSchema.attributes,
     "*": [...(defaultSchema.attributes?.["*"] ?? []), "className"],
@@ -28,6 +29,6 @@ export const SANITIZE_SCHEMA = {
       "dataWikitarget",
       "dataWikialias",
     ],
-    div: [...(defaultSchema.attributes?.div ?? []), "dataEmbedTarget"],
+    div: [...(defaultSchema.attributes?.div ?? []), "dataEmbedTarget", "dataEmbedSize"],
   },
 };

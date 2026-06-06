@@ -10,6 +10,8 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
+import { remarkComments } from "../../lib/remark-comments";
+import { remarkHighlights } from "../../lib/remark-highlights";
 import { remarkWikilinks } from "../../lib/remark-wikilinks";
 import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
 import "../../styles/callouts.css";
@@ -132,7 +134,13 @@ const components: Components = {
         ? className.split(/\s+/)
         : [];
     if (classList.includes("wikiembed")) {
-      return <WikiEmbed target={String(node?.properties?.dataEmbedTarget ?? "")} />;
+      const sizeProp = node?.properties?.dataEmbedSize;
+      return (
+        <WikiEmbed
+          target={String(node?.properties?.dataEmbedTarget ?? "")}
+          size={sizeProp != null ? String(sizeProp) : undefined}
+        />
+      );
     }
     const calloutType = calloutTypeOf(className);
     if (calloutType) {
@@ -202,6 +210,10 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
         remarkPlugins={[
           remarkFrontmatter,
           remarkGfm,
+          // Obsidian text syntax: strip %%comments%% first, then ==highlights==,
+          // before wikilinks/math claim their delimiters.
+          remarkComments,
+          remarkHighlights,
           remarkWikilinks,
           remarkMath,
           remarkCallouts,

@@ -12,11 +12,13 @@
  */
 
 import { openSearchPanel } from "@codemirror/search";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useActivityStore } from "../store/activityStore";
 import { useAIStore } from "../store/aiStore";
 import { useDocumentStore } from "../store/documentStore";
 import { THEMES, type ThemeId, useSettingsStore } from "../store/settingsStore";
+import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { exportDocx, exportHtml, exportPdf } from "./export";
@@ -144,6 +146,23 @@ export function getCommands(): Command[] {
       keywords: ["close", "shut"],
       when: hasDoc,
       run: () => doc().close(),
+    },
+    {
+      id: "file.openInObsidian",
+      title: "Open in Obsidian",
+      group: "File",
+      keywords: ["obsidian", "vault", "external", "reveal"],
+      when: hasDoc,
+      run: async () => {
+        const path = doc().path;
+        if (!path) return;
+        try {
+          await invoke("open_in_obsidian", { path });
+        } catch (e) {
+          toast.error("Could not open in Obsidian — is it installed?");
+          console.warn("[open in obsidian]", e);
+        }
+      },
     },
 
     // ── View ──────────────────────────────────────────────────────────────

@@ -30,6 +30,14 @@ interface SettingsState {
   setNotificationsEnabled: (v: boolean) => void;
 
   /**
+   * Explicit Obsidian vault-root override. When set, wikilink resolution and
+   * "ask your vault" use this folder; when null, the app auto-detects the vault
+   * by walking up from the open file for a `.obsidian/` marker.
+   */
+  vaultRoot: string | null;
+  setVaultRoot: (path: string | null) => void;
+
+  /**
    * When (epoch ms) the default-handler prompt may show again.
    *   - `null`               → not snoozed; show whenever the app is not default.
    *   - future timestamp     → snoozed until then ("Not now").
@@ -64,6 +72,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       notificationsEnabled: true,
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
+
+      vaultRoot: null,
+      setVaultRoot: (vaultRoot) => set({ vaultRoot }),
 
       defaultPromptSnoozedUntil: null,
       snoozeDefaultPrompt: (days = 14) =>

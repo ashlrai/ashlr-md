@@ -61,3 +61,10 @@
 .wikiembed .markdown-body {
   padding: 0;
 }
+
+/* Inline image embeds (![[image.png]]). */
+.wikiembed__image {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm, 6px);
+}
