@@ -9,6 +9,7 @@ import { ActivityDrawer } from "../ActivityDrawer";
 import { AISidebar } from "../ai/AISidebar";
 import { SelectionPopover } from "../ai/SelectionPopover";
 import { CommandPalette } from "../CommandPalette";
+import { CanvasViewer } from "../canvas/CanvasViewer";
 import { DefaultHandlerBanner } from "../DefaultHandlerBanner";
 import { DigestCard } from "../DigestCard";
 import { MarkdownEditor } from "../editor/MarkdownEditor";
@@ -48,6 +49,8 @@ export function Shell({ dragOver }: ShellProps) {
   // The TabBar only renders with 2+ docs; when it does, the side docks must
   // start below it so they don't cover the leftmost/rightmost tabs.
   const hasTabs = useDocumentStore((s) => s.tabs.length >= 2);
+  // `.canvas` files render in the read-only Canvas viewer, not the MD editor.
+  const isCanvas = path?.toLowerCase().endsWith(".canvas") ?? false;
   const contentRef = useRef<HTMLElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -65,7 +68,8 @@ export function Shell({ dragOver }: ShellProps) {
 
   // Editors remount (fresh initial content) when the file or disk version changes.
   const docKey = `${path}-${reloadNonce}`;
-  const scrolls = viewMode === "read";
+  // Canvas manages its own pan surface — the outer <main> must not scroll.
+  const scrolls = viewMode === "read" && !isCanvas;
 
   // Synchronize editor↔preview scrolling (proportional) while split is active.
   // The editor manages its own internal scroller, which may mount asynchronously
@@ -117,6 +121,8 @@ export function Shell({ dragOver }: ShellProps) {
           <div className="error-state">{error}</div>
         ) : isLoading ? (
           <div className="loading-state">Opening…</div>
+        ) : path && isCanvas ? (
+          <CanvasViewer content={content} />
         ) : path ? (
           splitView && viewMode !== "read" ? (
             <div className="split-view" ref={splitRef}>
@@ -150,7 +156,7 @@ export function Shell({ dragOver }: ShellProps) {
       <ActivityDrawer />
       <Outline />
       <SearchPanel />
-      {findOpen && path && viewMode === "read" && <FindBar />}
+      {findOpen && path && viewMode === "read" && !isCanvas && <FindBar />}
       <AISidebar />
       <SelectionPopover />
       {exportOpen && <ExportDialog />}

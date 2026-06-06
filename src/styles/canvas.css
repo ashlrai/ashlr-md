@@ -1,0 +1,190 @@
+/* canvas.css — read-only JSON Canvas viewer (CanvasViewer.tsx).
+   A pannable/zoomable surface; nodes are absolutely positioned in canvas
+   coordinates inside a transformed "world", edges drawn in an overflow-visible
+   SVG sharing the same origin. Themed via tokens. */
+
+.canvas-viewer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.canvas-viewer--error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-family: var(--ui-font);
+  padding: 24px;
+  text-align: center;
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+
+.canvas-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--ui-font);
+}
+.canvas-toolbar button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+.canvas-toolbar button:hover {
+  background: var(--surface-hover);
+}
+.canvas-fit-btn {
+  font-size: 13px !important;
+  font-weight: 600;
+}
+.canvas-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ── Surface + world ──────────────────────────────────────────────────────── */
+
+.canvas-surface {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none; /* let pointer events drive the pan, not native scroll */
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.canvas-surface:active {
+  cursor: grabbing;
+}
+
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* ── Edges ────────────────────────────────────────────────────────────────── */
+
+.canvas-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.canvas-edge-label {
+  fill: var(--text);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+
+/* ── Nodes ────────────────────────────────────────────────────────────────── */
+
+.canvas-node {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-node--group {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-style: solid;
+  border-radius: 10px;
+}
+.canvas-group-label {
+  align-self: flex-start;
+  margin: -1.5px 0 0 -1.5px;
+  padding: 3px 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-top-left-radius: 10px;
+  border-bottom-right-radius: 8px;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.canvas-node__title {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.canvas-node__open {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.canvas-node__open:hover {
+  text-decoration: underline;
+}
+
+.canvas-node__scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 12px;
+}
+.canvas-node__scroll .markdown-body {
+  padding: 0;
+}
+
+.canvas-node--link a {
+  color: var(--accent);
+  word-break: break-all;
+}
+.canvas-node--link {
+  padding: 10px 12px;
+  justify-content: center;
+}
+
+.canvas-node__image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.canvas-node__muted {
+  color: var(--text-muted);
+  font-family: var(--ui-font);
+  font-size: 13px;
+}
