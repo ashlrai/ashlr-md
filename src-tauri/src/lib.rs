@@ -71,6 +71,8 @@ pub fn run() {
             agent_setup::detect_agent_clis,
             agent_setup::connect_claude_code,
             agent_setup::connect_cursor,
+            agent_setup::connect_codex,
+            agent_setup::install_claude_hook,
             agent_setup::mcp_command_string,
             activity::watch_directory,
             activity::unwatch_directory,

@@ -32,6 +32,13 @@ use tauri::Manager;
 ///
 /// Returns an error string if the binary cannot be found in any location.
 fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
+    resolve_sidecar_binary(app, "mdopener-mcp")
+}
+
+/// Resolve the absolute path to a bundled sidecar binary by name (e.g.
+/// `mdopener-mcp`, `mdopen`). Searches the same locations across bundling
+/// layouts and dev builds.
+fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Cannot determine app executable path: {e}"))?;
     let exe_dir = exe
@@ -41,19 +48,19 @@ fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
     // Candidate locations, in preference order.
     let mut candidates: Vec<PathBuf> = vec![
         // 1. Tauri sidecar: placed next to the app binary by Tauri's bundler.
-        exe_dir.join("mdopener-mcp"),
+        exe_dir.join(bin),
     ];
 
     // 2. Tauri resource directory (alternate bundling layout on some targets).
     if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join("mdopener-mcp"));
+        candidates.push(resource_dir.join(bin));
     }
 
     // 3. Local cargo release build (dev workflow without `tauri build`).
     //    Walk up from the exe dir looking for `target/release`.
     let mut dir = exe_dir.to_path_buf();
     for _ in 0..8 {
-        let candidate = dir.join("target").join("release").join("mdopener-mcp");
+        let candidate = dir.join("target").join("release").join(bin);
         if candidate.exists() {
             candidates.push(candidate);
             break;
@@ -69,12 +76,12 @@ fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
             return candidate
                 .to_str()
                 .map(|s| s.to_owned())
-                .ok_or_else(|| "MCP binary path contains non-UTF-8 characters".to_string());
+                .ok_or_else(|| format!("{bin} path contains non-UTF-8 characters"));
         }
     }
 
     Err(format!(
-        "mdopener-mcp binary not found. Searched:\n{}",
+        "{bin} binary not found. Searched:\n{}",
         candidates
             .iter()
             .map(|p| format!("  • {}", p.display()))
@@ -281,6 +288,158 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
         "ashlr-md added to {}.\n\
          Restart Cursor (or reload the MCP servers in Settings → MCP) to pick it up.",
         config_path.display()
+    ))
+}
+
+// ── Codex ─────────────────────────────────────────────────────────────────────
+
+/// Register Ashlr MD as an MCP server in OpenAI Codex (global config).
+///
+/// Runs: `codex mcp add --transport stdio ashlr-md -- <mcp-binary-path>`, which
+/// writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
+/// consumes MCP *tools* (not resources/prompts) — exactly what ashlr-md exposes
+/// for agent control.
+#[tauri::command]
+pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
+    let mcp_path = resolve_mcp_binary_path(&app)?;
+
+    let output = Command::new("codex")
+        .args(["mcp", "add", "--transport", "stdio", "ashlr-md", "--", &mcp_path])
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "Codex CLI not found. Install it (e.g. `npm i -g @openai/codex`) then try again."
+                    .to_string()
+            } else {
+                format!("Failed to run codex CLI: {e}")
+            }
+        })?;
+
+    if output.status.success() {
+        Ok("Ashlr MD registered as an MCP server in Codex.\nRestart Codex to pick it up."
+            .to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = [stdout.trim(), stderr.trim()]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        let lc = detail.to_lowercase();
+        if lc.contains("already") || lc.contains("exists") {
+            return Ok("ashlr-md is already registered in Codex.".to_string());
+        }
+        Err(if detail.is_empty() {
+            format!(
+                "codex mcp add exited with code {}.",
+                output.status.code().unwrap_or(-1)
+            )
+        } else {
+            detail
+        })
+    }
+}
+
+// ── Claude Code auto-open hook ──────────────────────────────────────────────────
+
+/// Install a Claude Code `PostToolUse` hook so that whenever Claude writes or
+/// edits a Markdown file, it auto-opens in Ashlr MD for review.
+///
+/// Merges into `~/.claude/settings.json` (verified schema):
+/// ```json
+/// { "hooks": { "PostToolUse": [ { "matcher": "Edit|Write",
+///   "hooks": [ { "type": "command", "command": "<mdopen> --hook",
+///                "if": "Write(*.md)|Edit(*.md)" } ] } ] } }
+/// ```
+/// Idempotent: re-running won't add a duplicate hook.
+#[tauri::command]
+pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
+    let mdopen = resolve_sidecar_binary(&app, "mdopen")?;
+    let command = format!("{mdopen} --hook");
+
+    let settings_path = dirs::home_dir()
+        .map(|h| h.join(".claude").join("settings.json"))
+        .ok_or("Cannot determine home directory")?;
+    if let Some(parent) = settings_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+    }
+
+    let mut root: Value = if settings_path.exists() {
+        let raw = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Cannot read {}: {e}", settings_path.display()))?;
+        serde_json::from_str(&raw).map_err(|e| {
+            format!("{} is not valid JSON ({e}). Fix it and retry.", settings_path.display())
+        })?
+    } else {
+        json!({})
+    };
+
+    // Don't clobber a user's settings if these keys exist with an unexpected
+    // shape — bail and let them fix it rather than silently overwrite real data.
+    if root.get("hooks").is_some_and(|v| !v.is_object()) {
+        return Err(format!(
+            "{} has a non-object `hooks` value. Fix it manually and retry.",
+            settings_path.display()
+        ));
+    }
+    if !root.get("hooks").map(|v| v.is_object()).unwrap_or(false) {
+        root["hooks"] = json!({});
+    }
+    if root["hooks"].get("PostToolUse").is_some_and(|v| !v.is_array()) {
+        return Err(format!(
+            "{} has a non-array `hooks.PostToolUse` value. Fix it manually and retry.",
+            settings_path.display()
+        ));
+    }
+    if !root["hooks"]
+        .get("PostToolUse")
+        .map(|v| v.is_array())
+        .unwrap_or(false)
+    {
+        root["hooks"]["PostToolUse"] = json!([]);
+    }
+    let arr = root["hooks"]["PostToolUse"].as_array_mut().unwrap();
+
+    // Idempotency: skip if any existing hook already runs our `mdopen --hook`.
+    let already = arr.iter().any(|entry| {
+        entry["hooks"]
+            .as_array()
+            .map(|hs| {
+                hs.iter().any(|h| {
+                    h["command"]
+                        .as_str()
+                        .map(|c| c.contains("mdopen") && c.contains("--hook"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    });
+    if already {
+        return Ok("Auto-open hook is already installed in Claude Code.".to_string());
+    }
+
+    arr.push(json!({
+        "matcher": "Edit|Write",
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "if": "Write(*.md)|Edit(*.md)"
+        }]
+    }));
+
+    let serialised = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("JSON serialisation error: {e}"))?;
+    fs::write(&settings_path, serialised)
+        .map_err(|e| format!("Cannot write {}: {e}", settings_path.display()))?;
+
+    Ok(format!(
+        "Auto-open hook installed in {}.\n\
+         Claude Code will now open Markdown files in Ashlr MD as it writes them. \
+         Restart Claude Code to pick it up.",
+        settings_path.display()
     ))
 }
 

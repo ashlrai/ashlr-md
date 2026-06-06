@@ -27,6 +27,14 @@ use std::process;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
+    // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
+    // agent, whatever the payload looks like.
+    if args.iter().any(|a| a == "--hook") {
+        run_hook();
+        process::exit(0);
+    }
+
     if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
         print_help();
         process::exit(0);
@@ -109,6 +117,39 @@ fn open_in_app(abs_path: &str, mode: Option<&str>) {
     }
 
     launch_url(&url);
+}
+
+/// Claude Code `--hook` mode: parse the PostToolUse JSON from stdin and open the
+/// written Markdown file. Silent + always succeeds; the hook must never disrupt
+/// the agent. The `if: "Write(*.md)|Edit(*.md)"` rule should already gate this
+/// to Markdown, but we re-check the extension defensively.
+fn run_hook() {
+    use std::io::Read;
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        return;
+    }
+    let v: serde_json::Value = match serde_json::from_str(&input) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let path = v["tool_input"]["file_path"].as_str().unwrap_or("");
+    if path.is_empty() {
+        return;
+    }
+    let lower = path.to_ascii_lowercase();
+    let is_md = [".md", ".markdown", ".mdown", ".mkd", ".mdx"]
+        .iter()
+        .any(|e| lower.ends_with(e));
+    if !is_md {
+        return;
+    }
+    // file_path is normally absolute, but don't assume — resolve when we can.
+    let abs = std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string());
+    let encoded = urlencoding::encode(&abs);
+    launch_url(&format!("mdopener://open?path={encoded}&mode=read"));
 }
 
 /// Invoke the platform-appropriate command to open a URL / custom scheme.

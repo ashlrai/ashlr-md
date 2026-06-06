@@ -13,3 +13,5 @@ path = "src/main.rs"
 [dependencies]
 # Percent-encodes the file path before embedding it in the URL.
 urlencoding = "2"
+# Parses the Claude Code hook JSON payload from stdin (--hook mode).
+serde_json = "1"

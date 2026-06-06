@@ -641,6 +641,8 @@ function McpSection() {
   } | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<ConnectStatus>({ kind: "idle" });
   const [cursorStatus, setCursorStatus] = useState<ConnectStatus>({ kind: "idle" });
+  const [codexStatus, setCodexStatus] = useState<ConnectStatus>({ kind: "idle" });
+  const [hookStatus, setHookStatus] = useState<ConnectStatus>({ kind: "idle" });
   const [mcpCmd, setMcpCmd] = useState<string>(
     "claude mcp add ashlr-md /Applications/Ashlr\\ MD.app/Contents/MacOS/mdopener-mcp",
   );
@@ -656,7 +658,11 @@ function McpSection() {
   }, []);
 
   async function connect(
-    cmd: "connect_claude_code" | "connect_cursor",
+    cmd:
+      | "connect_claude_code"
+      | "connect_cursor"
+      | "connect_codex"
+      | "install_claude_hook",
     set: (s: ConnectStatus) => void,
   ) {
     set({ kind: "busy" });
@@ -693,6 +699,8 @@ function McpSection() {
 
   const claudeBusy = claudeStatus.kind === "busy";
   const cursorBusy = cursorStatus.kind === "busy";
+  const codexBusy = codexStatus.kind === "busy";
+  const hookBusy = hookStatus.kind === "busy";
 
   return (
     <div className="settings-mcp">
@@ -732,9 +740,47 @@ function McpSection() {
           {cursorBusy && <SpinnerIcon />}
           Connect to Cursor
         </button>
+        <button
+          type="button"
+          className="settings-action-btn"
+          onClick={() => connect("connect_codex", setCodexStatus)}
+          disabled={codexBusy || agentClis?.codex === false}
+          aria-busy={codexBusy}
+          title={
+            agentClis?.codex === false
+              ? "Codex CLI not found"
+              : "Register ashlr-md in Codex (~/.codex/config.toml)"
+          }
+        >
+          {codexBusy && <SpinnerIcon />}
+          Connect to Codex
+        </button>
       </div>
       <Result status={claudeStatus} />
       <Result status={cursorStatus} />
+      <Result status={codexStatus} />
+
+      <p
+        className="settings-description settings-description-muted"
+        style={{ marginTop: "14px" }}
+      >
+        Auto-open: when Claude Code writes or edits a Markdown file, open it here for
+        review — installs a PostToolUse hook in <code>~/.claude/settings.json</code>.
+      </p>
+      <div className="settings-cli-row">
+        <button
+          type="button"
+          className="settings-action-btn"
+          onClick={() => connect("install_claude_hook", setHookStatus)}
+          disabled={hookBusy}
+          aria-busy={hookBusy}
+          title="Install the Claude Code auto-open hook"
+        >
+          {hookBusy && <SpinnerIcon />}
+          Auto-open agent Markdown
+        </button>
+      </div>
+      <Result status={hookStatus} />
 
       <p
         className="settings-description settings-description-muted"
