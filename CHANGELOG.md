@@ -35,6 +35,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 - Removed two unused dependencies and dead plugin exports; broken wikilinks now
   re-resolve shortly after the missing note is created instead of staying broken
   for the session.
+- Split the 1,091-line `SettingsPanel.tsx` into per-section components (one file
+  per preferences section, plus a shared icon set) — no behavior change, the
+  panel is now a thin composition shell.
 
 ## [0.4.0] — 2026-06-06
 
