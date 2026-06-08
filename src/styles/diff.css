@@ -1,0 +1,205 @@
+/* diff.css — styles for the live diff-review UI (DiffBlock.tsx).
+   Follows the token vocabulary in review.css / callouts.css.
+   3-theme safe (Paper / Sepia / Midnight); reduced-motion aware.
+   Diff line colours reuse the Shiki .line.diff.add / .remove rules in
+   callouts.css — this file adds the surrounding hunk chrome only. */
+
+/* ── Hunk container ─────────────────────────────────────────────────────── */
+
+.diff-hunk {
+  position: relative;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* Dim an applied hunk so it reads as "done". */
+.diff-hunk--applied {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ── Hunk @@ header line ─────────────────────────────────────────────────── */
+
+.diff-hunk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 2px 10px;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.diff-hunk-header-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Action strip (Copy + Apply) ─────────────────────────────────────────── */
+
+.diff-hunk-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Shared base for both buttons — mirrors .copy-btn in callouts.css. */
+.diff-copy-btn,
+.diff-apply-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 550;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+/* Copy button — neutral, matches existing .copy-btn aesthetic. */
+.diff-copy-btn {
+  background: transparent;
+  color: var(--text-muted);
+}
+.diff-copy-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.diff-copy-btn.copied {
+  color: var(--callout-tip-color, #22a845);
+  border-color: var(--callout-tip-color, #22a845);
+}
+
+/* Apply button — accent-tinted to signal a write action. */
+.diff-apply-btn {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.diff-apply-btn:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.diff-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.diff-apply-btn.applying {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* ── Inline confirm prompt (mirrors .run-confirm in callouts.css) ─────────── */
+
+.diff-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  animation: diff-confirm-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes diff-confirm-in {
+  from { opacity: 0; transform: translateX(4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diff-confirm { animation: none; }
+  .diff-hunk    { transition: none; }
+}
+
+.diff-confirm-label {
+  font-family: var(--ui-font);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.diff-confirm-yes {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 650;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.diff-confirm-yes:hover { opacity: 0.88; }
+
+.diff-confirm-no {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 550;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.diff-confirm-no:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ── Shiki output inside a diff hunk — extend callouts.css selectors ─────── */
+/* callouts.css already covers .code-block .shiki .line.diff.add/remove.
+   DiffBlock renders .diff-hunk > .shiki, so we need the same rules there. */
+
+.diff-hunk .shiki .line.diff.add {
+  background-color: color-mix(in srgb, #22c55e 12%, transparent);
+  display: block;
+  width: 100%;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.diff-hunk .shiki .line.diff.remove {
+  background-color: color-mix(in srgb, #ef4444 12%, transparent);
+  display: block;
+  width: 100%;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.diff-hunk .shiki .line.diff.add::before {
+  content: "+";
+  color: #22c55e;
+  margin-right: 4px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+.diff-hunk .shiki .line.diff.remove::before {
+  content: "-";
+  color: #ef4444;
+  margin-right: 4px;
+  font-weight: 700;
+  opacity: 0.8;
+}

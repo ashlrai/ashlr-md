@@ -50,6 +50,7 @@ pub fn run() {
             document::open_in_obsidian,
             document::read_image_data_url,
             document::filter_existing,
+            document::apply_file_patch,
             export::write_file_bytes,
             file_handler::take_pending_files,
             watcher::watch_file,

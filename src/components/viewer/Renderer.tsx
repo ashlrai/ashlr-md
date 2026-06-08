@@ -19,6 +19,7 @@ import "../../styles/reading.css";
 import "../../styles/wikilinks.css";
 import { Callout } from "./Callout";
 import { CodeBlock } from "./CodeBlock";
+import { DiffBlock } from "./DiffBlock";
 import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
 import { MermaidBlock } from "./MermaidBlock";
@@ -78,6 +79,7 @@ const components: Components = {
       const lang = match?.[1]?.toLowerCase() ?? "text";
       const code = textOf(props.children).replace(/\n$/, "");
       if (lang === "mermaid") return <MermaidBlock code={code} />;
+      if (lang === "diff") return <DiffBlock code={code} />;
       return <CodeBlock code={code} lang={lang} />;
     }
     return <pre>{children}</pre>;
@@ -204,7 +206,11 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
   return (
     <div className="markdown-body" data-doc-kind={info.kind ?? undefined}>
       {info.kind && (
-        <DocKindBadge kind={info.kind} total={info.taskTotal} done={info.taskDone} />
+        <DocKindBadge
+          kind={info.kind}
+          total={info.kind === "diff" ? info.hunkTotal : info.taskTotal}
+          done={info.kind === "diff" ? 0 : info.taskDone}
+        />
       )}
       <ReactMarkdown
         remarkPlugins={[

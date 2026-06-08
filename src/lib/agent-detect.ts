@@ -28,6 +28,8 @@ export interface DocInfo {
   taskTotal: number;
   /** Completed task items (`- [x]`). */
   taskDone: number;
+  /** Total diff hunks found (kind === "diff" only; 0 otherwise). */
+  hunkTotal: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,15 @@ function countFileHeadings(content: string): number {
   return (content.match(FILE_HEADING_RE) ?? []).length;
 }
 
+/** Count `@@` hunk headers in a raw diff string (inline to avoid import cycle). */
+function countHunksInline(content: string): number {
+  let n = 0;
+  for (const line of content.split("\n")) {
+    if (line.startsWith("@@")) n++;
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // Primary export
 // ---------------------------------------------------------------------------
@@ -86,32 +97,32 @@ function countFileHeadings(content: string): number {
  */
 export function detectDocKind(content: string): DocInfo {
   if (!content || content.trim() === "") {
-    return { kind: null, taskTotal: 0, taskDone: 0 };
+    return { kind: null, taskTotal: 0, taskDone: 0, hunkTotal: 0 };
   }
 
   const { total: taskTotal, done: taskDone } = countTasks(content);
 
   // ── diff: any ```diff block is a strong signal ───────────────────────────
   if (DIFF_FENCE_RE.test(content)) {
-    return { kind: "diff", taskTotal, taskDone };
+    return { kind: "diff", taskTotal, taskDone, hunkTotal: countHunksInline(content) };
   }
 
   // ── multi-file: ≥3 file-path headings ────────────────────────────────────
   if (countFileHeadings(content) >= 3) {
-    return { kind: "multi-file", taskTotal, taskDone };
+    return { kind: "multi-file", taskTotal, taskDone, hunkTotal: 0 };
   }
 
   // ── plan: starts with an h1 AND has task items ───────────────────────────
   if (H1_RE.test(content) && taskTotal >= 2) {
-    return { kind: "plan", taskTotal, taskDone };
+    return { kind: "plan", taskTotal, taskDone, hunkTotal: 0 };
   }
 
   // ── generic agent output: many tasks but no h1 ───────────────────────────
   if (taskTotal >= 2) {
-    return { kind: "generic", taskTotal, taskDone };
+    return { kind: "generic", taskTotal, taskDone, hunkTotal: 0 };
   }
 
-  return { kind: null, taskTotal, taskDone };
+  return { kind: null, taskTotal, taskDone, hunkTotal: 0 };
 }
 
 // ---------------------------------------------------------------------------

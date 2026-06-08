@@ -21,6 +21,7 @@ import "./styles/themes.css";
 import "./styles/global.css";
 import "./styles/markdown.css";
 import "./styles/command-palette.css";
+import "./styles/diff.css";
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
 

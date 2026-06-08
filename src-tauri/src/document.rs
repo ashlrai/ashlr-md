@@ -339,6 +339,70 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
+/// Apply a single exact find→replace to a file named by a `` ```diff `` block,
+/// resolved RELATIVE TO `base_dir` (the directory of the document being viewed).
+///
+/// SECURITY: `target` comes from an untrusted document's diff header (the agent
+/// authored it), so the resolved file is CONFINED to `base_dir`'s subtree. An
+/// absolute target (`/etc/hosts`) or a `../` escape is rejected — a malicious
+/// `.md` cannot turn "Apply hunk" into an arbitrary-file write primitive. Uses
+/// the same unique-match semantics as `/edit` (0 → error, >1 → ambiguous), and
+/// writes atomically via `write_markdown_file` (which also guards `.obsidian/`).
+///
+/// Returns the resolved absolute path on success so the UI can show what changed.
+#[tauri::command]
+pub fn apply_file_patch(
+    base_dir: String,
+    target: String,
+    find: String,
+    replace: String,
+) -> Result<String, String> {
+    if find.is_empty() {
+        return Err("`find` must not be empty.".into());
+    }
+    let base = std::fs::canonicalize(&base_dir)
+        .map_err(|e| format!("Cannot resolve the document's folder: {e}"))?;
+
+    // Resolve the target relative to the doc's dir. `Path::join` lets an absolute
+    // `target` replace `base` — which the confinement check below then rejects.
+    let joined = base.join(&target);
+    let parent = joined
+        .parent()
+        .ok_or("The patch target has no parent directory.")?;
+    let canon_parent = std::fs::canonicalize(parent)
+        .map_err(|e| format!("Cannot resolve the patch target's folder: {e}"))?;
+
+    // Confinement: the (symlink-resolved) target dir must stay under base_dir.
+    if !canon_parent.starts_with(&base) {
+        return Err(
+            "Refusing to patch a file outside the document's own folder (the diff names a path that escapes it)."
+                .into(),
+        );
+    }
+
+    let file_name = joined
+        .file_name()
+        .ok_or("The patch target has no file name.")?;
+    let resolved = canon_parent.join(file_name);
+    let resolved_str = resolved.to_string_lossy().into_owned();
+
+    if path_targets_obsidian_dir(&resolved_str) {
+        return Err("Refusing to patch inside an Obsidian .obsidian/ config folder.".into());
+    }
+
+    let content = std::fs::read_to_string(&resolved)
+        .map_err(|e| format!("Could not read {resolved_str}: {e}"))?;
+    let new_content = match content.matches(find.as_str()).count() {
+        0 => return Err("Patch context not found in the target file.".into()),
+        1 => content.replacen(find.as_str(), replace.as_str(), 1),
+        n => return Err(format!(
+            "Patch context is not unique ({n} matches) — include more surrounding context to disambiguate."
+        )),
+    };
+    write_markdown_file(resolved_str.clone(), new_content)?;
+    Ok(resolved_str)
+}
+
 /// Open the given file in Obsidian via the `obsidian://open?path=…` URI scheme.
 #[tauri::command]
 pub fn open_in_obsidian(app: tauri::AppHandle, path: String) -> Result<(), String> {
@@ -468,6 +532,48 @@ mod tests {
         let err = write_markdown_file(s(&target), "{}".into()).unwrap_err();
         assert!(err.contains(".obsidian"), "got: {err}");
         assert!(!target.exists(), "must not have written the file");
+    }
+
+    #[test]
+    fn apply_file_patch_within_doc_dir_succeeds() {
+        let root = make_tree();
+        std::fs::write(root.join("notes").join("doc.md"), "hello world").unwrap();
+        // base_dir = notes/, target a sibling file relative to it.
+        let base = root.join("notes");
+        apply_file_patch(s(&base), "doc.md".into(), "world".into(), "there".into()).unwrap();
+        let got = std::fs::read_to_string(root.join("notes").join("doc.md")).unwrap();
+        assert_eq!(got, "hello there");
+    }
+
+    #[test]
+    fn apply_file_patch_rejects_escape_outside_doc_dir() {
+        let root = make_tree();
+        std::fs::write(root.join("secret.md"), "TOPSECRET").unwrap();
+        let base = root.join("notes");
+        // `../secret.md` escapes the doc's folder → must be refused, file untouched.
+        let err = apply_file_patch(s(&base), "../secret.md".into(), "TOPSECRET".into(), "x".into())
+            .unwrap_err();
+        assert!(err.contains("outside"), "got: {err}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("secret.md")).unwrap(),
+            "TOPSECRET"
+        );
+    }
+
+    #[test]
+    fn apply_file_patch_rejects_absolute_target() {
+        let root = make_tree();
+        let base = root.join("notes");
+        // An absolute target outside base is rejected (can't resolve / not confined).
+        let err = apply_file_patch(
+            s(&base),
+            "/etc/hosts".into(),
+            "127.0.0.1".into(),
+            "x".into(),
+        )
+        .unwrap_err();
+        // Either "outside" (if /etc resolves) or a resolve error — never a write.
+        assert!(!err.is_empty());
     }
 
     #[cfg(unix)]
