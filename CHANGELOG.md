@@ -17,6 +17,24 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   the whole document.
 - **Review loop:** an expiring review countdown can no longer dismiss a *newer*
   review that replaced it — dismissal is now scoped to the review it targets.
+- **No more silent data loss.** Closing a tab with unsaved edits (⌘W, the ×, or
+  the Close command) now asks for confirmation instead of discarding your work.
+- **AI chat renders lists correctly.** Responses that mix prose and bullet lists
+  no longer get the prose swallowed into the list; and an aborted/empty assistant
+  turn is no longer sent back to the model (which providers like Anthropic reject).
+- **Export works from any view.** Exporting (HTML/PDF/Word) from Edit or Source
+  view now switches to Read first and waits for it to render, instead of silently
+  failing; failures surface as a toast.
+- **Find-in-document** opened from the editor no longer occasionally shows "0/0"
+  on large docs — it waits for the read view to mount rather than a fixed delay.
+- **Settings → Content width** stepper added (the setting existed but had no UI).
+- Next/Previous-tab commands are hidden when only one tab is open; the MCP
+  `export` request reports back when no document is open instead of no-op'ing.
+
+### Internal
+- Removed two unused dependencies and dead plugin exports; broken wikilinks now
+  re-resolve shortly after the missing note is created instead of staying broken
+  for the session.
 
 ## [0.4.0] — 2026-06-06
 

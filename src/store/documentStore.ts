@@ -403,38 +403,58 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const idx = s.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;
 
-    // TODO: confirm-on-close for dirty tabs. For now, a dirty tab's unsaved
-    // edits are silently dropped when closed.
-    const remaining = s.tabs.filter((t) => t.id !== id);
+    // The active tab's live dirty flag is the top-level `isDirty`; an inactive
+    // tab carries its own. Confirm before discarding unsaved edits.
+    const tab = s.tabs[idx];
+    const dirty = id === s.activeId ? s.isDirty : tab.isDirty;
 
-    if (remaining.length === 0) {
+    // Re-reads state after any async confirm gap, then performs the close.
+    const finish = () => {
+      const cur = get();
+      const i = cur.tabs.findIndex((t) => t.id === id);
+      if (i === -1) return;
+      const remaining = cur.tabs.filter((t) => t.id !== id);
+
+      if (remaining.length === 0) {
+        set({ ...EMPTY_TOP, tabs: [], activeId: null, reloadNonce: cur.reloadNonce });
+        return;
+      }
+      if (id !== cur.activeId) {
+        // Non-active tab: persist live edits to the still-active tab first.
+        const synced = syncActiveTab(cur).filter((t) => t.id !== id);
+        set({ tabs: synced });
+        return;
+      }
+      // Active tab — activate nearest neighbor (right, else left).
+      const neighbor = remaining[Math.min(i, remaining.length - 1)];
       set({
-        ...EMPTY_TOP,
-        tabs: [],
-        activeId: null,
-        reloadNonce: s.reloadNonce,
+        ...tabFieldsToTop(neighbor),
+        tabs: remaining,
+        activeId: neighbor.id,
+        isLoading: false,
+        error: null,
       });
+      invoke("watch_file", { path: neighbor.path }).catch(() => {});
+    };
+
+    if (dirty) {
+      // A native confirm prevents silently dropping unsaved work (⌘W, ×, etc.).
+      // On any dialog failure we DON'T close — losing edits is worse than a
+      // tab that won't close (the user can save, then close).
+      import("@tauri-apps/plugin-dialog")
+        .then(({ ask }) =>
+          ask(`"${tab.fileName}" has unsaved changes. Close without saving?`, {
+            title: "Unsaved changes",
+            kind: "warning",
+          }),
+        )
+        .then((ok) => {
+          if (ok) finish();
+        })
+        .catch(() => {});
       return;
     }
-
-    if (id !== s.activeId) {
-      // Closing a non-active tab: keep top-level mirror as-is, but persist any
-      // live edits to the still-active tab first.
-      const synced = syncActiveTab(s).filter((t) => t.id !== id);
-      set({ tabs: synced });
-      return;
-    }
-
-    // Closing the active tab — activate nearest neighbor (right, else left).
-    const neighbor = remaining[Math.min(idx, remaining.length - 1)];
-    set({
-      ...tabFieldsToTop(neighbor),
-      tabs: remaining,
-      activeId: neighbor.id,
-      isLoading: false,
-      error: null,
-    });
-    invoke("watch_file", { path: neighbor.path }).catch(() => {});
+    finish();
   },
 
   nextTab: () => {

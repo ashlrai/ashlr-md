@@ -92,9 +92,11 @@ function renderMarkdown(text: string, streaming: boolean): string {
     .replace(/`([^`\n]+)`/g, (_m, code: string) => `<code>${escHtml(code)}</code>`)
     // Bold
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    // Unordered list items
+    // Unordered list items. Wrap only CONSECUTIVE <li> runs in one <ul> — the
+    // old greedy `(<li>.*<\/li>)/gs` spanned from the first to the last item and
+    // swallowed any prose/blank lines between two separate lists.
     .replace(/^[ \t]*[-*+] (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
+    .replace(/(?:<li>.*?<\/li>\n?)+/g, (m) => `<ul>${m.replace(/\n/g, "")}</ul>`)
     // Double newline → paragraph break
     .replace(/\n{2,}/g, "</p><p>")
     // Single newline inside paragraphs
@@ -334,7 +336,10 @@ export function AISidebar() {
       // Build full message history.
       const history = useAIStore
         .getState()
-        .messages.filter((m) => !m.streaming)
+        // Skip in-flight messages AND any finalized-but-empty assistant turn
+        // (an aborted/failed stream) — providers like Anthropic reject a message
+        // with empty content.
+        .messages.filter((m) => !m.streaming && m.content.trim() !== "")
         .map((m) => ({
           role: m.role as "user" | "assistant" | "system",
           content: m.content,

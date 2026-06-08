@@ -25,6 +25,7 @@ interface SettingsState {
   setTheme: (theme: ThemeId) => void;
   cycleTheme: () => void;
   setFontSize: (fontSize: number) => void;
+  setContentWidth: (width: number) => void;
   /** Fire native OS notifications on real agent activity (default on). */
   notificationsEnabled: boolean;
   setNotificationsEnabled: (v: boolean) => void;
@@ -69,6 +70,8 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setFontSize: (fontSize) =>
         set({ fontSize: Math.min(24, Math.max(13, fontSize)) }),
+      setContentWidth: (contentWidth) =>
+        set({ contentWidth: Math.min(960, Math.max(600, contentWidth)) }),
 
       notificationsEnabled: true,
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),

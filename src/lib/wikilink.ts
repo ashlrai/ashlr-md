@@ -4,14 +4,30 @@
  * Resolution runs in Rust (`resolve_wikilink`), scoped to the effective vault
  * root (Obsidian-faithful: vault-wide, closest-to-current-doc wins) and falling
  * back to the current document's directory. Results are memoized per
- * (vaultRoot, baseDir, target) for the session so hover/render don't spam IPC.
+ * (vaultRoot, baseDir, target) so hover/render don't spam IPC.
+ *
+ * A RESOLVED path is cached for the session (it won't spontaneously break). A
+ * BROKEN (null) result is cached only briefly, so creating the missing note then
+ * re-rendering picks it up instead of showing "broken" forever.
  */
 
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "../store/documentStore";
 import { effectiveVaultRoot } from "./vault";
 
-const cache = new Map<string, string | null>();
+/** How long a "broken link" (null) result stays cached before we re-resolve. */
+const NULL_TTL_MS = 5000;
+
+interface CacheEntry {
+  value: string | null;
+  at: number;
+}
+const cache = new Map<string, CacheEntry>();
+
+/** Drop every cached resolution — call after bulk vault changes if needed. */
+export function invalidateWikilinkCache(): void {
+  cache.clear();
+}
 
 function baseDirOf(path: string | null): string | null {
   if (!path) return null;
@@ -30,15 +46,17 @@ export async function resolveWikilink(target: string): Promise<string | null> {
   const vaultRoot = await effectiveVaultRoot(path);
   const key = `${vaultRoot ?? ""}|${dir}|${target}`;
   const cached = cache.get(key);
-  if (cached !== undefined) return cached;
+  // Use a cached hit; for a cached miss (null) only within the TTL, else re-ask.
+  if (cached && (cached.value !== null || Date.now() - cached.at < NULL_TTL_MS)) {
+    return cached.value;
+  }
   try {
     const resolved = await invoke<string | null>("resolve_wikilink", {
       baseDir: dir,
       target,
       vaultRoot,
     });
-    // Cache the real answer (incl. a genuine "broken link" null).
-    cache.set(key, resolved ?? null);
+    cache.set(key, { value: resolved ?? null, at: Date.now() });
     return resolved ?? null;
   } catch {
     // Don't cache transient IPC failures (e.g. cold start) — a permanent null

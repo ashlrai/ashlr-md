@@ -72,5 +72,3 @@ export function remarkComments() {
     });
   };
 }
-
-export default remarkComments;

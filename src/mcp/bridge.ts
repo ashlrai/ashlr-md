@@ -35,6 +35,7 @@ import { useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useReviewStore } from "../store/reviewStore";
+import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 
 // ── Payload shapes from Rust ──────────────────────────────────────────────────
@@ -165,6 +166,9 @@ export function useMcpBridge(): void {
         // format hint is reserved for future programmatic pre-selection.)
         if (useDocumentStore.getState().path) {
           useUiStore.getState().openExport();
+        } else {
+          // Don't silently swallow the agent's request when nothing is open.
+          toast.info("Open a document before exporting.");
         }
       }),
     );

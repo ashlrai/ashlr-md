@@ -93,5 +93,3 @@ export function remarkWikilinks() {
     });
   };
 }
-
-export default remarkWikilinks;

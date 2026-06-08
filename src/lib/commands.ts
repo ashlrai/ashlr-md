@@ -23,6 +23,26 @@ import { unwatchDirectory } from "./activity";
 import { exportDocx, exportHtml, exportPdf } from "./export";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
+import { waitForElement } from "./waitForElement";
+
+/**
+ * Export needs the read view's `.markdown-body` in the DOM. Switch to read view
+ * if needed, wait for it to render, then export — and surface any failure as a
+ * toast (the palette commands call this directly, with no dialog to show errors).
+ */
+async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
+  const doc = useDocumentStore.getState();
+  if (!doc.path) return;
+  if (doc.viewMode !== "read") {
+    doc.setViewMode("read");
+    await waitForElement(".markdown-body");
+  }
+  try {
+    await fn(doc.fileName || "export");
+  } catch (e) {
+    toast.error(typeof e === "string" ? e : "Export failed");
+  }
+}
 
 /**
  * Prompt for a folder and start watching it for agent Markdown activity.
@@ -110,7 +130,7 @@ export function getCommands(): Command[] {
       group: "File",
       keywords: ["export", "html", "share"],
       when: hasDoc,
-      run: () => exportHtml(doc().fileName || "export"),
+      run: () => runExport(exportHtml),
     },
     {
       id: "file.export.pdf",
@@ -118,7 +138,7 @@ export function getCommands(): Command[] {
       group: "File",
       keywords: ["export", "pdf", "print", "share"],
       when: hasDoc,
-      run: () => exportPdf(doc().fileName || "export"),
+      run: () => runExport(exportPdf),
     },
     {
       id: "file.export.docx",
@@ -126,7 +146,7 @@ export function getCommands(): Command[] {
       group: "File",
       keywords: ["export", "docx", "word", "share"],
       when: hasDoc,
-      run: () => exportDocx(doc().fileName || "export"),
+      run: () => runExport(exportDocx),
     },
     {
       id: "file.export.dialog",
@@ -231,7 +251,7 @@ export function getCommands(): Command[] {
           // Milkdown has no find UI — switch to read, then open the bar once the
           // read view is actually in the DOM (else the first highlight is empty).
           doc().setViewMode("read");
-          window.setTimeout(() => ui().openFind(), 60);
+          void waitForElement(".markdown-body").then(() => ui().openFind());
         } else {
           ui().openFind();
         }
@@ -361,7 +381,7 @@ export function getCommands(): Command[] {
       group: "View",
       keywords: ["tab", "next", "switch", "document", "cycle"],
       shortcut: "mod+shift+]",
-      when: () => doc().tabs.length > 0,
+      when: () => doc().tabs.length >= 2,
       run: () => doc().nextTab(),
     },
     {
@@ -370,7 +390,7 @@ export function getCommands(): Command[] {
       group: "View",
       keywords: ["tab", "previous", "prev", "switch", "document", "cycle"],
       shortcut: "mod+shift+[",
-      when: () => doc().tabs.length > 0,
+      when: () => doc().tabs.length >= 2,
       run: () => doc().prevTab(),
     },
     {

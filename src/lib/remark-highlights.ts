@@ -76,5 +76,3 @@ export function remarkHighlights() {
     });
   };
 }
-
-export default remarkHighlights;

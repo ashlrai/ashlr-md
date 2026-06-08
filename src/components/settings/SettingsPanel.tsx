@@ -275,6 +275,44 @@ function FontSizeStepper() {
   );
 }
 
+// ─── Content-width stepper ──────────────────────────────────────────────────
+
+const WIDTH_MIN = 600;
+const WIDTH_MAX = 960;
+const WIDTH_STEP = 40;
+
+function ContentWidthStepper() {
+  const contentWidth = useSettingsStore((s) => s.contentWidth);
+  const setContentWidth = useSettingsStore((s) => s.setContentWidth);
+
+  return (
+    <div className="settings-stepper" role="group" aria-label="Content width">
+      <button
+        type="button"
+        className="settings-stepper-btn"
+        onClick={() => setContentWidth(contentWidth - WIDTH_STEP)}
+        disabled={contentWidth <= WIDTH_MIN}
+        aria-label="Narrower content"
+      >
+        <MinusIcon />
+      </button>
+      <span className="settings-stepper-value" aria-live="polite" aria-atomic="true">
+        {contentWidth}
+        <span className="settings-stepper-unit">px</span>
+      </span>
+      <button
+        type="button"
+        className="settings-stepper-btn"
+        onClick={() => setContentWidth(contentWidth + WIDTH_STEP)}
+        disabled={contentWidth >= WIDTH_MAX}
+        aria-label="Wider content"
+      >
+        <PlusIcon />
+      </button>
+    </div>
+  );
+}
+
 // ─── Notifications toggle ─────────────────────────────────────────────────────
 
 function NotificationToggle() {
@@ -979,6 +1017,11 @@ export function SettingsPanel() {
             <div className="settings-row">
               <label className="settings-label">Font size</label>
               <FontSizeStepper />
+            </div>
+
+            <div className="settings-row">
+              <label className="settings-label">Content width</label>
+              <ContentWidthStepper />
             </div>
 
             <div className="settings-row">
