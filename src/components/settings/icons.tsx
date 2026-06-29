@@ -196,6 +196,27 @@ export function DatabaseIcon() {
   );
 }
 
+/** Export/download glyph for the Export Templates section header. */
+export function ExportIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M10 3v9M7 9l3 3 3-3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Gear/sun glyph for the Appearance section header. */
 export function AppearanceIcon() {
   return (

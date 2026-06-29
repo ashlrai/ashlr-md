@@ -23,6 +23,9 @@ import katexCss from "katex/dist/katex.min.css?raw";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
+import { findTemplate } from "./exportTemplates";
+import type { ExportTemplate } from "./exportTemplates";
+import { useSettingsStore } from "../store/settingsStore";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -77,14 +80,27 @@ function captureMarkdownBody(): string {
  *
  * `@media print` rules inside the document enable clean pagination when the
  * HTML is printed (used by the PDF path).
+ *
+ * When `template` is provided its CSS is appended after the base styles,
+ * giving it the highest cascade priority (template CSS > KaTeX > markdown >
+ * theme tokens > reset).  This lets template authors override anything without
+ * needing `!important`.
  */
-export function buildStandaloneHtml(title: string): string {
+export function buildStandaloneHtml(
+  title: string,
+  template?: ExportTemplate | null,
+): string {
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
   const theme = currentTheme();
   const layoutVars = currentLayoutVars();
 
+  // Template CSS block — only emitted when a template is active.
+  const templateBlock = template?.css
+    ? `\n/* ── Export template: ${escapeHtml(template.name)} ── */\n${template.css}\n`
+    : "";
+
   return `<!doctype html>
-<html lang="en" data-theme="${theme}">
+<html lang="en" data-theme="${theme}"${template ? ` data-export-template="${escapeHtml(template.id)}"` : ""}>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -136,7 +152,7 @@ body{
   /* Hide copy buttons that live inside code block headers */
   .copy-btn{display:none}
 }
-</style>
+${templateBlock}</style>
 </head>
 <body>
 <article class="reading-surface">
@@ -144,6 +160,17 @@ ${bodyHtml}
 </article>
 </body>
 </html>`;
+}
+
+/**
+ * Resolve the active template from the settings store and build the HTML.
+ * This is the preferred entry-point when exporting from the UI — it reads
+ * the current template selection automatically.
+ */
+export function buildStandaloneHtmlWithActiveTemplate(title: string): string {
+  const { activeTemplateId, userTemplates } = useSettingsStore.getState();
+  const template = findTemplate(activeTemplateId, userTemplates) ?? null;
+  return buildStandaloneHtml(title, template);
 }
 
 /** Minimal HTML-entity escaping for the document title. */
@@ -163,7 +190,7 @@ function escapeHtml(s: string): string {
  * Rust command needed for this format.
  */
 export async function exportHtml(title: string): Promise<void> {
-  const html = buildStandaloneHtml(title); // throws if not in read view
+  const html = buildStandaloneHtmlWithActiveTemplate(title); // throws if not in read view
 
   const path = await save({
     defaultPath: `${sanitizeFileName(title)}.html`,
@@ -256,7 +283,7 @@ export async function exportDocx(title: string): Promise<void> {
  * destination selection (including "Save as PDF").
  */
 export async function exportPdf(_title: string): Promise<void> {
-  const html = buildStandaloneHtml(_title); // throws if not in read view
+  const html = buildStandaloneHtmlWithActiveTemplate(_title); // throws if not in read view
 
   return new Promise<void>((resolve, reject) => {
     const iframe = document.createElement("iframe");

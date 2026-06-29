@@ -17,6 +17,17 @@ vi.mock("katex/dist/katex.min.css?raw", () => ({ default: "/* katex-css */" }));
 vi.mock("../styles/markdown.css?raw", () => ({ default: "/* markdown-css */" }));
 vi.mock("../styles/themes.css?raw", () => ({ default: "/* themes-css */" }));
 
+// Mock settingsStore so buildStandaloneHtmlWithActiveTemplate can be tested
+// without a real Zustand store.
+const mockGetState = vi.fn(() => ({
+  activeTemplateId: "none",
+  userTemplates: [],
+}));
+vi.mock("../store/settingsStore", () => ({
+  useSettingsStore: { getState: (...args: unknown[]) => mockGetState(...args) },
+  NO_TEMPLATE_ID: "none",
+}));
+
 // Mock Tauri core invoke.
 const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -39,6 +50,7 @@ vi.mock("../store/toastStore", () => ({
 
 import {
   buildStandaloneHtml,
+  buildStandaloneHtmlWithActiveTemplate,
   cloneWithoutInjectedChrome,
   exportDocx,
   exportHtml,
@@ -672,3 +684,214 @@ describe("buildStandaloneHtml layout var defaults", () => {
     expect(html).toContain('data-theme="sepia"');
   });
 });
+
+// ─── buildStandaloneHtml — template CSS injection ─────────────────────────────
+
+describe("buildStandaloneHtml with template", () => {
+  beforeEach(() => setupReadView());
+  afterEach(() => teardownDom());
+
+  it("injects template CSS after base styles when template is provided", () => {
+    const tpl = { id: "tpl-test", name: "Test Template", css: "body{color:hotpink}" };
+    const html = buildStandaloneHtml("With Template", tpl);
+    expect(html).toContain("body{color:hotpink}");
+    // Template CSS must appear AFTER KaTeX CSS to win the cascade.
+    const katexPos = html.indexOf("/* katex-css */");
+    const tplPos = html.indexOf("body{color:hotpink}");
+    expect(tplPos).toBeGreaterThan(katexPos);
+  });
+
+  it("adds data-export-template attribute to <html> when template is set", () => {
+    const tpl = { id: "builtin-github", name: "GitHub Readme", css: "body{}" };
+    const html = buildStandaloneHtml("Attr Test", tpl);
+    expect(html).toContain('data-export-template="builtin-github"');
+  });
+
+  it("omits data-export-template attribute when no template is passed", () => {
+    const html = buildStandaloneHtml("No Template");
+    expect(html).not.toContain("data-export-template");
+  });
+
+  it("omits data-export-template attribute when template is null", () => {
+    const html = buildStandaloneHtml("Null Template", null);
+    expect(html).not.toContain("data-export-template");
+  });
+
+  it("adds a comment identifying the template name in the CSS block", () => {
+    const tpl = { id: "my-tpl", name: "My Named Template", css: "p{margin:0}" };
+    const html = buildStandaloneHtml("Named", tpl);
+    expect(html).toContain("My Named Template");
+  });
+
+  it("still includes all base CSS bundles when a template is used", () => {
+    const tpl = { id: "x", name: "X", css: ".reading-surface{max-width:900px}" };
+    const html = buildStandaloneHtml("Base+Template", tpl);
+    expect(html).toContain("/* themes-css */");
+    expect(html).toContain("/* markdown-css */");
+    expect(html).toContain("/* katex-css */");
+  });
+
+  it("template CSS with special characters is included verbatim", () => {
+    const tpl = {
+      id: "special",
+      name: "Special",
+      css: ':root { --color: color-mix(in srgb, #ff0000 50%, #0000ff); }',
+    };
+    const html = buildStandaloneHtml("Special CSS", tpl);
+    expect(html).toContain("color-mix(in srgb");
+  });
+
+  it("empty template CSS results in no extra content (no template block injected)", () => {
+    const tpl = { id: "empty-css", name: "Empty", css: "" };
+    const html = buildStandaloneHtml("Empty CSS", tpl);
+    // Should still be a valid document but with no extra style block.
+    expect(html).toContain("<!doctype html>");
+    // No template comment for empty CSS.
+    expect(html).not.toContain("Export template: Empty");
+  });
+
+  it("HTML-escapes template name in comment to prevent injection", () => {
+    const tpl = {
+      id: "xss",
+      name: 'Evil <script>alert(1)</script>',
+      css: "body{}",
+    };
+    const html = buildStandaloneHtml("XSS Test", tpl);
+    // The raw <script> must not appear verbatim in the output.
+    expect(html).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("HTML-escapes template id attribute to prevent injection", () => {
+    const tpl = {
+      id: 'foo" onload="evil()',
+      name: "Injected",
+      css: "body{}",
+    };
+    const html = buildStandaloneHtml("Attr Injection", tpl);
+    expect(html).not.toContain('onload="evil()');
+  });
+
+  it("cascade order: template CSS block appears after @media print rules", () => {
+    const tpl = { id: "t", name: "T", css: "h1{color:navy}" };
+    const html = buildStandaloneHtml("Order", tpl);
+    const printPos = html.indexOf("@media print");
+    const tplPos = html.indexOf("h1{color:navy}");
+    expect(tplPos).toBeGreaterThan(printPos);
+  });
+});
+
+// ─── buildStandaloneHtmlWithActiveTemplate ────────────────────────────────────
+
+describe("buildStandaloneHtmlWithActiveTemplate", () => {
+  beforeEach(() => {
+    setupReadView();
+    mockGetState.mockReset();
+  });
+  afterEach(() => teardownDom());
+
+  it("uses base styles only when activeTemplateId is NO_TEMPLATE_ID", () => {
+    mockGetState.mockReturnValue({ activeTemplateId: "none", userTemplates: [] });
+    const html = buildStandaloneHtmlWithActiveTemplate("No Active");
+    expect(html).not.toContain("data-export-template");
+  });
+
+  it("injects built-in template CSS when a built-in id is active", () => {
+    mockGetState.mockReturnValue({
+      activeTemplateId: "builtin-github",
+      userTemplates: [],
+    });
+    const html = buildStandaloneHtmlWithActiveTemplate("GitHub Active");
+    expect(html).toContain('data-export-template="builtin-github"');
+    // GitHub template contains font-family override.
+    expect(html).toContain("font-family");
+  });
+
+  it("injects user template CSS when a user template id is active", () => {
+    mockGetState.mockReturnValue({
+      activeTemplateId: "user-custom",
+      userTemplates: [
+        { id: "user-custom", name: "Custom", css: "body{font-size:20px}", builtin: false },
+      ],
+    });
+    const html = buildStandaloneHtmlWithActiveTemplate("User Active");
+    expect(html).toContain("body{font-size:20px}");
+    expect(html).toContain('data-export-template="user-custom"');
+  });
+
+  it("falls back to no template when activeTemplateId is an unknown id", () => {
+    mockGetState.mockReturnValue({
+      activeTemplateId: "ghost-id",
+      userTemplates: [],
+    });
+    const html = buildStandaloneHtmlWithActiveTemplate("Ghost");
+    expect(html).not.toContain("data-export-template");
+  });
+
+  it("still inlines base CSS bundles regardless of template", () => {
+    mockGetState.mockReturnValue({
+      activeTemplateId: "builtin-academic",
+      userTemplates: [],
+    });
+    const html = buildStandaloneHtmlWithActiveTemplate("Academic");
+    expect(html).toContain("/* themes-css */");
+    expect(html).toContain("/* markdown-css */");
+    expect(html).toContain("/* katex-css */");
+  });
+});
+
+// ─── Template CSS scope isolation in full export output ───────────────────────
+
+describe("export template variable substitution and scope isolation", () => {
+  beforeEach(() => setupReadView());
+  afterEach(() => {
+    teardownDom();
+    mockGetState.mockReset();
+  });
+
+  it("CSS custom properties in template are preserved verbatim in output", () => {
+    const css = ":root{--my-accent:#ff6600}body{color:var(--my-accent)}";
+    const tpl = { id: "t", name: "Token Test", css };
+    const html = buildStandaloneHtml("Tokens", tpl);
+    expect(html).toContain("--my-accent:#ff6600");
+    expect(html).toContain("var(--my-accent)");
+  });
+
+  it("template CSS referencing base theme tokens works alongside theme block", () => {
+    const css = "body{background:var(--bg);color:var(--text)}";
+    const tpl = { id: "t2", name: "Theme Ref", css };
+    const html = buildStandaloneHtml("Theme Ref", tpl);
+    // Both the theme definition and the reference should be present.
+    expect(html).toContain("/* themes-css */");
+    expect(html).toContain("var(--bg)");
+    expect(html).toContain("var(--text)");
+  });
+
+  it("multiple templates produce distinct HTML output", () => {
+    const tpl1 = { id: "a", name: "A", css: "body{font-size:14px}" };
+    const tpl2 = { id: "b", name: "B", css: "body{font-size:20px}" };
+    const html1 = buildStandaloneHtml("A", tpl1);
+    const html2 = buildStandaloneHtml("B", tpl2);
+    expect(html1).not.toBe(html2);
+    expect(html1).toContain("font-size:14px");
+    expect(html2).toContain("font-size:20px");
+  });
+
+  it("GitHub built-in template produces an offline-ready document (no external links)", () => {
+    const tpl = BUILTIN_TEMPLATES.find((t) => t.id === "builtin-github")!;
+    const html = buildStandaloneHtml("Offline GitHub", tpl);
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
+  });
+
+  it("Notion built-in template produces a valid HTML5 document", () => {
+    const tpl = BUILTIN_TEMPLATES.find((t) => t.id === "builtin-notion")!;
+    const html = buildStandaloneHtml("Notion Valid", tpl);
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+    expect(html).toContain("</html>");
+  });
+});
+
+// ─── Import built-in templates for cross-suite use ───────────────────────────
+
+import { BUILTIN_TEMPLATES } from "./exportTemplates";

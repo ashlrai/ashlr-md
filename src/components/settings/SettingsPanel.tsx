@@ -6,12 +6,14 @@ import {
   AppearanceIcon,
   CloseIcon,
   DatabaseIcon,
+  ExportIcon,
   LinkIcon,
   MemoryIcon,
   TerminalIcon,
   VaultIcon,
 } from "./icons";
 import { AiProviderSection } from "./sections/AiProviderSection";
+import { ExportTemplateSection } from "./sections/ExportTemplateSection";
 import { SectionHeader } from "./SectionHeader";
 import {
   ContentWidthStepper,
@@ -26,6 +28,7 @@ import { McpSection } from "./sections/McpSection";
 import { MemorySection } from "./sections/MemorySection";
 import { VaultSection } from "./sections/VaultSection";
 import "../../styles/settings.css";
+import "../../styles/export-templates.css";
 
 /**
  * Full-screen Preferences modal.
@@ -174,6 +177,14 @@ export function SettingsPanel() {
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="Hosted AI (Tier 3)" />
             <AiProviderSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 9 · Export templates */}
+          <section className="settings-section">
+            <SectionHeader icon={<ExportIcon />} title="Export templates" />
+            <ExportTemplateSection />
           </section>
         </div>
 

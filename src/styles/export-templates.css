@@ -1,0 +1,321 @@
+/*
+ * export-templates.css — settings-panel UI styles for the export template editor.
+ *
+ * This file handles the SETTINGS UI chrome only.  The actual per-template CSS
+ * that gets inlined into exported documents lives in exportTemplates.ts.
+ *
+ * All colours use the same theme tokens as the rest of the settings panel.
+ */
+
+/* ── Template list ────────────────────────────────────────────────────────── */
+.export-tpl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.export-tpl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+/* ── Template list item ───────────────────────────────────────────────────── */
+.export-tpl-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.export-tpl-item:hover {
+  background: var(--surface-hover);
+}
+
+.export-tpl-item.active {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.export-tpl-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 0;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.export-tpl-item-name:hover {
+  color: var(--accent);
+}
+
+.export-tpl-check {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.export-tpl-check svg {
+  width: 13px;
+  height: 13px;
+}
+
+.export-tpl-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex: 0 0 auto;
+}
+
+/* ── Per-item action buttons (duplicate / edit / delete) ──────────────────── */
+.export-tpl-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.export-tpl-item:hover .export-tpl-actions,
+.export-tpl-item:focus-within .export-tpl-actions {
+  opacity: 1;
+}
+
+.export-tpl-action-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+  flex: 0 0 auto;
+}
+
+.export-tpl-action-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.export-tpl-action-del:hover {
+  color: #d1242f;
+}
+
+.export-tpl-action-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ── Add new template button ──────────────────────────────────────────────── */
+.export-tpl-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 10px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  align-self: flex-start;
+}
+
+.export-tpl-add-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.export-tpl-add-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ── CSS editor layout ────────────────────────────────────────────────────── */
+.export-tpl-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-tpl-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-tpl-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.export-tpl-name-input:focus {
+  border-color: var(--accent);
+}
+
+.export-tpl-editor-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.export-tpl-btn {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.1s ease;
+}
+
+.export-tpl-btn-primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.export-tpl-btn-primary:hover {
+  opacity: 0.88;
+}
+
+.export-tpl-btn-ghost {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.export-tpl-btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ── Editor body — two-column: CSS | preview ──────────────────────────────── */
+.export-tpl-editor-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 280px;
+}
+
+@media (max-width: 520px) {
+  .export-tpl-editor-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── CSS pane ─────────────────────────────────────────────────────────────── */
+.export-tpl-css-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.export-tpl-css-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.export-tpl-css-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text) 2%, var(--bg));
+  color: var(--text);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.12s ease;
+  tab-size: 2;
+}
+
+.export-tpl-css-textarea:focus {
+  border-color: var(--accent);
+}
+
+.export-tpl-error {
+  font-size: 12px;
+  color: #d1242f;
+  margin: 0;
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: color-mix(in srgb, #d1242f 8%, transparent);
+  border: 1px solid color-mix(in srgb, #d1242f 25%, transparent);
+  border-radius: 4px;
+}
+
+/* ── Preview pane ─────────────────────────────────────────────────────────── */
+.export-tpl-preview-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.export-tpl-preview-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.export-tpl-preview-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
