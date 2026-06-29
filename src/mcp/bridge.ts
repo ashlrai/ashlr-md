@@ -32,6 +32,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
+import { copyAsRichText } from "../lib/copyRichText";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { searchFiles } from "../lib/crossSearch";
 import { embedSearch, embedAvailable } from "../lib/embedSearch";
@@ -112,6 +113,12 @@ interface OtOpPayload {
   components: OtComponent[];
   /** When true, persist the document to disk after applying. */
   save?: boolean;
+}
+
+/** Payload for `mcp://copy-rich-text` — copy the document as theme-aware HTML. */
+interface CopyRichTextPayload {
+  /** Controls the `text/plain` fallback: 'html' | 'markdown' | 'auto'. Defaults to 'auto'. */
+  format?: "html" | "markdown" | "auto";
 }
 
 // ── Batch / semantic tool payloads ────────────────────────────────────────────
@@ -998,6 +1005,31 @@ export function useMcpBridge(): void {
             removed: 0,
             pathA,
             pathB,
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
+      }),
+    );
+
+    // mcp://copy-rich-text — copy the current document as theme-aware HTML.
+    //
+    // Triggers the same clipboard write that ⌘⇧C (file.copyRichHtml) does, but
+    // callable by agents via the IPC server. Replies via `mcp_copy_rich_text_result`
+    // so the agent knows whether the clipboard write succeeded. Always replies —
+    // success or failure — so the Rust worker never parks waiting.
+    unlisteners.push(
+      listen<CopyRichTextPayload>("mcp://copy-rich-text", async (e) => {
+        const { format = "auto" } = e.payload;
+        try {
+          await copyAsRichText(format);
+          await invoke("mcp_copy_rich_text_result", {
+            ok: true,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_copy_rich_text_result", {
+            ok: false,
             error: errStr,
           }).catch(() => {/* non-fatal */});
         }

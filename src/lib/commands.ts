@@ -20,8 +20,9 @@ import { THEMES, type ThemeId, useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
-import { copyDocumentAsRichText } from "./copyRichText";
+import { copyDocumentAsRichText, copyAsRichText } from "./copyRichText";
 import { exportDocx, exportHtml, exportPdf } from "./export";
+import { buildEmptyTable } from "./tableEditor";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
 import { waitForElement } from "./waitForElement";
@@ -85,7 +86,7 @@ export interface Command {
 }
 
 /** Section labels — exported so the palette can order groups deterministically. */
-export const COMMAND_GROUPS = ["File", "View", "AI", "Appearance", "App"] as const;
+export const COMMAND_GROUPS = ["File", "View", "Edit", "AI", "Appearance", "App"] as const;
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -374,6 +375,34 @@ export function getCommands(): Command[] {
     //   • New Tab        — "mod+t"
     //   • Toggle Activity— "mod+shift+a"
     // Each should carry a `when()` predicate and (optionally) a `shortcut`.
+
+    // ── Edit ──────────────────────────────────────────────────────────────
+    {
+      id: "edit.insertTable",
+      title: "Insert table…",
+      group: "Edit",
+      hint: "Insert a GFM table",
+      keywords: ["table", "insert", "grid", "rows", "columns", "gfm"],
+      shortcut: "mod+shift+t",
+      when: hasDoc,
+      run: async () => {
+        const doc = useDocumentStore.getState();
+        if (!doc.path) return;
+        // Switch to source view for reliable cursor-based insertion.
+        const rowsInput = window.prompt("Number of rows (data rows):", "3");
+        if (rowsInput === null) return;
+        const colsInput = window.prompt("Number of columns:", "3");
+        if (colsInput === null) return;
+        const rows = Math.max(1, Number.parseInt(rowsInput, 10) || 3);
+        const cols = Math.max(1, Number.parseInt(colsInput, 10) || 3);
+        const tableMarkdown = buildEmptyTable(rows, cols);
+        // Append to the current content with surrounding newlines.
+        const current = doc.content;
+        const separator = current.endsWith("\n") ? "\n" : "\n\n";
+        doc.setContent(current + separator + tableMarkdown + "\n");
+        toast.success(`Inserted ${rows}×${cols} table`);
+      },
+    },
     {
       id: "edit.copyRichText",
       title: "Copy as rich text",
@@ -394,6 +423,31 @@ export function getCommands(): Command[] {
       // Switches to read view + waits internally (like runExport) so it works
       // from any view.
       run: () => copyDocumentAsRichText(),
+    },
+    {
+      id: "file.copyRichHtml",
+      title: "Copy as Rich HTML",
+      group: "File",
+      hint: "Theme-aware HTML — paste into Slack, Gmail, Notion",
+      keywords: [
+        "copy",
+        "rich",
+        "html",
+        "clipboard",
+        "theme",
+        "styled",
+        "standalone",
+        "paste",
+        "gmail",
+        "slack",
+        "notion",
+        "export",
+        "copy rich",
+      ],
+      when: hasDoc,
+      // copyAsRichText switches to read view + waits internally, so it works
+      // from any view mode.
+      run: () => copyAsRichText("auto"),
     },
 
     // ── Tabs ──────────────────────────────────────────────────────────────
