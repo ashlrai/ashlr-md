@@ -109,6 +109,36 @@ function range(doc: string, from: number, to: number): LintRange {
   };
 }
 
+/**
+ * Offset-anchored splice that is resilient to document drift.
+ *
+ * Positional fixes capture absolute `[from, to)` offsets at *check* time, but a
+ * fix may run against a document that has already been mutated by an earlier
+ * fix (e.g. "Fix all"). Blindly slicing by stale offsets corrupts the document.
+ *
+ * This helper:
+ *   1. If `doc.slice(from, to) === expected`, splices in place (fast path).
+ *   2. Otherwise falls back to replacing the *first* occurrence of `expected`.
+ *   3. If `expected` is absent entirely, returns `doc` unchanged (safe no-op).
+ *
+ * `expected` must be unambiguous enough that the first-occurrence fallback is
+ * correct; callers pass the exact matched source text for that violation.
+ */
+export function spliceIfMatch(
+  doc: string,
+  from: number,
+  to: number,
+  expected: string,
+  replacement: string,
+): string {
+  if (doc.slice(from, to) === expected) {
+    return doc.slice(0, from) + replacement + doc.slice(to);
+  }
+  const idx = doc.indexOf(expected);
+  if (idx === -1) return doc; // text no longer present — nothing to fix
+  return doc.slice(0, idx) + replacement + doc.slice(idx + expected.length);
+}
+
 // ── Built-in Rules ────────────────────────────────────────────────────────────
 
 /**
@@ -118,7 +148,8 @@ function range(doc: string, from: number, to: number): LintRange {
 export const ruleFrontmatterRequired: LintRule = {
   id: "frontmatter-required",
   label: "Frontmatter required",
-  description: "Every document should have a YAML frontmatter block (--- ... ---) at the top.",
+  description:
+    "Every document should have a YAML frontmatter block (--- ... ---) at the top.",
   severity: "warning",
   check({ doc }): LintViolation[] {
     const FM_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -161,10 +192,7 @@ export const ruleMaxHeadingDepth: LintRule = {
           range: range(doc, from, to),
           fix: (d) => {
             // Replace the first occurrence of this exact heading line
-            return d.replace(
-              new RegExp(`^${m[1]}(\\s)`, "m"),
-              `###$1`,
-            );
+            return d.replace(new RegExp(`^${m[1]}(\\s)`, "m"), `###$1`);
           },
         });
       }
@@ -197,7 +225,7 @@ export const ruleNoBareUrls: LintRule = {
 
     // Match bare URLs: starts with http:// or https://, not preceded by ( or <
     // and not followed by ) (which would mean it's already in a link)
-    const URL_RE = /(?<![(<\[])(https?:\/\/[^\s<>)"'\]]+)/g;
+    const URL_RE = /(?<![(<[])(https?:\/\/[^\s<>)"'\]]+)/g;
     let m: RegExpExecArray | null;
     while ((m = URL_RE.exec(stripped)) !== null) {
       const url = m[1];
@@ -208,10 +236,7 @@ export const ruleNoBareUrls: LintRule = {
         message: `Bare URL: ${url.length > 60 ? url.slice(0, 57) + "…" : url}`,
         severity: "warning",
         range: range(doc, from, to),
-        fix: (d) => {
-          // Replace this specific occurrence by offset
-          return d.slice(0, from) + `[${url}](${url})` + d.slice(to);
-        },
+        fix: (d) => spliceIfMatch(d, from, to, url, `[${url}](${url})`),
       });
     }
     return violations;
@@ -309,8 +334,9 @@ export const ruleNoTrailingSpaces: LintRule = {
           severity: "info",
           range: range(doc, trailStart, trailEnd),
           fix: (d) => {
-            const cleaned = d.slice(lineStart, lineEnd).replace(/ +$/, (s) => s.length === 2 ? s : "");
-            return d.slice(0, lineStart) + cleaned + d.slice(lineEnd);
+            const original = line;
+            const cleaned = original.replace(/ +$/, (s) => (s.length === 2 ? s : ""));
+            return spliceIfMatch(d, lineStart, lineEnd, original, cleaned);
           },
         });
       }
@@ -442,7 +468,8 @@ export const ruleOrphanedHeading: LintRule = {
 export const ruleInvalidLinkTarget: LintRule = {
   id: "invalid-link-target",
   label: "No invalid link targets",
-  description: "Markdown link hrefs must not be empty or contain only whitespace/punctuation.",
+  description:
+    "Markdown link hrefs must not be empty or contain only whitespace/punctuation.",
   severity: "warning",
   check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
@@ -455,17 +482,14 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
+        const matched = m[0];
         const text = m[1] || "link";
         violations.push({
           ruleId: "invalid-link-target",
           message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => {
-            // Replace this specific occurrence by offset
-            const placeholder = `[${text}](TODO)`;
-            return d.slice(0, from) + placeholder + d.slice(to);
-          },
+          fix: (d) => spliceIfMatch(d, from, to, matched, `[${text}](TODO)`),
         });
       }
     }
@@ -493,6 +517,7 @@ export const ruleMissingAltText: LintRule = {
       if (/^\s*$/.test(alt)) {
         const from = m.index;
         const to = from + m[0].length;
+        const matched = m[0];
         // Extract the src to reconstruct the fixed image tag
         const srcMatch = m[0].match(/\]\(([^)]+)\)/);
         const src = srcMatch ? srcMatch[1] : "";
@@ -501,14 +526,160 @@ export const ruleMissingAltText: LintRule = {
           message: `Image is missing alt text: ${src.length > 40 ? src.slice(0, 37) + "…" : src}`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => {
-            const fixed = `![TODO: describe image](${src})`;
-            return d.slice(0, from) + fixed + d.slice(to);
-          },
+          fix: (d) =>
+            spliceIfMatch(d, from, to, matched, `![TODO: describe image](${src})`),
         });
       }
     }
     return violations;
+  },
+};
+
+/**
+ * RULE: fenced-code-language (markdownlint MD040)
+ * Fenced code blocks should declare a language for syntax highlighting.
+ * Autofix annotates the opening fence with `text` so the block is at least
+ * explicit and searchable.
+ */
+export const ruleFencedCodeLanguage: LintRule = {
+  id: "fenced-code-language",
+  label: "Fenced code blocks declare a language",
+  description:
+    "Opening ``` fences should specify a language (e.g. ```ts) for syntax highlighting.",
+  severity: "info",
+  check({ doc, lines }): LintViolation[] {
+    const violations: LintViolation[] = [];
+    let offset = 0;
+    let inFence = false;
+    let fenceMarker = "";
+    for (const line of lines) {
+      const trimmed = line.trimStart();
+      const fenceMatch = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1][0].repeat(3);
+        if (!inFence) {
+          // Opening fence.
+          inFence = true;
+          fenceMarker = marker;
+          const info = fenceMatch[2].trim();
+          if (info === "") {
+            const indent = line.length - trimmed.length;
+            const from = offset + indent;
+            const to = from + fenceMatch[1].length;
+            const fenceChars = fenceMatch[1];
+            const lineStart = offset;
+            const original = line;
+            violations.push({
+              ruleId: "fenced-code-language",
+              message: "Fenced code block has no language.",
+              severity: "info",
+              range: range(doc, from, to),
+              fix: (d) =>
+                spliceIfMatch(
+                  d,
+                  lineStart,
+                  lineStart + original.length,
+                  original,
+                  original.replace(fenceChars, `${fenceChars}text`),
+                ),
+            });
+          }
+        } else if (fenceMatch[1][0].repeat(3) === fenceMarker) {
+          // Closing fence (only when marker char matches the opener).
+          inFence = false;
+          fenceMarker = "";
+        }
+      }
+      offset += line.length + 1;
+    }
+    return violations;
+  },
+};
+
+/**
+ * RULE: no-hard-tabs (markdownlint MD010)
+ * Hard tab characters are flagged; autofix expands each tab to two spaces.
+ * Tabs inside fenced code blocks are left untouched (they are often
+ * semantically meaningful, e.g. in Makefiles or Go source pasted as code).
+ */
+export const ruleNoHardTabs: LintRule = {
+  id: "no-hard-tabs",
+  label: "No hard tabs",
+  description: "Use spaces instead of hard tab characters for consistent rendering.",
+  severity: "info",
+  check({ doc, lines }): LintViolation[] {
+    const violations: LintViolation[] = [];
+    let offset = 0;
+    let inFence = false;
+    let fenceMarker = "";
+    for (const line of lines) {
+      const trimmed = line.trimStart();
+      const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1][0].repeat(3);
+        if (!inFence) {
+          inFence = true;
+          fenceMarker = marker;
+        } else if (marker === fenceMarker) {
+          inFence = false;
+          fenceMarker = "";
+        }
+      }
+      if (!inFence) {
+        const tabIdx = line.indexOf("\t");
+        if (tabIdx !== -1) {
+          const from = offset + tabIdx;
+          const lineStart = offset;
+          const original = line;
+          violations.push({
+            ruleId: "no-hard-tabs",
+            message: "Line contains a hard tab character.",
+            severity: "info",
+            range: range(doc, from, from + 1),
+            fix: (d) =>
+              spliceIfMatch(
+                d,
+                lineStart,
+                lineStart + original.length,
+                original,
+                original.replace(/\t/g, "  "),
+              ),
+          });
+        }
+      }
+      offset += line.length + 1;
+    }
+    return violations;
+  },
+};
+
+/**
+ * RULE: final-newline (markdownlint MD047)
+ * Files should end with exactly one trailing newline. Flags a missing trailing
+ * newline as well as multiple trailing blank lines; autofix normalizes both.
+ */
+export const ruleFinalNewline: LintRule = {
+  id: "final-newline",
+  label: "File ends with a single newline",
+  description: "Documents should end with exactly one trailing newline character.",
+  severity: "info",
+  check({ doc }): LintViolation[] {
+    if (doc.length === 0) return []; // empty file — nothing to enforce
+    const endsWithSingle = /[^\n]\n$/.test(doc) || doc === "\n";
+    if (endsWithSingle) return [];
+    // Either no trailing newline, or 2+ trailing newlines.
+    const missing = !doc.endsWith("\n");
+    return [
+      {
+        ruleId: "final-newline",
+        message: missing
+          ? "File does not end with a newline."
+          : "File ends with multiple blank lines.",
+        severity: "info",
+        range: null,
+        fix: (d) => `${d.replace(/\n*$/, "")}\n`,
+      },
+    ];
   },
 };
 
@@ -526,6 +697,9 @@ export const BUILTIN_RULES: LintRule[] = [
   ruleOrphanedHeading,
   ruleInvalidLinkTarget,
   ruleMissingAltText,
+  ruleFencedCodeLanguage,
+  ruleNoHardTabs,
+  ruleFinalNewline,
 ];
 
 /**

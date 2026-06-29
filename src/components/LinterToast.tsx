@@ -16,11 +16,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyAllFixes,
   applyFix,
   BUILTIN_RULES,
   LINTER_DEFAULT_ENABLED_RULES,
-  lintDocument,
   type LintViolation,
+  lintDocument,
 } from "../lib/mdlint";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -79,7 +80,10 @@ function ChevronIcon({ open }: { open: boolean }) {
       aria-hidden="true"
       width="12"
       height="12"
-      style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+      style={{
+        transform: open ? "rotate(180deg)" : "rotate(0deg)",
+        transition: "transform 0.15s",
+      }}
     >
       <path
         d="M2.5 4.5l3.5 3 3.5-3"
@@ -197,17 +201,21 @@ export function LinterToast({
   }
 
   function handleFixAll() {
-    let current = content;
+    // Record a history entry for every fixable violation, capturing each
+    // snippet against the ORIGINAL content (offsets are still valid here).
     for (const v of violations) {
       if (!v.fix) continue;
-      const snippet = current.slice(
+      const snippet = content.slice(
         Math.max(0, (v.range?.from.offset ?? 0) - 20),
-        Math.min(current.length, (v.range?.to.offset ?? 0) + 20),
+        Math.min(content.length, (v.range?.to.offset ?? 0) + 20),
       );
-      current = applyFix(current, v);
       appendHistory(v, snippet);
     }
-    onContentChange(current);
+    // Delegate the actual rewrite to applyAllFixes, which applies positional
+    // fixes in descending-offset order (and document-level fixes last) so that
+    // earlier splices never invalidate later offsets. Applying fixes in the
+    // ascending order they are listed here would corrupt offset-based fixes.
+    onContentChange(applyAllFixes(content, violations));
   }
 
   const fixableCount = violations.filter((v) => v.fix !== null).length;
@@ -225,7 +233,8 @@ export function LinterToast({
           <WrenchIcon />
         </span>
         <span className="linter-toast__title">
-          {violations.length} linter {violations.length === 1 ? "suggestion" : "suggestions"}
+          {violations.length} linter{" "}
+          {violations.length === 1 ? "suggestion" : "suggestions"}
         </span>
         {fixableCount > 1 && (
           <button
@@ -241,7 +250,9 @@ export function LinterToast({
           type="button"
           className="linter-toast__toggle"
           aria-expanded={expanded}
-          aria-label={expanded ? "Collapse linter suggestions" : "Expand linter suggestions"}
+          aria-label={
+            expanded ? "Collapse linter suggestions" : "Expand linter suggestions"
+          }
           onClick={() => setExpanded((e) => !e)}
         >
           <ChevronIcon open={expanded} />
@@ -267,9 +278,7 @@ export function LinterToast({
                 aria-label={v.severity}
               />
               <span className="linter-toast__message">
-                {v.range
-                  ? `Line ${v.range.from.line}: ${v.message}`
-                  : v.message}
+                {v.range ? `Line ${v.range.from.line}: ${v.message}` : v.message}
               </span>
               {v.fix && (
                 <button
