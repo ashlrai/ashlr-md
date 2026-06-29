@@ -1779,3 +1779,463 @@ fn dispatch_resources_list_includes_export_current() {
     assert!(uris.contains(&"export:current"),
         "dispatch resources/list must include export:current, got: {:?}", uris);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Semantic search — IPC POST /search endpoint + semantic engine helpers
+// ════════════════════════════════════════════════════════════════════════════
+
+use mdopener_mcp::{
+    cosine_similarity, best_snippet_for_query, canonicalize_path,
+    vault_file_paths, grep_vault,
+    SearchResult,
+};
+
+// ── cosine_similarity ─────────────────────────────────────────────────────────
+
+#[test]
+fn cosine_similarity_identical_vectors_returns_one() {
+    let v = vec![1.0_f64, 2.0, 3.0];
+    let sim = cosine_similarity(&v, &v);
+    assert!((sim - 1.0).abs() < 1e-9, "identical vectors should have similarity 1.0, got {sim}");
+}
+
+#[test]
+fn cosine_similarity_orthogonal_vectors_returns_zero() {
+    let a = vec![1.0_f64, 0.0, 0.0];
+    let b = vec![0.0_f64, 1.0, 0.0];
+    let sim = cosine_similarity(&a, &b);
+    assert!((sim - 0.0).abs() < 1e-9, "orthogonal vectors should have similarity 0.0, got {sim}");
+}
+
+#[test]
+fn cosine_similarity_empty_vectors_returns_zero() {
+    let sim = cosine_similarity(&[], &[]);
+    assert_eq!(sim, 0.0, "empty vectors should return 0.0");
+}
+
+#[test]
+fn cosine_similarity_mismatched_lengths_returns_zero() {
+    let a = vec![1.0_f64, 2.0];
+    let b = vec![1.0_f64, 2.0, 3.0];
+    let sim = cosine_similarity(&a, &b);
+    assert_eq!(sim, 0.0, "mismatched lengths should return 0.0");
+}
+
+// ── best_snippet_for_query ────────────────────────────────────────────────────
+
+#[test]
+fn best_snippet_finds_matching_line() {
+    let content = "First line\nThis contains the needle\nThird line";
+    let (line_no, snippet) = best_snippet_for_query(content, "needle");
+    assert_eq!(line_no, 2, "should find match on line 2");
+    assert!(snippet.contains("needle"), "snippet should contain the matched text");
+}
+
+#[test]
+fn best_snippet_case_insensitive_match() {
+    let content = "line one\nLine with QUERY here\nline three";
+    let (line_no, _) = best_snippet_for_query(content, "query");
+    assert_eq!(line_no, 2, "case-insensitive match should find line 2");
+}
+
+#[test]
+fn best_snippet_no_match_falls_back_to_first_nonempty_line() {
+    let content = "\n\nFirst real content\nMore content";
+    let (line_no, snippet) = best_snippet_for_query(content, "xyz_not_present");
+    assert_eq!(line_no, 3, "fallback should return first non-empty line (3)");
+    assert!(!snippet.is_empty(), "snippet should not be empty on fallback");
+}
+
+#[test]
+fn best_snippet_empty_content_returns_line_one() {
+    let (line_no, snippet) = best_snippet_for_query("", "anything");
+    assert_eq!(line_no, 1);
+    assert!(snippet.is_empty());
+}
+
+#[test]
+fn best_snippet_truncates_long_lines_to_200_chars() {
+    let long_line = "x".repeat(500) + " keyword " + &"y".repeat(500);
+    let content = format!("short line\n{long_line}");
+    let (_line_no, snippet) = best_snippet_for_query(&content, "keyword");
+    assert!(snippet.len() <= 200, "snippet should be capped at 200 chars, got {}", snippet.len());
+}
+
+// ── canonicalize_path ─────────────────────────────────────────────────────────
+
+#[test]
+fn canonicalize_path_real_path_resolves() {
+    // /tmp is a known-real path on macOS/Linux.
+    let result = canonicalize_path("/tmp");
+    // On macOS /tmp → /private/tmp; on Linux stays /tmp.  Either way it must
+    // be non-empty and absolute.
+    assert!(!result.is_empty(), "canonicalized path must not be empty");
+    assert!(result.starts_with('/'), "canonicalized path must be absolute");
+}
+
+#[test]
+fn canonicalize_path_nonexistent_returns_input() {
+    let input = "/nonexistent/path/that/does/not/exist/at/all";
+    let result = canonicalize_path(input);
+    assert_eq!(result, input, "non-existent path should pass through unchanged");
+}
+
+// ── vault_file_paths ─────────────────────────────────────────────────────────
+
+#[test]
+fn vault_file_paths_returns_files_and_recents() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [
+                { "path": "/vault/a.md", "name": "a.md" },
+                { "path": "/vault/b.md", "name": "b.md" }
+            ],
+            "recents": ["/recent/c.md"]
+        })));
+    let paths = vault_file_paths(&ipc);
+    // All three paths should be present (after canonicalization attempt).
+    assert!(paths.iter().any(|p| p.contains("a.md")), "a.md should be in paths");
+    assert!(paths.iter().any(|p| p.contains("b.md")), "b.md should be in paths");
+    assert!(paths.iter().any(|p| p.contains("c.md")), "c.md from recents should be in paths");
+}
+
+#[test]
+fn vault_file_paths_deduplicates_recents_already_in_files() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [{ "path": "/vault/a.md", "name": "a.md" }],
+            "recents": ["/vault/a.md"]
+        })));
+    let paths = vault_file_paths(&ipc);
+    let count = paths.iter().filter(|p| p.contains("a.md")).count();
+    assert_eq!(count, 1, "duplicate path should appear only once");
+}
+
+#[test]
+fn vault_file_paths_ipc_error_returns_empty() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err("ipc-port not found".into()));
+    let paths = vault_file_paths(&ipc);
+    assert!(paths.is_empty(), "IPC error should yield empty path list");
+}
+
+// ── grep_vault ────────────────────────────────────────────────────────────────
+
+#[test]
+fn grep_vault_no_vault_paths_returns_empty() {
+    // IPC unavailable → vault_file_paths returns [] → grep returns [].
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err("ipc-port not found".into()));
+    let results = grep_vault("anything", 50, &ipc).expect("grep_vault should not error");
+    assert!(results.is_empty(), "no vault paths → no results");
+}
+
+#[test]
+fn grep_vault_with_real_temp_file_finds_match() {
+    use std::io::Write;
+    // Write a temp file with known content.
+    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+    writeln!(f, "# Meeting notes\nThis is about the quarterly review.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [{ "path": path, "name": "test.md" }],
+            "recents": []
+        })));
+    let results = grep_vault("quarterly", 50, &ipc).expect("grep_vault ok");
+    assert!(!results.is_empty(), "should find match for 'quarterly'");
+    let first = &results[0];
+    assert!(first["path"].as_str().unwrap().len() > 0);
+    assert!(first["snippet"].as_str().unwrap().contains("quarterly"));
+    assert!(first["score"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
+fn grep_vault_no_match_returns_empty() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+    writeln!(f, "# Notes\nSome content here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [{ "path": path, "name": "test.md" }],
+            "recents": []
+        })));
+    let results = grep_vault("xyz_never_matches_zzz", 50, &ipc).expect("grep_vault ok");
+    assert!(results.is_empty(), "no match should return empty results");
+}
+
+#[test]
+fn grep_vault_results_sorted_by_score_descending() {
+    use std::io::Write;
+    // File A: query appears once in 10 lines → low density.
+    let mut fa = tempfile::NamedTempFile::new().unwrap();
+    for i in 0..9 { writeln!(fa, "line {i}").unwrap(); }
+    writeln!(fa, "found the needle here").unwrap();
+    let path_a = fa.path().to_str().unwrap().to_string();
+
+    // File B: query appears in every line → high density.
+    let mut fb = tempfile::NamedTempFile::new().unwrap();
+    for _ in 0..5 { writeln!(fb, "needle needle needle").unwrap(); }
+    let path_b = fb.path().to_str().unwrap().to_string();
+
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [
+                { "path": path_a.clone(), "name": "a.md" },
+                { "path": path_b.clone(), "name": "b.md" }
+            ],
+            "recents": []
+        })));
+    let results = grep_vault("needle", 50, &ipc).expect("grep_vault ok");
+    assert_eq!(results.len(), 2, "both files should match");
+    let score_first = results[0]["score"].as_f64().unwrap();
+    let score_second = results[1]["score"].as_f64().unwrap();
+    assert!(score_first >= score_second, "results must be sorted descending by score");
+}
+
+#[test]
+fn grep_vault_respects_limit() {
+    use std::io::Write;
+    let ipc_files: Vec<Value> = (0..10).map(|i| {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "line with keyword here").unwrap();
+        // Keep file alive by leaking — acceptable in test context.
+        let path = f.path().to_str().unwrap().to_string();
+        std::mem::forget(f);
+        json!({ "path": path, "name": format!("f{i}.md") })
+    }).collect();
+
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": ipc_files, "recents": [] })));
+    let results = grep_vault("keyword", 3, &ipc).expect("grep_vault ok");
+    assert!(results.len() <= 3, "limit=3 must cap results to 3, got {}", results.len());
+}
+
+// ── tool_search_vault with semantic=false forces grep path ───────────────────
+
+#[test]
+fn search_vault_semantic_false_uses_ipc_grep() {
+    // With semantic=false the tool must call /search IPC endpoint (grep mode).
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({
+            "results": [
+                { "path": "/vault/a.md", "score": 0.8, "snippet": "hello world", "lineNumber": 3 }
+            ]
+        })));
+    let resp = tool_search_vault(
+        id(200),
+        &json!({ "query": "hello", "semantic": false }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    // Mode should indicate grep.
+    let mode = text["mode"].as_str().unwrap_or("");
+    assert!(mode == "grep" || mode == "grep-local",
+        "semantic=false should use grep mode, got mode={mode}");
+}
+
+#[test]
+fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThis mentions the target topic explicitly.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+
+    // /search IPC fails; /vault succeeds so local grep can run.
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [{ "path": path, "name": "notes.md" }],
+            "recents": []
+        })))
+        .on_get("/search", Err("ipc-port not found".into()));
+
+    let resp = tool_search_vault(
+        id(201),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "local grep fallback should succeed: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str().unwrap_or(""), "grep-local",
+        "should fall back to grep-local when IPC is down");
+    let results = text["results"].as_array().expect("results must be array");
+    assert!(!results.is_empty(), "local grep should find the match");
+}
+
+// ── text://vault-search resource ──────────────────────────────────────────────
+
+#[test]
+fn resources_list_includes_vault_search_resource() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resources_list(id(300), &ipc);
+    assert!(resp.error.is_none());
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+    assert!(uris.contains(&"text://vault-search"),
+        "resources/list must include text://vault-search, got: {:?}", uris);
+}
+
+#[test]
+fn resources_list_vault_search_has_json_mime_type() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resources_list(id(301), &ipc);
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    let search_res = resources.iter()
+        .find(|r| r["uri"].as_str() == Some("text://vault-search"))
+        .expect("text://vault-search not found");
+    assert_eq!(search_res["mimeType"].as_str(), Some("application/json"),
+        "vault-search resource must have mimeType application/json");
+}
+
+#[test]
+fn resource_read_vault_search_missing_query_returns_error() {
+    let ipc = MockIpc::new();
+    // URI without ?q= parameter.
+    let resp = handle_resource_read(id(302), "text://vault-search", &ipc);
+    assert!(resp.error.is_some(), "missing query must return error");
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing query must be a param error (-32602)");
+}
+
+#[test]
+fn resource_read_vault_search_with_query_returns_json_content() {
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({
+            "results": [
+                { "path": "/vault/doc.md", "score": 0.75, "snippet": "relevant text", "lineNumber": 5 }
+            ]
+        })));
+    let resp = handle_resource_read(id(303), "text://vault-search?q=relevant", &ipc);
+    assert!(resp.error.is_none(), "should succeed: {:?}", resp.error);
+    let result = resp.result.as_ref().unwrap();
+    let contents = result["contents"].as_array().expect("contents must be array");
+    assert_eq!(contents.len(), 1);
+    let item = &contents[0];
+    assert_eq!(item["mimeType"].as_str(), Some("application/json"));
+    // Parse the text payload as JSON.
+    let payload: Value = serde_json::from_str(item["text"].as_str().unwrap())
+        .expect("text must be valid JSON");
+    assert!(payload["results"].is_array(), "payload must have results array");
+    assert!(payload["mode"].is_string(), "payload must have mode field");
+    assert_eq!(payload["query"].as_str(), Some("relevant"),
+        "payload must echo back the query");
+}
+
+#[test]
+fn resource_read_vault_search_uri_encoded_query_decoded() {
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({ "results": [] })));
+    // q=hello%20world — should decode to "hello world".
+    let resp = handle_resource_read(id(304), "text://vault-search?q=hello%20world", &ipc);
+    assert!(resp.error.is_none());
+    let result = resp.result.as_ref().unwrap();
+    let payload: Value = serde_json::from_str(
+        result["contents"][0]["text"].as_str().unwrap()
+    ).unwrap();
+    assert_eq!(payload["query"].as_str(), Some("hello world"),
+        "URL-encoded query must be decoded");
+}
+
+#[test]
+fn resource_read_vault_search_no_results_returns_empty_array() {
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(id(305), "text://vault-search?q=xyz_impossible", &ipc);
+    assert!(resp.error.is_none());
+    let payload: Value = serde_json::from_str(
+        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
+    ).unwrap();
+    let results = payload["results"].as_array().expect("results must be array");
+    assert!(results.is_empty(), "no matches should return empty results array");
+}
+
+#[test]
+fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Project notes\nThis has the query term inside.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({
+            "files": [{ "path": path, "name": "notes.md" }],
+            "recents": []
+        })))
+        .on_get("/search", Err("ipc-port not found".into()));
+
+    let resp = handle_resource_read(id(306), "text://vault-search?q=query+term", &ipc);
+    assert!(resp.error.is_none(), "local grep fallback must succeed: {:?}", resp.error);
+    let payload: Value = serde_json::from_str(
+        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
+    ).unwrap();
+    assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
+}
+
+#[test]
+fn resource_read_vault_search_custom_limit_respected() {
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({ "results": [] })));
+    // limit=5 in query string.
+    let resp = handle_resource_read(id(307), "text://vault-search?q=x&limit=5", &ipc);
+    assert!(resp.error.is_none());
+    // We can't directly observe the limit applied server-side through the mock,
+    // but the call should succeed and return valid JSON.
+    let payload: Value = serde_json::from_str(
+        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
+    ).unwrap();
+    assert!(payload["results"].is_array());
+}
+
+// ── search_vault result shape ─────────────────────────────────────────────────
+
+#[test]
+fn search_vault_result_contains_required_fields() {
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({
+            "results": [
+                {
+                    "path": "/vault/doc.md",
+                    "snippet": "a relevant snippet",
+                    "lineNumber": 7,
+                    "score": 0.9
+                }
+            ]
+        })));
+    let resp = tool_search_vault(
+        id(400),
+        &json!({ "query": "relevant", "semantic": false }),
+        &ipc,
+    );
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    let results = text["results"].as_array().expect("results must be array");
+    assert_eq!(results.len(), 1);
+    let r = &results[0];
+    assert!(r["path"].is_string(), "result must have path");
+    assert!(r["snippet"].is_string(), "result must have snippet");
+    assert!(r["lineNumber"].is_number(), "result must have lineNumber");
+    assert!(r["score"].is_number(), "result must have score");
+}
+
+#[test]
+fn search_result_to_json_includes_all_fields() {
+    let sr = SearchResult {
+        path: "/tmp/test.md".to_string(),
+        snippet: "hello world".to_string(),
+        line_number: 42,
+        score: 0.75,
+    };
+    let j = sr.to_json();
+    assert_eq!(j["path"].as_str(), Some("/tmp/test.md"));
+    assert_eq!(j["snippet"].as_str(), Some("hello world"));
+    assert_eq!(j["lineNumber"].as_u64(), Some(42));
+    assert!((j["score"].as_f64().unwrap() - 0.75).abs() < 1e-9);
+}

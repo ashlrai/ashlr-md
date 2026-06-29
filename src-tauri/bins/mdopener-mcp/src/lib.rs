@@ -394,12 +394,13 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Full-text search across the user's vault (the watched folder) and recently opened files. Returns matching files with line numbers and snippets.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, with automatic grep fallback for offline use. Returns scored results sorted by relevance: [{ path, snippet, lineNumber, score }]. Accessible as MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Text to search for (case-insensitive)." },
-                    "limit": { "type": "integer", "description": "Max number of files to return. Defaults to 50." }
+                    "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
+                    "limit": { "type": "integer", "description": "Max number of results to return. Defaults to 50." },
+                    "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." }
                 },
                 "required": ["query"]
             }),
@@ -432,7 +433,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_ai_actions",
-            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, and the system+user prompt templates it uses. Agents can call this to discover what AI operations the editor supports before composing a workflow.",
+            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, and the system+user prompt templates it uses. Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -728,10 +729,46 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => return Response::err(id, -32602, "`query` is required"),
     };
     let limit = args["limit"].as_u64().unwrap_or(50);
+
+    // Determine search mode: explicit override or auto-detect via Ollama.
+    let use_semantic = match args["semantic"].as_bool() {
+        Some(b) => b,
+        None => ollama_available(),
+    };
+
+    if use_semantic {
+        // Attempt semantic search via Ollama embeddings.
+        match semantic_search_vault(&query, limit, ipc) {
+            Ok(results) => {
+                return tool_result(id, json!({
+                    "results": results,
+                    "mode": "semantic"
+                }));
+            }
+            Err(_) => {
+                // Embedding failed — fall through to grep.
+            }
+        }
+    }
+
+    // Grep fallback: ask the app's IPC layer (which does its own grep), or
+    // perform a local grep if the app is not running.
     let encoded = urlencoding::encode(&query);
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Ok(mut v) => {
+            v["mode"] = json!("grep");
+            tool_result(id, v)
+        }
+        Err(_ipc_err) => {
+            // App not running — perform local grep across vault files.
+            match grep_vault(&query, limit, ipc) {
+                Ok(results) => tool_result(id, json!({
+                    "results": results,
+                    "mode": "grep-local"
+                })),
+                Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+            }
+        }
     }
 }
 
@@ -914,6 +951,15 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         }),
     ];
 
+    // Advertise the semantic-search resource template so MCP clients can
+    // discover it and construct queries like text://vault-search?q=my+topic.
+    resources.push(json!({
+        "uri": "text://vault-search",
+        "name": "Vault semantic search",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback. Returns JSON: { results: [{ path, snippet, lineNumber, score }], mode }.",
+        "mimeType": "application/json"
+    }));
+
     if let Ok(v) = ipc.get("/vault") {
         if let Some(files) = v["files"].as_array() {
             for f in files {
@@ -969,6 +1015,67 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             }
             Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
         };
+    }
+
+    // text://vault-search?q={query} — on-demand semantic/grep search resource.
+    // Agents can read this URI to perform a search without calling the tool.
+    if let Some(rest) = uri.strip_prefix("text://vault-search") {
+        // Parse query string: ?q=... (&limit=... optional)
+        let qs = rest.strip_prefix('?').unwrap_or("");
+        let mut query = String::new();
+        let mut limit: u64 = 50;
+        for part in qs.split('&') {
+            if let Some(val) = part.strip_prefix("q=") {
+                query = urlencoding::decode(val)
+                    .map(|s| s.into_owned())
+                    .unwrap_or_else(|_| val.replace('+', " "));
+            } else if let Some(val) = part.strip_prefix("limit=") {
+                limit = val.parse().unwrap_or(50);
+            }
+        }
+        if query.is_empty() {
+            return Response::err(
+                id,
+                -32602,
+                "text://vault-search requires a query: text://vault-search?q=your+query",
+            );
+        }
+
+        // Try semantic search, fall back to grep.
+        let (results, mode) = if ollama_available() {
+            match semantic_search_vault(&query, limit, ipc) {
+                Ok(r) => (r, "semantic"),
+                Err(_) => {
+                    let r = grep_vault(&query, limit, ipc).unwrap_or_default();
+                    (r, "grep-local")
+                }
+            }
+        } else {
+            // Try IPC grep first.
+            let encoded = urlencoding::encode(&query);
+            match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
+                Ok(v) => {
+                    let results = v["results"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    (results, "grep")
+                }
+                Err(_) => {
+                    let r = grep_vault(&query, limit, ipc).unwrap_or_default();
+                    (r, "grep-local")
+                }
+            }
+        };
+
+        let payload = json!({ "results": results, "mode": mode, "query": query });
+        return Response::ok(id, json!({
+            "contents": [{
+                "uri": uri,
+                "mimeType": "application/json",
+                "text": payload.to_string()
+            }]
+        }));
     }
 
     if let Some(p) = uri.strip_prefix("file://") {
@@ -1036,6 +1143,208 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
         "description": format!("Apply the '{name}' prompt to the current Ashlr MD document"),
         "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
     }))
+}
+
+// ── Semantic search engine ────────────────────────────────────────────────────
+
+/// A single search result returned by semantic or grep search.
+#[derive(Serialize, Debug, Clone)]
+pub struct SearchResult {
+    pub path: String,
+    pub snippet: String,
+    #[serde(rename = "lineNumber")]
+    pub line_number: usize,
+    pub score: f64,
+}
+
+impl SearchResult {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "path": self.path,
+            "snippet": self.snippet,
+            "lineNumber": self.line_number,
+            "score": self.score
+        })
+    }
+}
+
+/// Probe whether Ollama is reachable on the default port (11434).
+/// Returns true only if a TCP connection succeeds within 200 ms.
+pub fn ollama_available() -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    TcpStream::connect_timeout(
+        &"127.0.0.1:11434".parse().unwrap(),
+        Duration::from_millis(200),
+    )
+    .is_ok()
+}
+
+/// Fetch an embedding vector for `text` from the Ollama REST API using
+/// the `nomic-embed-text` model.  Returns `Err` when Ollama is unavailable
+/// or the response cannot be parsed.
+pub fn ollama_embed(text: &str) -> Result<Vec<f64>, String> {
+    let body = json!({ "model": "nomic-embed-text", "prompt": text });
+    match http_post("http://127.0.0.1:11434/api/embeddings", &body, "") {
+        Ok(v) => {
+            let emb = v["embedding"]
+                .as_array()
+                .ok_or("Ollama response missing 'embedding' field")?;
+            let vec: Vec<f64> = emb.iter().filter_map(|x| x.as_f64()).collect();
+            if vec.is_empty() {
+                Err("Ollama returned an empty embedding vector".to_string())
+            } else {
+                Ok(vec)
+            }
+        }
+        Err(e) => Err(format!("Ollama embed request failed: {e}")),
+    }
+}
+
+/// Cosine similarity between two equal-length vectors.  Returns 0.0 if
+/// either is empty or they have different lengths.
+pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let mag_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let mag_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if mag_a == 0.0 || mag_b == 0.0 { 0.0 } else { dot / (mag_a * mag_b) }
+}
+
+/// Canonicalize a path string, returning the input unchanged on failure.
+pub fn canonicalize_path(raw: &str) -> String {
+    std::fs::canonicalize(raw)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+/// Collect candidate file paths from the vault and recents advertised by the
+/// app.  Falls back to an empty list if the app is not running.
+pub fn vault_file_paths(ipc: &dyn IpcClient) -> Vec<String> {
+    let mut paths = Vec::new();
+    if let Ok(v) = ipc.get("/vault") {
+        if let Some(files) = v["files"].as_array() {
+            for f in files {
+                if let Some(p) = f["path"].as_str() {
+                    paths.push(canonicalize_path(p));
+                }
+            }
+        }
+        if let Some(recents) = v["recents"].as_array() {
+            for r in recents {
+                if let Some(p) = r.as_str() {
+                    let cp = canonicalize_path(p);
+                    if !paths.contains(&cp) {
+                        paths.push(cp);
+                    }
+                }
+            }
+        }
+    }
+    paths
+}
+
+/// Perform semantic search: embed the query and each candidate document,
+/// rank by cosine similarity, return top-`limit` results sorted by score.
+///
+/// Errors if Ollama is not reachable or embedding the query fails.
+pub fn semantic_search_vault(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+) -> Result<Vec<Value>, String> {
+    let query_vec = ollama_embed(query)?;
+    let paths = vault_file_paths(ipc);
+    let mut scored: Vec<SearchResult> = Vec::new();
+
+    for path in &paths {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        // Truncate to first 8 KB to stay within typical embedding context limits.
+        let truncated: String = content.chars().take(8192).collect();
+        let doc_vec = match ollama_embed(&truncated) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let score = cosine_similarity(&query_vec, &doc_vec);
+        let (line_number, snippet) = best_snippet_for_query(&content, query);
+        scored.push(SearchResult { path: path.clone(), snippet, line_number, score });
+    }
+
+    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(limit as usize);
+    Ok(scored.iter().map(|r| r.to_json()).collect())
+}
+
+/// Perform a local grep search across vault files when the app IPC is
+/// unavailable.  Reads files directly from disk.
+pub fn grep_vault(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+) -> Result<Vec<Value>, String> {
+    let paths = vault_file_paths(ipc);
+    if paths.is_empty() {
+        return Ok(vec![]);
+    }
+    let lower_query = query.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
+
+    for path in &paths {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut match_count = 0usize;
+        let mut first_line = 0usize;
+        let mut first_snippet = String::new();
+        for (idx, line) in content.lines().enumerate() {
+            if line.to_lowercase().contains(&lower_query) {
+                match_count += 1;
+                if first_snippet.is_empty() {
+                    first_line = idx + 1;
+                    first_snippet = line.chars().take(200).collect();
+                }
+            }
+        }
+        if match_count > 0 {
+            let total_lines = content.lines().count().max(1);
+            let score = (match_count as f64 / total_lines as f64).min(1.0);
+            results.push(SearchResult {
+                path: path.clone(),
+                snippet: first_snippet,
+                line_number: first_line,
+                score,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.truncate(limit as usize);
+    Ok(results.iter().map(|r| r.to_json()).collect())
+}
+
+/// Find the line in `content` most relevant to `query` (case-insensitive
+/// substring match first; falls back to first non-empty line).
+/// Returns `(1-based line number, snippet text)`.
+pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
+    let lower = query.to_lowercase();
+    for (idx, line) in content.lines().enumerate() {
+        if line.to_lowercase().contains(&lower) {
+            return (idx + 1, line.chars().take(200).collect());
+        }
+    }
+    for (idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            return (idx + 1, trimmed.chars().take(200).collect());
+        }
+    }
+    (1, String::new())
 }
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
