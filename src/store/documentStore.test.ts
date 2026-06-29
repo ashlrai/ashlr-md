@@ -349,7 +349,7 @@ describe("documentStore", () => {
 
 // ── OT: applyOp / clearPendingOps ────────────────────────────────────────────
 
-import type { OtLogEntry, OtOperation } from "../lib/ot";
+import type { OtOperation } from "../lib/ot";
 
 function makeOtInsert(docLength: number, offset: number, text: string): OtOperation {
   const components: OtOperation["components"] = [];

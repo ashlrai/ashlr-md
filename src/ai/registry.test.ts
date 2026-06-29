@@ -283,7 +283,9 @@ describe("HostedProvider — generate() abort", () => {
     const controller = new AbortController();
 
     // Stream that emits a few chunks then stalls — we abort in between.
-    let enqueueMore: (() => void) | null = null;
+    // Held in an object so TS doesn't narrow the closure-assigned field to
+    // `null` at the later call site.
+    const pending: { enqueueMore: (() => void) | null } = { enqueueMore: null };
     const body = new ReadableStream<Uint8Array>({
       start(ctrl) {
         const enc = new TextEncoder();
@@ -294,7 +296,7 @@ describe("HostedProvider — generate() abort", () => {
           ),
         );
         // Register a callback to push more data (or close) later.
-        enqueueMore = () => {
+        pending.enqueueMore = () => {
           ctrl.enqueue(
             enc.encode(
               `data: ${JSON.stringify({ choices: [{ delta: { content: "B" } }] })}\n\n`,
@@ -324,7 +326,7 @@ describe("HostedProvider — generate() abort", () => {
 
     // Abort now, then let the stream continue pushing data.
     controller.abort();
-    enqueueMore?.();
+    pending.enqueueMore?.();
 
     // The generator should throw an AbortError on the next read.
     await expect(gen.next()).rejects.toThrow(/Aborted/);

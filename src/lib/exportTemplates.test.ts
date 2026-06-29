@@ -15,7 +15,6 @@ import {
   findTemplate,
   newTemplateId,
   validateTemplateCss,
-  type ExportProfile,
   type ExportTemplate,
 } from "./exportTemplates";
 

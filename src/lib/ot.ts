@@ -577,8 +577,7 @@ export function classifySection(doc: string, offset: number): SectionType {
   // fences before it (each fence is a line starting with ``` or ~~~).
   const fenceRe = /^(`{3,}|~{3,})/gm;
   let fenceCount = 0;
-  let m: RegExpExecArray | null;
-  while ((m = fenceRe.exec(before)) !== null) {
+  while (fenceRe.exec(before) !== null) {
     fenceCount++;
   }
   if (fenceCount % 2 === 1) {

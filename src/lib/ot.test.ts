@@ -675,7 +675,6 @@ describe("transformCursor", () => {
   });
 
   it("concurrent inserts at same position — cursor moves correctly after both", () => {
-    const doc = "hello";
     // a inserts at 2, b inserts at 2 concurrently
     const a = makeInsert(5, 2, "AA", "ag1", clock0, 1);
     const b = makeInsert(5, 2, "BB", "ag2", clock0, 1);

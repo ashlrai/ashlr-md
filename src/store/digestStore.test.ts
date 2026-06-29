@@ -36,7 +36,7 @@ import type { MdFileInfo } from "../lib/activity";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeFile(name: string, mtimeMs: number): MdFileInfo {
-  return { name, path: `/watch/${name}`, mtimeMs };
+  return { name, path: `/watch/${name}`, dir: "/watch", mtimeMs, size: 0 };
 }
 
 /** Noop AI provider — generate() returns an empty async iterable. */

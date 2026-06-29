@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // Replace all external I/O so the store runs in happy-dom without Tauri/FS.

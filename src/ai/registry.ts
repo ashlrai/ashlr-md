@@ -255,7 +255,6 @@ export const HOSTED_API_URL = "https://api.mdopener.app/v1/chat";
 
 class HostedProvider implements AIProvider {
   readonly id = "hosted";
-  private _token: string | null = null;
 
   get capabilities(): AICapabilities {
     return {
@@ -268,13 +267,7 @@ class HostedProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
-    const token = detectHostedToken();
-    if (token) {
-      this._token = token;
-      return true;
-    }
-    this._token = null;
-    return false;
+    return detectHostedToken() != null;
   }
 
   async *generate(

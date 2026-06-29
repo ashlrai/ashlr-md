@@ -665,7 +665,6 @@ describe("OT op component structure", () => {
   });
 
   it("inverse op components fully cover the post-apply content length", () => {
-    const original = "hello world";
     const replaced = "hello there";
     const undoOp = buildInverseHunkOp(replaced, "world", "there", "agent", {}, 2);
     expect(undoOp).not.toBeNull();

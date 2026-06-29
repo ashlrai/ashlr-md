@@ -26,7 +26,6 @@ import {
   expect,
   it,
   vi,
-  type MockInstance,
 } from "vitest";
 
 import {

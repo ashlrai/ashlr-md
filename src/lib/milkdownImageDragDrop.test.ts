@@ -8,7 +8,7 @@
  *   - makeDragDropPlugin(): DOM event wiring calls onReorder correctly
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   extractImageRefs,
   makeDragDropPlugin,

@@ -555,7 +555,7 @@ export async function exportEpub(title: string): Promise<void> {
 
   try {
     const mod = await import("epub-gen-memory");
-    epubGen = (mod.default ?? mod) as typeof epubGen;
+    epubGen = (mod.default ?? mod) as unknown as typeof epubGen;
   } catch {
     throw "epub-gen-memory is not installed. Run: bun add epub-gen-memory";
   }

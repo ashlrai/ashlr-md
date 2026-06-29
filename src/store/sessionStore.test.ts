@@ -78,11 +78,11 @@ describe("sessionStore", () => {
     const tabs: SavedTab[] = [
       { path: "/a.md", viewMode: "read" },
       { path: "/b.md", viewMode: "source" },
-      { path: "/c.md", viewMode: "split" },
+      { path: "/c.md", viewMode: "edit" },
     ];
     useSessionStore.getState().save(tabs, "/c.md");
     const saved = useSessionStore.getState().savedTabs;
-    expect(saved.map((t) => t.viewMode)).toEqual(["read", "source", "split"]);
+    expect(saved.map((t) => t.viewMode)).toEqual(["read", "source", "edit"]);
   });
 
   // ── clear() ───────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ describe("sessionStore", () => {
 
   it("saved tabs preserve their exact viewMode after round-trip", () => {
     const tabs: SavedTab[] = [
-      { path: "/a.md", viewMode: "split" },
+      { path: "/a.md", viewMode: "edit" },
       { path: "/b.md", viewMode: "source" },
     ];
     useSessionStore.getState().save(tabs, "/b.md");
@@ -237,7 +237,7 @@ describe("sessionStore", () => {
     simulateReload();
 
     const restored = useSessionStore.getState().savedTabs;
-    expect(restored[0].viewMode).toBe("split");
+    expect(restored[0].viewMode).toBe("edit");
     expect(restored[1].viewMode).toBe("source");
   });
 });

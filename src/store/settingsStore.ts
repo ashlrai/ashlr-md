@@ -351,6 +351,15 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 7) {
           s.disabledProfileIds = s.disabledProfileIds ?? [];
         }
+        // Always reconcile persisted disabled ids against the current set of
+        // known profiles so stale ids from removed/renamed profiles don't
+        // silently keep a (now-nonexistent) profile "disabled".
+        if (Array.isArray(s.disabledProfileIds)) {
+          s.disabledProfileIds = s.disabledProfileIds.filter(
+            (id): id is ExportProfileId =>
+              (ALL_PROFILE_IDS as readonly string[]).includes(id),
+          );
+        }
         return s as unknown as SettingsState;
       },
     },

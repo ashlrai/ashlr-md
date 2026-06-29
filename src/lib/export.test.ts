@@ -19,12 +19,16 @@ vi.mock("../styles/themes.css?raw", () => ({ default: "/* themes-css */" }));
 
 // Mock settingsStore so buildStandaloneHtmlWithActiveTemplate can be tested
 // without a real Zustand store.
-const mockGetState = vi.fn(() => ({
+interface MockSettingsState {
+  activeTemplateId: string;
+  userTemplates: Array<{ id: string; name: string; css: string; builtin: boolean }>;
+}
+const mockGetState = vi.fn<() => MockSettingsState>(() => ({
   activeTemplateId: "none",
   userTemplates: [],
 }));
 vi.mock("../store/settingsStore", () => ({
-  useSettingsStore: { getState: (...args: unknown[]) => mockGetState(...args) },
+  useSettingsStore: { getState: () => mockGetState() },
   NO_TEMPLATE_ID: "none",
 }));
 
@@ -904,7 +908,6 @@ import {
   exportMarkdownArchive,
   exportCanvasGraph,
   exportOutline,
-  type MarkdownArchiveEntry,
   type VaultDocDescriptor,
   type OutlineNode,
 } from "./export";
@@ -913,13 +916,18 @@ import { buildOutlineTree, buildOpml } from "./exportOutline";
 
 // ─── Mock documentStore for exportMarkdownArchive ────────────────────────────
 
-const mockDocGetState = vi.fn(() => ({
+interface MockDocState {
+  path: string | null;
+  fileName: string | null;
+  content: string;
+}
+const mockDocGetState = vi.fn<() => MockDocState>(() => ({
   path: "/vault/my-doc.md",
   fileName: "my-doc.md",
   content: "# Hello\n\nWorld.",
 }));
 vi.mock("../store/documentStore", () => ({
-  useDocumentStore: { getState: (...args: unknown[]) => mockDocGetState(...args) },
+  useDocumentStore: { getState: () => mockDocGetState() },
 }));
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2951,9 +2959,9 @@ describe("buildBatchExportProfiles", () => {
   it("partial failure: one bad profile id does not prevent others from succeeding", async () => {
     const ids = [
       "github-markdown",
-      "bad-id" as ExportProfileId,
+      "bad-id",
       "confluence-wiki",
-    ];
+    ] as ExportProfileId[];
     const results = await buildBatchExportProfiles(ids, SAMPLE_BODY);
     expect(results).toHaveLength(3);
     expect(results[0].ok).toBe(true);
