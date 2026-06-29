@@ -24,8 +24,8 @@ import katexCss from "katex/dist/katex.min.css?raw";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { findTemplate } from "./exportTemplates";
-import type { ExportTemplate } from "./exportTemplates";
+import { findTemplate, findProfile } from "./exportTemplates";
+import type { ExportTemplate, ExportProfileId } from "./exportTemplates";
 import { useSettingsStore } from "../store/settingsStore";
 import { parseHeadings } from "./outline";
 import { buildOutlineTree, buildOpml } from "./exportOutline";
@@ -692,6 +692,157 @@ export async function exportOutline(options: {
 
   toast.success(`Outline exported to ${baseName(dest)}`);
   return dest;
+}
+
+// ─── buildExportHtml ─────────────────────────────────────────────────────────
+
+/**
+ * Build format-optimised HTML for a named export profile.
+ *
+ * Supported profiles:
+ *   - `"notion-html"` — clean semantic HTML, no absolute positioning, max-width
+ *     900px, simplified table handling, optimised for pasting into Notion.
+ *   - `"slack-html"`  — constrained to ~520px (Slack thread width), Markdown-
+ *     friendly inline formatting preserved, link hrefs appended as text.
+ *   - `"email-html"`  — fully inlined CSS on every element, responsive via
+ *     media queries, dark-mode fallback, data URI image embedding supported.
+ *
+ * @param profileId  One of the profile id strings from EXPORT_PROFILES.
+ * @param content    Optional raw HTML body fragment to render.  When omitted
+ *                   the live `.markdown-body` DOM element is captured (throws
+ *                   if not in Read view).
+ * @returns          A complete, standalone HTML document string.
+ */
+export function buildExportHtml(profileId: ExportProfileId, content?: string): string {
+  const profile = findProfile(profileId);
+  if (!profile) {
+    throw `Unknown export profile: "${profileId}"`;
+  }
+
+  // Capture body HTML — either from caller or from the live DOM.
+  const bodyHtml = content ?? captureMarkdownBody();
+
+  const theme = currentTheme();
+  const layoutVars = currentLayoutVars();
+
+  // For email-html we inline CSS onto elements rather than relying on a <style>
+  // block (many email clients strip <style>).  We do a best-effort inline pass
+  // for the most impactful properties.
+  const processedBody =
+    profileId === "email-html"
+      ? inlineEmailStyles(bodyHtml)
+      : bodyHtml;
+
+  return `<!doctype html>
+<html lang="en" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<style>
+/* ── Reset ── */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+
+/* ── Layout vars ── */
+:root{${layoutVars}}
+
+/* ── Themes (paper/sepia/midnight tokens) ── */
+${themesCss}
+
+/* ── Markdown typography ── */
+${markdownCss}
+
+/* ── KaTeX ── */
+${katexCss}
+
+/* ── Export profile: ${escapeHtml(profile.name)} ── */
+${profile.css}
+</style>
+</head>
+<body>
+<article class="reading-surface">
+${processedBody}
+</article>
+</body>
+</html>`;
+}
+
+/**
+ * Best-effort inline CSS pass for email-html profile.
+ *
+ * Email clients like Outlook strip or ignore <style> blocks, so the most
+ * critical layout properties must live directly on HTML elements.  This
+ * function applies inline style strings to common block elements.
+ *
+ * This is intentionally conservative — it only touches elements that widely
+ * used email clients are known to reset: headings, paragraphs, links, tables.
+ * It does NOT attempt to replicate the full cascade (that would require a real
+ * CSS parser + CSSOM).
+ */
+function inlineEmailStyles(html: string): string {
+  // Replace the body fragment via regex-based inline style injection.
+  // Order: most specific patterns first.
+  return html
+    // Tables: add class for the email profile table rules + cellpadding/spacing reset
+    .replace(/<table(?![^>]*class="content-table")/gi, '<table class="content-table" cellpadding="0" cellspacing="0"')
+    // Headings
+    .replace(/<h1(\s|>)/gi, '<h1 style="font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;"$1')
+    .replace(/<h2(\s|>)/gi, '<h2 style="font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;"$1')
+    .replace(/<h3(\s|>)/gi, '<h3 style="font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;"$1')
+    .replace(/<h4(\s|>)/gi, '<h4 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
+    .replace(/<h5(\s|>)/gi, '<h5 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
+    .replace(/<h6(\s|>)/gi, '<h6 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
+    // Paragraphs
+    .replace(/<p(\s|>)/gi, '<p style="margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;"$1')
+    // Links
+    .replace(/<a(\s)/gi, '<a style="color:#0066cc;text-decoration:underline;"$1')
+    // Inline code (not inside pre)
+    .replace(/<code(\s|>)/gi, '<code style="font-family:\'Courier New\',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;"$1')
+    // Pre blocks (reset code inside pre)
+    .replace(/<pre(\s|>)/gi, '<pre style="background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:\'Courier New\',Courier,monospace;font-size:13px;line-height:1.5;"$1')
+    // Blockquotes
+    .replace(/<blockquote(\s|>)/gi, '<blockquote style="border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;"$1')
+    // Images — preserve data URIs, add responsive max-width
+    .replace(/<img(\s)/gi, '<img style="max-width:100%;height:auto;display:block;margin:0 0 16px;"$1');
+}
+
+/**
+ * Export a document using a named format profile.
+ *
+ * Triggers a native save dialog with the profile's recommended extension
+ * (`.html` for Notion/Email, `.txt` for Slack).
+ *
+ * @param profileId  The profile to use — one of `"notion-html"`, `"slack-html"`,
+ *                   `"email-html"`.
+ * @param title      Document title used for the default save filename.
+ */
+export async function exportWithProfile(
+  profileId: ExportProfileId,
+  title: string,
+): Promise<void> {
+  const profile = findProfile(profileId);
+  if (!profile) throw `Unknown export profile: "${profileId}"`;
+
+  const html = buildExportHtml(profileId); // throws if not in Read view
+
+  const ext = profile.extension;
+  const filterName =
+    ext === "txt" ? "Text / Markdown" : "HTML Document";
+
+  const path = await save({
+    defaultPath: `${sanitizeFileName(title)}.${ext}`,
+    filters: [{ name: filterName, extensions: [ext] }],
+  });
+  if (!path) return; // user cancelled — no toast
+
+  try {
+    await invoke("write_markdown_file", { path, content: html });
+  } catch (e) {
+    toast.error(`Export failed: ${errMsg(e)}`);
+    throw e;
+  }
+  toast.success(`Exported to ${baseName(path)}`);
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────

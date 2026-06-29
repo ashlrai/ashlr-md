@@ -1773,3 +1773,484 @@ describe("exportOutline", () => {
     expect(countNodes(parsed)).toBe(2); // "Real Heading" + "Real Sub", not the code block heading
   });
 });
+
+// ─── Import new profile exports ───────────────────────────────────────────────
+
+import { buildExportHtml, exportWithProfile } from "./export";
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildExportHtml — profile-specific HTML generation
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Rich fixture for profile tests covering all node types. */
+const PROFILE_FIXTURE_HTML = `
+<h1>Document Title</h1>
+<h2>Section One</h2>
+<h3>Subsection</h3>
+<p>Paragraph with <strong>bold</strong>, <em>italic</em>, and <a href="https://example.com">a link</a>.</p>
+<ul><li>List item one</li><li>List item two</li></ul>
+<ol><li>First</li><li>Second</li></ol>
+<table>
+  <thead><tr><th>Name</th><th>Value</th></tr></thead>
+  <tbody><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></tbody>
+</table>
+<pre><code class="language-typescript">const x = 42;</code></pre>
+<p><code>inline code</code></p>
+<blockquote><p>A quoted block.</p></blockquote>
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==" alt="test image" width="200" height="100" />
+`.trim();
+
+describe("buildExportHtml — notion-html profile", () => {
+  beforeEach(() => {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = PROFILE_FIXTURE_HTML;
+    document.body.appendChild(div);
+  });
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+    expect(html).toContain("</html>");
+  });
+
+  it("sets data-export-profile='notion-html'", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain('data-export-profile="notion-html"');
+  });
+
+  it("includes profile CSS in the <style> block", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("notion-html export profile");
+    expect(html).toContain("position: static");
+  });
+
+  it("preserves heading nesting (h1, h2, h3) from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("<h1>");
+    expect(html).toContain("<h2>");
+    expect(html).toContain("<h3>");
+    expect(html).toContain("Document Title");
+    expect(html).toContain("Section One");
+    expect(html).toContain("Subsection");
+  });
+
+  it("preserves links from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("https://example.com");
+    expect(html).toContain("a link");
+  });
+
+  it("preserves lists (ul/ol) from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("<ul>");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("List item one");
+    expect(html).toContain("First");
+  });
+
+  it("preserves table content from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("<table");
+    expect(html).toContain("<th>");
+    expect(html).toContain("Name");
+    expect(html).toContain("alpha");
+  });
+
+  it("preserves code block from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("<code");
+    expect(html).toContain("const x = 42");
+  });
+
+  it("preserves inline code from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("inline code");
+  });
+
+  it("preserves blockquote from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("<blockquote");
+    expect(html).toContain("A quoted block");
+  });
+
+  it("preserves data URI image from fixture", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("data:image/png;base64");
+  });
+
+  it("inlines base CSS bundles (themes, markdown, katex)", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).toContain("/* themes-css */");
+    expect(html).toContain("/* markdown-css */");
+    expect(html).toContain("/* katex-css */");
+  });
+
+  it("has no external resource references (offline-ready)", () => {
+    const html = buildExportHtml("notion-html");
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
+  });
+
+  it("accepts pre-built content string instead of capturing DOM", () => {
+    const html = buildExportHtml("notion-html", "<h1>Injected</h1><p>Body</p>");
+    expect(html).toContain("Injected");
+    expect(html).not.toContain("Document Title");
+  });
+
+  it("throws for an unknown profile id", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: testing bad input
+    expect(() => buildExportHtml("bad-profile" as any)).toThrow(/Unknown export profile/);
+  });
+});
+
+describe("buildExportHtml — slack-html profile", () => {
+  beforeEach(() => {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = PROFILE_FIXTURE_HTML;
+    document.body.appendChild(div);
+  });
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+    expect(html).toContain("</html>");
+  });
+
+  it("sets data-export-profile='slack-html'", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain('data-export-profile="slack-html"');
+  });
+
+  it("includes the slack-html profile CSS", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("slack-html export profile");
+    expect(html).toContain("520px");
+  });
+
+  it("preserves heading nesting from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("Document Title");
+    expect(html).toContain("Section One");
+    expect(html).toContain("Subsection");
+  });
+
+  it("preserves links from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("https://example.com");
+  });
+
+  it("preserves lists from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("<ul>");
+    expect(html).toContain("<ol>");
+  });
+
+  it("preserves table from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("<table");
+    expect(html).toContain("Name");
+  });
+
+  it("preserves code block from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("const x = 42");
+  });
+
+  it("preserves inline code from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("inline code");
+  });
+
+  it("preserves blockquote from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("<blockquote");
+  });
+
+  it("preserves data URI image from fixture", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).toContain("data:image/png;base64");
+  });
+
+  it("has no external resource references (offline-ready)", () => {
+    const html = buildExportHtml("slack-html");
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
+  });
+});
+
+describe("buildExportHtml — email-html profile", () => {
+  beforeEach(() => {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = PROFILE_FIXTURE_HTML;
+    document.body.appendChild(div);
+  });
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+    expect(html).toContain("</html>");
+  });
+
+  it("sets data-export-profile='email-html'", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain('data-export-profile="email-html"');
+  });
+
+  it("includes the email-html profile CSS with dark mode", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("email-html export profile");
+    expect(html).toContain("prefers-color-scheme: dark");
+  });
+
+  it("inlines style attributes on h1 elements", () => {
+    const html = buildExportHtml("email-html");
+    // inlineEmailStyles should have added style= to h1
+    expect(html).toMatch(/<h1[^>]*style=/i);
+    expect(html).toContain("font-size:28px");
+  });
+
+  it("inlines style attributes on h2 elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<h2[^>]*style=/i);
+    expect(html).toContain("font-size:22px");
+  });
+
+  it("inlines style attributes on h3 elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<h3[^>]*style=/i);
+    expect(html).toContain("font-size:18px");
+  });
+
+  it("inlines style attributes on paragraph elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<p[^>]*style=/i);
+    expect(html).toContain("color:#333333");
+  });
+
+  it("inlines style attributes on anchor elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<a[^>]*style=/i);
+    expect(html).toContain("color:#0066cc");
+  });
+
+  it("inlines style attributes on code elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<code[^>]*style=/i);
+    expect(html).toContain("Courier New");
+  });
+
+  it("inlines style attributes on pre elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<pre[^>]*style=/i);
+    expect(html).toContain("background-color:#f8f8f8");
+  });
+
+  it("inlines style attributes on blockquote elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<blockquote[^>]*style=/i);
+    expect(html).toContain("border-left:4px solid #cccccc");
+  });
+
+  it("adds content-table class to table elements for email client targeting", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain('class="content-table"');
+    expect(html).toContain("cellpadding");
+  });
+
+  it("inlines style attributes on img elements", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toMatch(/<img[^>]*style=/i);
+    expect(html).toContain("max-width:100%");
+  });
+
+  it("preserves data URI image src for .png embedding", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("data:image/png;base64");
+  });
+
+  it("preserves heading content from fixture", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("Document Title");
+    expect(html).toContain("Section One");
+  });
+
+  it("preserves link href from fixture", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("https://example.com");
+  });
+
+  it("preserves lists from fixture", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("<ul>");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("List item one");
+  });
+
+  it("preserves table content from fixture", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("<th>");
+    expect(html).toContain("alpha");
+  });
+
+  it("preserves code block content from fixture", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).toContain("const x = 42");
+  });
+
+  it("has no external resource references (offline-ready)", () => {
+    const html = buildExportHtml("email-html");
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
+  });
+
+  it("throws when not in Read view (no .markdown-body)", () => {
+    document.body.innerHTML = "";
+    expect(() => buildExportHtml("email-html")).toThrow("Switch to Read view");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// exportWithProfile — integration (mocked Tauri + dialog)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("exportWithProfile", () => {
+  beforeEach(() => {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = PROFILE_FIXTURE_HTML;
+    document.body.appendChild(div);
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+  });
+  afterEach(() => { document.body.innerHTML = ""; });
+
+  it("saves notion-html as .html with correct filter", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("notion-html", "My Doc");
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/\.html$/),
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["html"]) }),
+        ]),
+      }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/out/doc.html",
+      content: expect.stringContaining("<!doctype html>"),
+    });
+  });
+
+  it("saves slack-html as .txt with correct filter", async () => {
+    saveMock.mockResolvedValue("/out/doc.txt");
+    await exportWithProfile("slack-html", "My Doc");
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/\.txt$/),
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["txt"]) }),
+        ]),
+      }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/out/doc.txt",
+      content: expect.stringContaining("<!doctype html>"),
+    });
+  });
+
+  it("saves email-html as .html with correct filter", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("email-html", "My Doc");
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/\.html$/),
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["html"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("shows a success toast with the output filename", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("notion-html", "My Doc");
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      expect.stringContaining("doc.html"),
+    );
+  });
+
+  it("does nothing when user cancels the save dialog", async () => {
+    saveMock.mockResolvedValue(null);
+    await exportWithProfile("notion-html", "Cancelled");
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast and re-throws when invoke fails", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    invokeMock.mockRejectedValue(new Error("disk full"));
+    await expect(exportWithProfile("notion-html", "Fail")).rejects.toBeDefined();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("disk full"),
+    );
+  });
+
+  it("throws for unknown profile id", async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: testing bad input
+    await expect(exportWithProfile("bad-profile" as any, "X")).rejects.toMatch(
+      /Unknown export profile/,
+    );
+  });
+
+  it("written content contains profile-specific CSS marker for notion-html", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("notion-html", "Check");
+    const written = invokeMock.mock.calls[0][1].content as string;
+    expect(written).toContain("notion-html export profile");
+  });
+
+  it("written content contains profile-specific CSS marker for slack-html", async () => {
+    saveMock.mockResolvedValue("/out/doc.txt");
+    await exportWithProfile("slack-html", "Check");
+    const written = invokeMock.mock.calls[0][1].content as string;
+    expect(written).toContain("slack-html export profile");
+  });
+
+  it("written content contains profile-specific CSS marker for email-html", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("email-html", "Check");
+    const written = invokeMock.mock.calls[0][1].content as string;
+    expect(written).toContain("email-html export profile");
+  });
+
+  it("sanitises the title for the default filename", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    await exportWithProfile("notion-html", "Hello World: <Test>/File");
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/Hello-World.*\.html/),
+      }),
+    );
+  });
+
+  it("throws when not in Read view (no .markdown-body)", async () => {
+    document.body.innerHTML = "";
+    await expect(exportWithProfile("notion-html", "No view")).rejects.toMatch(
+      "Switch to Read view",
+    );
+  });
+});

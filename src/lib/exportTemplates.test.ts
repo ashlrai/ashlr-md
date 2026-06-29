@@ -8,10 +8,13 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_TEMPLATES,
+  EXPORT_PROFILES,
   NO_TEMPLATE_ID,
+  findProfile,
   findTemplate,
   newTemplateId,
   validateTemplateCss,
+  type ExportProfile,
   type ExportTemplate,
 } from "./exportTemplates";
 
@@ -287,5 +290,253 @@ describe("theme override precedence (cascade contract)", () => {
     const tpl = BUILTIN_TEMPLATES.find((t) => t.id === "builtin-notion")!;
     // Should not reference midnight-specific token values.
     expect(tpl.css).not.toContain("--midnight");
+  });
+});
+
+// ─── EXPORT_PROFILES registry ─────────────────────────────────────────────────
+
+describe("EXPORT_PROFILES", () => {
+  it("exports exactly three profiles", () => {
+    expect(EXPORT_PROFILES.length).toBe(3);
+  });
+
+  it("each profile has a unique id, non-empty name, description, extension, and css", () => {
+    const ids = new Set<string>();
+    for (const p of EXPORT_PROFILES) {
+      expect(p.id).toBeTruthy();
+      expect(p.name).toBeTruthy();
+      expect(p.description).toBeTruthy();
+      expect(["html", "txt"]).toContain(p.extension);
+      expect(p.css.trim().length).toBeGreaterThan(0);
+      expect(ids.has(p.id)).toBe(false);
+      ids.add(p.id);
+    }
+  });
+
+  it("contains notion-html profile with html extension", () => {
+    const p = EXPORT_PROFILES.find((p) => p.id === "notion-html");
+    expect(p).toBeDefined();
+    expect(p!.extension).toBe("html");
+  });
+
+  it("contains slack-html profile with txt extension", () => {
+    const p = EXPORT_PROFILES.find((p) => p.id === "slack-html");
+    expect(p).toBeDefined();
+    expect(p!.extension).toBe("txt");
+  });
+
+  it("contains email-html profile with html extension", () => {
+    const p = EXPORT_PROFILES.find((p) => p.id === "email-html");
+    expect(p).toBeDefined();
+    expect(p!.extension).toBe("html");
+  });
+
+  it("no profile CSS contains <script> tags (XSS safety)", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css).not.toMatch(/<script/i);
+    }
+  });
+
+  it("no profile CSS uses javascript: URIs", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css).not.toMatch(/javascript:/i);
+    }
+  });
+});
+
+// ─── findProfile ──────────────────────────────────────────────────────────────
+
+describe("findProfile", () => {
+  it("returns the notion-html profile by id", () => {
+    const p = findProfile("notion-html");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("notion-html");
+  });
+
+  it("returns the slack-html profile by id", () => {
+    const p = findProfile("slack-html");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("slack-html");
+  });
+
+  it("returns the email-html profile by id", () => {
+    const p = findProfile("email-html");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("email-html");
+  });
+
+  it("returns undefined for an unknown id", () => {
+    expect(findProfile("nonexistent-profile")).toBeUndefined();
+  });
+
+  it("returns undefined for empty string", () => {
+    expect(findProfile("")).toBeUndefined();
+  });
+});
+
+// ─── notion-html profile CSS ──────────────────────────────────────────────────
+
+describe("notion-html profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "notion-html")!;
+
+  it("constrains layout to max-width (no absolute positioning risk)", () => {
+    expect(profile.css).toContain("max-width");
+    // Must explicitly disable position:absolute for Notion compatibility
+    expect(profile.css).toContain("position: static");
+  });
+
+  it("includes semantic heading rules (h1–h3)", () => {
+    expect(profile.css).toMatch(/h1\s*\{/);
+    expect(profile.css).toMatch(/h2\s*\{/);
+    expect(profile.css).toMatch(/h3\s*\{/);
+  });
+
+  it("defines table styles for simplified Notion table import", () => {
+    expect(profile.css).toMatch(/table\s*\{/);
+    expect(profile.css).toContain("border-collapse");
+  });
+
+  it("includes link styles", () => {
+    expect(profile.css).toMatch(/a\s*\{/);
+  });
+
+  it("includes code and pre rules", () => {
+    expect(profile.css).toMatch(/code\s*\{/);
+    expect(profile.css).toMatch(/pre\s*\{/);
+  });
+
+  it("includes blockquote rule", () => {
+    expect(profile.css).toMatch(/blockquote\s*\{/);
+  });
+
+  it("includes list (ul/ol/li) rules", () => {
+    expect(profile.css).toMatch(/ul|ol|li/);
+  });
+
+  it("includes image rule with max-width for responsive sizing", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+    expect(profile.css).toContain("max-width");
+  });
+
+  it("does not use external @import URLs", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+});
+
+// ─── slack-html profile CSS ───────────────────────────────────────────────────
+
+describe("slack-html profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "slack-html")!;
+
+  it("constrains width to ~520px for Slack thread width", () => {
+    expect(profile.css).toContain("520px");
+  });
+
+  it("includes heading rules", () => {
+    expect(profile.css).toMatch(/h1|h2|h3/);
+  });
+
+  it("includes inline code rules with monospace font", () => {
+    expect(profile.css).toMatch(/code\s*\{/);
+    expect(profile.css).toMatch(/monospace/i);
+  });
+
+  it("includes pre/code block rules", () => {
+    expect(profile.css).toMatch(/pre\s*\{/);
+  });
+
+  it("includes blockquote rule", () => {
+    expect(profile.css).toMatch(/blockquote\s*\{/);
+  });
+
+  it("includes table rules (fallback for Slack which doesn't support tables)", () => {
+    expect(profile.css).toMatch(/table\s*\{/);
+    expect(profile.css).toContain("border-collapse");
+  });
+
+  it("includes link rules", () => {
+    expect(profile.css).toMatch(/a\s*\{/);
+  });
+
+  it("includes list (ul/ol/li) rules", () => {
+    expect(profile.css).toMatch(/ul|ol|li/);
+  });
+
+  it("includes image rule", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+  });
+
+  it("does not use external @import URLs", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+});
+
+// ─── email-html profile CSS ───────────────────────────────────────────────────
+
+describe("email-html profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "email-html")!;
+
+  it("sets a max-width constraint for the email wrapper (600px)", () => {
+    expect(profile.css).toContain("600px");
+  });
+
+  it("includes heading rules with explicit pixel sizes (email-safe)", () => {
+    expect(profile.css).toMatch(/h1\s*\{/);
+    expect(profile.css).toMatch(/28px/);
+  });
+
+  it("includes paragraph rules with explicit color and font-size", () => {
+    expect(profile.css).toMatch(/p\s*\{/);
+    expect(profile.css).toContain("16px");
+    expect(profile.css).toContain("#333333");
+  });
+
+  it("includes link rules with explicit color (no CSS vars)", () => {
+    expect(profile.css).toMatch(/a\s*\{/);
+    expect(profile.css).toContain("#0066cc");
+    // Should NOT use CSS custom properties for colors (email clients strip them)
+    expect(profile.css).not.toMatch(/color:\s*var\(/);
+  });
+
+  it("includes code rules with monospace stack and background", () => {
+    expect(profile.css).toMatch(/code\s*\{/);
+    expect(profile.css).toContain("Courier New");
+    expect(profile.css).toContain("#f5f5f5");
+  });
+
+  it("includes pre rules for code blocks", () => {
+    expect(profile.css).toMatch(/pre\s*\{/);
+    expect(profile.css).toContain("#f8f8f8");
+  });
+
+  it("includes blockquote rule with border-left and background", () => {
+    expect(profile.css).toMatch(/blockquote\s*\{/);
+    expect(profile.css).toContain("border-left");
+  });
+
+  it("includes table rules optimised for email clients (content-table class)", () => {
+    expect(profile.css).toContain("content-table");
+    expect(profile.css).toContain("border-collapse");
+  });
+
+  it("includes image rule with max-width:100% for responsive email layout", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+    expect(profile.css).toContain("100%");
+  });
+
+  it("includes dark mode media query fallback", () => {
+    expect(profile.css).toContain("prefers-color-scheme: dark");
+  });
+
+  it("includes responsive media query for mobile (max-width: 640px)", () => {
+    expect(profile.css).toContain("max-width: 640px");
+  });
+
+  it("does not use external @import URLs (offline-ready)", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+
+  it("includes list rules (ul/ol/li)", () => {
+    expect(profile.css).toMatch(/ul|ol|li/);
   });
 });

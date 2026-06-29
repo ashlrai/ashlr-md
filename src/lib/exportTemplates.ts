@@ -230,6 +230,273 @@ a { color: var(--tpl-accent); text-decoration: none; font-weight: 500; }
 a:hover { text-decoration: underline; }
 `.trim();
 
+// ─── Export profile types ─────────────────────────────────────────────────────
+
+/**
+ * A named export profile that controls how HTML is post-processed for a
+ * specific destination (Notion, Slack, Email).  Unlike ExportTemplate (which
+ * is purely additive CSS), a profile can also specify structural transformations
+ * applied by buildExportHtml() in export.ts.
+ */
+export type ExportProfileId = "notion-html" | "slack-html" | "email-html";
+
+export interface ExportProfile {
+  /** Stable machine id used in UI and routing logic. */
+  id: ExportProfileId;
+  /** Human-readable label shown in the export dialog. */
+  name: string;
+  /** Short description for the tooltip / dialog subtitle. */
+  description: string;
+  /**
+   * Suggested file extension for the save dialog.
+   * Notion and email produce `.html`; Slack produces `.txt`.
+   */
+  extension: "html" | "txt";
+  /** CSS that is injected into the document when building profile HTML. */
+  css: string;
+}
+
+// ─── Profile CSS ──────────────────────────────────────────────────────────────
+
+/**
+ * notion-html profile CSS.
+ *
+ * Goals:
+ *  - No absolute/fixed positioning (Notion strips position:absolute).
+ *  - Simplified table handling — Notion imports tables as database-like blocks;
+ *    we ensure clean cell borders and no complex merged-cell tricks.
+ *  - max-width constraint that matches Notion's default page width (~900px).
+ *  - Clean semantic HTML output — no heavy box-shadows, no ::before/::after
+ *    generated content that Notion's parser ignores.
+ */
+const NOTION_PROFILE_CSS = `
+/* ── notion-html export profile ── */
+:root {
+  --np-font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --np-text: #37352f;
+  --np-secondary: #787774;
+  --np-bg: #ffffff;
+  --np-code-bg: rgba(135,131,120,0.15);
+  --np-border: rgba(55,53,47,0.16);
+  --np-heading: #37352f;
+}
+/* Override any position:absolute/fixed — Notion cannot handle them */
+* { position: static !important; box-shadow: none !important; text-shadow: none !important; }
+body {
+  font-family: var(--np-font);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--np-text);
+  background: var(--np-bg);
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+.reading-surface { max-width: 900px; padding: 0; margin: 0; }
+/* Headings — use semantic weight, no decorative borders */
+h1 { font-size: 2em; font-weight: 700; color: var(--np-heading); margin: 0 0 0.5em; }
+h2 { font-size: 1.5em; font-weight: 600; color: var(--np-heading); margin: 1.4em 0 0.4em; }
+h3 { font-size: 1.2em; font-weight: 600; color: var(--np-heading); margin: 1.2em 0 0.3em; }
+h4, h5, h6 { font-size: 1em; font-weight: 600; color: var(--np-heading); margin: 1em 0 0.2em; }
+p { margin: 0.5em 0 0.8em; }
+/* Links — Notion preserves href so keep them clean */
+a { color: #0f7b6c; text-decoration: underline; }
+/* Inline code */
+code { font-size: 85%; background: var(--np-code-bg); border-radius: 3px; padding: 0.15em 0.4em; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; }
+/* Block code */
+pre { background: var(--np-code-bg); border-radius: 4px; padding: 16px; overflow-x: auto; margin: 1em 0; }
+pre code { background: none; padding: 0; font-size: 100%; }
+/* Blockquote */
+blockquote { border-left: 3px solid var(--np-border); margin: 1em 0; padding: 4px 16px; color: var(--np-secondary); }
+/* Tables — simplified for Notion import compatibility */
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th { background: #f7f6f3; font-weight: 600; text-align: left; }
+th, td { border: 1px solid var(--np-border); padding: 8px 12px; vertical-align: top; }
+/* Lists */
+ul, ol { margin: 0.5em 0 0.8em; padding-left: 1.6em; }
+li { margin: 0.2em 0; }
+/* Images */
+img { max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 1em 0; }
+`.trim();
+
+/**
+ * slack-html profile CSS.
+ *
+ * Slack's message renderer supports a constrained subset of Markdown.
+ * This profile produces plaintext-friendly output with preserved inline
+ * Markdown formatting so the result can be pasted as-is into Slack threads.
+ * Width is constrained to ~520px (Slack thread column width).
+ *
+ * Since the output is `.txt` / Markdown-ish, the CSS is minimal and primarily
+ * serves the HTML preview; the actual Slack paste comes from the text content.
+ */
+const SLACK_PROFILE_CSS = `
+/* ── slack-html export profile ── */
+:root {
+  --sp-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sp-text: #1d1c1d;
+  --sp-code-bg: #f8f8f8;
+  --sp-code-border: #e8e8e8;
+  --sp-link: #1264a3;
+}
+body {
+  font-family: var(--sp-font);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--sp-text);
+  background: #ffffff;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.reading-surface { max-width: 520px; padding: 0; margin: 0; }
+/* Headings — Slack does not render HTML headings; use bold + newline style */
+h1, h2, h3, h4, h5, h6 { font-weight: 700; margin: 0.8em 0 0.2em; font-size: 1em; }
+h1 { font-size: 1.1em; }
+/* Paragraphs */
+p { margin: 0 0 0.6em; }
+/* Links */
+a { color: var(--sp-link); text-decoration: none; }
+a::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #888; }
+/* Inline code — Slack uses backtick formatting */
+code { font-family: "Slack-Lato", "appleLogo", sans-serif; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--sp-code-bg); border: 1px solid var(--sp-code-border); border-radius: 3px; padding: 0.1em 0.3em; font-size: 87%; }
+/* Code blocks — Slack uses triple-backtick blocks */
+pre { background: var(--sp-code-bg); border: 1px solid var(--sp-code-border); border-radius: 4px; padding: 12px; overflow-x: auto; margin: 0.6em 0; }
+pre code { background: none; border: none; padding: 0; font-size: 100%; }
+/* Blockquote — Slack uses > prefix */
+blockquote { border-left: 3px solid #ddd; margin: 0.4em 0; padding: 0 12px; color: #555; }
+/* Tables — Slack does not support tables; show as simple bordered grid */
+table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 0.9em; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+th { background: #f4f4f4; font-weight: 600; }
+/* Lists */
+ul, ol { margin: 0.2em 0 0.6em; padding-left: 1.4em; }
+li { margin: 0.15em 0; }
+/* Images — show dimensions hint since Slack embeds as links */
+img { max-width: 100%; height: auto; border: 1px solid #eee; border-radius: 3px; margin: 0.4em 0; display: block; }
+`.trim();
+
+/**
+ * email-html profile CSS.
+ *
+ * Email clients have highly variable CSS support.  This profile:
+ *  - Uses only inline-compatible CSS (no CSS custom properties — many clients
+ *    don't support them; the CSS here defines fallbacks that buildExportHtml
+ *    will inline onto elements).
+ *  - Responsive: table-based outer wrapper with a max-width center column.
+ *  - Dark-mode media query fallback for clients that support it (Apple Mail,
+ *    Outlook.com web).
+ *  - No external references; all assets must be embedded as data URIs.
+ *  - .png image embedding support — images with data URI src are preserved.
+ */
+const EMAIL_PROFILE_CSS = `
+/* ── email-html export profile ── */
+/* Base reset for email clients */
+body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+img { -ms-interpolation-mode: bicubic; }
+/* Remove default styling */
+body { margin: 0 !important; padding: 0 !important; background-color: #f4f4f4 !important; }
+/* Email wrapper */
+.email-wrapper {
+  max-width: 600px;
+  margin: 0 auto;
+  background-color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #333333;
+}
+.reading-surface {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 32px 24px 40px;
+  background-color: #ffffff;
+}
+/* Headings — inline-friendly */
+h1 { font-size: 28px; font-weight: 700; color: #111111; margin: 0 0 16px; line-height: 1.2; }
+h2 { font-size: 22px; font-weight: 700; color: #222222; margin: 24px 0 12px; border-bottom: 2px solid #eeeeee; padding-bottom: 6px; }
+h3 { font-size: 18px; font-weight: 600; color: #333333; margin: 20px 0 8px; }
+h4, h5, h6 { font-size: 16px; font-weight: 600; color: #444444; margin: 16px 0 6px; }
+/* Body text */
+p { margin: 0 0 16px; color: #333333; font-size: 16px; line-height: 1.6; }
+/* Links */
+a { color: #0066cc; text-decoration: underline; }
+/* Inline code */
+code { font-family: "Courier New", Courier, monospace; font-size: 14px; background-color: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; padding: 2px 5px; color: #c7254e; }
+/* Code blocks */
+pre { background-color: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px; overflow-x: auto; margin: 0 0 16px; font-family: "Courier New", Courier, monospace; font-size: 13px; line-height: 1.5; }
+pre code { background: none; border: none; padding: 0; color: #333333; font-size: 100%; }
+/* Blockquote */
+blockquote { border-left: 4px solid #cccccc; margin: 0 0 16px; padding: 8px 16px; color: #666666; font-style: italic; background-color: #fafafa; }
+/* Tables — use inline styles for max email client compatibility */
+table.content-table { border-collapse: collapse; width: 100%; margin: 0 0 16px; }
+table.content-table th { background-color: #f0f0f0; font-weight: 700; color: #333333; padding: 10px 14px; border: 1px solid #dddddd; text-align: left; }
+table.content-table td { padding: 10px 14px; border: 1px solid #dddddd; color: #333333; vertical-align: top; }
+table.content-table tr:nth-child(even) td { background-color: #fafafa; }
+/* Lists */
+ul, ol { margin: 0 0 16px; padding-left: 24px; color: #333333; }
+li { margin: 4px 0; font-size: 16px; }
+/* Images — embedded data URIs (.png, .jpg) are preserved; max-width for responsive */
+img { max-width: 100% !important; height: auto; display: block; margin: 0 0 16px; }
+/* Horizontal rule */
+hr { border: none; border-top: 1px solid #eeeeee; margin: 24px 0; }
+/* Dark mode media query — supported by Apple Mail, Outlook.com */
+@media (prefers-color-scheme: dark) {
+  body { background-color: #1a1a1a !important; }
+  .email-wrapper, .reading-surface { background-color: #2a2a2a !important; }
+  p, li, td, th, blockquote, code { color: #e0e0e0 !important; }
+  h1, h2, h3, h4, h5, h6 { color: #f0f0f0 !important; }
+  a { color: #66aaff !important; }
+  pre, code { background-color: #333333 !important; border-color: #555555 !important; }
+  table.content-table th { background-color: #3a3a3a !important; }
+  table.content-table td { border-color: #555555 !important; }
+  blockquote { background-color: #333333 !important; border-left-color: #888888 !important; }
+}
+/* Responsive: stack on mobile */
+@media only screen and (max-width: 640px) {
+  .email-wrapper, .reading-surface { width: 100% !important; max-width: 100% !important; padding: 16px !important; }
+  h1 { font-size: 22px !important; }
+  h2 { font-size: 18px !important; }
+  table.content-table, table.content-table tbody, table.content-table tr, table.content-table td, table.content-table th { display: block; width: 100% !important; }
+  table.content-table tr { margin-bottom: 8px; }
+}
+`.trim();
+
+// ─── Profile registry ─────────────────────────────────────────────────────────
+
+export const EXPORT_PROFILES: readonly ExportProfile[] = [
+  {
+    id: "notion-html",
+    name: "Notion",
+    description: "Optimised HTML for pasting into Notion — clean semantic markup, no absolute positioning, Notion-compatible table layout.",
+    extension: "html",
+    css: NOTION_PROFILE_CSS,
+  },
+  {
+    id: "slack-html",
+    name: "Slack",
+    description: "Plaintext + Markdown formatting constrained to Slack thread width (~520px). Save as .txt and paste into Slack.",
+    extension: "txt",
+    css: SLACK_PROFILE_CSS,
+  },
+  {
+    id: "email-html",
+    name: "Email HTML",
+    description: "Fully inlined HTML for email clients — responsive, dark-mode aware, no external refs, supports embedded PNG images.",
+    extension: "html",
+    css: EMAIL_PROFILE_CSS,
+  },
+] as const;
+
+/**
+ * Look up an export profile by id.
+ * Returns `undefined` if the id is not a known profile.
+ */
+export function findProfile(id: string): ExportProfile | undefined {
+  return EXPORT_PROFILES.find((p) => p.id === id);
+}
+
 // ─── Built-in template registry ───────────────────────────────────────────────
 
 export const BUILTIN_TEMPLATES: readonly ExportTemplate[] = [

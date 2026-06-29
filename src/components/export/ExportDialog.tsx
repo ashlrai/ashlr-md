@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { exportDocx, exportHtml, exportPdf } from "../../lib/export";
+import { exportDocx, exportHtml, exportPdf, exportWithProfile } from "../../lib/export";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useDocumentStore } from "../../store/documentStore";
 import { useUiStore } from "../../store/uiStore";
@@ -87,6 +87,35 @@ function CloseIcon() {
         strokeWidth="1.6"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function NotionIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="3" y="2" width="14" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M6 6h8M6 10h8M6 14h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SlackIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="13" cy="7" r="2" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="7" cy="13" r="2" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="13" cy="13" r="2" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function EmailIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 7l8 5 8-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -255,6 +284,57 @@ export function ExportDialog() {
               <span className="export-format-name">HTML</span>
               <span className="export-format-desc">
                 Self-contained offline webpage — themes, diagrams, and math included
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="export-format-btn"
+            disabled={busy}
+            onClick={() => run("Notion HTML", () => exportWithProfile("notion-html", title))}
+          >
+            <span className="export-format-icon">
+              <NotionIcon />
+            </span>
+            <span className="export-format-text">
+              <span className="export-format-name">Notion</span>
+              <span className="export-format-desc">
+                Optimised HTML for pasting into Notion — clean semantic markup, simplified tables
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="export-format-btn"
+            disabled={busy}
+            onClick={() => run("Slack (.txt)", () => exportWithProfile("slack-html", title))}
+          >
+            <span className="export-format-icon">
+              <SlackIcon />
+            </span>
+            <span className="export-format-text">
+              <span className="export-format-name">Slack</span>
+              <span className="export-format-desc">
+                Markdown-preserved plaintext constrained to Slack thread width (~520px)
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="export-format-btn"
+            disabled={busy}
+            onClick={() => run("Email HTML", () => exportWithProfile("email-html", title))}
+          >
+            <span className="export-format-icon">
+              <EmailIcon />
+            </span>
+            <span className="export-format-text">
+              <span className="export-format-name">Email HTML</span>
+              <span className="export-format-desc">
+                Fully inlined HTML for email clients — responsive, dark-mode, embedded images
               </span>
             </span>
           </button>
