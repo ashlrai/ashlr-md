@@ -266,7 +266,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all fourteen mcp:// events", () => {
+  it("registers listeners for all fifteen mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -283,6 +283,7 @@ describe("useMcpBridge — mount", () => {
       "mcp://batch-export",
       "mcp://diff-docs",
       "mcp://apply-diff-hunk",
+      "mcp://atomic-edits",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -2050,5 +2051,638 @@ describe("mcp://apply-diff-hunk event", () => {
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect((resultCall![1].error as string)).toMatch(/out of bounds/i);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://atomic-edits — coordinated multi-file edits in a single transaction
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://atomic-edits event", () => {
+  // ── Helper to set up invoke mock with read_batch_files + apply_atomic_batch ──
+  function setupAtomicInvoke(
+    diskContents: Record<string, string> = {},
+    writeFailPath?: string,
+  ) {
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "read_batch_files") {
+        const paths = (args?.paths as string[]) ?? [];
+        return Promise.resolve(
+          paths.map((p) => ({
+            path: p,
+            ok: p in diskContents,
+            content: diskContents[p] ?? undefined,
+            error: p in diskContents ? undefined : `File not found: ${p}`,
+          })),
+        );
+      }
+      if (cmd === "apply_atomic_batch") {
+        const entries = (args?.entries as Array<{ path: string; content: string }>) ?? [];
+        return Promise.resolve(
+          entries.map((e) => ({
+            path: e.path,
+            ok: e.path !== writeFailPath,
+            error: e.path === writeFailPath ? "Disk write failed" : null,
+          })),
+        );
+      }
+      if (cmd === "read_markdown_file") {
+        return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      }
+      return Promise.resolve(undefined);
+    });
+  }
+
+  beforeEach(() => {
+    invokeMock.mockClear();
+  });
+
+  // ── Registration ──────────────────────────────────────────────────────────
+
+  it("registers listener for mcp://atomic-edits on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://atomic-edits")).toBe(true);
+  });
+
+  // ── Happy path: disk-only files ───────────────────────────────────────────
+
+  it("applies edits to two disk files and invokes apply_atomic_batch", async () => {
+    setupAtomicInvoke({
+      "/vault/a.md": "Hello world",
+      "/vault/b.md": "Goodbye world",
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({
+      "/vault/a.md": "Hello world",
+      "/vault/b.md": "Goodbye world",
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-001",
+      entries: [
+        { path: "/vault/a.md", find: "Hello world", replace: "Hello there" },
+        { path: "/vault/b.md", find: "Goodbye world", replace: "Goodbye there" },
+      ],
+    });
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeDefined();
+    expect(batchCall![1].entries).toHaveLength(2);
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ atomicId: "ae-001", ok: true });
+  });
+
+  it("returns per-file results with ok=true for each entry on success", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "unique text here" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "unique text here" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-002",
+      entries: [{ path: "/vault/a.md", find: "unique text here", replace: "replaced" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].results[0]).toMatchObject({ path: "/vault/a.md", ok: true, replaced: 1 });
+  });
+
+  it("passes the correct new content to apply_atomic_batch", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "original content" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "original content" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-003",
+      entries: [{ path: "/vault/a.md", find: "original content", replace: "updated content" }],
+    });
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeDefined();
+    const entry = batchCall![1].entries.find((e: { path: string }) => e.path === "/vault/a.md");
+    expect(entry?.content).toBe("updated content");
+  });
+
+  // ── Happy path: live document ─────────────────────────────────────────────
+
+  it("applies edit to the live (open) document without invoking apply_atomic_batch for it", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "live content here" });
+    setupAtomicInvoke({});
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({});
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-004",
+      entries: [{ path: "/vault/open.md", find: "live content here", replace: "updated live" }],
+    });
+    expect(useDocumentStore.getState().content).toBe("updated live");
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    // apply_atomic_batch should NOT be called for the live doc (no disk entries).
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+  });
+
+  it("updates live document content after successful edit", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "# Title\n\nOld paragraph." });
+    setupAtomicInvoke({});
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({});
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-005",
+      entries: [{ path: "/vault/open.md", find: "Old paragraph.", replace: "New paragraph." }],
+    });
+    expect(useDocumentStore.getState().content).toBe("# Title\n\nNew paragraph.");
+  });
+
+  it("mixes live doc and disk edits in one transaction", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "live doc" });
+    setupAtomicInvoke({ "/vault/disk.md": "disk doc" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/disk.md": "disk doc" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-006",
+      entries: [
+        { path: "/vault/open.md", find: "live doc", replace: "live updated" },
+        { path: "/vault/disk.md", find: "disk doc", replace: "disk updated" },
+      ],
+    });
+    expect(useDocumentStore.getState().content).toBe("live updated");
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeDefined();
+    expect(batchCall![1].entries[0]).toMatchObject({ path: "/vault/disk.md", content: "disk updated" });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall![1].ok).toBe(true);
+  });
+
+  it("triggers mcp_sync_state after updating the live document", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "sync test" });
+    setupAtomicInvoke({});
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({});
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-007",
+      entries: [{ path: "/vault/open.md", find: "sync test", replace: "synced" }],
+    });
+    const syncCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_state");
+    expect(syncCall).toBeDefined();
+  });
+
+  // ── Conflict detection: duplicate paths ──────────────────────────────────
+
+  it("returns ok=false when the same path appears twice in entries", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "some content" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "some content" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dup-001",
+      entries: [
+        { path: "/vault/a.md", find: "some", replace: "any" },
+        { path: "/vault/a.md", find: "content", replace: "text" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(typeof resultCall![1].error).toBe("string");
+    expect((resultCall![1].error as string).toLowerCase()).toMatch(/conflict|duplicate/);
+  });
+
+  it("does not invoke apply_atomic_batch when duplicate paths are detected", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "text" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "text" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dup-002",
+      entries: [
+        { path: "/vault/a.md", find: "text", replace: "x" },
+        { path: "/vault/a.md", find: "text", replace: "y" },
+      ],
+    });
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+  });
+
+  it("marks only the duplicated paths as errored in per-file results", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dup-003",
+      entries: [
+        { path: "/vault/a.md", find: "aaa", replace: "x" },
+        { path: "/vault/a.md", find: "aaa", replace: "y" },
+        { path: "/vault/b.md", find: "bbb", replace: "z" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    const results = resultCall![1].results as Array<{ path: string; ok: boolean; error?: string }>;
+    const dupResults = results.filter((r) => r.path === "/vault/a.md");
+    expect(dupResults.every((r) => !r.ok)).toBe(true);
+  });
+
+  // ── Rollback on edit failure ──────────────────────────────────────────────
+
+  it("returns ok=false and does not write any files when a find string is not found", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "content a", "/vault/b.md": "content b" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "content a", "/vault/b.md": "content b" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-roll-001",
+      entries: [
+        { path: "/vault/a.md", find: "content a", replace: "updated a" },
+        { path: "/vault/b.md", find: "does not exist", replace: "updated b" },
+      ],
+    });
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("does not mutate live document content when a sibling file edit fails", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "live content" });
+    setupAtomicInvoke({ "/vault/disk.md": "disk content" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/disk.md": "disk content" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-roll-002",
+      entries: [
+        { path: "/vault/open.md", find: "live content", replace: "updated" },
+        { path: "/vault/disk.md", find: "not present", replace: "y" },
+      ],
+    });
+    // Live document must NOT be updated since the transaction failed.
+    expect(useDocumentStore.getState().content).toBe("live content");
+  });
+
+  it("per-file results include error for the failed entry and aborted for others", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-roll-003",
+      entries: [
+        { path: "/vault/a.md", find: "missing text", replace: "x" },
+        { path: "/vault/b.md", find: "bbb", replace: "y" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    const results = resultCall![1].results as Array<{ path: string; ok: boolean; error?: string }>;
+    const failedA = results.find((r) => r.path === "/vault/a.md");
+    expect(failedA?.ok).toBe(false);
+    expect(typeof failedA?.error).toBe("string");
+  });
+
+  it("marks ambiguous find (>1 occurrences) as failure and aborts transaction", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "the cat and the dog" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "the cat and the dog" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-roll-004",
+      entries: [{ path: "/vault/a.md", find: "the", replace: "a" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+  });
+
+  // ── Rollback on Rust write failure ────────────────────────────────────────
+
+  it("returns ok=false when apply_atomic_batch reports a write failure", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "content a" }, "/vault/a.md");
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "content a" }, "/vault/a.md");
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-write-001",
+      entries: [{ path: "/vault/a.md", find: "content a", replace: "updated a" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(typeof resultCall![1].error).toBe("string");
+  });
+
+  it("does not update live document when Rust batch write fails", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "live text" });
+    // Disk file write fails
+    setupAtomicInvoke({ "/vault/disk.md": "disk text" }, "/vault/disk.md");
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/disk.md": "disk text" }, "/vault/disk.md");
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-write-002",
+      entries: [
+        { path: "/vault/open.md", find: "live text", replace: "live updated" },
+        { path: "/vault/disk.md", find: "disk text", replace: "disk updated" },
+      ],
+    });
+    // Live doc should NOT be updated because disk write failed.
+    expect(useDocumentStore.getState().content).toBe("live text");
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("returns ok=false when apply_atomic_batch invocation throws", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
+      if (cmd === "apply_atomic_batch") return Promise.reject(new Error("IPC crashed"));
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
+      if (cmd === "apply_atomic_batch") return Promise.reject(new Error("IPC crashed"));
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-write-003",
+      entries: [{ path: "/vault/a.md", find: "aaa", replace: "bbb" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(resultCall![1].error).toContain("IPC crashed");
+  });
+
+  // ── DAG dependency ordering ───────────────────────────────────────────────
+
+  it("applies entries in dependency order (b depends on a)", async () => {
+    // File content after first edit becomes input for second (chained).
+    // a.md: "foo bar" → "foo BAR" (first)
+    // a.md is separate file from b.md; dependency means b must be processed after a.
+    setupAtomicInvoke({
+      "/vault/a.md": "step one content",
+      "/vault/b.md": "step two content",
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({
+      "/vault/a.md": "step one content",
+      "/vault/b.md": "step two content",
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dag-001",
+      entries: [
+        {
+          path: "/vault/b.md",
+          find: "step two content",
+          replace: "step two done",
+          metadata: { dependsOn: ["/vault/a.md"] },
+        },
+        {
+          path: "/vault/a.md",
+          find: "step one content",
+          replace: "step one done",
+        },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    // Both edits should have succeeded.
+    const results = resultCall![1].results as Array<{ path: string; ok: boolean }>;
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+
+  it("detects dependency cycles and returns ok=false with a descriptive error", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "aaa", "/vault/b.md": "bbb" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dag-cycle",
+      entries: [
+        {
+          path: "/vault/a.md",
+          find: "aaa",
+          replace: "x",
+          metadata: { dependsOn: ["/vault/b.md"] },
+        },
+        {
+          path: "/vault/b.md",
+          find: "bbb",
+          replace: "y",
+          metadata: { dependsOn: ["/vault/a.md"] },
+        },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect((resultCall![1].error as string).toLowerCase()).toMatch(/cycle/);
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+  });
+
+  it("respects dependsOn for three-file chain a→b→c", async () => {
+    setupAtomicInvoke({
+      "/vault/a.md": "aaaa",
+      "/vault/b.md": "bbbb",
+      "/vault/c.md": "cccc",
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({
+      "/vault/a.md": "aaaa",
+      "/vault/b.md": "bbbb",
+      "/vault/c.md": "cccc",
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dag-chain",
+      entries: [
+        { path: "/vault/c.md", find: "cccc", replace: "C", metadata: { dependsOn: ["/vault/b.md"] } },
+        { path: "/vault/b.md", find: "bbbb", replace: "B", metadata: { dependsOn: ["/vault/a.md"] } },
+        { path: "/vault/a.md", find: "aaaa", replace: "A" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    expect(resultCall![1].results).toHaveLength(3);
+    expect(resultCall![1].results.every((r: { ok: boolean }) => r.ok)).toBe(true);
+  });
+
+  // ── Edge cases ────────────────────────────────────────────────────────────
+
+  it("returns ok=false with error when entries array is empty", async () => {
+    setupAtomicInvoke({});
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({});
+    await fireEvent("mcp://atomic-edits", { atomicId: "ae-empty", entries: [] });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(typeof resultCall![1].error).toBe("string");
+    expect(resultCall![1].error.length).toBeGreaterThan(0);
+  });
+
+  it("returns ok=false when disk file read fails", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") {
+        return Promise.resolve([{ path: "/vault/missing.md", ok: false, error: "File not found" }]);
+      }
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") {
+        return Promise.resolve([{ path: "/vault/missing.md", ok: false, error: "File not found" }]);
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-nofile",
+      entries: [{ path: "/vault/missing.md", find: "anything", replace: "x" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeUndefined();
+  });
+
+  it("returns ok=false when read_batch_files invocation throws", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject(new Error("IPC error"));
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject(new Error("IPC error"));
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-readfail",
+      entries: [{ path: "/vault/a.md", find: "x", replace: "y" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("always calls mcp_atomic_edits_result (prevents Rust timeout)", async () => {
+    // Even on a catastrophic error (read rejects), the result must fire.
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject("boom");
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject("boom");
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-timeout",
+      entries: [{ path: "/vault/a.md", find: "x", replace: "y" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+  });
+
+  it("single-file edit succeeds and writes the file", async () => {
+    setupAtomicInvoke({ "/vault/solo.md": "solo content" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/solo.md": "solo content" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-single",
+      entries: [{ path: "/vault/solo.md", find: "solo content", replace: "new solo" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeDefined();
+    expect(batchCall![1].entries[0]).toMatchObject({ path: "/vault/solo.md", content: "new solo" });
+  });
+
+  it("empty find string returns ok=false (propagates applyUniqueEdit error)", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "some content" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "some content" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-emptyfind",
+      entries: [{ path: "/vault/a.md", find: "", replace: "x" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("three disk files all succeed and are all passed to apply_atomic_batch", async () => {
+    setupAtomicInvoke({
+      "/vault/a.md": "alpha",
+      "/vault/b.md": "beta",
+      "/vault/c.md": "gamma",
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({
+      "/vault/a.md": "alpha",
+      "/vault/b.md": "beta",
+      "/vault/c.md": "gamma",
+    });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-three",
+      entries: [
+        { path: "/vault/a.md", find: "alpha", replace: "ALPHA" },
+        { path: "/vault/b.md", find: "beta", replace: "BETA" },
+        { path: "/vault/c.md", find: "gamma", replace: "GAMMA" },
+      ],
+    });
+    const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
+    expect(batchCall).toBeDefined();
+    expect(batchCall![1].entries).toHaveLength(3);
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall![1].ok).toBe(true);
+    expect(resultCall![1].results).toHaveLength(3);
+  });
+
+  it("metadata.dependsOn referencing unknown path is ignored (no error)", async () => {
+    setupAtomicInvoke({ "/vault/a.md": "aaa" });
+    mountBridge();
+    invokeMock.mockClear();
+    setupAtomicInvoke({ "/vault/a.md": "aaa" });
+    await fireEvent("mcp://atomic-edits", {
+      atomicId: "ae-dep-unknown",
+      entries: [
+        {
+          path: "/vault/a.md",
+          find: "aaa",
+          replace: "bbb",
+          metadata: { dependsOn: ["/vault/not-in-batch.md"] },
+        },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
   });
 });

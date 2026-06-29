@@ -55,6 +55,7 @@ pub fn run() {
             document::apply_file_patch,
             document::save_pasted_image,
             export::write_file_bytes,
+            export::apply_atomic_batch,
             file_handler::take_pending_files,
             watcher::watch_file,
             watcher::unwatch_file,

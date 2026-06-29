@@ -49,6 +49,59 @@ import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { applyUniqueEdit } from "./applyEdit";
 
+// ── Atomic-edits payload shapes ───────────────────────────────────────────────
+
+/**
+ * One entry in an `mcp://atomic-edits` request.
+ *
+ * `path`     — absolute path of the file to edit.
+ * `find`     — exact text to search for (must be unique within the file).
+ * `replace`  — replacement text.
+ * `metadata` — optional caller-supplied bag; used for DAG dependency ordering.
+ *              A `dependsOn` string array lists paths that must be applied first.
+ */
+export interface AtomicEditEntry {
+  path: string;
+  find: string;
+  replace: string;
+  metadata?: {
+    /** Paths whose edits must be applied before this entry. */
+    dependsOn?: string[];
+    [key: string]: unknown;
+  };
+}
+
+/** Per-file result item inside `mcp_atomic_edits_result`. */
+export interface AtomicEditFileResult {
+  path: string;
+  ok: boolean;
+  replaced: number;
+  error?: string;
+}
+
+/**
+ * Payload for `mcp://atomic-edits` — coordinated multi-file edits in a single
+ * transaction with automatic conflict detection and rollback.
+ *
+ * The bridge:
+ *  1. Loads all target file contents (live store for open doc, disk otherwise).
+ *  2. Validates: duplicate path entries are a conflict error (same file edited
+ *     twice in one batch — the agent must merge them first).
+ *  3. Resolves dependency order via the `metadata.dependsOn` DAG.
+ *  4. Applies each find/replace in dependency order, collecting per-file results.
+ *  5. If all succeed, writes all modified files via the Rust `apply_atomic_batch`
+ *     command (temp-file rename strategy — atomic at the filesystem level).
+ *  6. If any edit fails, no files are written and all results are marked failed.
+ *
+ * Reply: `mcp_atomic_edits_result` with { atomicId, ok, results, error }.
+ */
+interface AtomicEditsPayload {
+  atomicId: string;
+  entries: AtomicEditEntry[];
+  /** When true, also update the live documentStore for any open files. */
+  save?: boolean;
+}
+
 // ── Payload shapes from Rust ──────────────────────────────────────────────────
 
 interface OpenPayload {
@@ -1211,6 +1264,257 @@ export function useMcpBridge(): void {
           }
         },
       ),
+    );
+
+    // mcp://atomic-edits — coordinated multi-file edits in a single transaction.
+    //
+    // Algorithm:
+    //  1. Validate: reject duplicate paths (same file edited 2+ times — caller
+    //     must merge those edits before sending).
+    //  2. Load each file's content: live documentStore for the currently-open
+    //     doc, disk read via read_batch_files for all others.
+    //  3. Topologically sort entries by metadata.dependsOn (DAG).  Cycles are
+    //     detected and reported as an error rather than looping forever.
+    //  4. Apply each find/replace in DAG order using applyUniqueEdit.
+    //  5. If ALL succeed: push results to the Rust batch writer
+    //     (apply_atomic_batch) which does temp-file-rename per file.
+    //     For the live document, also update documentStore.
+    //  6. If ANY find/replace fails: abort — no files are written.
+    //  7. Always reply via mcp_atomic_edits_result so the Rust worker never parks.
+    unlisteners.push(
+      listen<AtomicEditsPayload>("mcp://atomic-edits", async (e) => {
+        const { atomicId, entries, save = false } = e.payload;
+
+        // ── Helper: reply and return ──────────────────────────────────────────
+        const reply = async (
+          ok: boolean,
+          results: AtomicEditFileResult[],
+          error: string | null,
+        ) => {
+          await invoke("mcp_atomic_edits_result", {
+            atomicId,
+            ok,
+            results,
+            error,
+          }).catch(() => {/* non-fatal */});
+        };
+
+        // ── Guard: empty payload ──────────────────────────────────────────────
+        if (!entries || entries.length === 0) {
+          await reply(false, [], "`entries` array must not be empty");
+          return;
+        }
+
+        // ── Step 1: conflict detection — duplicate paths ──────────────────────
+        const pathCounts = new Map<string, number>();
+        for (const entry of entries) {
+          pathCounts.set(entry.path, (pathCounts.get(entry.path) ?? 0) + 1);
+        }
+        const duplicates = [...pathCounts.entries()]
+          .filter(([, count]) => count > 1)
+          .map(([p]) => p);
+        if (duplicates.length > 0) {
+          const errMsg = `Conflict: the following paths appear more than once — merge edits before submitting: ${duplicates.join(", ")}`;
+          const results: AtomicEditFileResult[] = entries.map((en) => ({
+            path: en.path,
+            ok: false,
+            replaced: 0,
+            error: duplicates.includes(en.path) ? "Duplicate path in batch" : undefined,
+          }));
+          await reply(false, results, errMsg);
+          return;
+        }
+
+        // ── Step 2: topological sort via metadata.dependsOn ──────────────────
+        // Build an adjacency list: entry index → indices it depends on.
+        const pathToIdx = new Map<string, number>(entries.map((en, i) => [en.path, i]));
+        const inDegree = new Array<number>(entries.length).fill(0);
+        const adjList: number[][] = entries.map(() => []);
+
+        for (let i = 0; i < entries.length; i++) {
+          const deps = entries[i].metadata?.dependsOn ?? [];
+          for (const dep of deps) {
+            const depIdx = pathToIdx.get(dep);
+            if (depIdx !== undefined) {
+              // depIdx must come before i
+              adjList[depIdx].push(i);
+              inDegree[i]++;
+            }
+          }
+        }
+
+        // Kahn's algorithm
+        const queue: number[] = [];
+        for (let i = 0; i < entries.length; i++) {
+          if (inDegree[i] === 0) queue.push(i);
+        }
+        const order: number[] = [];
+        while (queue.length > 0) {
+          const node = queue.shift()!;
+          order.push(node);
+          for (const next of adjList[node]) {
+            inDegree[next]--;
+            if (inDegree[next] === 0) queue.push(next);
+          }
+        }
+        if (order.length !== entries.length) {
+          // Cycle detected
+          await reply(
+            false,
+            entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: "Dependency cycle detected" })),
+            "Dependency cycle in metadata.dependsOn — cannot determine apply order",
+          );
+          return;
+        }
+
+        // ── Step 3: load all file contents ────────────────────────────────────
+        const currentPath = useDocumentStore.getState().path;
+        const contentMap = new Map<string, string>();
+
+        // Separate open-doc path from disk paths.
+        const diskPaths: string[] = [];
+        for (const entry of entries) {
+          if (currentPath && entry.path === currentPath) {
+            contentMap.set(entry.path, useDocumentStore.getState().content);
+          } else {
+            diskPaths.push(entry.path);
+          }
+        }
+
+        if (diskPaths.length > 0) {
+          try {
+            const diskResults = await invoke<Array<{
+              path: string;
+              ok: boolean;
+              content?: string;
+              error?: string;
+            }>>("read_batch_files", { paths: diskPaths });
+            for (const r of diskResults) {
+              if (r.ok && r.content !== undefined) {
+                contentMap.set(r.path, r.content);
+              } else {
+                // File could not be read — abort the whole transaction.
+                await reply(
+                  false,
+                  entries.map((en) => ({
+                    path: en.path,
+                    ok: false,
+                    replaced: 0,
+                    error: en.path === r.path ? (r.error ?? "Could not read file") : "Aborted — another file in batch could not be read",
+                  })),
+                  `Could not read file ${r.path}: ${r.error ?? "unknown error"}`,
+                );
+                return;
+              }
+            }
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            await reply(
+              false,
+              entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: errStr })),
+              `Batch file read failed: ${errStr}`,
+            );
+            return;
+          }
+        }
+
+        // ── Step 4: apply edits in dependency order ───────────────────────────
+        const newContents = new Map<string, string>();
+        const editResults: AtomicEditFileResult[] = new Array(entries.length);
+        let allOk = true;
+
+        for (const idx of order) {
+          const entry = entries[idx];
+          const content = newContents.get(entry.path) ?? contentMap.get(entry.path) ?? "";
+          const outcome = applyUniqueEdit(content, entry.find, entry.replace);
+          editResults[idx] = {
+            path: entry.path,
+            ok: outcome.ok,
+            replaced: outcome.replaced,
+            error: outcome.error,
+          };
+          if (outcome.ok && outcome.content !== undefined) {
+            newContents.set(entry.path, outcome.content);
+          } else {
+            allOk = false;
+          }
+        }
+
+        if (!allOk) {
+          // Abort — fill any un-attempted entries with an abort message.
+          for (let i = 0; i < entries.length; i++) {
+            if (!editResults[i]) {
+              editResults[i] = {
+                path: entries[i].path,
+                ok: false,
+                replaced: 0,
+                error: "Aborted — earlier edit in transaction failed",
+              };
+            }
+          }
+          await reply(false, editResults, "One or more edits failed — transaction rolled back, no files written");
+          return;
+        }
+
+        // ── Step 5: write all modified files atomically ───────────────────────
+        // Separate live-doc files from pure-disk files.
+        const batchEntries: Array<{ path: string; content: string }> = [];
+        for (const [p, content] of newContents.entries()) {
+          if (!(currentPath && p === currentPath)) {
+            batchEntries.push({ path: p, content });
+          }
+        }
+
+        if (batchEntries.length > 0) {
+          try {
+            const writeResults = await invoke<Array<{
+              path: string;
+              ok: boolean;
+              error?: string | null;
+            }>>("apply_atomic_batch", { entries: batchEntries });
+
+            // Check if Rust reported any write failures.
+            for (const wr of writeResults) {
+              if (!wr.ok) {
+                // Rollback: disk was partially written (Rust handles its own
+                // rollback internally), but we must report failure to the agent.
+                await reply(
+                  false,
+                  entries.map((en) => ({
+                    path: en.path,
+                    ok: false,
+                    replaced: 0,
+                    error: en.path === wr.path
+                      ? (wr.error ?? "Write failed")
+                      : "Rolled back — another file in batch failed to write",
+                  })),
+                  `Atomic write failed for ${wr.path}: ${wr.error ?? "unknown error"}`,
+                );
+                return;
+              }
+            }
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            await reply(
+              false,
+              entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: errStr })),
+              `Atomic batch write failed: ${errStr}`,
+            );
+            return;
+          }
+        }
+
+        // Update live document for the currently-open file.
+        if (currentPath && newContents.has(currentPath)) {
+          useDocumentStore.getState().setContent(newContents.get(currentPath)!);
+          if (save) {
+            await useDocumentStore.getState().save();
+          }
+          syncNow();
+        }
+
+        await reply(true, editResults, null);
+      }),
     );
 
     // Track each listener's unlisten fn as it resolves (or unlisten on the spot
