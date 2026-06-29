@@ -21,6 +21,10 @@ use mdopener_mcp::{
     tool_export, tool_request_review, tool_get_annotations,
     tool_edit_document, tool_replace_document, tool_search_vault,
     tool_present_document, tool_list_ai_actions,
+    tool_get_conversation_context, tool_save_conversation_message,
+    tool_export_markdown_archive, tool_export_canvas_graph,
+    store_append_message, store_get_context,
+    session_file_path, load_session_from_disk,
     IpcClient, Request,
 };
 use serde_json::{json, Value};
@@ -140,7 +144,7 @@ fn initialize_capabilities_advertised() {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn tools_list_contains_all_12_tools() {
+fn tools_list_contains_all_16_tools() {
     let list = tool_list();
     let tools = list.as_array().expect("tool_list returns an array");
     let names: Vec<&str> = tools.iter()
@@ -150,6 +154,8 @@ fn tools_list_contains_all_12_tools() {
         "open_file", "get_current_content", "set_content", "list_recent",
         "export", "request_review", "get_user_annotations", "edit_document",
         "replace_document", "search_vault", "present_document", "list_ai_actions",
+        "get_conversation_context", "save_conversation_message",
+        "export_markdown_archive", "export_canvas_graph",
     ];
     for name in &expected {
         assert!(names.contains(name), "tool_list missing: {name}");
@@ -2238,4 +2244,934 @@ fn search_result_to_json_includes_all_fields() {
     assert_eq!(j["snippet"].as_str(), Some("hello world"));
     assert_eq!(j["lineNumber"].as_u64(), Some(42));
     assert!((j["score"].as_f64().unwrap() - 0.75).abs() < 1e-9);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool 13: get_conversation_context
+// Tool 14: save_conversation_message
+// ════════════════════════════════════════════════════════════════════════════
+//
+// These tests cover:
+//   1. Missing required params → -32602
+//   2. Empty session → graceful empty response
+//   3. Append + retrieve round-trip (message append + retrieval)
+//   4. Session isolation (appending to A does not appear in B)
+//   5. Disk persistence across "restart" (load_session_from_disk)
+//   6. Limit parameter caps results
+//   7. cited_docs aggregated in recentDocs
+//   8. Invalid role rejected
+//   9. Empty content rejected
+//  10. dispatch() routes both tool names without "Unknown tool"
+
+// ── Helper: unique session id per test so parallel tests do not interfere ────
+
+fn unique_session() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static CTR: AtomicU64 = AtomicU64::new(0);
+    format!("test-sess-{}-{}", std::process::id(), CTR.fetch_add(1, Ordering::SeqCst))
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// save_conversation_message — parameter validation
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn save_message_missing_session_id_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "role": "agent",
+        "content": "Did something"
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing session_id must return -32602");
+}
+
+#[test]
+fn save_message_empty_session_id_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": "",
+        "role": "agent",
+        "content": "Did something"
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "empty session_id must return -32602");
+}
+
+#[test]
+fn save_message_missing_role_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": unique_session(),
+        "content": "Some content"
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing role must return -32602");
+}
+
+#[test]
+fn save_message_invalid_role_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": unique_session(),
+        "role": "robot",
+        "content": "Some content"
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "invalid role must return -32602");
+    let msg = resp.error.unwrap().message;
+    assert!(
+        msg.contains("agent") || msg.contains("human") || msg.contains("system"),
+        "error should list valid roles, got: {msg}"
+    );
+}
+
+#[test]
+fn save_message_missing_content_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": unique_session(),
+        "role": "agent"
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing content must return -32602");
+}
+
+#[test]
+fn save_message_empty_content_returns_param_error() {
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": unique_session(),
+        "role": "agent",
+        "content": "   "
+    }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "whitespace-only content must return -32602");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// save_conversation_message — success paths
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn save_message_agent_role_succeeds_and_returns_message_id() {
+    let sess = unique_session();
+    let resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": sess,
+        "role": "agent",
+        "content": "Rewrote the introduction paragraph."
+    }));
+    assert!(resp.error.is_none(), "agent save should succeed: {:?}", resp.error);
+    assert!(!is_error(&resp), "isError must be false");
+    let text = content_text(&resp);
+    assert_eq!(text["ok"], json!(true));
+    assert!(text["messageId"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+        "messageId must be a non-empty string");
+    assert_eq!(text["sessionId"].as_str(), Some(sess.as_str()));
+    assert_eq!(text["role"].as_str(), Some("agent"));
+}
+
+#[test]
+fn save_message_human_role_succeeds() {
+    let sess = unique_session();
+    let resp = tool_save_conversation_message(id(2), &json!({
+        "session_id": sess,
+        "role": "human",
+        "content": "Approved — looks good."
+    }));
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    assert_eq!(text["role"].as_str(), Some("human"));
+}
+
+#[test]
+fn save_message_system_role_succeeds() {
+    let sess = unique_session();
+    let resp = tool_save_conversation_message(id(3), &json!({
+        "session_id": sess,
+        "role": "system",
+        "content": "Session started. Active doc: /docs/notes.md"
+    }));
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    assert_eq!(text["role"].as_str(), Some("system"));
+}
+
+#[test]
+fn save_message_with_cited_docs_accepted() {
+    let sess = unique_session();
+    let resp = tool_save_conversation_message(id(4), &json!({
+        "session_id": sess,
+        "role": "agent",
+        "content": "Summarised the spec.",
+        "cited_docs": ["/docs/spec.md", "/docs/roadmap.md"]
+    }));
+    assert!(resp.error.is_none(), "cited_docs should be accepted: {:?}", resp.error);
+    assert_eq!(content_text(&resp)["ok"], json!(true));
+}
+
+#[test]
+fn save_message_without_cited_docs_defaults_to_empty() {
+    // cited_docs is optional — omitting it must not error.
+    let sess = unique_session();
+    let resp = tool_save_conversation_message(id(5), &json!({
+        "session_id": sess,
+        "role": "agent",
+        "content": "No docs cited here."
+    }));
+    assert!(resp.error.is_none());
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// get_conversation_context — parameter validation
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn get_context_missing_session_id_returns_param_error() {
+    let resp = tool_get_conversation_context(id(1), &json!({}));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing session_id must return -32602");
+}
+
+#[test]
+fn get_context_empty_session_id_returns_param_error() {
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": "" }));
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// get_conversation_context — empty session graceful fallback
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn get_context_empty_session_returns_empty_messages_array() {
+    // Session was never written to — must return empty, not error.
+    let sess = unique_session();
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    assert!(resp.error.is_none(),
+        "empty session must not produce RPC error: {:?}", resp.error);
+    assert!(!is_error(&resp), "isError must be false for empty session");
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().expect("messages must be array");
+    assert!(msgs.is_empty(), "empty session must return zero messages");
+    assert_eq!(text["count"].as_u64(), Some(0));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Append + retrieve round-trip (message append + retrieval)
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn append_then_get_context_returns_message() {
+    let sess = unique_session();
+
+    // Append a message directly via the store helper.
+    store_append_message(&sess, "agent", "Ran search_vault.", vec![])
+        .expect("append must succeed");
+
+    // Retrieve via the MCP tool.
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    assert!(resp.error.is_none(), "get after append must succeed: {:?}", resp.error);
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().expect("messages must be array");
+    assert_eq!(msgs.len(), 1, "should retrieve exactly 1 message");
+    assert_eq!(msgs[0]["role"].as_str(), Some("agent"));
+    assert_eq!(msgs[0]["content"].as_str(), Some("Ran search_vault."));
+    assert_eq!(text["count"].as_u64(), Some(1));
+}
+
+#[test]
+fn multiple_appends_retrieved_in_order() {
+    let sess = unique_session();
+
+    store_append_message(&sess, "system", "Session started.", vec![]).unwrap();
+    store_append_message(&sess, "agent", "Opened /docs/spec.md.", vec!["/docs/spec.md".into()]).unwrap();
+    store_append_message(&sess, "human", "Looks good, continue.", vec![]).unwrap();
+
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 3, "all 3 messages should be returned");
+    assert_eq!(msgs[0]["role"].as_str(), Some("system"));
+    assert_eq!(msgs[1]["role"].as_str(), Some("agent"));
+    assert_eq!(msgs[2]["role"].as_str(), Some("human"));
+}
+
+#[test]
+fn save_then_get_via_mcp_tools_round_trip() {
+    // End-to-end: use only the public MCP tool functions (no store helpers).
+    let sess = unique_session();
+
+    let save_resp = tool_save_conversation_message(id(1), &json!({
+        "session_id": sess,
+        "role": "agent",
+        "content": "Edited the summary section.",
+        "cited_docs": ["/vault/summary.md"]
+    }));
+    assert!(save_resp.error.is_none(), "save must succeed");
+
+    let get_resp = tool_get_conversation_context(id(2), &json!({
+        "session_id": sess,
+        "limit": 10
+    }));
+    assert!(get_resp.error.is_none(), "get must succeed");
+    let text = content_text(&get_resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["content"].as_str(), Some("Edited the summary section."));
+    assert_eq!(msgs[0]["role"].as_str(), Some("agent"));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Session isolation
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn messages_are_isolated_by_session_id() {
+    let sess_a = unique_session();
+    let sess_b = unique_session();
+
+    store_append_message(&sess_a, "agent", "Message for session A.", vec![]).unwrap();
+    store_append_message(&sess_b, "human", "Message for session B.", vec![]).unwrap();
+
+    // Session A should only see its own message.
+    let ctx_a = store_get_context(&sess_a, 20).unwrap();
+    assert_eq!(ctx_a.len(), 1);
+    assert_eq!(ctx_a[0].content, "Message for session A.");
+
+    // Session B should only see its own message.
+    let ctx_b = store_get_context(&sess_b, 20).unwrap();
+    assert_eq!(ctx_b.len(), 1);
+    assert_eq!(ctx_b[0].content, "Message for session B.");
+}
+
+#[test]
+fn appending_to_one_session_does_not_appear_in_another() {
+    let sess_x = unique_session();
+    let sess_y = unique_session();
+
+    // Write to X; Y should stay empty.
+    store_append_message(&sess_x, "agent", "Action in X.", vec![]).unwrap();
+
+    let ctx_y = store_get_context(&sess_y, 20).unwrap();
+    assert!(ctx_y.is_empty(),
+        "messages written to session X must not appear in session Y");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Disk persistence across simulated "restart"
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn messages_persisted_to_disk_and_loadable() {
+    let sess = unique_session();
+
+    // Append via store (triggers disk write).
+    store_append_message(&sess, "agent", "Wrote introduction.", vec!["/vault/intro.md".into()])
+        .expect("append must succeed");
+
+    // Load directly from disk — simulating a fresh process start.
+    let loaded = load_session_from_disk(&sess);
+    assert!(loaded.is_some(), "session must be persisted to disk");
+    let log = loaded.unwrap();
+    assert_eq!(log.messages.len(), 1);
+    assert_eq!(log.messages[0].content, "Wrote introduction.");
+    assert_eq!(log.messages[0].cited_docs, vec!["/vault/intro.md"]);
+}
+
+#[test]
+fn disk_persistence_survives_multiple_appends() {
+    let sess = unique_session();
+
+    for i in 0..5 {
+        store_append_message(&sess, "agent", &format!("Step {i} completed."), vec![])
+            .expect("append must succeed");
+    }
+
+    let log = load_session_from_disk(&sess).expect("session must be on disk");
+    assert_eq!(log.messages.len(), 5,
+        "all 5 messages must be persisted, got {}", log.messages.len());
+}
+
+#[test]
+fn cold_start_loads_from_disk_via_get_context() {
+    // Simulate a cold start: write directly to disk, bypass the in-process store,
+    // then call store_get_context which should load from disk automatically.
+    use mdopener_mcp::{SessionLog, ConversationMessage};
+
+    let sess = unique_session();
+    let path = session_file_path(&sess).expect("must have session path");
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+
+    let ts = 1_700_000_000_000u64;
+    let log = SessionLog {
+        messages: vec![
+            ConversationMessage {
+                id: "msg-cold-start-test".into(),
+                session_id: sess.clone(),
+                role: "human".into(),
+                content: "Approved the plan.".into(),
+                cited_docs: vec![],
+                timestamp_ms: ts,
+            }
+        ],
+    };
+    let json = serde_json::to_string(&log).unwrap();
+    std::fs::write(&path, &json).expect("write must succeed");
+
+    // Get context — the in-process store does NOT have this session yet.
+    let ctx = store_get_context(&sess, 20).expect("get must succeed");
+    assert_eq!(ctx.len(), 1, "cold-start load must recover 1 message from disk");
+    assert_eq!(ctx[0].content, "Approved the plan.");
+    assert_eq!(ctx[0].role, "human");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Limit parameter
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn get_context_limit_caps_returned_messages() {
+    let sess = unique_session();
+
+    for i in 0..10 {
+        store_append_message(&sess, "agent", &format!("Step {i}"), vec![]).unwrap();
+    }
+
+    let resp = tool_get_conversation_context(id(1), &json!({
+        "session_id": sess,
+        "limit": 3
+    }));
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert!(msgs.len() <= 3, "limit=3 must return at most 3 messages, got {}", msgs.len());
+}
+
+#[test]
+fn get_context_limit_returns_most_recent_messages() {
+    let sess = unique_session();
+
+    for i in 0..5 {
+        store_append_message(&sess, "agent", &format!("Message {i}"), vec![]).unwrap();
+    }
+
+    let resp = tool_get_conversation_context(id(1), &json!({
+        "session_id": sess,
+        "limit": 2
+    }));
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    // Should return the two most recent: "Message 3" and "Message 4".
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(msgs[1]["content"].as_str(), Some("Message 4"),
+        "last message should be 'Message 4'");
+}
+
+#[test]
+fn get_context_default_limit_is_20() {
+    let sess = unique_session();
+
+    for i in 0..25 {
+        store_append_message(&sess, "agent", &format!("M{i}"), vec![]).unwrap();
+    }
+
+    // No explicit limit — should default to 20.
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 20, "default limit must be 20, got {}", msgs.len());
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// cited_docs aggregated into recentDocs
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn recent_docs_aggregated_from_cited_docs() {
+    let sess = unique_session();
+
+    store_append_message(&sess, "agent", "Read spec.", vec!["/docs/spec.md".into()]).unwrap();
+    store_append_message(&sess, "agent", "Read roadmap.", vec!["/docs/roadmap.md".into()]).unwrap();
+    store_append_message(&sess, "human", "Approved.", vec![]).unwrap();
+
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let recent_docs = text["recentDocs"].as_array().expect("recentDocs must be array");
+    let paths: Vec<&str> = recent_docs.iter().filter_map(|v| v.as_str()).collect();
+    assert!(paths.contains(&"/docs/spec.md"), "spec.md must appear in recentDocs");
+    assert!(paths.contains(&"/docs/roadmap.md"), "roadmap.md must appear in recentDocs");
+}
+
+#[test]
+fn recent_docs_deduplicates_repeated_paths() {
+    let sess = unique_session();
+
+    store_append_message(&sess, "agent", "First read.", vec!["/vault/doc.md".into()]).unwrap();
+    store_append_message(&sess, "agent", "Second read.", vec!["/vault/doc.md".into()]).unwrap();
+
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let recent_docs = text["recentDocs"].as_array().expect("recentDocs must be array");
+    let doc_count = recent_docs.iter()
+        .filter(|v| v.as_str() == Some("/vault/doc.md"))
+        .count();
+    assert_eq!(doc_count, 1, "/vault/doc.md should appear exactly once in recentDocs");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Message shape validation
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn saved_message_has_all_required_fields() {
+    let sess = unique_session();
+    store_append_message(&sess, "agent", "Did something.", vec!["/a.md".into()]).unwrap();
+
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let msg = &text["messages"].as_array().unwrap()[0];
+
+    assert!(msg["id"].is_string(), "message must have id");
+    assert!(msg["sessionId"].is_string(), "message must have sessionId");
+    assert!(msg["role"].is_string(), "message must have role");
+    assert!(msg["content"].is_string(), "message must have content");
+    assert!(msg["citedDocs"].is_array(), "message must have citedDocs array");
+    assert!(msg["timestampMs"].is_number(), "message must have timestampMs");
+}
+
+#[test]
+fn message_ids_are_unique_across_appends() {
+    let sess = unique_session();
+
+    let m1 = store_append_message(&sess, "agent", "First.", vec![]).unwrap();
+    let m2 = store_append_message(&sess, "agent", "Second.", vec![]).unwrap();
+
+    assert_ne!(m1.id, m2.id, "each message must have a unique id");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// dispatch() routes both new tool names
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn dispatch_routes_get_conversation_context() {
+    let sess = unique_session();
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(1)),
+        method: "tools/call".into(),
+        params: Some(json!({
+            "name": "get_conversation_context",
+            "arguments": { "session_id": sess }
+        })),
+    };
+    let ipc = MockIpc::new();
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    // Must not be an "Unknown tool" error.
+    if let Some(err) = &resp.error {
+        assert!(!err.message.contains("Unknown tool"),
+            "get_conversation_context must be routed, got: {}", err.message);
+    }
+}
+
+#[test]
+fn dispatch_routes_save_conversation_message() {
+    let sess = unique_session();
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(2)),
+        method: "tools/call".into(),
+        params: Some(json!({
+            "name": "save_conversation_message",
+            "arguments": {
+                "session_id": sess,
+                "role": "agent",
+                "content": "Dispatch routing test."
+            }
+        })),
+    };
+    let ipc = MockIpc::new();
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    if let Some(err) = &resp.error {
+        assert!(!err.message.contains("Unknown tool"),
+            "save_conversation_message must be routed, got: {}", err.message);
+    }
+    assert!(resp.error.is_none(), "save via dispatch must succeed: {:?}", resp.error);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// session_file_path sanitisation
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn session_file_path_sanitises_special_characters() {
+    // Slashes and dots in a session ID must not escape the sessions directory.
+    let path = session_file_path("../../evil/path").expect("must return a path");
+    let filename = path.file_name().unwrap().to_string_lossy();
+    assert!(!filename.contains('/'), "sanitised filename must not contain '/'");
+    assert!(filename.ends_with(".json"), "path must end with .json");
+}
+
+#[test]
+fn session_file_path_alphanumeric_preserved() {
+    let path = session_file_path("sess-abc-123_XYZ").expect("must return a path");
+    let filename = path.file_name().unwrap().to_string_lossy();
+    assert!(filename.contains("sess-abc-123_XYZ"),
+        "alphanumeric/dash/underscore chars must be preserved in filename");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool: export_markdown_archive
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn export_markdown_archive_no_output_path_posts_to_ipc() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({
+            "ok": true,
+            "path": "/tmp/doc.tar.gz",
+            "files": ["doc.md"],
+            "size": 1024
+        })));
+    let resp = tool_export_markdown_archive(id(1), &json!({}), &ipc);
+    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
+    assert!(!is_error(&resp));
+    let calls = ipc.calls();
+    assert!(
+        calls.iter().any(|(m, p, _)| m == "POST" && p == "/export/markdown-archive"),
+        "must POST to /export/markdown-archive"
+    );
+}
+
+#[test]
+fn export_markdown_archive_output_path_forwarded() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({ "ok": true, "path": "/out/arch.tar.gz" })));
+    tool_export_markdown_archive(
+        id(2),
+        &json!({ "output_path": "/out/arch.tar.gz" }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
+        .expect("must POST /export/markdown-archive")
+        .2.as_ref().unwrap();
+    assert_eq!(body["outputPath"], "/out/arch.tar.gz");
+}
+
+#[test]
+fn export_markdown_archive_include_assets_defaults_to_true() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
+    tool_export_markdown_archive(id(3), &json!({}), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["includeAssets"], json!(true),
+        "includeAssets must default to true");
+}
+
+#[test]
+fn export_markdown_archive_include_assets_false_forwarded() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
+    tool_export_markdown_archive(
+        id(4),
+        &json!({ "include_assets": false }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["includeAssets"], json!(false));
+}
+
+#[test]
+fn export_markdown_archive_ipc_failure_returns_rpc_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Err("ipc-port not found".into()));
+    let resp = tool_export_markdown_archive(id(5), &json!({}), &ipc);
+    assert!(resp.error.is_some(), "IPC failure must return RPC error");
+    assert_eq!(resp.error.unwrap().code, -32000);
+}
+
+#[test]
+fn export_markdown_archive_app_not_running_returns_descriptive_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let resp = tool_export_markdown_archive(id(6), &json!({}), &ipc);
+    let err = resp.error.expect("should have error");
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("Ashlr MD"),
+        "error should mention app name, got: {}", err.message);
+}
+
+#[test]
+fn export_markdown_archive_success_returns_path_and_files() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({
+            "ok": true,
+            "path": "/vault/archive.tar.gz",
+            "files": ["doc.md", "assets/fig1.svg"],
+            "size": 2048
+        })));
+    let resp = tool_export_markdown_archive(id(7), &json!({}), &ipc);
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    assert_eq!(text["ok"], json!(true));
+    assert_eq!(text["path"], "/vault/archive.tar.gz");
+    assert!(text["files"].is_array());
+}
+
+#[test]
+fn export_markdown_archive_no_output_path_null_in_body() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
+    tool_export_markdown_archive(id(8), &json!({}), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
+        .unwrap().2.as_ref().unwrap();
+    assert!(body["outputPath"].is_null(),
+        "absent output_path should be null in IPC body, got {:?}", body["outputPath"]);
+}
+
+#[test]
+fn export_markdown_archive_dispatch_routes_correctly() {
+    let ipc = MockIpc::new()
+        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(99)),
+        method: "tools/call".into(),
+        params: Some(json!({ "name": "export_markdown_archive", "arguments": {} })),
+    };
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool: export_canvas_graph
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn export_canvas_graph_posts_to_ipc() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({
+            "ok": true,
+            "path": "/vault/graph.canvas",
+            "nodeCount": 5,
+            "edgeCount": 3
+        })));
+    let resp = tool_export_canvas_graph(id(10), &json!({}), &ipc);
+    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
+    assert!(!is_error(&resp));
+    let calls = ipc.calls();
+    assert!(
+        calls.iter().any(|(m, p, _)| m == "POST" && p == "/export/canvas-graph"),
+        "must POST to /export/canvas-graph"
+    );
+}
+
+#[test]
+fn export_canvas_graph_output_path_forwarded() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
+    tool_export_canvas_graph(
+        id(11),
+        &json!({ "output_path": "/out/vault.canvas" }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
+        .expect("must POST /export/canvas-graph")
+        .2.as_ref().unwrap();
+    assert_eq!(body["outputPath"], "/out/vault.canvas");
+}
+
+#[test]
+fn export_canvas_graph_include_isolated_defaults_to_true() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
+    tool_export_canvas_graph(id(12), &json!({}), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["includeIsolated"], json!(true),
+        "includeIsolated must default to true");
+}
+
+#[test]
+fn export_canvas_graph_include_isolated_false_forwarded() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
+    tool_export_canvas_graph(
+        id(13),
+        &json!({ "include_isolated": false }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["includeIsolated"], json!(false));
+}
+
+#[test]
+fn export_canvas_graph_ipc_failure_returns_rpc_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Err("ipc-port not found".into()));
+    let resp = tool_export_canvas_graph(id(14), &json!({}), &ipc);
+    assert!(resp.error.is_some(), "IPC failure must return RPC error");
+    assert_eq!(resp.error.unwrap().code, -32000);
+}
+
+#[test]
+fn export_canvas_graph_app_not_running_returns_descriptive_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let resp = tool_export_canvas_graph(id(15), &json!({}), &ipc);
+    let err = resp.error.expect("should have error");
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("Ashlr MD"),
+        "error should mention app name, got: {}", err.message);
+}
+
+#[test]
+fn export_canvas_graph_success_returns_node_and_edge_counts() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({
+            "ok": true,
+            "path": "/vault/graph.canvas",
+            "nodeCount": 12,
+            "edgeCount": 7
+        })));
+    let resp = tool_export_canvas_graph(id(16), &json!({}), &ipc);
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    assert_eq!(text["ok"], json!(true));
+    assert_eq!(text["nodeCount"], json!(12));
+    assert_eq!(text["edgeCount"], json!(7));
+}
+
+#[test]
+fn export_canvas_graph_no_output_path_null_in_body() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
+    tool_export_canvas_graph(id(17), &json!({}), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
+        .unwrap().2.as_ref().unwrap();
+    assert!(body["outputPath"].is_null(),
+        "absent output_path should be null in IPC body, got {:?}", body["outputPath"]);
+}
+
+#[test]
+fn export_canvas_graph_dispatch_routes_correctly() {
+    let ipc = MockIpc::new()
+        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(99)),
+        method: "tools/call".into(),
+        params: Some(json!({ "name": "export_canvas_graph", "arguments": {} })),
+    };
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
+}
+
+// ── Registry coverage for new tools ──────────────────────────────────────────
+
+#[test]
+fn export_markdown_archive_in_all_tool_names() {
+    assert!(ALL_TOOL_NAMES.contains(&"export_markdown_archive"),
+        "export_markdown_archive must be in ALL_TOOL_NAMES");
+}
+
+#[test]
+fn export_canvas_graph_in_all_tool_names() {
+    assert!(ALL_TOOL_NAMES.contains(&"export_canvas_graph"),
+        "export_canvas_graph must be in ALL_TOOL_NAMES");
+}
+
+#[test]
+fn export_markdown_archive_in_tool_list() {
+    let list = tool_list();
+    let tools = list.as_array().unwrap();
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"export_markdown_archive"),
+        "tool_list must include export_markdown_archive");
+}
+
+#[test]
+fn export_canvas_graph_in_tool_list() {
+    let list = tool_list();
+    let tools = list.as_array().unwrap();
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"export_canvas_graph"),
+        "tool_list must include export_canvas_graph");
+}
+
+#[test]
+fn export_markdown_archive_tool_tier_is_modifier() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_markdown_archive")
+        .expect("export_markdown_archive must be in registry");
+    assert_eq!(def.tier, ToolTier::Modifier);
+}
+
+#[test]
+fn export_canvas_graph_tool_tier_is_modifier() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_canvas_graph")
+        .expect("export_canvas_graph must be in registry");
+    assert_eq!(def.tier, ToolTier::Modifier);
+}
+
+#[test]
+fn export_markdown_archive_has_valid_input_schema() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_markdown_archive").unwrap();
+    let schema = &def.input_schema;
+    assert_eq!(schema["type"].as_str(), Some("object"));
+    assert!(schema["properties"].is_object());
+    // output_path and include_assets must be in properties
+    assert!(schema["properties"]["output_path"].is_object(),
+        "output_path must be in properties");
+    assert!(schema["properties"]["include_assets"].is_object(),
+        "include_assets must be in properties");
+}
+
+#[test]
+fn export_canvas_graph_has_valid_input_schema() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_canvas_graph").unwrap();
+    let schema = &def.input_schema;
+    assert_eq!(schema["type"].as_str(), Some("object"));
+    assert!(schema["properties"].is_object());
+    assert!(schema["properties"]["output_path"].is_object(),
+        "output_path must be in properties");
+    assert!(schema["properties"]["include_isolated"].is_object(),
+        "include_isolated must be in properties");
+}
+
+#[test]
+fn export_markdown_archive_has_non_destructive_annotation() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_markdown_archive").unwrap();
+    let ann = def.annotations.as_ref().expect("must have annotations");
+    assert_ne!(ann["destructiveHint"].as_bool(), Some(true),
+        "export_markdown_archive must not be destructive");
+}
+
+#[test]
+fn export_canvas_graph_has_non_destructive_annotation() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_canvas_graph").unwrap();
+    let ann = def.annotations.as_ref().expect("must have annotations");
+    assert_ne!(ann["destructiveHint"].as_bool(), Some(true),
+        "export_canvas_graph must not be destructive");
 }

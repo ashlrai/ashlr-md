@@ -31,7 +31,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
-import { exportDocx, exportHtml, exportPdf } from "../lib/export";
+import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph } from "../lib/export";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
@@ -86,6 +86,16 @@ interface EditPayload {
  *
  * `opId` doubles as a correlation id (like `editId` in the find/replace path).
  */
+interface MarkdownArchivePayload {
+  outputPath?: string | null;
+  includeAssets?: boolean;
+}
+
+interface CanvasGraphPayload {
+  outputPath?: string | null;
+  includeIsolated?: boolean;
+}
+
 interface OtOpPayload {
   opId: string;
   agentId: string;
@@ -334,6 +344,70 @@ export function useMcpBridge(): void {
             });
         } else if (doc.path) {
           enterPresent();
+        }
+      }),
+    );
+
+    // mcp://export-markdown-archive — pack .md + assets into a tar.gz.
+    //
+    // When outputPath is provided, runs headless and calls mcp_archive_result.
+    // When omitted, opens a save dialog (user picks destination).
+    unlisteners.push(
+      listen<MarkdownArchivePayload>("mcp://export-markdown-archive", async (e) => {
+        const { outputPath, includeAssets = true } = e.payload;
+        try {
+          const resultPath = await exportMarkdownArchive({
+            outputPath: outputPath ?? undefined,
+            includeAssets,
+          });
+          if (outputPath) {
+            await invoke("mcp_archive_result", {
+              ok: true,
+              path: resultPath || outputPath,
+              error: null,
+            }).catch(() => {/* non-fatal */});
+          }
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          if (outputPath) {
+            await invoke("mcp_archive_result", {
+              ok: false,
+              path: null,
+              error: errStr,
+            }).catch(() => {/* non-fatal */});
+          }
+        }
+      }),
+    );
+
+    // mcp://export-canvas-graph — export vault file graph as JSON Canvas.
+    //
+    // When outputPath is provided, runs headless and calls mcp_canvas_result.
+    // When omitted, opens a save dialog (user picks destination).
+    unlisteners.push(
+      listen<CanvasGraphPayload>("mcp://export-canvas-graph", async (e) => {
+        const { outputPath, includeIsolated = true } = e.payload;
+        try {
+          const resultPath = await exportCanvasGraph({
+            outputPath: outputPath ?? undefined,
+            includeIsolated,
+          });
+          if (outputPath) {
+            await invoke("mcp_canvas_result", {
+              ok: true,
+              path: resultPath || outputPath,
+              error: null,
+            }).catch(() => {/* non-fatal */});
+          }
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          if (outputPath) {
+            await invoke("mcp_canvas_result", {
+              ok: false,
+              path: null,
+              error: errStr,
+            }).catch(() => {/* non-fatal */});
+          }
         }
       }),
     );

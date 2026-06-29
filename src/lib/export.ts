@@ -18,6 +18,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { useDocumentStore } from "../store/documentStore";
 // Vite ?raw imports — each resolves to the full CSS text at build time.
 import katexCss from "katex/dist/katex.min.css?raw";
 import { toast } from "../store/toastStore";
@@ -341,6 +342,278 @@ export async function exportPdf(_title: string): Promise<void> {
     doc.write(html);
     doc.close();
   });
+}
+
+// ─── exportMarkdownArchive ───────────────────────────────────────────────────
+
+/**
+ * Export the current document as a tar.gz archive containing:
+ *   - The source .md file (with YAML front-matter intact)
+ *   - Embedded image assets referenced in the document
+ *   - Mermaid diagrams rendered to inline SVG files
+ *
+ * The archive is written to `outputPath` (or the user picks via save dialog).
+ * Agents can use the archive to round-trip Markdown projects — import into
+ * another vault, redistribute, or re-process with other tools.
+ *
+ * Internally delegates to the Rust `export_markdown_archive` command which
+ * reads the vault state and packs assets.
+ */
+export async function exportMarkdownArchive(options: {
+  outputPath?: string;
+  includeAssets?: boolean;
+} = {}): Promise<string> {
+  const { outputPath, includeAssets = true } = options;
+
+  let dest = outputPath;
+  if (!dest) {
+    const { path: docPath, fileName } = useDocumentStore.getState();
+    if (!docPath) {
+      throw "No document is open. Open a Markdown file before exporting.";
+    }
+    const baseName = sanitizeFileName(
+      (fileName ?? "archive").replace(/\.(md|markdown|mdown|mkd|mdx)$/i, ""),
+    );
+    const chosen = await save({
+      defaultPath: `${baseName}.tar.gz`,
+      filters: [{ name: "Tar Archive", extensions: ["tar.gz", "tgz"] }],
+    });
+    if (!chosen) return ""; // user cancelled
+    dest = chosen;
+  }
+
+  try {
+    const result = await invoke<{ path: string; files: string[]; size: number }>(
+      "export_markdown_archive",
+      { outputPath: dest, includeAssets },
+    );
+    toast.success(`Archive exported to ${baseName(result.path)}`);
+    return result.path;
+  } catch (e) {
+    toast.error(`Archive export failed: ${errMsg(e)}`);
+    throw e;
+  }
+}
+
+// ─── exportCanvasGraph ───────────────────────────────────────────────────────
+
+/**
+ * Export the current vault's file graph as a JSON Canvas (.canvas) file.
+ *
+ * Each document in the vault becomes a card node. Wikilinks between documents
+ * become directed edges. The canvas is compatible with Obsidian's canvas format
+ * and other tools that understand the JSON Canvas spec.
+ *
+ * The file is written to `outputPath` (or the user picks via save dialog).
+ * Agents can use the canvas to visualise vault topology and re-import it into
+ * graph-based note-taking tools.
+ */
+export async function exportCanvasGraph(options: {
+  outputPath?: string;
+  includeIsolated?: boolean;
+} = {}): Promise<string> {
+  const { outputPath, includeIsolated = true } = options;
+
+  let dest = outputPath;
+  if (!dest) {
+    const chosen = await save({
+      defaultPath: "vault-graph.canvas",
+      filters: [{ name: "JSON Canvas", extensions: ["canvas"] }],
+    });
+    if (!chosen) return ""; // user cancelled
+    dest = chosen;
+  }
+
+  try {
+    const result = await invoke<{ path: string; nodeCount: number; edgeCount: number }>(
+      "export_canvas_graph",
+      { outputPath: dest, includeIsolated },
+    );
+    toast.success(`Canvas exported to ${baseName(result.path)}`);
+    return result.path;
+  } catch (e) {
+    toast.error(`Canvas export failed: ${errMsg(e)}`);
+    throw e;
+  }
+}
+
+// ─── buildMarkdownArchive ─────────────────────────────────────────────────────
+//
+// Pure (no I/O) logic for building the in-memory structure of a Markdown
+// archive.  Separated from exportMarkdownArchive so it can be unit-tested
+// without Tauri or a file system.
+
+export interface MarkdownArchiveEntry {
+  /** Relative path within the archive (e.g. "doc.md", "assets/diagram.svg"). */
+  name: string;
+  /** UTF-8 text content. */
+  content: string;
+}
+
+/**
+ * Build the list of entries for a Markdown archive from raw inputs.
+ *
+ * @param mdSource  Raw Markdown source (may include YAML front-matter).
+ * @param fileName  File name for the root .md entry (default "document.md").
+ * @param assets    Optional map of relative asset path → content string.
+ *                  E.g. `{ "assets/fig1.svg": "<svg>…</svg>" }`.
+ * @returns Array of { name, content } entries ready to be tar'd.
+ */
+export function buildMarkdownArchive(
+  mdSource: string,
+  fileName = "document.md",
+  assets: Record<string, string> = {},
+): MarkdownArchiveEntry[] {
+  const entries: MarkdownArchiveEntry[] = [{ name: fileName, content: mdSource }];
+  for (const [assetPath, assetContent] of Object.entries(assets)) {
+    entries.push({ name: assetPath, content: assetContent });
+  }
+  return entries;
+}
+
+// ─── buildCanvasGraph ─────────────────────────────────────────────────────────
+//
+// Pure logic for constructing a JSON Canvas object from vault metadata.
+// Separated so it can be unit-tested without Tauri or a file system.
+
+/** A document node in the JSON Canvas. */
+export interface CanvasNode {
+  id: string;
+  type: "text";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  /** Extra metadata not part of the spec but useful for tooling. */
+  metadata?: {
+    path: string;
+    title: string;
+    tags: string[];
+    wordCount: number;
+  };
+}
+
+/** A directed edge (wikilink) between two canvas nodes. */
+export interface CanvasEdge {
+  id: string;
+  fromNode: string;
+  fromSide: "right";
+  toNode: string;
+  toSide: "left";
+  label?: string;
+}
+
+/** A complete JSON Canvas document. */
+export interface CanvasDocument {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+/** Input descriptor for a single vault document. */
+export interface VaultDocDescriptor {
+  /** Absolute or relative path used as a stable node ID. */
+  path: string;
+  /** Display title (first H1 or file name). */
+  title: string;
+  /** Front-matter tags. */
+  tags?: string[];
+  /** Approximate word count. */
+  wordCount?: number;
+  /** Paths of documents this one links to via [[wikilinks]]. */
+  linksTo?: string[];
+}
+
+/**
+ * Build a JSON Canvas document from an array of vault document descriptors.
+ *
+ * Layout: documents are arranged in a grid (row-major, ~4 per row) with
+ * 240 px horizontal spacing and 180 px vertical spacing.  Each card is
+ * 200 × 120 px.  This produces a readable initial layout that users can
+ * rearrange inside Obsidian or another canvas tool.
+ *
+ * @param docs            Vault documents to include.
+ * @param includeIsolated When false, documents with no link connections are omitted.
+ */
+export function buildCanvasGraph(
+  docs: VaultDocDescriptor[],
+  includeIsolated = true,
+): CanvasDocument {
+  const COLS = 4;
+  const CARD_W = 200;
+  const CARD_H = 120;
+  const GAP_X = 240;
+  const GAP_Y = 180;
+
+  // Build a set of paths that participate in at least one link.
+  const linked = new Set<string>();
+  for (const doc of docs) {
+    for (const target of doc.linksTo ?? []) {
+      linked.add(doc.path);
+      linked.add(target);
+    }
+  }
+
+  const included = includeIsolated ? docs : docs.filter((d) => linked.has(d.path));
+
+  // Build a stable path→id map (sanitise for canvas id constraints: alphanumeric + hyphen).
+  const pathToId = new Map<string, string>();
+  for (const doc of included) {
+    const safe = doc.path
+      .replace(/[^a-zA-Z0-9]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 64);
+    pathToId.set(doc.path, safe || `node-${pathToId.size}`);
+  }
+
+  const nodes: CanvasNode[] = included.map((doc, i) => {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    const label = [
+      doc.title,
+      doc.tags && doc.tags.length > 0 ? `tags: ${doc.tags.join(", ")}` : null,
+      doc.wordCount != null ? `${doc.wordCount} words` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    return {
+      id: pathToId.get(doc.path)!,
+      type: "text",
+      x: col * GAP_X,
+      y: row * GAP_Y,
+      width: CARD_W,
+      height: CARD_H,
+      text: label,
+      metadata: {
+        path: doc.path,
+        title: doc.title,
+        tags: doc.tags ?? [],
+        wordCount: doc.wordCount ?? 0,
+      },
+    };
+  });
+
+  const edges: CanvasEdge[] = [];
+  let edgeSeq = 0;
+  for (const doc of included) {
+    const fromId = pathToId.get(doc.path);
+    if (!fromId) continue;
+    for (const target of doc.linksTo ?? []) {
+      const toId = pathToId.get(target);
+      if (!toId || toId === fromId) continue;
+      edges.push({
+        id: `edge-${edgeSeq++}`,
+        fromNode: fromId,
+        fromSide: "right",
+        toNode: toId,
+        toSide: "left",
+      });
+    }
+  }
+
+  return { nodes, edges };
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────

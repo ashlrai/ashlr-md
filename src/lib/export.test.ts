@@ -895,3 +895,409 @@ describe("export template variable substitution and scope isolation", () => {
 // ─── Import built-in templates for cross-suite use ───────────────────────────
 
 import { BUILTIN_TEMPLATES } from "./exportTemplates";
+
+// ─── Import new export utilities under test ───────────────────────────────────
+
+import {
+  buildMarkdownArchive,
+  buildCanvasGraph,
+  exportMarkdownArchive,
+  exportCanvasGraph,
+  type MarkdownArchiveEntry,
+  type VaultDocDescriptor,
+} from "./export";
+
+// ─── Mock documentStore for exportMarkdownArchive ────────────────────────────
+
+const mockDocGetState = vi.fn(() => ({
+  path: "/vault/my-doc.md",
+  fileName: "my-doc.md",
+  content: "# Hello\n\nWorld.",
+}));
+vi.mock("../store/documentStore", () => ({
+  useDocumentStore: { getState: (...args: unknown[]) => mockDocGetState(...args) },
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildMarkdownArchive — pure packing logic
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildMarkdownArchive", () => {
+  it("returns a single entry when no assets are given", () => {
+    const entries = buildMarkdownArchive("# Title\n\nBody.", "doc.md");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].name).toBe("doc.md");
+    expect(entries[0].content).toBe("# Title\n\nBody.");
+  });
+
+  it("first entry is always the .md source file", () => {
+    const entries = buildMarkdownArchive("content", "notes.md", {
+      "assets/fig.svg": "<svg/>",
+    });
+    expect(entries[0].name).toBe("notes.md");
+  });
+
+  it("asset entries follow the .md entry in insertion order", () => {
+    const entries = buildMarkdownArchive("# Doc", "doc.md", {
+      "assets/a.svg": "<svg>a</svg>",
+      "assets/b.png": "binary-data",
+    });
+    expect(entries).toHaveLength(3);
+    expect(entries[1].name).toBe("assets/a.svg");
+    expect(entries[2].name).toBe("assets/b.png");
+  });
+
+  it("preserves asset content verbatim", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="100"/></svg>';
+    const entries = buildMarkdownArchive("# D", "d.md", { "img/diagram.svg": svg });
+    const assetEntry = entries.find((e) => e.name === "img/diagram.svg");
+    expect(assetEntry?.content).toBe(svg);
+  });
+
+  it("uses 'document.md' as default fileName", () => {
+    const entries = buildMarkdownArchive("# Default");
+    expect(entries[0].name).toBe("document.md");
+  });
+
+  it("preserves YAML front-matter in the .md content", () => {
+    const src = "---\ntitle: My Doc\ntags: [a, b]\n---\n\n# Body";
+    const entries = buildMarkdownArchive(src, "doc.md");
+    expect(entries[0].content).toContain("---");
+    expect(entries[0].content).toContain("title: My Doc");
+    expect(entries[0].content).toContain("tags: [a, b]");
+  });
+
+  it("empty assets object produces exactly one entry", () => {
+    const entries = buildMarkdownArchive("content", "f.md", {});
+    expect(entries).toHaveLength(1);
+  });
+
+  it("returns correct type shape for each entry", () => {
+    const entries = buildMarkdownArchive("x", "x.md", { "a.svg": "<svg/>" });
+    for (const entry of entries) {
+      expect(typeof entry.name).toBe("string");
+      expect(typeof entry.content).toBe("string");
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildCanvasGraph — pure graph construction
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildCanvasGraph", () => {
+  const sampleDocs: VaultDocDescriptor[] = [
+    { path: "/vault/a.md", title: "Alpha", tags: ["tag1"], wordCount: 120, linksTo: ["/vault/b.md"] },
+    { path: "/vault/b.md", title: "Beta",  tags: [],       wordCount: 80,  linksTo: [] },
+    { path: "/vault/c.md", title: "Gamma", tags: ["tag2"], wordCount: 200, linksTo: ["/vault/a.md"] },
+  ];
+
+  it("produces a node for every document", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    expect(canvas.nodes).toHaveLength(3);
+  });
+
+  it("every node has required JSON Canvas fields", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    for (const node of canvas.nodes) {
+      expect(node.id).toBeTruthy();
+      expect(node.type).toBe("text");
+      expect(typeof node.x).toBe("number");
+      expect(typeof node.y).toBe("number");
+      expect(typeof node.width).toBe("number");
+      expect(typeof node.height).toBe("number");
+      expect(typeof node.text).toBe("string");
+    }
+  });
+
+  it("node text includes the document title", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const alphaNode = canvas.nodes.find((n) => n.metadata?.path === "/vault/a.md");
+    expect(alphaNode?.text).toContain("Alpha");
+  });
+
+  it("node text includes tags when present", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const alphaNode = canvas.nodes.find((n) => n.metadata?.path === "/vault/a.md");
+    expect(alphaNode?.text).toContain("tag1");
+  });
+
+  it("node text includes word count when present", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const alphaNode = canvas.nodes.find((n) => n.metadata?.path === "/vault/a.md");
+    expect(alphaNode?.text).toContain("120");
+  });
+
+  it("produces an edge for each wikilink", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    // a→b and c→a = 2 edges
+    expect(canvas.edges).toHaveLength(2);
+  });
+
+  it("edge fromNode and toNode reference valid node ids", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const nodeIds = new Set(canvas.nodes.map((n) => n.id));
+    for (const edge of canvas.edges) {
+      expect(nodeIds.has(edge.fromNode)).toBe(true);
+      expect(nodeIds.has(edge.toNode)).toBe(true);
+    }
+  });
+
+  it("edge side fields are 'right' and 'left'", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    for (const edge of canvas.edges) {
+      expect(edge.fromSide).toBe("right");
+      expect(edge.toSide).toBe("left");
+    }
+  });
+
+  it("each edge has a unique id", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const ids = new Set(canvas.edges.map((e) => e.id));
+    expect(ids.size).toBe(canvas.edges.length);
+  });
+
+  it("excludes isolated nodes when includeIsolated=false", () => {
+    const docs: VaultDocDescriptor[] = [
+      { path: "/a.md", title: "A", linksTo: ["/b.md"] },
+      { path: "/b.md", title: "B", linksTo: [] },
+      { path: "/isolated.md", title: "Isolated", linksTo: [] },
+    ];
+    const canvas = buildCanvasGraph(docs, false);
+    const paths = canvas.nodes.map((n) => n.metadata?.path);
+    expect(paths).not.toContain("/isolated.md");
+    expect(paths).toContain("/a.md");
+    expect(paths).toContain("/b.md");
+  });
+
+  it("includes isolated nodes when includeIsolated=true (default)", () => {
+    const docs: VaultDocDescriptor[] = [
+      { path: "/a.md", title: "A", linksTo: ["/b.md"] },
+      { path: "/b.md", title: "B", linksTo: [] },
+      { path: "/isolated.md", title: "Isolated", linksTo: [] },
+    ];
+    const canvas = buildCanvasGraph(docs, true);
+    const paths = canvas.nodes.map((n) => n.metadata?.path);
+    expect(paths).toContain("/isolated.md");
+  });
+
+  it("handles empty vault gracefully", () => {
+    const canvas = buildCanvasGraph([]);
+    expect(canvas.nodes).toHaveLength(0);
+    expect(canvas.edges).toHaveLength(0);
+  });
+
+  it("node ids are unique", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const ids = new Set(canvas.nodes.map((n) => n.id));
+    expect(ids.size).toBe(canvas.nodes.length);
+  });
+
+  it("nodes are laid out in a grid (different x/y positions)", () => {
+    // With 5 docs and 4 columns, row 0 has 4 nodes, row 1 has 1.
+    const docs = Array.from({ length: 5 }, (_, i) => ({
+      path: `/doc${i}.md`,
+      title: `Doc ${i}`,
+    }));
+    const canvas = buildCanvasGraph(docs);
+    const positions = canvas.nodes.map((n) => `${n.x},${n.y}`);
+    const unique = new Set(positions);
+    expect(unique.size).toBe(5);
+  });
+
+  it("self-links are not added as edges", () => {
+    const docs: VaultDocDescriptor[] = [
+      { path: "/a.md", title: "A", linksTo: ["/a.md"] },
+    ];
+    const canvas = buildCanvasGraph(docs);
+    expect(canvas.edges).toHaveLength(0);
+  });
+
+  it("metadata field carries path, title, tags, wordCount", () => {
+    const canvas = buildCanvasGraph(sampleDocs);
+    const node = canvas.nodes[0];
+    expect(node.metadata?.path).toBeTruthy();
+    expect(node.metadata?.title).toBeTruthy();
+    expect(Array.isArray(node.metadata?.tags)).toBe(true);
+    expect(typeof node.metadata?.wordCount).toBe("number");
+  });
+
+  it("links to unknown paths (not in the vault) produce no edges", () => {
+    const docs: VaultDocDescriptor[] = [
+      { path: "/a.md", title: "A", linksTo: ["/nonexistent.md"] },
+    ];
+    const canvas = buildCanvasGraph(docs);
+    expect(canvas.edges).toHaveLength(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// exportMarkdownArchive — integration (mocked Tauri + dialog)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("exportMarkdownArchive", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+    mockDocGetState.mockReturnValue({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "# Hello\n\nWorld.",
+    });
+    invokeMock.mockResolvedValue({ path: "/vault/my-doc.tar.gz", files: ["my-doc.md"], size: 512 });
+    saveMock.mockResolvedValue("/vault/my-doc.tar.gz");
+  });
+
+  it("calls export_markdown_archive invoke with outputPath and includeAssets", async () => {
+    await exportMarkdownArchive({ outputPath: "/out/archive.tar.gz", includeAssets: true });
+    expect(invokeMock).toHaveBeenCalledWith("export_markdown_archive", {
+      outputPath: "/out/archive.tar.gz",
+      includeAssets: true,
+    });
+  });
+
+  it("defaults includeAssets to true when not specified", async () => {
+    await exportMarkdownArchive({ outputPath: "/out/archive.tar.gz" });
+    expect(invokeMock).toHaveBeenCalledWith("export_markdown_archive", {
+      outputPath: "/out/archive.tar.gz",
+      includeAssets: true,
+    });
+  });
+
+  it("shows a success toast with the archive filename", async () => {
+    await exportMarkdownArchive({ outputPath: "/out/archive.tar.gz" });
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      expect.stringContaining("tar.gz"),
+    );
+  });
+
+  it("returns the output path on success", async () => {
+    const result = await exportMarkdownArchive({ outputPath: "/out/archive.tar.gz" });
+    expect(result).toBe("/vault/my-doc.tar.gz");
+  });
+
+  it("opens a save dialog when no outputPath is provided", async () => {
+    await exportMarkdownArchive();
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["tar.gz"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("returns empty string when user cancels the save dialog", async () => {
+    saveMock.mockResolvedValue(null);
+    const result = await exportMarkdownArchive();
+    expect(result).toBe("");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast and re-throws when invoke fails", async () => {
+    invokeMock.mockRejectedValue(new Error("disk error"));
+    await expect(exportMarkdownArchive({ outputPath: "/out/x.tar.gz" })).rejects.toBeDefined();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("disk error"),
+    );
+  });
+
+  it("throws a user-visible error when no document is open (no outputPath path)", async () => {
+    mockDocGetState.mockReturnValue({ path: null, fileName: null, content: "" });
+    await expect(exportMarkdownArchive()).rejects.toMatch(/No document is open/);
+  });
+
+  it("passes includeAssets=false to the invoke call", async () => {
+    await exportMarkdownArchive({ outputPath: "/out/slim.tar.gz", includeAssets: false });
+    expect(invokeMock).toHaveBeenCalledWith("export_markdown_archive", {
+      outputPath: "/out/slim.tar.gz",
+      includeAssets: false,
+    });
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// exportCanvasGraph — integration (mocked Tauri + dialog)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("exportCanvasGraph", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+    invokeMock.mockResolvedValue({ path: "/vault/vault-graph.canvas", nodeCount: 5, edgeCount: 3 });
+    saveMock.mockResolvedValue("/vault/vault-graph.canvas");
+  });
+
+  it("calls export_canvas_graph invoke with outputPath and includeIsolated", async () => {
+    await exportCanvasGraph({ outputPath: "/out/graph.canvas", includeIsolated: true });
+    expect(invokeMock).toHaveBeenCalledWith("export_canvas_graph", {
+      outputPath: "/out/graph.canvas",
+      includeIsolated: true,
+    });
+  });
+
+  it("defaults includeIsolated to true when not specified", async () => {
+    await exportCanvasGraph({ outputPath: "/out/graph.canvas" });
+    expect(invokeMock).toHaveBeenCalledWith("export_canvas_graph", {
+      outputPath: "/out/graph.canvas",
+      includeIsolated: true,
+    });
+  });
+
+  it("shows a success toast with the canvas filename", async () => {
+    await exportCanvasGraph({ outputPath: "/out/graph.canvas" });
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      expect.stringContaining(".canvas"),
+    );
+  });
+
+  it("returns the output path on success", async () => {
+    const result = await exportCanvasGraph({ outputPath: "/out/graph.canvas" });
+    expect(result).toBe("/vault/vault-graph.canvas");
+  });
+
+  it("opens a save dialog with .canvas filter when no outputPath is provided", async () => {
+    await exportCanvasGraph();
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["canvas"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("returns empty string when user cancels the save dialog", async () => {
+    saveMock.mockResolvedValue(null);
+    const result = await exportCanvasGraph();
+    expect(result).toBe("");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast and re-throws when invoke fails", async () => {
+    invokeMock.mockRejectedValue(new Error("write failed"));
+    await expect(exportCanvasGraph({ outputPath: "/out/g.canvas" })).rejects.toBeDefined();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("write failed"),
+    );
+  });
+
+  it("passes includeIsolated=false to the invoke call", async () => {
+    await exportCanvasGraph({ outputPath: "/out/connected.canvas", includeIsolated: false });
+    expect(invokeMock).toHaveBeenCalledWith("export_canvas_graph", {
+      outputPath: "/out/connected.canvas",
+      includeIsolated: false,
+    });
+  });
+
+  it("default save dialog path is vault-graph.canvas", async () => {
+    await exportCanvasGraph();
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultPath: "vault-graph.canvas" }),
+    );
+  });
+});

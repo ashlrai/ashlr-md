@@ -191,6 +191,154 @@ impl ToolDef {
     }
 }
 
+// ── In-process conversation store ─────────────────────────────────────────────
+//
+// A lightweight, append-only message log keyed by session ID.  The Rust layer
+// owns the authoritative in-process store; the TypeScript layer mirrors it for
+// UI display.  Sessions are isolated: appending to session A never touches B.
+//
+// Disk persistence: after every append, the session is serialised to
+// `~/.mdopener/sessions/{sessionId}.json` so history survives an app restart.
+// Reads on `get_conversation_context` load from disk when the in-process store
+// is empty (cold start / process restart scenario).
+
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+/// A single message in a conversation session.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConversationMessage {
+    pub id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    /// "agent" | "human" | "system"
+    pub role: String,
+    pub content: String,
+    /// Document paths that were open / cited when this message was produced.
+    #[serde(rename = "citedDocs")]
+    pub cited_docs: Vec<String>,
+    #[serde(rename = "timestampMs")]
+    pub timestamp_ms: u64,
+}
+
+/// Per-session message log held in memory.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct SessionLog {
+    pub messages: Vec<ConversationMessage>,
+}
+
+/// Global in-process store: sessionId → SessionLog.
+fn conversation_store() -> &'static Mutex<HashMap<String, SessionLog>> {
+    static STORE: OnceLock<Mutex<HashMap<String, SessionLog>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Maximum messages kept per session in the in-process store.
+pub const MAX_MESSAGES_PER_SESSION: usize = 200;
+
+/// Return the directory where session JSON files are persisted.
+pub fn sessions_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
+}
+
+/// Path for a specific session's on-disk JSON file.
+pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
+    // Sanitise the session ID: keep only alphanumeric, '-', and '_'.
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`.
+/// Creates the directory if it does not exist.  Errors are silently ignored
+/// (persistence is best-effort; the in-process store is always authoritative).
+pub fn persist_session(session_id: &str, log: &SessionLog) {
+    let Some(path) = session_file_path(session_id) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(log) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Load a session log from disk.  Returns `None` when the file does not exist
+/// or cannot be parsed.
+pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
+    let path = session_file_path(session_id)?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Append a message to the in-process store and persist to disk.
+/// Returns the appended message, or an error string.
+pub fn store_append_message(
+    session_id: &str,
+    role: &str,
+    content: &str,
+    cited_docs: Vec<String>,
+) -> Result<ConversationMessage, String> {
+    let role = role.trim();
+    match role {
+        "agent" | "human" | "system" => {}
+        other => return Err(format!("`role` must be 'agent', 'human', or 'system', got '{other}'")),
+    }
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let msg = ConversationMessage {
+        id: format!("msg-{ts}-{:08x}", std::process::id()),
+        session_id: session_id.to_string(),
+        role: role.to_string(),
+        content: content.trim().to_string(),
+        cited_docs,
+        timestamp_ms: ts,
+    };
+
+    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let log = store.entry(session_id.to_string()).or_default();
+    log.messages.push(msg.clone());
+
+    // Bound the in-process store.
+    if log.messages.len() > MAX_MESSAGES_PER_SESSION {
+        let excess = log.messages.len() - MAX_MESSAGES_PER_SESSION;
+        log.messages.drain(..excess);
+    }
+
+    persist_session(session_id, log);
+    Ok(msg)
+}
+
+/// Retrieve the last `n` messages for `session_id`.
+/// If the in-process store is empty for this session, attempt to load from disk
+/// (handles cold-start / process-restart scenarios).
+pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationMessage>, String> {
+    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+
+    // Cold-start: load from disk if not in memory.
+    if !store.contains_key(session_id) {
+        if let Some(log) = load_session_from_disk(session_id) {
+            store.insert(session_id.to_string(), log);
+        }
+    }
+
+    let messages = store
+        .get(session_id)
+        .map(|log| {
+            let msgs = &log.messages;
+            let start = msgs.len().saturating_sub(n);
+            msgs[start..].to_vec()
+        })
+        .unwrap_or_default();
+
+    Ok(messages)
+}
+
 /// The canonical, data-driven tool registry.  Adding a new tool here
 /// automatically includes it in `tools/list` responses and in the
 /// `list_ai_actions` discovery tool — no other wiring needed.
@@ -452,6 +600,118 @@ pub fn tool_registry() -> Vec<ToolDef> {
             })),
             tier: ToolTier::ReadOnly,
         },
+        ToolDef {
+            name: "get_conversation_context",
+            description: "Return the last N messages from the current session's conversation memory store, plus any recently cited document paths. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list gracefully when no session has been started.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session identifier returned by save_conversation_message. Required when retrieving context for a specific past session; omit to use the most-recently-written session."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of messages to return (most recent first). Defaults to 20, max 200."
+                    }
+                },
+                "required": ["session_id"]
+            }),
+            annotations: Some(json!({
+                "title": "Get Conversation Context",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
+        },
+        ToolDef {
+            name: "save_conversation_message",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{sessionId}.json.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session)."
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["agent", "human", "system"],
+                        "description": "'agent' for actions taken by the AI, 'human' for verdicts/comments from the user, 'system' for internal bookkeeping (e.g. document path at session start)."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The message text. For agent messages describe the action taken. For human messages include their verdict and any comments."
+                    },
+                    "cited_docs": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced."
+                    }
+                },
+                "required": ["session_id", "role", "content"]
+            }),
+            annotations: Some(json!({
+                "title": "Save Conversation Message",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "export_markdown_archive",
+            description: "Export the source Markdown file, its YAML front-matter, and all embedded assets (images, Mermaid diagrams rendered as .svg) as a tar.gz archive. The archive is useful for agents that need to re-import or redistribute the document with all its resources intact. Triggers the export on the currently open document; optionally accepts an explicit vault path. Returns the absolute path of the written archive.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "description": "Absolute path for the output .tar.gz archive. When omitted the app shows a save-file dialog."
+                    },
+                    "include_assets": {
+                        "type": "boolean",
+                        "description": "Whether to bundle embedded image assets and Mermaid SVG files. Defaults to true."
+                    }
+                }
+            }),
+            annotations: Some(json!({
+                "title": "Export Markdown Archive",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "export_canvas_graph",
+            description: "Export the current vault's file graph and per-document metadata (title, tags, word count, wikilinks) as a JSON Canvas (.canvas) file compatible with Obsidian and other canvas tools. The canvas positions each document as a card, with edges representing wikilink connections. Useful for visual browsing and re-import into graph-based note tools. Returns the absolute path of the written .canvas file.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "description": "Absolute path for the output .canvas file. When omitted the app shows a save-file dialog."
+                    },
+                    "include_isolated": {
+                        "type": "boolean",
+                        "description": "Whether to include documents that have no wikilink connections. Defaults to true."
+                    }
+                }
+            }),
+            annotations: Some(json!({
+                "title": "Export Canvas Graph",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
     ]
 }
 
@@ -469,6 +729,10 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "search_vault",
     "present_document",
     "list_ai_actions",
+    "get_conversation_context",
+    "save_conversation_message",
+    "export_markdown_archive",
+    "export_canvas_graph",
 ];
 
 /// Build the `tools/list` response payload from the data-driven registry.
@@ -493,6 +757,10 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "search_vault" => tool_search_vault(id, &args, ipc),
         "present_document" => tool_present_document(id, &args, ipc),
         "list_ai_actions" => tool_list_ai_actions(id, &args),
+        "get_conversation_context" => tool_get_conversation_context(id, &args),
+        "save_conversation_message" => tool_save_conversation_message(id, &args),
+        "export_markdown_archive" => tool_export_markdown_archive(id, &args, ipc),
+        "export_canvas_graph" => tool_export_canvas_graph(id, &args, ipc),
         other => Response::err(id, -32602, format!("Unknown tool: {other}")),
     }
 }
@@ -781,6 +1049,88 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
     match ipc.post("/present", json!({ "path": path })) {
         Ok(v) => tool_result(id, v),
         Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+// ── get_conversation_context tool ────────────────────────────────────────────
+
+/// Return the last N messages from the session's persistent memory store.
+/// If the in-process store is empty (cold start / restart), loads from disk.
+/// Returns an empty array gracefully when the session has no messages yet.
+pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
+    let session_id = match args["session_id"].as_str() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err(id, -32602, "`session_id` is required"),
+    };
+
+    let limit = args["limit"]
+        .as_u64()
+        .unwrap_or(20)
+        .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
+
+    match store_get_context(&session_id, limit) {
+        Ok(messages) => {
+            let cited_docs: Vec<String> = messages
+                .iter()
+                .flat_map(|m| m.cited_docs.iter().cloned())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            tool_result(id, json!({
+                "sessionId": session_id,
+                "messages": messages.iter().map(|m| json!({
+                    "id": m.id,
+                    "sessionId": m.session_id,
+                    "role": m.role,
+                    "content": m.content,
+                    "citedDocs": m.cited_docs,
+                    "timestampMs": m.timestamp_ms,
+                })).collect::<Vec<_>>(),
+                "count": messages.len(),
+                "recentDocs": cited_docs,
+            }))
+        }
+        Err(e) => Response::err(id, -32000, format!("Failed to read conversation context: {e}")),
+    }
+}
+
+// ── save_conversation_message tool ───────────────────────────────────────────
+
+/// Append an agent action or human verdict to the session's persistent store.
+/// Persists to disk at `~/.mdopener/sessions/{sessionId}.json` after every
+/// append so messages survive process restarts.
+pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
+    let session_id = match args["session_id"].as_str() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err(id, -32602, "`session_id` is required"),
+    };
+
+    let role = match args["role"].as_str() {
+        Some(r) => r,
+        None => return Response::err(id, -32602, "`role` is required"),
+    };
+
+    let content = match args["content"].as_str() {
+        Some(c) if !c.trim().is_empty() => c.to_string(),
+        Some(_) => return Response::err(id, -32602, "`content` must not be empty"),
+        None => return Response::err(id, -32602, "`content` is required"),
+    };
+
+    let cited_docs: Vec<String> = args["cited_docs"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+
+    match store_append_message(&session_id, role, &content, cited_docs) {
+        Ok(msg) => tool_result(id, json!({
+            "ok": true,
+            "messageId": msg.id,
+            "sessionId": msg.session_id,
+            "role": msg.role,
+            "timestampMs": msg.timestamp_ms,
+        })),
+        Err(e) => Response::err(id, -32602, e),
     }
 }
 
@@ -1508,6 +1858,50 @@ pub fn tool_error(id: Value, message: String) -> Response {
             "isError": true
         }),
     )
+}
+
+// ── export_markdown_archive tool ─────────────────────────────────────────────
+
+/// Trigger a Markdown + assets archive export via the app IPC.
+/// Posts `{ outputPath, includeAssets }` to `/export/markdown-archive`.
+/// The app packs the current document's .md source, its YAML front-matter,
+/// and any embedded images / Mermaid SVGs into a tar.gz at `outputPath`.
+pub fn tool_export_markdown_archive(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let output_path = args["output_path"].as_str().map(str::to_string);
+    let include_assets = args["include_assets"].as_bool().unwrap_or(true);
+
+    match ipc.post(
+        "/export/markdown-archive",
+        json!({
+            "outputPath": output_path,
+            "includeAssets": include_assets
+        }),
+    ) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+// ── export_canvas_graph tool ──────────────────────────────────────────────────
+
+/// Trigger a JSON Canvas (.canvas) export of the vault file graph via the app IPC.
+/// Posts `{ outputPath, includeIsolated }` to `/export/canvas-graph`.
+/// The app builds a canvas with one card per document and edges for wikilinks,
+/// writing the result to `outputPath` (or opening a save dialog if omitted).
+pub fn tool_export_canvas_graph(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let output_path = args["output_path"].as_str().map(str::to_string);
+    let include_isolated = args["include_isolated"].as_bool().unwrap_or(true);
+
+    match ipc.post(
+        "/export/canvas-graph",
+        json!({
+            "outputPath": output_path,
+            "includeIsolated": include_isolated
+        }),
+    ) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
 }
 
 pub fn app_not_running_msg(err: &str) -> String {
