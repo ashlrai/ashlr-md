@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { ExportTemplate } from "../lib/exportTemplates";
 import { newTemplateId, NO_TEMPLATE_ID } from "../lib/exportTemplates";
 import type { LintRuleConfig } from "../lib/mdlint";
+import type { UserSnippet } from "../lib/snippets";
 
 export type ThemeId = "paper" | "sepia" | "midnight";
 
@@ -132,6 +133,26 @@ interface SettingsState {
    */
   epubEnabled: boolean;
   setEpubEnabled: (enabled: boolean) => void;
+
+  // ── Snippet engine ──────────────────────────────────────────────────────────
+
+  /**
+   * User-defined markdown snippets available in the source editor.
+   * Each entry appears in the autocompletion popup alongside the built-in ones.
+   */
+  customSnippets: UserSnippet[];
+
+  /** Replace all custom snippets (used by the snippet settings UI). */
+  setCustomSnippets: (snippets: UserSnippet[]) => void;
+
+  /** Append a new custom snippet. */
+  addCustomSnippet: (snippet: UserSnippet) => void;
+
+  /** Remove a custom snippet by label. */
+  removeCustomSnippet: (label: string) => void;
+
+  /** Update a custom snippet by its current label. */
+  updateCustomSnippet: (label: string, patch: Partial<UserSnippet>) => void;
 }
 
 const order: ThemeId[] = THEMES.map((t) => t.id);
@@ -221,10 +242,30 @@ export const useSettingsStore = create<SettingsState>()(
       // ── Export format toggles ───────────────────────────────────────────────
       epubEnabled: true,
       setEpubEnabled: (epubEnabled) => set({ epubEnabled }),
+
+      // ── Snippet engine ──────────────────────────────────────────────────
+      customSnippets: [],
+
+      setCustomSnippets: (snippets) => set({ customSnippets: snippets }),
+
+      addCustomSnippet: (snippet) =>
+        set((s) => ({ customSnippets: [...s.customSnippets, snippet] })),
+
+      removeCustomSnippet: (label) =>
+        set((s) => ({
+          customSnippets: s.customSnippets.filter((sn) => sn.label !== label),
+        })),
+
+      updateCustomSnippet: (label, patch) =>
+        set((s) => ({
+          customSnippets: s.customSnippets.map((sn) =>
+            sn.label === label ? { ...sn, ...patch } : sn,
+          ),
+        })),
     }),
     {
       name: "mdopener-settings",
-      version: 5,
+      version: 6,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
@@ -239,6 +280,7 @@ export const useSettingsStore = create<SettingsState>()(
           pasteImageTarget?: PasteImageTarget;
           linterConfig?: { disabledRules: string[] };
           epubEnabled?: boolean;
+          customSnippets?: UserSnippet[];
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -258,6 +300,9 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 5) {
           s.epubEnabled = s.epubEnabled ?? true;
+        }
+        if (version < 6) {
+          s.customSnippets = s.customSnippets ?? [];
         }
         return s as unknown as SettingsState;
       },

@@ -7,6 +7,7 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionId } from "../../ai/actions";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
+import { buildSnippetExtension } from "../../lib/snippets";
 import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
 import { setSourceView } from "../../lib/sourceSearchBridge";
 import { useDocumentStore } from "../../store/documentStore";
@@ -53,6 +54,8 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
   const themeCompartment = useRef(new Compartment());
   const initialRef = useRef(initialContent);
   const theme = useSettingsStore((s) => s.theme);
+  const customSnippets = useSettingsStore((s) => s.customSnippets);
+  const snippetCompartment = useRef(new Compartment());
 
   const setContent = useDocumentStore((s) => s.setContent);
   const setContentRef = useRef(setContent);
@@ -228,6 +231,9 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
           keymap.of(searchKeymap),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
+          // Snippet autocompletion — swappable compartment so user snippets can
+          // be updated without rebuilding the full editor.
+          snippetCompartment.current.of(buildSnippetExtension([])),
           // Paste an image → save it next to the doc and insert a relative
           // ![](assets/…) embed at the cursor. Non-image pastes fall through to
           // CodeMirror's default handling.
@@ -305,6 +311,15 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
       ),
     });
   }, [theme]);
+
+  // Hot-swap snippet completions when the user's custom snippet list changes.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: snippetCompartment.current.reconfigure(
+        buildSnippetExtension(customSnippets),
+      ),
+    });
+  }, [customSnippets]);
 
   return (
     <div className="source-editor" ref={parentRef}>
