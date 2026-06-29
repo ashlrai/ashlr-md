@@ -11,6 +11,7 @@ import {
   type OtLogEntry,
   type OtOperation,
 } from "../lib/ot";
+import { useOtLogStore } from "./memoryStore";
 import { useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
 
@@ -387,6 +388,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           tabs: syncActiveTab(next),
         };
       });
+      // Persist to the recoverable OT log so reconnecting agents can replay
+      // operations without re-downloading the document.
+      useOtLogStore.getState().append(logEntry);
       return true;
     } catch {
       return false;
