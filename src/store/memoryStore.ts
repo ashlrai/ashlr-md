@@ -65,8 +65,9 @@ export const useMemoryStore = create<MemoryState>()(
 
 /**
  * Format memory into a system-prompt block, or "" when empty.
- * Bounded to MAX_MEMORY_CHARS so a long memory list can't bloat every prompt
- * (oldest-first; newest items are dropped if over budget).
+ * Bounded to MAX_MEMORY_CHARS so a long memory list can't bloat every prompt.
+ * Iterates newest-first so the most-recent facts are kept and oldest are
+ * dropped when over budget (newest memory is the highest priority).
  */
 export function memoryBlock(): string {
   const { items } = useMemoryStore.getState();
@@ -74,12 +75,17 @@ export function memoryBlock(): string {
   const header =
     "What you know about this user (preferences, projects, and facts they asked " +
     "you to remember):\n";
-  let body = "";
-  for (const i of items) {
+  const lines: string[] = [];
+  let used = header.length;
+  // Newest-first: keep the most-recent facts, drop oldest when over budget.
+  for (const i of [...items].reverse()) {
     const line = `- ${i.text}\n`;
-    if (header.length + body.length + line.length > MAX_MEMORY_CHARS) break;
-    body += line;
+    if (used + line.length > MAX_MEMORY_CHARS) break;
+    used += line.length;
+    lines.push(line);
   }
+  // Restore chronological (oldest→newest) order in the rendered block.
+  const body = lines.reverse().join("");
   return body ? header + body.trimEnd() : "";
 }
 
