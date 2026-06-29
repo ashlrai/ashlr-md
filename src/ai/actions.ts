@@ -4,6 +4,67 @@
 import type { AIMessage } from "./types";
 
 // ---------------------------------------------------------------------------
+// Streaming action API
+// ---------------------------------------------------------------------------
+
+export interface StreamingActionOptions {
+  /** The selected text (or document content) to transform. */
+  text: string;
+  /** Which action preset to run. */
+  actionId: ActionId;
+  /** Optional extra arg forwarded to buildMessages (e.g. target language). */
+  arg?: string;
+  /** AbortSignal — cancels the stream and rejects the returned AsyncIterable. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Build the messages for an action and return them alongside metadata.
+ * Allows callers to feed messages into their own streaming pipeline.
+ */
+export function buildActionMessages(
+  actionId: ActionId,
+  text: string,
+  arg?: string,
+): AIMessage[] {
+  const action = AI_ACTIONS.find((a) => a.id === actionId);
+  if (!action) throw new Error(`Unknown AI action: ${actionId}`);
+  return action.buildMessages(text, arg);
+}
+
+/**
+ * Create an AsyncIterable<string> that yields token chunks from a provider's
+ * generate() method for the given action + text.
+ *
+ * The caller drives consumption; aborting via `signal` causes the iterator to
+ * throw a DOMException("AbortError") at the next `await` point.
+ *
+ * This is a thin wrapper: actual streaming happens in the provider passed in.
+ */
+export async function* streamAction(
+  generate: (
+    messages: AIMessage[],
+    opts: { signal?: AbortSignal },
+  ) => AsyncGenerator<string>,
+  opts: StreamingActionOptions,
+): AsyncGenerator<string> {
+  const { text, actionId, arg, signal } = opts;
+
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  const messages = buildActionMessages(actionId, text, arg);
+
+  for await (const chunk of generate(messages, { signal })) {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    yield chunk;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Action definitions
 // ---------------------------------------------------------------------------
 
