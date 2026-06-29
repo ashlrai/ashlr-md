@@ -31,7 +31,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
-import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph } from "../lib/export";
+import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { searchFiles } from "../lib/crossSearch";
 import { embedSearch, embedAvailable } from "../lib/embedSearch";
@@ -97,6 +97,11 @@ interface MarkdownArchivePayload {
 interface CanvasGraphPayload {
   outputPath?: string | null;
   includeIsolated?: boolean;
+}
+
+interface OutlineExportPayload {
+  format: "json" | "opml";
+  outputPath?: string | null;
 }
 
 interface OtOpPayload {
@@ -550,6 +555,40 @@ export function useMcpBridge(): void {
             await invoke("mcp_canvas_result", {
               ok: false,
               path: null,
+              error: errStr,
+            }).catch(() => {/* non-fatal */});
+          }
+        }
+      }),
+    );
+
+    // mcp://export-outline — export document heading structure as JSON or OPML.
+    //
+    // When outputPath is provided, runs headless and calls mcp_outline_result.
+    // When omitted, opens a save dialog (user picks destination).
+    unlisteners.push(
+      listen<OutlineExportPayload>("mcp://export-outline", async (e) => {
+        const { format = "json", outputPath } = e.payload;
+        try {
+          const resultPath = await exportOutline({
+            format,
+            outputPath: outputPath ?? undefined,
+          });
+          if (outputPath) {
+            await invoke("mcp_outline_result", {
+              ok: true,
+              path: resultPath || outputPath,
+              format,
+              error: null,
+            }).catch(() => {/* non-fatal */});
+          }
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          if (outputPath) {
+            await invoke("mcp_outline_result", {
+              ok: false,
+              path: null,
+              format,
               error: errStr,
             }).catch(() => {/* non-fatal */});
           }

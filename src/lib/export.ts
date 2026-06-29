@@ -27,6 +27,9 @@ import themesCss from "../styles/themes.css?raw";
 import { findTemplate } from "./exportTemplates";
 import type { ExportTemplate } from "./exportTemplates";
 import { useSettingsStore } from "../store/settingsStore";
+import { parseHeadings } from "./outline";
+import { buildOutlineTree, buildOpml } from "./exportOutline";
+export type { OutlineNode } from "./exportOutline";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -614,6 +617,81 @@ export function buildCanvasGraph(
   }
 
   return { nodes, edges };
+}
+
+// ─── exportOutline ────────────────────────────────────────────────────────────
+
+/**
+ * Export the current document's heading structure as a structured outline.
+ *
+ * Two formats are supported:
+ *   - `'json'`  — hierarchical JSON array of OutlineNode objects (roundtrip-able,
+ *                 machine-readable, compatible with Obsidian Canvas / Logseq).
+ *   - `'opml'`  — OPML 2.0 XML for feed readers and outliner tools (OmniOutliner,
+ *                 WorkFlowy, Logseq, etc.).
+ *
+ * The heading list is extracted from the raw Markdown source in documentStore
+ * (not from the DOM), so this function works in any view mode and produces
+ * consistent results regardless of render state.
+ *
+ * When `outputPath` is provided the file is written via the Rust
+ * `write_markdown_file` command (UTF-8 text, atomic temp-rename).  When omitted
+ * a save dialog is shown so the user can pick a destination.
+ *
+ * @param options.format      Output format: `'json'` or `'opml'`.
+ * @param options.outputPath  Optional pre-chosen destination path (headless mode).
+ * @returns The written file path, or `""` when the user cancelled the dialog.
+ */
+export async function exportOutline(options: {
+  format: "json" | "opml";
+  outputPath?: string;
+}): Promise<string> {
+  const { format, outputPath } = options;
+
+  // Read live document state — works in any view mode (no DOM dependency).
+  const { content, fileName, path: docPath } = useDocumentStore.getState();
+  if (!docPath && !content) {
+    throw "No document is open. Open a Markdown file before exporting.";
+  }
+
+  // Build the outline from the Markdown source.
+  const headings = parseHeadings(content);
+  const tree = buildOutlineTree(headings);
+  const title = (fileName ?? "outline").replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "outline";
+
+  // Serialise to the requested format.
+  let text: string;
+  let ext: string;
+  if (format === "opml") {
+    text = buildOpml(tree, title);
+    ext = "opml";
+  } else {
+    text = JSON.stringify(tree, null, 2);
+    ext = "json";
+  }
+
+  // Resolve destination path.
+  let dest = outputPath;
+  if (!dest) {
+    const chosen = await save({
+      defaultPath: `${sanitizeFileName(title)}-outline.${ext}`,
+      filters: format === "opml"
+        ? [{ name: "OPML Outline", extensions: ["opml"] }]
+        : [{ name: "JSON Outline", extensions: ["json"] }],
+    });
+    if (!chosen) return ""; // user cancelled — no toast
+    dest = chosen;
+  }
+
+  try {
+    await invoke("write_markdown_file", { path: dest, content: text });
+  } catch (e) {
+    toast.error(`Outline export failed: ${errMsg(e)}`);
+    throw e;
+  }
+
+  toast.success(`Outline exported to ${baseName(dest)}`);
+  return dest;
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────

@@ -903,9 +903,13 @@ import {
   buildCanvasGraph,
   exportMarkdownArchive,
   exportCanvasGraph,
+  exportOutline,
   type MarkdownArchiveEntry,
   type VaultDocDescriptor,
+  type OutlineNode,
 } from "./export";
+
+import { buildOutlineTree, buildOpml } from "./exportOutline";
 
 // ─── Mock documentStore for exportMarkdownArchive ────────────────────────────
 
@@ -1299,5 +1303,473 @@ describe("exportCanvasGraph", () => {
     expect(saveMock).toHaveBeenCalledWith(
       expect.objectContaining({ defaultPath: "vault-graph.canvas" }),
     );
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildOutlineTree — pure hierarchical tree construction
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildOutlineTree", () => {
+  it("returns an empty array for an empty headings list", () => {
+    expect(buildOutlineTree([])).toEqual([]);
+  });
+
+  it("single H1 produces one root node with no children", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "Title", slug: "title", line: 1 },
+    ]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].title).toBe("Title");
+    expect(tree[0].level).toBe(1);
+    expect(tree[0].children).toHaveLength(0);
+  });
+
+  it("H2 after H1 is nested as a child of H1", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "Root", slug: "root", line: 1 },
+      { depth: 2, text: "Child", slug: "child", line: 5 },
+    ]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children).toHaveLength(1);
+    expect(tree[0].children[0].title).toBe("Child");
+  });
+
+  it("two H1s produce two root nodes", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "First", slug: "first", line: 1 },
+      { depth: 1, text: "Second", slug: "second", line: 10 },
+    ]);
+    expect(tree).toHaveLength(2);
+  });
+
+  it("skipped level (H1 → H3) — H3 becomes child of H1 (no phantom H2)", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "Root", slug: "root", line: 1 },
+      { depth: 3, text: "Deep", slug: "deep", line: 3 },
+    ]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children).toHaveLength(1);
+    expect(tree[0].children[0].level).toBe(3);
+  });
+
+  it("missing H1 — tree starts at the first heading level present", () => {
+    const tree = buildOutlineTree([
+      { depth: 2, text: "A", slug: "a", line: 1 },
+      { depth: 3, text: "B", slug: "b", line: 5 },
+    ]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].level).toBe(2);
+    expect(tree[0].children[0].level).toBe(3);
+  });
+
+  it("node id matches slug from parseHeadings", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "Hello World", slug: "hello-world", line: 1 },
+    ]);
+    expect(tree[0].id).toBe("hello-world");
+    expect(tree[0].metadata.headingId).toBe("hello-world");
+  });
+
+  it("all node ids are unique for a document with duplicate heading text", () => {
+    // github-slugger appends -1, -2 for repeated slugs
+    const tree = buildOutlineTree([
+      { depth: 2, text: "Section", slug: "section", line: 1 },
+      { depth: 2, text: "Section", slug: "section-1", line: 5 },
+      { depth: 2, text: "Section", slug: "section-2", line: 9 },
+    ]);
+    const ids = tree.map((n) => n.id);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("metadata.startLine matches source line number", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "T", slug: "t", line: 7 },
+    ]);
+    expect(tree[0].metadata.startLine).toBe(7);
+  });
+
+  it("endLine is null for the last heading in the document", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "A", slug: "a", line: 1 },
+      { depth: 2, text: "B", slug: "b", line: 5 },
+    ]);
+    // The deepest/last heading always has endLine null
+    expect(tree[0].children[0].metadata.endLine).toBeNull();
+  });
+
+  it("endLine of H1 is the startLine of the next H1", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "A", slug: "a", line: 1 },
+      { depth: 2, text: "A-child", slug: "a-child", line: 3 },
+      { depth: 1, text: "B", slug: "b", line: 10 },
+    ]);
+    expect(tree[0].metadata.endLine).toBe(10);
+    expect(tree[1].metadata.endLine).toBeNull();
+  });
+
+  it("deeply nested H4 appears in the correct position in the tree", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "L1", slug: "l1", line: 1 },
+      { depth: 2, text: "L2", slug: "l2", line: 2 },
+      { depth: 3, text: "L3", slug: "l3", line: 3 },
+      { depth: 4, text: "L4", slug: "l4", line: 4 },
+    ]);
+    expect(tree[0].children[0].children[0].children[0].title).toBe("L4");
+  });
+
+  it("sibling H2s under the same H1 are both children of H1", () => {
+    const tree = buildOutlineTree([
+      { depth: 1, text: "Root", slug: "root", line: 1 },
+      { depth: 2, text: "Sibling A", slug: "sibling-a", line: 3 },
+      { depth: 2, text: "Sibling B", slug: "sibling-b", line: 6 },
+    ]);
+    expect(tree[0].children).toHaveLength(2);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildOpml — OPML serialisation
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildOpml", () => {
+  it("produces valid XML declaration and opml root element", () => {
+    const opml = buildOpml([], "Empty Doc");
+    expect(opml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+    expect(opml).toContain('<opml version="2.0">');
+    expect(opml).toContain("</opml>");
+  });
+
+  it("includes document title in <head>", () => {
+    const opml = buildOpml([], "My Report");
+    expect(opml).toContain("<title>My Report</title>");
+  });
+
+  it("empty nodes list produces a <body> with no <outline> children", () => {
+    const opml = buildOpml([], "Empty");
+    expect(opml).toContain("<body>");
+    expect(opml).toContain("</body>");
+    expect(opml).not.toContain("<outline");
+  });
+
+  it("each heading becomes an <outline> element with text attribute", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "intro",
+        title: "Introduction",
+        level: 1,
+        children: [],
+        metadata: { startLine: 1, endLine: 10, headingId: "intro" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain('text="Introduction"');
+  });
+
+  it("outline element carries _note attribute with #id anchor", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "my-section",
+        title: "My Section",
+        level: 2,
+        children: [],
+        metadata: { startLine: 5, endLine: null, headingId: "my-section" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain('_note="#my-section"');
+  });
+
+  it("child nodes are nested inside parent <outline> element", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "parent",
+        title: "Parent",
+        level: 1,
+        children: [
+          {
+            id: "child",
+            title: "Child",
+            level: 2,
+            children: [],
+            metadata: { startLine: 3, endLine: null, headingId: "child" },
+          },
+        ],
+        metadata: { startLine: 1, endLine: null, headingId: "parent" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Nested");
+    // Child <outline> must appear between parent's open and close tags
+    const parentOpen = opml.indexOf('text="Parent"');
+    const childText = opml.indexOf('text="Child"');
+    expect(childText).toBeGreaterThan(parentOpen);
+    expect(opml).toContain("</outline>");
+  });
+
+  it("XML-escapes special characters in title and id", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "q-a",
+        title: 'Q&A: "Tips" <here>',
+        level: 1,
+        children: [],
+        metadata: { startLine: 1, endLine: null, headingId: "q-a" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain("Q&amp;A:");
+    expect(opml).toContain("&quot;Tips&quot;");
+    expect(opml).toContain("&lt;here&gt;");
+  });
+
+  it("includes level attribute on each outline element", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "h2",
+        title: "A heading",
+        level: 2,
+        children: [],
+        metadata: { startLine: 1, endLine: null, headingId: "h2" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain('level="2"');
+  });
+
+  it("includes startLine attribute on each outline element", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "s",
+        title: "S",
+        level: 1,
+        children: [],
+        metadata: { startLine: 42, endLine: null, headingId: "s" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain('startLine="42"');
+  });
+
+  it("includes endLine attribute when endLine is not null", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "s",
+        title: "S",
+        level: 1,
+        children: [],
+        metadata: { startLine: 1, endLine: 20, headingId: "s" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).toContain('endLine="20"');
+  });
+
+  it("omits endLine attribute when endLine is null", () => {
+    const nodes: OutlineNode[] = [
+      {
+        id: "s",
+        title: "S",
+        level: 1,
+        children: [],
+        metadata: { startLine: 1, endLine: null, headingId: "s" },
+      },
+    ];
+    const opml = buildOpml(nodes, "Doc");
+    expect(opml).not.toContain("endLine=");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// exportOutline — integration (mocked Tauri + dialog + documentStore)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("exportOutline", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    saveMock.mockResolvedValue("/out/outline.json");
+    mockDocGetState.mockReturnValue({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "# Introduction\n\n## Background\n\n## Methods\n\n### Data Collection\n\n# Conclusion\n",
+    });
+  });
+
+  it("writes JSON outline via write_markdown_file when format is json", async () => {
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/out/outline.json",
+      content: expect.stringContaining('"title"'),
+    });
+  });
+
+  it("written JSON is parseable and contains root nodes", async () => {
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    const parsed: OutlineNode[] = JSON.parse(written);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBeGreaterThan(0);
+    expect(parsed[0].title).toBe("Introduction");
+  });
+
+  it("JSON outline preserves nested structure (H2 under H1)", async () => {
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    const parsed: OutlineNode[] = JSON.parse(written);
+    const intro = parsed.find((n) => n.title === "Introduction");
+    expect(intro?.children.length).toBeGreaterThan(0);
+    expect(intro?.children[0].title).toBe("Background");
+  });
+
+  it("writes OPML outline when format is opml", async () => {
+    saveMock.mockResolvedValue("/out/outline.opml");
+    await exportOutline({ format: "opml", outputPath: "/out/outline.opml" });
+    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/out/outline.opml",
+      content: expect.stringContaining("<opml"),
+    });
+  });
+
+  it("OPML content is valid XML with opml root", async () => {
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "opml", outputPath: "/out/outline.opml" });
+    expect(written).toContain('<?xml version="1.0"');
+    expect(written).toContain('<opml version="2.0">');
+    expect(written).toContain("</opml>");
+  });
+
+  it("shows a success toast with the file basename", async () => {
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      expect.stringContaining("outline.json"),
+    );
+  });
+
+  it("opens a save dialog with json filter when format is json and no outputPath", async () => {
+    await exportOutline({ format: "json" });
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["json"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("opens a save dialog with opml filter when format is opml and no outputPath", async () => {
+    saveMock.mockResolvedValue("/out/outline.opml");
+    await exportOutline({ format: "opml" });
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["opml"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("returns empty string and does not invoke when user cancels dialog", async () => {
+    saveMock.mockResolvedValue(null);
+    const result = await exportOutline({ format: "json" });
+    expect(result).toBe("");
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast and re-throws when write fails", async () => {
+    invokeMock.mockRejectedValue(new Error("disk full"));
+    await expect(
+      exportOutline({ format: "json", outputPath: "/out/outline.json" }),
+    ).rejects.toBeDefined();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("disk full"),
+    );
+  });
+
+  it("throws a user-visible error when no document is open", async () => {
+    mockDocGetState.mockReturnValue({ path: null, fileName: null, content: "" });
+    await expect(exportOutline({ format: "json" })).rejects.toMatch(
+      /No document is open/,
+    );
+  });
+
+  it("returns the output path on success (headless mode)", async () => {
+    const result = await exportOutline({
+      format: "json",
+      outputPath: "/out/outline.json",
+    });
+    expect(result).toBe("/out/outline.json");
+  });
+
+  it("JSON outline nodes each have id, title, level, children, metadata fields", async () => {
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    const parsed: OutlineNode[] = JSON.parse(written);
+    function checkNode(node: OutlineNode): void {
+      expect(typeof node.id).toBe("string");
+      expect(typeof node.title).toBe("string");
+      expect(typeof node.level).toBe("number");
+      expect(Array.isArray(node.children)).toBe(true);
+      expect(typeof node.metadata.startLine).toBe("number");
+      expect("endLine" in node.metadata).toBe(true);
+      expect(typeof node.metadata.headingId).toBe("string");
+      for (const child of node.children) checkNode(child);
+    }
+    for (const root of parsed) checkNode(root);
+  });
+
+  it("empty document (no headings) exports an empty JSON array", async () => {
+    mockDocGetState.mockReturnValue({
+      path: "/vault/empty.md",
+      fileName: "empty.md",
+      content: "Just a paragraph, no headings.",
+    });
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    const parsed = JSON.parse(written);
+    expect(parsed).toEqual([]);
+  });
+
+  it("headings inside fenced code blocks are not included in the outline", async () => {
+    mockDocGetState.mockReturnValue({
+      path: "/vault/code.md",
+      fileName: "code.md",
+      content: "# Real Heading\n\n```\n# Not a heading\n```\n\n## Real Sub\n",
+    });
+    let written = "";
+    invokeMock.mockImplementation((_cmd: string, args: { content?: string }) => {
+      if (args?.content) written = args.content;
+      return Promise.resolve(undefined);
+    });
+    await exportOutline({ format: "json", outputPath: "/out/outline.json" });
+    const parsed: OutlineNode[] = JSON.parse(written);
+    // Count all headings recursively
+    function countNodes(nodes: OutlineNode[]): number {
+      return nodes.reduce((acc, n) => acc + 1 + countNodes(n.children), 0);
+    }
+    expect(countNodes(parsed)).toBe(2); // "Real Heading" + "Real Sub", not the code block heading
   });
 });
