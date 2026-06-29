@@ -1330,3 +1330,452 @@ fn app_not_running_msg_other_error_passthrough() {
     // Should pass through unchanged for non-connectivity errors
     assert_eq!(msg, "IPC auth failed: token mismatch");
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Export tool — comprehensive IPC integration tests
+// ════════════════════════════════════════════════════════════════════════════
+//
+// These tests exercise the full export tool dispatch path:
+//   MCP tool call → tool_export() → IPC POST /export → agent response
+// No running Ashlr MD app is required — MockIpc intercepts every IPC call.
+
+use mdopener_mcp::handle_resources_list;
+use mdopener_mcp::handle_resource_read;
+
+// ── Successful export scenarios ───────────────────────────────────────────────
+
+#[test]
+fn export_tool_pdf_success_returns_ok_result() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({
+            "ok": true,
+            "path": "/home/user/my-doc.pdf",
+            "format": "pdf"
+        })));
+    let resp = tool_export(id(1), &json!({ "format": "pdf" }), &ipc);
+    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
+    assert!(!is_error(&resp), "isError should be false on success");
+    let text = content_text(&resp);
+    assert_eq!(text["ok"], json!(true));
+}
+
+#[test]
+fn export_tool_docx_success_returns_ok_result() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true, "path": "/tmp/doc.docx" })));
+    let resp = tool_export(id(2), &json!({ "format": "docx" }), &ipc);
+    assert!(resp.error.is_none());
+    assert!(!is_error(&resp));
+}
+
+#[test]
+fn export_tool_html_success_returns_ok_result() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true, "path": "/tmp/doc.html" })));
+    let resp = tool_export(id(3), &json!({ "format": "html" }), &ipc);
+    assert!(resp.error.is_none());
+    assert!(!is_error(&resp));
+}
+
+// ── output_path is honored ────────────────────────────────────────────────────
+
+#[test]
+fn export_tool_output_path_forwarded_to_ipc() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    tool_export(
+        id(10),
+        &json!({ "format": "pdf", "output_path": "/home/user/reports/out.pdf" }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .expect("POST /export not called")
+        .2.as_ref().unwrap();
+    assert_eq!(body["outputPath"], "/home/user/reports/out.pdf",
+        "output_path must be forwarded as outputPath");
+}
+
+#[test]
+fn export_tool_html_with_output_path_forwarded() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    tool_export(
+        id(11),
+        &json!({ "format": "html", "output_path": "/tmp/export.html" }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["outputPath"], "/tmp/export.html");
+    assert_eq!(body["format"], "html");
+}
+
+#[test]
+fn export_tool_no_output_path_sends_null() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    tool_export(id(12), &json!({ "format": "pdf" }), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert!(body["outputPath"].is_null(),
+        "missing output_path should be sent as null, got {:?}", body["outputPath"]);
+}
+
+// ── HTML theme override ───────────────────────────────────────────────────────
+
+#[test]
+fn export_tool_html_with_paper_theme() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    let resp = tool_export(
+        id(20),
+        &json!({ "format": "html", "theme": "paper" }),
+        &ipc,
+    );
+    assert!(resp.error.is_none());
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["theme"], "paper");
+}
+
+#[test]
+fn export_tool_html_with_sepia_theme() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    let resp = tool_export(
+        id(21),
+        &json!({ "format": "html", "theme": "sepia" }),
+        &ipc,
+    );
+    assert!(resp.error.is_none());
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["theme"], "sepia");
+}
+
+#[test]
+fn export_tool_html_with_midnight_theme() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    let resp = tool_export(
+        id(22),
+        &json!({ "format": "html", "theme": "midnight" }),
+        &ipc,
+    );
+    assert!(resp.error.is_none());
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert_eq!(body["theme"], "midnight");
+}
+
+#[test]
+fn export_tool_invalid_theme_returns_param_error() {
+    let ipc = MockIpc::new();
+    let resp = tool_export(
+        id(23),
+        &json!({ "format": "html", "theme": "dark-mode" }),
+        &ipc,
+    );
+    assert!(resp.error.is_some(), "invalid theme must produce an RPC error");
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "invalid theme must return -32602 (invalid params)");
+    let msg = &resp.error.unwrap().message;
+    assert!(msg.contains("paper") || msg.contains("sepia") || msg.contains("midnight"),
+        "error should list valid values, got: {msg}");
+}
+
+#[test]
+fn export_tool_no_theme_sends_null() {
+    // When no theme is specified, the app uses its current theme.
+    // The IPC body should carry null so the app knows to use its own setting.
+    let ipc = MockIpc::new()
+        .on_post("/export", Ok(json!({ "ok": true })));
+    tool_export(id(24), &json!({ "format": "html" }), &ipc);
+    let calls = ipc.calls();
+    let body = calls.iter()
+        .find(|(m, p, _)| m == "POST" && p == "/export")
+        .unwrap().2.as_ref().unwrap();
+    assert!(body["theme"].is_null(),
+        "absent theme should be null in IPC body, got {:?}", body["theme"]);
+}
+
+// ── File-write error propagation ──────────────────────────────────────────────
+
+#[test]
+fn export_tool_file_write_error_becomes_rpc_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Err("ipc-port not found".into()));
+    let resp = tool_export(id(30), &json!({ "format": "pdf" }), &ipc);
+    assert!(resp.error.is_some(), "IPC failure must surface as RPC error");
+    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
+}
+
+#[test]
+fn export_tool_permission_denied_error_propagated() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Err("Permission denied: /root/secret.pdf".into()));
+    let resp = tool_export(id(31), &json!({ "format": "pdf" }), &ipc);
+    assert!(resp.error.is_some());
+    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
+    // The error message must surface enough detail for the agent to understand.
+    assert!(resp.error.unwrap().message.len() > 0);
+}
+
+#[test]
+fn export_tool_disk_full_error_propagated() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Err("No space left on device".into()));
+    let resp = tool_export(id(32), &json!({ "format": "pdf" }), &ipc);
+    assert!(resp.error.is_some());
+    assert_eq!(resp.error.unwrap().code, -32000);
+}
+
+#[test]
+fn export_tool_app_not_running_returns_descriptive_error() {
+    let ipc = MockIpc::new()
+        .on_post("/export", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
+    let err = resp.error.expect("should have error");
+    assert_eq!(err.code, -32000);
+    // app_not_running_msg should enrich the message.
+    assert!(err.message.contains("Ashlr MD"),
+        "error should name the app, got: {}", err.message);
+}
+
+// ── Unsupported / unknown format ──────────────────────────────────────────────
+// Note: format validation is done by the app (via IPC), not by this MCP layer.
+// The MCP layer forwards the format string and lets the app reject unknown ones.
+// This test verifies the forwarding behaviour, not app-side validation.
+
+#[test]
+fn export_tool_unknown_format_forwarded_to_app() {
+    // App returns an error for an unsupported format.
+    let ipc = MockIpc::new()
+        .on_post("/export", Err("Unsupported export format: odt".into()));
+    let resp = tool_export(id(40), &json!({ "format": "odt" }), &ipc);
+    // The IPC error becomes an RPC error — the agent sees a clear failure.
+    assert!(resp.error.is_some());
+    assert_eq!(resp.error.unwrap().code, -32000);
+}
+
+// ── Missing required param ────────────────────────────────────────────────────
+
+#[test]
+fn export_tool_missing_format_returns_param_error() {
+    let ipc = MockIpc::new();
+    let resp = tool_export(id(50), &json!({}), &ipc);
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
+        "missing format must return -32602");
+    // No IPC call should have been made.
+    assert!(ipc.calls().is_empty(), "no IPC call should be made for a param error");
+}
+
+// ── Format field is present in every IPC POST body ───────────────────────────
+
+#[test]
+fn export_tool_format_always_in_ipc_body() {
+    for format in &["pdf", "docx", "html"] {
+        let ipc = MockIpc::new()
+            .on_post("/export", Ok(json!({ "ok": true })));
+        tool_export(id(60), &json!({ "format": format }), &ipc);
+        let calls = ipc.calls();
+        let body = calls.iter()
+            .find(|(m, p, _)| m == "POST" && p == "/export")
+            .unwrap_or_else(|| panic!("no POST /export for format={format}"))
+            .2.as_ref().unwrap();
+        assert_eq!(body["format"], json!(*format),
+            "format must be forwarded for {format}");
+    }
+}
+
+// ── export:current resource ───────────────────────────────────────────────────
+
+#[test]
+fn resources_list_includes_export_current() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resources_list(id(70), &ipc);
+    assert!(resp.error.is_none());
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().expect("resources must be array");
+    let uris: Vec<&str> = resources.iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(uris.contains(&"export:current"),
+        "resources/list must include export:current, got: {:?}", uris);
+}
+
+#[test]
+fn resources_list_export_current_has_correct_mime_type() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resources_list(id(71), &ipc);
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    let export_res = resources.iter()
+        .find(|r| r["uri"].as_str() == Some("export:current"))
+        .expect("export:current resource not found");
+    assert_eq!(export_res["mimeType"].as_str(), Some("text/html"),
+        "export:current must have mimeType text/html");
+}
+
+#[test]
+fn resources_list_export_current_has_description() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resources_list(id(72), &ipc);
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    let export_res = resources.iter()
+        .find(|r| r["uri"].as_str() == Some("export:current"))
+        .unwrap();
+    let desc = export_res["description"].as_str().unwrap_or("");
+    assert!(!desc.is_empty(), "export:current must have a non-empty description");
+    // Description must convey the read-only, live-preview nature.
+    assert!(desc.contains("live") || desc.contains("preview") || desc.contains("read"),
+        "description should mention live preview: {desc}");
+}
+
+#[test]
+fn resource_read_export_current_success_returns_html() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({
+            "html": "<h1>Hello</h1><p>World</p>",
+            "title": "My Doc",
+            "theme": "paper"
+        })));
+    let resp = handle_resource_read(id(80), "export:current", &ipc);
+    assert!(resp.error.is_none(), "should not have error: {:?}", resp.error);
+    let result = resp.result.as_ref().unwrap();
+    let contents = result["contents"].as_array().expect("contents must be array");
+    assert_eq!(contents.len(), 1);
+    let item = &contents[0];
+    assert_eq!(item["uri"].as_str(), Some("export:current"));
+    assert_eq!(item["mimeType"].as_str(), Some("text/html"));
+    let text = item["text"].as_str().expect("text must be present");
+    assert!(text.contains("<h1>Hello</h1>"), "HTML content must be present");
+    assert!(text.contains("<p>World</p>"));
+}
+
+#[test]
+fn resource_read_export_current_includes_metadata_comment() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({
+            "html": "<p>doc</p>",
+            "title": "Test Title",
+            "theme": "sepia"
+        })));
+    let resp = handle_resource_read(id(81), "export:current", &ipc);
+    let result = resp.result.as_ref().unwrap();
+    let text = result["contents"][0]["text"].as_str().unwrap();
+    // Metadata comment should appear at the top for agents to parse cheaply.
+    assert!(text.starts_with("<!-- export:current"),
+        "response should start with metadata comment, got: {text}");
+    assert!(text.contains("sepia"), "comment should include theme");
+}
+
+#[test]
+fn resource_read_export_current_theme_midnight_in_comment() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({
+            "html": "<h2>Content</h2>",
+            "title": "Night Doc",
+            "theme": "midnight"
+        })));
+    let resp = handle_resource_read(id(82), "export:current", &ipc);
+    let result = resp.result.as_ref().unwrap();
+    let text = result["contents"][0]["text"].as_str().unwrap();
+    assert!(text.contains("midnight"), "midnight theme should appear in metadata comment");
+}
+
+#[test]
+fn resource_read_export_current_ipc_failure_returns_error() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Err("ipc-port not found".into()));
+    let resp = handle_resource_read(id(83), "export:current", &ipc);
+    assert!(resp.error.is_some(), "IPC failure must return RPC error");
+    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
+}
+
+#[test]
+fn resource_read_export_current_app_not_running_descriptive_error() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let resp = handle_resource_read(id(84), "export:current", &ipc);
+    let err = resp.error.expect("should have error");
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("Ashlr MD"),
+        "error should mention app name, got: {}", err.message);
+}
+
+#[test]
+fn resource_read_export_current_empty_html_handled_gracefully() {
+    // App returns empty HTML (no document open).
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({ "html": "", "title": "", "theme": "paper" })));
+    let resp = handle_resource_read(id(85), "export:current", &ipc);
+    assert!(resp.error.is_none());
+    let result = resp.result.as_ref().unwrap();
+    let text = result["contents"][0]["text"].as_str().unwrap();
+    // Should still have the metadata comment even for empty content.
+    assert!(text.starts_with("<!-- export:current"),
+        "metadata comment must appear even for empty content");
+}
+
+// ── resources/read dispatch — export:current routes through dispatch() ────────
+
+#[test]
+fn dispatch_resource_read_export_current_routes_to_handler() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({
+            "html": "<h1>Dispatch test</h1>",
+            "title": "Dispatch",
+            "theme": "paper"
+        })));
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(99)),
+        method: "resources/read".into(),
+        params: Some(json!({ "uri": "export:current" })),
+    };
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
+    let result = resp.result.as_ref().unwrap();
+    let text = result["contents"][0]["text"].as_str().unwrap();
+    assert!(text.contains("<h1>Dispatch test</h1>"));
+}
+
+// ── resources/list dispatch — export:current appears via dispatch() ───────────
+
+#[test]
+fn dispatch_resources_list_includes_export_current() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(100)),
+        method: "resources/list".into(),
+        params: None,
+    };
+    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
+    assert!(resp.error.is_none());
+    let result = resp.result.as_ref().unwrap();
+    let uris: Vec<&str> = result["resources"].as_array().unwrap()
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(uris.contains(&"export:current"),
+        "dispatch resources/list must include export:current, got: {:?}", uris);
+}

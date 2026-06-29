@@ -279,7 +279,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Trigger an export of the currently open document.",
+            description: "Trigger an export of the currently open document. For HTML exports a theme override (paper/sepia/midnight) can be supplied; otherwise the app's current theme is used.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -291,6 +291,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "output_path": {
                         "type": "string",
                         "description": "Optional absolute path for the output file."
+                    },
+                    "theme": {
+                        "type": "string",
+                        "enum": ["paper", "sepia", "midnight"],
+                        "description": "Optional theme override for HTML exports (paper/sepia/midnight). When omitted the app's current theme is used. Ignored for PDF and DOCX."
                     }
                 },
                 "required": ["format"]
@@ -565,11 +570,27 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
         Some(f) => f.to_string(),
         None => return Response::err(id, -32602, "`format` is required"),
     };
+
+    // Validate theme when provided — only valid for html format.
+    let theme = args["theme"].as_str().map(str::to_string);
+    if let Some(ref t) = theme {
+        match t.as_str() {
+            "paper" | "sepia" | "midnight" => {}
+            other => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("`theme` must be one of paper/sepia/midnight, got '{other}'"),
+                )
+            }
+        }
+    }
+
     let output_path = args["output_path"].as_str().map(str::to_string);
 
     match ipc.post(
         "/export",
-        json!({ "format": format, "outputPath": output_path }),
+        json!({ "format": format, "outputPath": output_path, "theme": theme }),
     ) {
         Ok(v) => tool_result(id, v),
         Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
@@ -878,12 +899,20 @@ pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
 // ── Resources ─────────────────────────────────────────────────────────────────
 
 pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
-    let mut resources = vec![json!({
-        "uri": "mdopener://current",
-        "name": "Current document",
-        "description": "The document currently open in Ashlr MD.",
-        "mimeType": "text/markdown"
-    })];
+    let mut resources = vec![
+        json!({
+            "uri": "mdopener://current",
+            "name": "Current document",
+            "description": "The document currently open in Ashlr MD.",
+            "mimeType": "text/markdown"
+        }),
+        json!({
+            "uri": "export:current",
+            "name": "Live HTML export",
+            "description": "Read-only live HTML export of the current document. Auto-updates when the document is edited. Agents can poll this to preview rendered output without writing any files.",
+            "mimeType": "text/html"
+        }),
+    ];
 
     if let Ok(v) = ipc.get("/vault") {
         if let Some(files) = v["files"].as_array() {
@@ -914,6 +943,34 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
         };
     }
+
+    // export:current — live HTML export of the current document.
+    // The app renders the document to HTML and returns it via /export/preview.
+    // This endpoint is read-only and returns the latest rendered state each time
+    // it is polled, so agents always see up-to-date output without file I/O.
+    if uri == "export:current" {
+        return match ipc.get("/export/preview") {
+            Ok(v) => {
+                let html = v["html"].as_str().unwrap_or("").to_string();
+                let title = v["title"].as_str().unwrap_or("").to_string();
+                let theme = v["theme"].as_str().unwrap_or("paper").to_string();
+                // Include metadata as a comment so agents can inspect it without
+                // parsing the full HTML document.
+                let annotated = format!(
+                    "<!-- export:current title={title:?} theme={theme:?} -->\n{html}"
+                );
+                Response::ok(id, json!({
+                    "contents": [{
+                        "uri": uri,
+                        "mimeType": "text/html",
+                        "text": annotated
+                    }]
+                }))
+            }
+            Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        };
+    }
+
     if let Some(p) = uri.strip_prefix("file://") {
         if !is_advertised_path(p, ipc) {
             return Response::err(id, -32002, format!("Resource not in vault: {uri}"));
