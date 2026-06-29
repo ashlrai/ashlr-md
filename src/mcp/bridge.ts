@@ -34,6 +34,7 @@ import { useEffect, useRef } from "react";
 import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph } from "../lib/export";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { useActivityStore } from "../store/activityStore";
+import { useConversationStore } from "../store/memoryStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useReviewStore } from "../store/reviewStore";
@@ -106,12 +107,70 @@ interface OtOpPayload {
   save?: boolean;
 }
 
+// ── Session persistence helpers (exported for use in MCP tools / tests) ────────
+
+/**
+ * Persist the current session's message log to the Rust layer, which writes it
+ * atomically to `~/.mdopener/sessions/{sessionId}.json`.
+ *
+ * Non-fatal: a failure logs a warning but never throws so the app keeps running.
+ */
+export async function persistSession(sessionId: string): Promise<void> {
+  const { messages } = useConversationStore.getState();
+  const sessionMessages = messages.filter((m) => m.sessionId === sessionId);
+  await invoke("mcp_persist_session", {
+    sessionId,
+    messages: sessionMessages,
+  }).catch((e) => {
+    console.warn("[mcp bridge] mcp_persist_session failed:", e);
+  });
+}
+
+/**
+ * Load a prior session's messages from disk (via Rust) and restore them into
+ * the in-memory conversation store.  Called on app start to resume sessions
+ * that survived a restart.
+ *
+ * Returns the number of messages restored (0 when no session file exists).
+ */
+export async function loadSession(sessionId: string): Promise<number> {
+  try {
+    const messages = await invoke<Array<{
+      id: string;
+      sessionId: string;
+      role: "agent" | "human" | "system";
+      content: string;
+      citedDocs: string[];
+      timestampMs: number;
+    }>>("mcp_load_session", { sessionId });
+
+    if (!messages || messages.length === 0) return 0;
+
+    // Merge loaded messages into the in-memory store without duplicating.
+    const existing = useConversationStore.getState().messages;
+    const existingIds = new Set(existing.map((m) => m.id));
+    const newMessages = messages.filter((m) => !existingIds.has(m.id));
+    if (newMessages.length > 0) {
+      useConversationStore.setState((s) => ({
+        messages: [...s.messages, ...newMessages],
+        // Restore currentSessionId if this was the most recent session.
+        currentSessionId: s.currentSessionId ?? sessionId,
+      }));
+    }
+    return newMessages.length;
+  } catch (e) {
+    console.warn("[mcp bridge] mcp_load_session failed:", e);
+    return 0;
+  }
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useMcpBridge(): void {
   // Keep refs to the debounce timers so we can clear them on cleanup.
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const vaultTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // ── 1. Subscribe to store changes and push to Rust (debounced 200 ms) ──
@@ -149,10 +208,26 @@ export function useMcpBridge(): void {
       vaultTimer.current = setTimeout(syncVaultNow, 200);
     };
 
+    // Sync conversation session to Rust when messages change (debounced 500 ms).
+    // Debounced longer than the document sync because messages are appended
+    // infrequently and we want to batch rapid multi-turn bursts into one write.
+    const scheduleSessionSync = () => {
+      const { currentSessionId } = useConversationStore.getState();
+      if (!currentSessionId) return;
+      if (sessionTimer.current !== null) clearTimeout(sessionTimer.current);
+      sessionTimer.current = setTimeout(() => {
+        const { currentSessionId: sid } = useConversationStore.getState();
+        if (sid) {
+          persistSession(sid);
+        }
+      }, 500);
+    };
+
     // Subscribe to the stores.  Zustand subscribe returns an unsubscribe fn.
     const unsubDoc = useDocumentStore.subscribe(scheduleSync);
     const unsubRecent = useRecentStore.subscribe(scheduleSync);
     const unsubActivity = useActivityStore.subscribe(scheduleVaultSync);
+    const unsubConversation = useConversationStore.subscribe(scheduleSessionSync);
 
     // Push the current state immediately on mount.
     syncNow();
@@ -470,8 +545,10 @@ export function useMcpBridge(): void {
       unsubDoc();
       unsubRecent();
       unsubActivity();
+      unsubConversation();
       if (syncTimer.current !== null) clearTimeout(syncTimer.current);
       if (vaultTimer.current !== null) clearTimeout(vaultTimer.current);
+      if (sessionTimer.current !== null) clearTimeout(sessionTimer.current);
       // Unlisten everything already registered; late arrivals self-unlisten above.
       for (const fn of live) fn();
     };

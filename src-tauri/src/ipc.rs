@@ -40,6 +40,28 @@ use std::sync::mpsc;
 use std::sync::Mutex;
 use std::time::Duration;
 
+// ── Session persistence types ──────────────────────────────────────────────────
+
+/// A single conversation message mirrored from the frontend for disk persistence.
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionMessage {
+    pub id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    #[serde(rename = "citedDocs")]
+    pub cited_docs: Vec<String>,
+    #[serde(rename = "timestampMs")]
+    pub timestamp_ms: u64,
+}
+
+/// In-memory session store managed by Tauri — keyed by session_id.
+/// The frontend writes here via `mcp_persist_session` and reads back via
+/// `mcp_load_session` on cold start.
+#[derive(Default)]
+pub struct SessionStore(pub Mutex<HashMap<String, Vec<SessionMessage>>>);
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tiny_http::{Method, Request, Response, Server};
@@ -204,6 +226,97 @@ pub fn mcp_edit_result(
         // The receiver may already be gone if handle_edit timed out; ignore.
         let _ = tx.send(EditOutcome { ok, replaced, error });
     }
+}
+
+// ── Session persistence commands ──────────────────────────────────────────────
+
+/// Return the directory where session JSON files live, creating it if needed.
+fn sessions_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
+}
+
+/// Sanitise a session_id to a safe filename component.
+/// Keeps only alphanumeric characters, hyphens, and underscores.
+fn safe_session_filename(session_id: &str) -> String {
+    session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect()
+}
+
+/// Called by the frontend to atomically persist a session's full message log to
+/// `~/.mdopener/sessions/{session_id}.json`.
+///
+/// Writes are atomic: the JSON is first written to a temp file in the same
+/// directory, then renamed over the target — so a crash mid-write never leaves
+/// a partial file on disk.
+#[tauri::command]
+pub fn mcp_persist_session(
+    session_id: String,
+    messages: Vec<SessionMessage>,
+    store: tauri::State<SessionStore>,
+) -> Result<(), String> {
+    if session_id.trim().is_empty() {
+        return Err("`session_id` must not be empty".into());
+    }
+
+    // Update in-memory mirror.
+    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id.clone(), messages.clone());
+
+    // Persist to disk.
+    let Some(dir) = sessions_dir() else { return Ok(()) };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
+
+    let safe = safe_session_filename(&session_id);
+    let target = dir.join(format!("{safe}.json"));
+    let tmp = dir.join(format!("{safe}.json.tmp"));
+
+    let json = serde_json::to_string_pretty(&messages)
+        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+
+    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
+    std::fs::rename(&tmp, &target).map_err(|e| format!("Rename failed: {e}"))?;
+
+    Ok(())
+}
+
+/// Called by the frontend on startup to restore a prior session's messages.
+/// First checks the in-memory store (hot reload scenario), then falls back to
+/// reading `~/.mdopener/sessions/{session_id}.json` from disk.
+#[tauri::command]
+pub fn mcp_load_session(
+    session_id: String,
+    store: tauri::State<SessionStore>,
+) -> Result<Vec<SessionMessage>, String> {
+    if session_id.trim().is_empty() {
+        return Err("`session_id` must not be empty".into());
+    }
+
+    // Fast path: already in memory.
+    {
+        let guard = store.0.lock().map_err(|e| format!("Lock error: {e}"))?;
+        if let Some(msgs) = guard.get(&session_id) {
+            return Ok(msgs.clone());
+        }
+    }
+
+    // Cold start: load from disk.
+    let Some(dir) = sessions_dir() else { return Ok(vec![]) };
+    let safe = safe_session_filename(&session_id);
+    let path = dir.join(format!("{safe}.json"));
+
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return Ok(vec![]), // File does not exist — empty session.
+    };
+
+    let messages: Vec<SessionMessage> =
+        serde_json::from_str(&text).map_err(|e| format!("JSON parse failed: {e}"))?;
+
+    // Warm the in-memory cache so subsequent calls skip disk.
+    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id, messages.clone());
+
+    Ok(messages)
 }
 
 // ── IPC port file helpers ─────────────────────────────────────────────────────
