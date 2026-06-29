@@ -170,6 +170,9 @@ const KIND_LABEL: Record<NonNullable<DocKind>, string> = {
   plan: "Plan",
   diff: "Diff",
   "multi-file": "Multi-file",
+  spec: "Spec",
+  review: "Review",
+  runbook: "Runbook",
   generic: "Agent output",
 };
 
@@ -183,7 +186,19 @@ function DocKindBadge({
   done: number;
 }) {
   const icon =
-    kind === "plan" ? "✓" : kind === "diff" ? "±" : kind === "multi-file" ? "⊞" : "◈";
+    kind === "plan"
+      ? "✓"
+      : kind === "diff"
+        ? "±"
+        : kind === "multi-file"
+          ? "⊞"
+          : kind === "spec"
+            ? "◎"
+            : kind === "review"
+              ? "⬡"
+              : kind === "runbook"
+                ? "▶"
+                : "◈";
   return (
     <div className="doc-kind-badge" data-kind={kind}>
       <span className="doc-kind-badge-icon" aria-hidden="true">
