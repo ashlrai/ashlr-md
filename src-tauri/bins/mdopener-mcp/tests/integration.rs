@@ -1,15 +1,26 @@
-//! Integration tests for all 11 mdopener-mcp tools.
+//! Integration tests for all 12 mdopener-mcp tools.
 //!
 //! Uses a `MockIpc` struct that intercepts IPC calls and returns scripted
 //! fixtures — no running Ashlr MD app required.  Both success and failure
 //! paths are exercised for every tool.
+//!
+//! Also covers:
+//! - Data-driven registry: every tool has a valid JSON Schema inputSchema
+//! - Dispatch coverage: every name in ALL_TOOL_NAMES routes without error
+//! - Capability tiers: ReadOnly tools carry readOnlyHint=true in their
+//!   annotations; Destructive tools carry destructiveHint=true
+//! - list_ai_actions: returns all 12 AI actions, each with required fields;
+//!   include_prompts=false strips prompt templates
+//! - Required vs optional parameters: missing required args return -32602;
+//!   missing optional args use documented defaults
 
 use mdopener_mcp::{
-    dispatch, handle_initialize, tool_list,
+    dispatch, handle_initialize, tool_list, tool_registry, ai_actions_registry,
+    ALL_TOOL_NAMES, ToolTier,
     tool_open_file, tool_get_content, tool_set_content, tool_list_recent,
     tool_export, tool_request_review, tool_get_annotations,
     tool_edit_document, tool_replace_document, tool_search_vault,
-    tool_present_document,
+    tool_present_document, tool_list_ai_actions,
     IpcClient, Request,
 };
 use serde_json::{json, Value};
@@ -125,11 +136,11 @@ fn initialize_capabilities_advertised() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Tool list
+// Tool list — count, membership, and ALL_TOOL_NAMES consistency
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn tools_list_contains_all_11_tools() {
+fn tools_list_contains_all_12_tools() {
     let list = tool_list();
     let tools = list.as_array().expect("tool_list returns an array");
     let names: Vec<&str> = tools.iter()
@@ -138,12 +149,236 @@ fn tools_list_contains_all_11_tools() {
     let expected = [
         "open_file", "get_current_content", "set_content", "list_recent",
         "export", "request_review", "get_user_annotations", "edit_document",
-        "replace_document", "search_vault", "present_document",
+        "replace_document", "search_vault", "present_document", "list_ai_actions",
     ];
     for name in &expected {
         assert!(names.contains(name), "tool_list missing: {name}");
     }
     assert_eq!(names.len(), expected.len(), "unexpected extra tools in list");
+}
+
+#[test]
+fn all_tool_names_constant_matches_registry() {
+    let registry = tool_registry();
+    let registry_names: Vec<&str> = registry.iter().map(|t| t.name).collect();
+    for name in ALL_TOOL_NAMES {
+        assert!(
+            registry_names.contains(name),
+            "ALL_TOOL_NAMES contains '{name}' but it is not in tool_registry()"
+        );
+    }
+    assert_eq!(
+        ALL_TOOL_NAMES.len(),
+        registry_names.len(),
+        "ALL_TOOL_NAMES length {} != registry length {}",
+        ALL_TOOL_NAMES.len(),
+        registry_names.len()
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Data-driven registry — JSON Schema validity and required-field coverage
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Verify every tool in the registry emits a valid JSON Schema inputSchema.
+/// Rules: must be an object; must have "type": "object"; must have "properties".
+#[test]
+fn every_tool_input_schema_is_valid_json_schema() {
+    for def in tool_registry() {
+        let schema = &def.input_schema;
+        assert_eq!(
+            schema["type"].as_str(),
+            Some("object"),
+            "tool '{}' inputSchema must have type=object",
+            def.name
+        );
+        assert!(
+            schema["properties"].is_object(),
+            "tool '{}' inputSchema must have a 'properties' object",
+            def.name
+        );
+    }
+}
+
+/// Tools with required parameters must list them in an array.
+#[test]
+fn required_fields_are_arrays_when_present() {
+    for def in tool_registry() {
+        let schema = &def.input_schema;
+        if !schema["required"].is_null() {
+            assert!(
+                schema["required"].is_array(),
+                "tool '{}' 'required' must be a JSON array",
+                def.name
+            );
+            // Each entry must be a string that also appears in properties or anyOf
+            for req in schema["required"].as_array().unwrap() {
+                assert!(
+                    req.is_string(),
+                    "tool '{}' required entry must be a string, got {:?}",
+                    def.name,
+                    req
+                );
+            }
+        }
+    }
+}
+
+/// anyOf constraints (request_review) must list objects with "required".
+#[test]
+fn any_of_constraints_well_formed() {
+    for def in tool_registry() {
+        let schema = &def.input_schema;
+        if !schema["anyOf"].is_null() {
+            let any_of = schema["anyOf"].as_array().expect("anyOf must be array");
+            for entry in any_of {
+                assert!(
+                    entry["required"].is_array(),
+                    "tool '{}' anyOf entry must have 'required' array, got {:?}",
+                    def.name,
+                    entry
+                );
+            }
+        }
+    }
+}
+
+/// Every tool must have a non-empty description.
+#[test]
+fn every_tool_has_non_empty_description() {
+    for def in tool_registry() {
+        assert!(
+            !def.description.is_empty(),
+            "tool '{}' must have a non-empty description",
+            def.name
+        );
+    }
+}
+
+/// Tool names must be snake_case: only lowercase letters, digits, and underscores.
+#[test]
+fn tool_names_are_snake_case() {
+    for def in tool_registry() {
+        assert!(
+            def.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+            "tool name '{}' is not snake_case",
+            def.name
+        );
+    }
+}
+
+/// Tool names must be unique.
+#[test]
+fn tool_names_are_unique() {
+    let registry = tool_registry();
+    let mut seen = std::collections::HashSet::new();
+    for def in &registry {
+        assert!(
+            seen.insert(def.name),
+            "duplicate tool name: '{}'",
+            def.name
+        );
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Capability tier validation — annotations must match tier classification
+// ════════════════════════════════════════════════════════════════════════════
+
+/// ReadOnly tier tools must advertise readOnlyHint=true in their annotations.
+#[test]
+fn read_only_tools_have_read_only_hint_annotation() {
+    for def in tool_registry() {
+        if def.tier == ToolTier::ReadOnly {
+            let ann = def.annotations.as_ref().unwrap_or_else(|| {
+                panic!("ReadOnly tool '{}' must have annotations", def.name)
+            });
+            assert_eq!(
+                ann["readOnlyHint"].as_bool(),
+                Some(true),
+                "ReadOnly tool '{}' must have readOnlyHint=true",
+                def.name
+            );
+        }
+    }
+}
+
+/// Destructive tier tools must advertise destructiveHint=true in their annotations.
+#[test]
+fn destructive_tools_have_destructive_hint_annotation() {
+    for def in tool_registry() {
+        if def.tier == ToolTier::Destructive {
+            let ann = def.annotations.as_ref().unwrap_or_else(|| {
+                panic!("Destructive tool '{}' must have annotations", def.name)
+            });
+            assert_eq!(
+                ann["destructiveHint"].as_bool(),
+                Some(true),
+                "Destructive tool '{}' must have destructiveHint=true",
+                def.name
+            );
+        }
+    }
+}
+
+/// Non-destructive tools must NOT carry destructiveHint=true.
+#[test]
+fn non_destructive_tools_do_not_have_destructive_hint() {
+    for def in tool_registry() {
+        if def.tier != ToolTier::Destructive {
+            if let Some(ann) = &def.annotations {
+                assert_ne!(
+                    ann["destructiveHint"].as_bool(),
+                    Some(true),
+                    "tool '{}' is not Destructive but has destructiveHint=true",
+                    def.name
+                );
+            }
+        }
+    }
+}
+
+/// Every tool serialised by to_json() includes name, description, inputSchema.
+#[test]
+fn tool_to_json_includes_required_mcp_fields() {
+    for def in tool_registry() {
+        let j = def.to_json();
+        assert!(j["name"].is_string(), "tool '{}' to_json missing 'name'", def.name);
+        assert!(j["description"].is_string(), "tool '{}' to_json missing 'description'", def.name);
+        assert!(j["inputSchema"].is_object(), "tool '{}' to_json missing 'inputSchema'", def.name);
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Dispatch coverage — every registered tool name must route without -32602
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Call every tool in ALL_TOOL_NAMES with empty args and verify the dispatch
+/// does NOT return "Unknown tool" (-32602).  The actual tool may return a
+/// param-error for missing required args, but the name must be recognised.
+#[test]
+fn dispatch_routes_all_registered_tool_names() {
+    let ipc = MockIpc::new();
+    for name in ALL_TOOL_NAMES {
+        let req = Request {
+            jsonrpc: "2.0".into(),
+            id: Some(json!(1)),
+            method: "tools/call".into(),
+            params: Some(json!({ "name": name, "arguments": {} })),
+        };
+        let resp = dispatch(req, &ipc).expect("dispatch should return a response");
+        // A -32602 from dispatch means "Unknown tool" — that must not happen.
+        // A -32602 from a tool impl means "missing required param" — that is fine.
+        // We distinguish by checking the error message.
+        if let Some(err) = &resp.error {
+            assert!(
+                !err.message.contains("Unknown tool"),
+                "tool '{}' is in ALL_TOOL_NAMES but dispatch says Unknown tool: {}",
+                name,
+                err.message
+            );
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -887,6 +1122,189 @@ fn parse_http_body_500_returns_http_error() {
     let raw = b"HTTP/1.0 500 Internal Server Error\r\n\r\n{}";
     let err = mdopener_mcp::parse_http_body(raw).unwrap_err();
     assert!(err.contains("500"), "got: {err}");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool 12: list_ai_actions
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn list_ai_actions_returns_all_12_actions() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().expect("actions must be array");
+    assert_eq!(actions.len(), 12, "expected 12 AI actions, got {}", actions.len());
+    assert_eq!(text["count"], json!(12));
+}
+
+#[test]
+fn list_ai_actions_every_action_has_required_fields() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        assert!(action["id"].is_string(), "action missing 'id': {:?}", action);
+        assert!(action["label"].is_string(), "action '{}' missing 'label'", action["id"]);
+        assert!(action["shortLabel"].is_string(), "action '{}' missing 'shortLabel'", action["id"]);
+        assert!(action["icon"].is_string(), "action '{}' missing 'icon'", action["id"]);
+        assert!(action["scope"].is_string(), "action '{}' missing 'scope'", action["id"]);
+        assert!(action["systemPrompt"].is_string(), "action '{}' missing 'systemPrompt'", action["id"]);
+        assert!(action["userPromptTemplate"].is_string(), "action '{}' missing 'userPromptTemplate'", action["id"]);
+    }
+}
+
+#[test]
+fn list_ai_actions_action_ids_are_unique() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    let mut seen = std::collections::HashSet::new();
+    for action in actions {
+        let aid = action["id"].as_str().unwrap();
+        assert!(seen.insert(aid.to_string()), "duplicate action id: '{}'", aid);
+    }
+}
+
+#[test]
+fn list_ai_actions_scope_values_are_valid() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        let scope = action["scope"].as_str().unwrap();
+        assert!(
+            scope == "selection" || scope == "document",
+            "action '{}' has invalid scope '{}'",
+            action["id"].as_str().unwrap_or("?"),
+            scope
+        );
+    }
+}
+
+#[test]
+fn list_ai_actions_icons_are_non_empty() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        let icon = action["icon"].as_str().unwrap();
+        assert!(!icon.is_empty(), "action '{}' has empty icon", action["id"]);
+    }
+}
+
+#[test]
+fn list_ai_actions_include_prompts_false_strips_templates() {
+    let resp = tool_list_ai_actions(id(1), &json!({ "include_prompts": false }));
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), 12, "count should still be 12 with include_prompts=false");
+    for action in actions {
+        // These fields must be present
+        assert!(action["id"].is_string());
+        assert!(action["label"].is_string());
+        assert!(action["icon"].is_string());
+        assert!(action["scope"].is_string());
+        // Prompt templates must be stripped
+        assert!(
+            action["systemPrompt"].is_null(),
+            "systemPrompt should be stripped when include_prompts=false"
+        );
+        assert!(
+            action["userPromptTemplate"].is_null(),
+            "userPromptTemplate should be stripped when include_prompts=false"
+        );
+    }
+}
+
+#[test]
+fn list_ai_actions_include_prompts_true_includes_templates() {
+    let resp = tool_list_ai_actions(id(1), &json!({ "include_prompts": true }));
+    assert!(resp.error.is_none());
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        assert!(
+            action["systemPrompt"].is_string(),
+            "action '{}' missing systemPrompt when include_prompts=true",
+            action["id"]
+        );
+    }
+}
+
+#[test]
+fn list_ai_actions_contains_expected_selection_actions() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    let ids: Vec<&str> = actions.iter()
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    // The 9 selection-scoped actions from actions.ts
+    for expected in &["explain", "summarize", "rewrite", "fix-grammar", "concise",
+                       "expand", "explain-diff", "translate", "tldr"] {
+        assert!(ids.contains(expected), "missing selection action '{}'", expected);
+    }
+}
+
+#[test]
+fn list_ai_actions_contains_expected_document_actions() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    let doc_ids: Vec<&str> = actions.iter()
+        .filter(|a| a["scope"].as_str() == Some("document"))
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    for expected in &["doc-summarize", "doc-outline", "doc-explain-selection"] {
+        assert!(doc_ids.contains(expected), "missing document action '{}'", expected);
+    }
+}
+
+#[test]
+fn list_ai_actions_prompt_templates_contain_text_placeholder() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        let template = action["userPromptTemplate"].as_str().unwrap();
+        assert!(
+            template.contains("{text}"),
+            "action '{}' userPromptTemplate must contain {{text}} placeholder",
+            action["id"]
+        );
+    }
+}
+
+#[test]
+fn list_ai_actions_system_prompts_are_non_empty() {
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let actions = text["actions"].as_array().unwrap();
+    for action in actions {
+        let sp = action["systemPrompt"].as_str().unwrap();
+        assert!(
+            !sp.is_empty(),
+            "action '{}' has empty systemPrompt",
+            action["id"]
+        );
+    }
+}
+
+/// Verify the ai_actions_registry() raw output matches what tool_list_ai_actions
+/// builds its response from — no mismatch between the source and the tool handler.
+#[test]
+fn ai_actions_registry_count_matches_tool_response() {
+    let registry = ai_actions_registry();
+    let raw_count = registry.as_array().unwrap().len();
+
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let text = content_text(&resp);
+    let resp_count = text["actions"].as_array().unwrap().len();
+
+    assert_eq!(raw_count, resp_count,
+        "ai_actions_registry() has {raw_count} entries but tool response has {resp_count}");
 }
 
 // ════════════════════════════════════════════════════════════════════════════

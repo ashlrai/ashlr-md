@@ -148,14 +148,58 @@ pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
     )
 }
 
-// ── Tool definitions ──────────────────────────────────────────────────────────
+// ── Tool registry ─────────────────────────────────────────────────────────────
 
-pub fn tool_list() -> Value {
-    json!([
-        {
-            "name": "open_file",
-            "description": "Open a Markdown file in Ashlr MD. Launches the app if it is not already running.",
-            "inputSchema": {
+/// Capability tier for a tool — mirrors the trust/capability model used in the
+/// MCP annotation hints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolTier {
+    /// Read-only, idempotent query — no side effects.
+    ReadOnly,
+    /// Modifies app state but is not destructive (can be undone).
+    Modifier,
+    /// Destructive or blocking — requires explicit human intent.
+    Destructive,
+}
+
+/// A single MCP tool definition, structured so the registry is data-driven and
+/// each entry self-documents.  Serialised to JSON by `tool_list()`.
+pub struct ToolDef {
+    pub name: &'static str,
+    pub description: &'static str,
+    /// JSON Schema object describing the tool's parameters.
+    pub input_schema: Value,
+    /// Optional MCP annotation block (title, hints).
+    pub annotations: Option<Value>,
+    /// Capability tier — drives `readOnlyHint` / `destructiveHint` defaults and
+    /// lets tests validate that every tool is correctly classified.
+    pub tier: ToolTier,
+}
+
+impl ToolDef {
+    /// Serialise this definition into the JSON shape expected by MCP clients.
+    pub fn to_json(&self) -> Value {
+        let mut obj = json!({
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": self.input_schema,
+        });
+        if let Some(ann) = &self.annotations {
+            obj["annotations"] = ann.clone();
+        }
+        obj
+    }
+}
+
+/// The canonical, data-driven tool registry.  Adding a new tool here
+/// automatically includes it in `tools/list` responses and in the
+/// `list_ai_actions` discovery tool — no other wiring needed.
+pub fn tool_registry() -> Vec<ToolDef> {
+    vec![
+        ToolDef {
+            name: "open_file",
+            description: "Open a Markdown file in Ashlr MD. Launches the app if it is not already running.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": {
@@ -169,20 +213,27 @@ pub fn tool_list() -> Value {
                     }
                 },
                 "required": ["path"]
-            }
+            }),
+            annotations: None,
+            tier: ToolTier::Modifier,
         },
-        {
-            "name": "get_current_content",
-            "description": "Return the path and full Markdown content of the document currently open in Ashlr MD.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
+        ToolDef {
+            name: "get_current_content",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD.",
+            input_schema: json!({ "type": "object", "properties": {} }),
+            annotations: Some(json!({
+                "title": "Get Current Content",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
         },
-        {
-            "name": "set_content",
-            "description": "Replace the content of the currently open document in Ashlr MD.",
-            "inputSchema": {
+        ToolDef {
+            name: "set_content",
+            description: "Replace the content of the currently open document in Ashlr MD.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "content": {
@@ -195,12 +246,20 @@ pub fn tool_list() -> Value {
                     }
                 },
                 "required": ["content"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Set Content",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
         },
-        {
-            "name": "list_recent",
-            "description": "Return the list of recently opened files.",
-            "inputSchema": {
+        ToolDef {
+            name: "list_recent",
+            description: "Return the list of recently opened files.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "limit": {
@@ -208,12 +267,20 @@ pub fn tool_list() -> Value {
                         "description": "Maximum number of entries to return. Defaults to 10."
                     }
                 }
-            }
+            }),
+            annotations: Some(json!({
+                "title": "List Recent Files",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
         },
-        {
-            "name": "export",
-            "description": "Trigger an export of the currently open document.",
-            "inputSchema": {
+        ToolDef {
+            name: "export",
+            description: "Trigger an export of the currently open document.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "format": {
@@ -227,13 +294,20 @@ pub fn tool_list() -> Value {
                     }
                 },
                 "required": ["format"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Export Document",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
         },
-        {
-            "name": "request_review",
-            "description": "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
-            "annotations": { "title": "Request Human Review", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "request_review",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
@@ -242,23 +316,39 @@ pub fn tool_list() -> Value {
                     "timeout_ms": { "type": "integer", "description": "Max milliseconds to wait for a verdict. Default 300000 (5 min), max 600000." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Request Human Review",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
         },
-        {
-            "name": "get_user_annotations",
-            "description": "Return the human's current review verdict, comments, and task-checkbox states for a document.",
-            "annotations": { "title": "Get User Annotations", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "get_user_annotations",
+            description: "Return the human's current review verdict, comments, and task-checkbox states for a document.",
+            input_schema: json!({
                 "type": "object",
-                "properties": { "path": { "type": "string", "description": "Absolute path to the Markdown file." } },
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the Markdown file." }
+                },
                 "required": ["path"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Get User Annotations",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
         },
-        {
-            "name": "edit_document",
-            "description": "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once — include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
-            "annotations": { "title": "Edit Document", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "edit_document",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once — include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "find": { "type": "string", "description": "The exact text to replace. Must appear exactly once in the document." },
@@ -267,46 +357,118 @@ pub fn tool_list() -> Value {
                     "path": { "type": "string", "description": "Optional: assert this is the open document (errors if a different file is open)." }
                 },
                 "required": ["find", "replace"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Edit Document",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
         },
-        {
-            "name": "replace_document",
-            "description": "Replace the ENTIRE content of the currently open document. Use edit_document for targeted changes; use this only when rewriting the whole document.",
-            "annotations": { "title": "Replace Document", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "replace_document",
+            description: "Replace the ENTIRE content of the currently open document. Use edit_document for targeted changes; use this only when rewriting the whole document.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "content": { "type": "string", "description": "The new full Markdown content." },
                     "save": { "type": "boolean", "description": "Save to disk after replacing. Defaults to false." }
                 },
                 "required": ["content"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Replace Document",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Destructive,
         },
-        {
-            "name": "search_vault",
-            "description": "Full-text search across the user's vault (the watched folder) and recently opened files. Returns matching files with line numbers and snippets.",
-            "annotations": { "title": "Search Vault", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "search_vault",
+            description: "Full-text search across the user's vault (the watched folder) and recently opened files. Returns matching files with line numbers and snippets.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Text to search for (case-insensitive)." },
                     "limit": { "type": "integer", "description": "Max number of files to return. Defaults to 50." }
                 },
                 "required": ["query"]
-            }
+            }),
+            annotations: Some(json!({
+                "title": "Search Vault",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
         },
-        {
-            "name": "present_document",
-            "description": "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation — ideal for showing the human a finished result.",
-            "annotations": { "title": "Present Document", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
-            "inputSchema": {
+        ToolDef {
+            name: "present_document",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation — ideal for showing the human a finished result.",
+            input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Optional absolute path to open before presenting. Omit to present the current document." }
                 }
-            }
-        }
-    ])
+            }),
+            annotations: Some(json!({
+                "title": "Present Document",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "list_ai_actions",
+            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, and the system+user prompt templates it uses. Agents can call this to discover what AI operations the editor supports before composing a workflow.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "include_prompts": {
+                        "type": "boolean",
+                        "description": "Whether to include the full system/user prompt templates. Defaults to true."
+                    }
+                }
+            }),
+            annotations: Some(json!({
+                "title": "List AI Actions",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
+        },
+    ]
+}
+
+/// Canonical list of all tool names — used to verify dispatch coverage.
+pub const ALL_TOOL_NAMES: &[&str] = &[
+    "open_file",
+    "get_current_content",
+    "set_content",
+    "list_recent",
+    "export",
+    "request_review",
+    "get_user_annotations",
+    "edit_document",
+    "replace_document",
+    "search_vault",
+    "present_document",
+    "list_ai_actions",
+];
+
+/// Build the `tools/list` response payload from the data-driven registry.
+pub fn tool_list() -> Value {
+    let tools: Vec<Value> = tool_registry().iter().map(|t| t.to_json()).collect();
+    json!(tools)
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -324,6 +486,7 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "replace_document" => tool_replace_document(id, &args, ipc),
         "search_vault" => tool_search_vault(id, &args, ipc),
         "present_document" => tool_present_document(id, &args, ipc),
+        "list_ai_actions" => tool_list_ai_actions(id, &args),
         other => Response::err(id, -32602, format!("Unknown tool: {other}")),
     }
 }
@@ -561,6 +724,155 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Ok(v) => tool_result(id, v),
         Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
     }
+}
+
+// ── list_ai_actions tool ──────────────────────────────────────────────────────
+
+/// Static metadata for the AI transform actions defined in src/ai/actions.ts.
+/// Kept in sync manually; the integration test verifies the list matches the
+/// TypeScript source.  Agents call `list_ai_actions` to discover what
+/// transforms are available before composing a workflow.
+pub fn ai_actions_registry() -> Value {
+    json!([
+        {
+            "id": "explain",
+            "label": "Explain",
+            "shortLabel": "Explain",
+            "icon": "💡",
+            "scope": "selection",
+            "systemPrompt": "You are a clear, concise technical explainer. Explain the provided text in plain language. Be thorough but avoid padding. Use markdown where helpful.",
+            "userPromptTemplate": "Explain the following:\n\n{text}"
+        },
+        {
+            "id": "summarize",
+            "label": "Summarize",
+            "shortLabel": "Summarize",
+            "icon": "📝",
+            "scope": "selection",
+            "systemPrompt": "You are an expert at summarizing text. Produce a concise bullet-point summary capturing the key points. Use markdown bullet points.",
+            "userPromptTemplate": "Summarize the following:\n\n{text}"
+        },
+        {
+            "id": "rewrite",
+            "label": "Rewrite (clearer)",
+            "shortLabel": "Rewrite",
+            "icon": "✏️",
+            "scope": "selection",
+            "systemPrompt": "You are an expert editor. Rewrite the provided text to be clearer and more concise while preserving the original meaning and voice. Output only the rewritten text — no commentary, no preamble.",
+            "userPromptTemplate": "Rewrite the following text to be clearer and more concise:\n\n{text}"
+        },
+        {
+            "id": "fix-grammar",
+            "label": "Fix grammar",
+            "shortLabel": "Fix",
+            "icon": "✓",
+            "scope": "selection",
+            "systemPrompt": "You are a meticulous copy editor. Correct spelling, grammar, punctuation, and obvious typos in the provided text. Preserve the original meaning, tone, wording, and any Markdown formatting. Output only the corrected text — no commentary, no preamble.",
+            "userPromptTemplate": "Fix the grammar and spelling in the following text:\n\n{text}"
+        },
+        {
+            "id": "concise",
+            "label": "Make concise",
+            "shortLabel": "Concise",
+            "icon": "✂️",
+            "scope": "selection",
+            "systemPrompt": "You are an expert editor who tightens prose. Make the provided text more concise — remove redundancy and filler while preserving the meaning, key facts, voice, and any Markdown formatting. Output only the rewritten text — no commentary, no preamble.",
+            "userPromptTemplate": "Make the following text more concise:\n\n{text}"
+        },
+        {
+            "id": "expand",
+            "label": "Expand",
+            "shortLabel": "Expand",
+            "icon": "➕",
+            "scope": "selection",
+            "systemPrompt": "You are an expert writer. Expand the provided text with helpful detail, clarification, and supporting points while keeping the original meaning, voice, and any Markdown formatting. Do not invent facts. Output only the expanded text — no commentary, no preamble.",
+            "userPromptTemplate": "Expand the following text with more detail:\n\n{text}"
+        },
+        {
+            "id": "explain-diff",
+            "label": "Explain changes",
+            "shortLabel": "Explain changes",
+            "icon": "🔀",
+            "scope": "selection",
+            "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version — focus on substantive content differences, not whitespace. Be concise and use Markdown.",
+            "userPromptTemplate": "MY CURRENT VERSION (in the editor):\n\n```\n{text}\n```\n\nVERSION ON DISK (changed underneath me):\n\n```\n{arg}\n```\n\nExplain what changed on disk compared to my current version."
+        },
+        {
+            "id": "translate",
+            "label": "Translate",
+            "shortLabel": "Translate",
+            "icon": "🌐",
+            "scope": "selection",
+            "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation — no commentary, no preamble.",
+            "userPromptTemplate": "Translate the following into {arg}:\n\n{text}"
+        },
+        {
+            "id": "tldr",
+            "label": "TL;DR",
+            "shortLabel": "TL;DR",
+            "icon": "⚡",
+            "scope": "selection",
+            "systemPrompt": "You are an expert at distilling information. Produce a single punchy TL;DR sentence (max 2 sentences) that captures the essential point of the text.",
+            "userPromptTemplate": "Write a TL;DR for the following:\n\n{text}"
+        },
+        {
+            "id": "doc-summarize",
+            "label": "Summarize doc",
+            "shortLabel": "Summarize doc",
+            "icon": "📝",
+            "scope": "document",
+            "systemPrompt": "You are an expert at summarizing Markdown documents. Produce a concise bullet-point summary of the key points. Use markdown bullet points. Be helpful and thorough.",
+            "userPromptTemplate": "Summarize this document:\n\n{text}"
+        },
+        {
+            "id": "doc-outline",
+            "label": "Outline",
+            "shortLabel": "Outline",
+            "icon": "📋",
+            "scope": "document",
+            "systemPrompt": "You are an expert document analyst. Produce a structured outline of the document as a nested markdown list reflecting the heading hierarchy. Include one brief sentence per section describing its content.",
+            "userPromptTemplate": "Generate an outline for this document:\n\n{text}"
+        },
+        {
+            "id": "doc-explain-selection",
+            "label": "Explain selection",
+            "shortLabel": "Explain selection",
+            "icon": "💡",
+            "scope": "document",
+            "systemPrompt": "You are a clear, concise technical explainer grounded in the document context. The user will provide selected text. Explain it in plain language, referencing the surrounding document for context as needed.",
+            "userPromptTemplate": "The document context:\n\n{text}"
+        }
+    ])
+}
+
+pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
+    let include_prompts = args["include_prompts"].as_bool().unwrap_or(true);
+
+    let actions = ai_actions_registry();
+    let filtered: Vec<Value> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| {
+            if include_prompts {
+                action.clone()
+            } else {
+                // Strip prompt templates — return only discovery metadata.
+                json!({
+                    "id": action["id"],
+                    "label": action["label"],
+                    "shortLabel": action["shortLabel"],
+                    "icon": action["icon"],
+                    "scope": action["scope"]
+                })
+            }
+        })
+        .collect();
+
+    tool_result(id, json!({
+        "actions": filtered,
+        "count": filtered.len()
+    }))
 }
 
 // ── Resources ─────────────────────────────────────────────────────────────────
