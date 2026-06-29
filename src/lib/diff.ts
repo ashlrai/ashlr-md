@@ -215,6 +215,52 @@ export function parseDiffHunks(raw: string): ParsedHunk[] {
 }
 
 // ---------------------------------------------------------------------------
+// Hunk application
+// ---------------------------------------------------------------------------
+
+export interface ApplyResult {
+  ok: true;
+  newContent: string;
+}
+
+export interface ApplyError {
+  ok: false;
+  error: string;
+}
+
+/**
+ * Apply a single {@link ParsedHunk} to `content` using find/replace semantics.
+ *
+ * Returns `{ ok: true, newContent }` on success or `{ ok: false, error }` when:
+ *  - the `find` anchor is not present in `content` (patch not found),
+ *  - the `find` anchor appears more than once (ambiguous — need more context).
+ *
+ * "Loose" matching: callers that only need the +/- lines to match (ignoring
+ * context) should strip context from `find`/`replace` before calling; this
+ * function performs an exact substring replacement.
+ */
+export function applyHunkToContent(
+  content: string,
+  hunk: ParsedHunk,
+): ApplyResult | ApplyError {
+  if (hunk.find === hunk.replace) {
+    // Nothing to change — treat as a successful no-op.
+    return { ok: true, newContent: content };
+  }
+  const occurrences = content.split(hunk.find).length - 1;
+  if (occurrences === 0) {
+    return { ok: false, error: "Patch anchor not found in content" };
+  }
+  if (occurrences > 1) {
+    return {
+      ok: false,
+      error: "Patch anchor is ambiguous (appears more than once) — include more context lines",
+    };
+  }
+  return { ok: true, newContent: content.replace(hunk.find, hunk.replace) };
+}
+
+// ---------------------------------------------------------------------------
 // Convenience helper
 // ---------------------------------------------------------------------------
 
