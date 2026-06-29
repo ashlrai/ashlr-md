@@ -24,7 +24,7 @@ import katexCss from "katex/dist/katex.min.css?raw";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { findTemplate, findProfile } from "./exportTemplates";
+import { findTemplate, findProfile, ALL_PROFILE_IDS } from "./exportTemplates";
 import type { ExportTemplate, ExportProfileId } from "./exportTemplates";
 import { useSettingsStore } from "../store/settingsStore";
 import { parseHeadings } from "./outline";
@@ -1098,6 +1098,59 @@ export async function exportWithProfile(
     throw e;
   }
   toast.success(`Exported to ${baseName(path)}`);
+}
+
+// ─── buildBatchExportProfiles ─────────────────────────────────────────────────
+
+/**
+ * Result shape for a single profile in a batch export.
+ */
+export interface BatchProfileResult {
+  /** The profile id. */
+  profileId: ExportProfileId;
+  /** Whether this profile export succeeded. */
+  ok: boolean;
+  /** The complete standalone HTML document for this profile, or null on failure. */
+  html: string | null;
+  /** Error string when ok is false. */
+  error?: string;
+}
+
+/**
+ * Export a single document to all (or a subset of) profiles in parallel,
+ * returning all 5/6 HTML outputs in a single result object.
+ *
+ * This is the pure computation counterpart to the `mcp://batch-export-profiles`
+ * MCP bridge tool.  It accepts the optional `content` parameter so agents can
+ * pass a pre-captured body HTML fragment (for testing without a live DOM), or
+ * omit it to capture the live `.markdown-body` element.
+ *
+ * The `profileIds` parameter defaults to ALL_PROFILE_IDS so agents get every
+ * profile in one call.  Pass a subset to restrict the output.
+ *
+ * All profiles run concurrently via Promise.all — latency is bounded by the
+ * slowest profile (the email-html inline pass), not the sum of all profiles.
+ *
+ * @param profileIds  Which profiles to include (default: all 6).
+ * @param content     Optional pre-captured body HTML fragment.
+ * @returns           Array of BatchProfileResult, one per requested profile.
+ */
+export async function buildBatchExportProfiles(
+  profileIds: readonly ExportProfileId[] = ALL_PROFILE_IDS,
+  content?: string,
+): Promise<BatchProfileResult[]> {
+  return Promise.all(
+    profileIds.map(async (profileId): Promise<BatchProfileResult> => {
+      try {
+        const html = buildExportHtml(profileId, content);
+        return { profileId, ok: true, html };
+      } catch (err) {
+        const error =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        return { profileId, ok: false, html: null, error };
+      }
+    }),
+  );
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────

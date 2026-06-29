@@ -894,7 +894,7 @@ describe("export template variable substitution and scope isolation", () => {
 
 // ─── Import built-in templates for cross-suite use ───────────────────────────
 
-import { BUILTIN_TEMPLATES } from "./exportTemplates";
+import { ALL_PROFILE_IDS, BUILTIN_TEMPLATES, type ExportProfileId } from "./exportTemplates";
 
 // ─── Import new export utilities under test ───────────────────────────────────
 
@@ -1776,7 +1776,7 @@ describe("exportOutline", () => {
 
 // ─── Import new profile exports ───────────────────────────────────────────────
 
-import { buildExportHtml, exportWithProfile } from "./export";
+import { buildExportHtml, buildBatchExportProfiles, exportWithProfile } from "./export";
 
 // ════════════════════════════════════════════════════════════════════════════
 // buildExportHtml — profile-specific HTML generation
@@ -2695,5 +2695,280 @@ describe("exportEpub", () => {
     const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
     expect(chapters).toHaveLength(1);
     expect(chapters[0].title).toBe("Empty Doc");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildExportHtml — new rich-text profiles
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Simple body fragment used in new-profile tests (no DOM dependency). */
+const SAMPLE_BODY = `
+<h1>Test Document</h1>
+<p>A paragraph with <strong>bold</strong> and <code>inline code</code>.</p>
+<h2>Code Block</h2>
+<pre class="shiki"><code class="language-js">const x = 1;</code></pre>
+<blockquote class="callout callout-note"><p>Note callout</p></blockquote>
+<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>
+<ul><li>Item one</li><li>Item two</li></ul>
+`.trim();
+
+describe("buildExportHtml — github-markdown profile", () => {
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+    expect(html).toContain("</html>");
+  });
+
+  it("sets data-export-profile to github-markdown", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain('data-export-profile="github-markdown"');
+  });
+
+  it("inlines the github-markdown profile CSS", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain("github-markdown export profile");
+  });
+
+  it("preserves the body content", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain("<h1>Test Document</h1>");
+    expect(html).toContain("<table>");
+  });
+
+  it("includes base CSS bundles (themes, markdown, KaTeX)", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain("/* themes-css */");
+    expect(html).toContain("/* markdown-css */");
+    expect(html).toContain("/* katex-css */");
+  });
+
+  it("has no external resource references (offline-ready)", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
+  });
+
+  it("wraps body content in .reading-surface article", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain('<article class="reading-surface">');
+  });
+
+  it("includes callout block styling in CSS", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain(".callout-note");
+  });
+
+  it("preserves code blocks from the body", () => {
+    const html = buildExportHtml("github-markdown", SAMPLE_BODY);
+    expect(html).toContain("const x = 1;");
+  });
+
+  it("throws for an unknown profileId", () => {
+    expect(() => buildExportHtml("nonexistent-profile" as ExportProfileId, SAMPLE_BODY)).toThrow();
+  });
+});
+
+describe("buildExportHtml — confluence-wiki profile", () => {
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toMatch(/^<!doctype html>/i);
+    expect(html).toContain("<html");
+  });
+
+  it("sets data-export-profile to confluence-wiki", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toContain('data-export-profile="confluence-wiki"');
+  });
+
+  it("inlines the confluence-wiki profile CSS", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toContain("confluence-wiki export profile");
+  });
+
+  it("preserves heading and table structure", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toContain("<h1>Test Document</h1>");
+    expect(html).toContain("<table>");
+  });
+
+  it("includes callout panel styles (.callout-note, .callout-warning)", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toContain(".callout-note");
+    expect(html).toContain(".callout-warning");
+  });
+
+  it("has no external resource references", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+  });
+
+  it("includes the dark code macro background colour", () => {
+    const html = buildExportHtml("confluence-wiki", SAMPLE_BODY);
+    expect(html).toContain("#23241f");
+  });
+});
+
+describe("buildExportHtml — slack-rich-markdown profile", () => {
+  it("produces a valid HTML5 document", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toMatch(/^<!doctype html>/i);
+  });
+
+  it("sets data-export-profile to slack-rich-markdown", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toContain('data-export-profile="slack-rich-markdown"');
+  });
+
+  it("inlines the slack-rich-markdown profile CSS", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toContain("slack-rich-markdown export profile");
+  });
+
+  it("preserves document body including code blocks", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toContain("const x = 1;");
+    expect(html).toContain("<ul>");
+  });
+
+  it("includes Slack coloured callout panel rules", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toContain(".callout-note");
+    expect(html).toContain(".callout-danger");
+  });
+
+  it("includes the code block ::before accent stripe", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).toContain("::before");
+  });
+
+  it("has no external resource references", () => {
+    const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
+    expect(html).not.toMatch(/<link[^>]+href="https?:/);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildBatchExportProfiles — parallel multi-profile export
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildBatchExportProfiles", () => {
+  it("returns one result per profile in ALL_PROFILE_IDS by default", async () => {
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, SAMPLE_BODY);
+    expect(results).toHaveLength(ALL_PROFILE_IDS.length);
+  });
+
+  it("each result has profileId, ok, and html fields", async () => {
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, SAMPLE_BODY);
+    for (const r of results) {
+      expect(typeof r.profileId).toBe("string");
+      expect(typeof r.ok).toBe("boolean");
+      expect(r.html !== undefined).toBe(true);
+    }
+  });
+
+  it("all 6 results are ok=true when valid content is provided", async () => {
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, SAMPLE_BODY);
+    for (const r of results) {
+      expect(r.ok, `Profile ${r.profileId} failed: ${r.error}`).toBe(true);
+    }
+  });
+
+  it("each successful result contains a valid HTML5 document", async () => {
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, SAMPLE_BODY);
+    for (const r of results) {
+      if (r.ok) {
+        expect(r.html).toMatch(/^<!doctype html>/i);
+        expect(r.html).toContain("</html>");
+      }
+    }
+  });
+
+  it("result profileId values match the requested profile ids", async () => {
+    const ids: ExportProfileId[] = ["github-markdown", "confluence-wiki"];
+    const results = await buildBatchExportProfiles(ids, SAMPLE_BODY);
+    expect(results.map((r) => r.profileId)).toEqual(ids);
+  });
+
+  it("accepts a subset of profiles and returns only those", async () => {
+    const subset: ExportProfileId[] = ["slack-rich-markdown", "notion-html"];
+    const results = await buildBatchExportProfiles(subset, SAMPLE_BODY);
+    expect(results).toHaveLength(2);
+    expect(results[0].profileId).toBe("slack-rich-markdown");
+    expect(results[1].profileId).toBe("notion-html");
+  });
+
+  it("returns ok=false (not throws) for an unknown profileId", async () => {
+    const ids = ["nonexistent-profile"] as unknown as ExportProfileId[];
+    const results = await buildBatchExportProfiles(ids, SAMPLE_BODY);
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].html).toBeNull();
+    expect(typeof results[0].error).toBe("string");
+  });
+
+  it("returns an empty array when an empty profileIds list is given", async () => {
+    const results = await buildBatchExportProfiles([], SAMPLE_BODY);
+    expect(results).toHaveLength(0);
+  });
+
+  it("each profile result contains the body content from the input fragment", async () => {
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, SAMPLE_BODY);
+    for (const r of results) {
+      if (r.ok) {
+        expect(r.html).toContain("Test Document");
+      }
+    }
+  });
+
+  it("different profiles produce distinct HTML output (CSS differs per profile)", async () => {
+    const results = await buildBatchExportProfiles(
+      ["github-markdown", "confluence-wiki", "slack-rich-markdown"],
+      SAMPLE_BODY,
+    );
+    const [ghHtml, cfHtml, slkHtml] = results.map((r) => r.html!);
+    expect(ghHtml).not.toBe(cfHtml);
+    expect(cfHtml).not.toBe(slkHtml);
+    expect(ghHtml).not.toBe(slkHtml);
+  });
+
+  it("github-markdown result contains 980px layout constraint", async () => {
+    const results = await buildBatchExportProfiles(["github-markdown"], SAMPLE_BODY);
+    expect(results[0].html).toContain("980px");
+  });
+
+  it("confluence-wiki result contains 760px layout constraint", async () => {
+    const results = await buildBatchExportProfiles(["confluence-wiki"], SAMPLE_BODY);
+    expect(results[0].html).toContain("760px");
+  });
+
+  it("slack-rich-markdown result contains 600px layout constraint", async () => {
+    const results = await buildBatchExportProfiles(["slack-rich-markdown"], SAMPLE_BODY);
+    expect(results[0].html).toContain("600px");
+  });
+
+  it("partial failure: one bad profile id does not prevent others from succeeding", async () => {
+    const ids = [
+      "github-markdown",
+      "bad-id" as ExportProfileId,
+      "confluence-wiki",
+    ];
+    const results = await buildBatchExportProfiles(ids, SAMPLE_BODY);
+    expect(results).toHaveLength(3);
+    expect(results[0].ok).toBe(true);
+    expect(results[1].ok).toBe(false);
+    expect(results[2].ok).toBe(true);
+  });
+
+  it("nested callout in body is preserved in all profile outputs", async () => {
+    const bodyWithCallout = `<blockquote class="callout callout-note"><h3>Nested</h3><p>Inner text</p></blockquote>`;
+    const results = await buildBatchExportProfiles(ALL_PROFILE_IDS, bodyWithCallout);
+    for (const r of results) {
+      if (r.ok) {
+        expect(r.html).toContain("callout-note");
+        expect(r.html).toContain("Inner text");
+      }
+    }
   });
 });

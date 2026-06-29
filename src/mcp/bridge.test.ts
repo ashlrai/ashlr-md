@@ -72,12 +72,15 @@ vi.mock("../components/viewer/DiffBlock", () => ({
   DiffBlock: vi.fn(),
 }));
 
+const buildBatchExportProfilesMock = vi.fn();
+
 vi.mock("../lib/export", () => ({
   exportPdf: (...args: unknown[]) => exportPdfMock(...args),
   exportDocx: (...args: unknown[]) => exportDocxMock(...args),
   exportHtml: (...args: unknown[]) => exportHtmlMock(...args),
   exportMarkdownArchive: (...args: unknown[]) => exportMarkdownArchiveMock(...args),
   exportCanvasGraph: (...args: unknown[]) => exportCanvasGraphMock(...args),
+  buildBatchExportProfiles: (...args: unknown[]) => buildBatchExportProfilesMock(...args),
   // Re-export anything else export.ts might expose so other imports don't break.
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
@@ -223,6 +226,7 @@ beforeEach(() => {
   exportHtmlMock.mockClear();
   exportMarkdownArchiveMock.mockClear();
   exportCanvasGraphMock.mockClear();
+  buildBatchExportProfilesMock.mockClear();
   buildHunkOpMock.mockClear();
   searchFilesMock.mockClear();
   embedSearchMock.mockClear();
@@ -233,6 +237,15 @@ beforeEach(() => {
   exportHtmlMock.mockResolvedValue(undefined);
   exportMarkdownArchiveMock.mockResolvedValue("/out/archive.tar.gz");
   exportCanvasGraphMock.mockResolvedValue("/out/vault.canvas");
+  // Default: batch-export-profiles returns 6 successful results.
+  buildBatchExportProfilesMock.mockResolvedValue([
+    { profileId: "notion-html",        ok: true, html: "<html>notion</html>" },
+    { profileId: "slack-html",         ok: true, html: "<html>slack</html>" },
+    { profileId: "email-html",         ok: true, html: "<html>email</html>" },
+    { profileId: "github-markdown",    ok: true, html: "<html>github</html>" },
+    { profileId: "confluence-wiki",    ok: true, html: "<html>confluence</html>" },
+    { profileId: "slack-rich-markdown",ok: true, html: "<html>slack-rich</html>" },
+  ]);
   // Default: no embedding model, no keyword hits.
   searchFilesMock.mockResolvedValue([]);
   embedSearchMock.mockResolvedValue([]);
@@ -266,7 +279,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all sixteen mcp:// events", () => {
+  it("registers listeners for all seventeen mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -285,6 +298,7 @@ describe("useMcpBridge — mount", () => {
       "mcp://apply-diff-hunk",
       "mcp://atomic-edits",
       "mcp://edit-canvas",
+      "mcp://batch-export-profiles",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -3184,5 +3198,199 @@ describe("mcp://edit-canvas event", () => {
     const parsed = JSON.parse(result![1].content);
     expect(Array.isArray(parsed.nodes)).toBe(true);
     expect(Array.isArray(parsed.edges)).toBe(true);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://batch-export-profiles — export doc to all 6 profiles in one call
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://batch-export-profiles event", () => {
+  it("registers listener for mcp://batch-export-profiles on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://batch-export-profiles")).toBe(true);
+  });
+
+  it("calls buildBatchExportProfiles and replies with all 6 results on success", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-001" });
+    expect(buildBatchExportProfilesMock).toHaveBeenCalled();
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "bp-001", ok: true });
+    expect(resultCall![1].results).toHaveLength(6);
+  });
+
+  it("each result has profileId, ok, and html fields", async () => {
+    mountBridge();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-002" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    for (const r of resultCall![1].results) {
+      expect(typeof r.profileId).toBe("string");
+      expect(typeof r.ok).toBe("boolean");
+      expect(r.html).toBeDefined();
+    }
+  });
+
+  it("passes a profileIds subset when caller provides one", async () => {
+    mountBridge();
+    await fireEvent("mcp://batch-export-profiles", {
+      batchId: "bp-003",
+      profileIds: ["github-markdown", "confluence-wiki"],
+    });
+    expect(buildBatchExportProfilesMock).toHaveBeenCalledWith(
+      ["github-markdown", "confluence-wiki"],
+      undefined,
+    );
+  });
+
+  it("passes content override through to buildBatchExportProfiles", async () => {
+    mountBridge();
+    await fireEvent("mcp://batch-export-profiles", {
+      batchId: "bp-004",
+      content: "<h1>Test</h1>",
+    });
+    const [, passedContent] = buildBatchExportProfilesMock.mock.calls[0];
+    expect(passedContent).toBe("<h1>Test</h1>");
+  });
+
+  it("reports ok=false when all profiles fail and includes error messages", async () => {
+    buildBatchExportProfilesMock.mockResolvedValue([
+      { profileId: "notion-html",        ok: false, html: null, error: "DOM not ready" },
+      { profileId: "slack-html",         ok: false, html: null, error: "DOM not ready" },
+      { profileId: "email-html",         ok: false, html: null, error: "DOM not ready" },
+      { profileId: "github-markdown",    ok: false, html: null, error: "DOM not ready" },
+      { profileId: "confluence-wiki",    ok: false, html: null, error: "DOM not ready" },
+      { profileId: "slack-rich-markdown",ok: false, html: null, error: "DOM not ready" },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-005" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall![1].ok).toBe(false);
+    expect(typeof resultCall![1].error).toBe("string");
+    expect(resultCall![1].results.every((r: { ok: boolean }) => !r.ok)).toBe(true);
+  });
+
+  it("reports ok=false when buildBatchExportProfiles throws", async () => {
+    buildBatchExportProfilesMock.mockRejectedValue(new Error("capture failed"));
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-006" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(resultCall![1].error).toContain("capture failed");
+  });
+
+  it("always calls mcp_batch_export_profiles_result (prevents Rust worker timeout)", async () => {
+    buildBatchExportProfilesMock.mockRejectedValue("unexpected error");
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-007" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall).toBeDefined();
+  });
+
+  it("partial failure: ok=false when any profile fails, but all results are returned", async () => {
+    buildBatchExportProfilesMock.mockResolvedValue([
+      { profileId: "notion-html",        ok: true,  html: "<html>notion</html>" },
+      { profileId: "slack-html",         ok: false, html: null, error: "slack failed" },
+      { profileId: "email-html",         ok: true,  html: "<html>email</html>" },
+      { profileId: "github-markdown",    ok: true,  html: "<html>github</html>" },
+      { profileId: "confluence-wiki",    ok: true,  html: "<html>confluence</html>" },
+      { profileId: "slack-rich-markdown",ok: true,  html: "<html>slack-rich</html>" },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-008" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall![1].ok).toBe(false);
+    expect(resultCall![1].results).toHaveLength(6);
+    const failedResult = resultCall![1].results.find(
+      (r: { profileId: string }) => r.profileId === "slack-html",
+    );
+    expect(failedResult.error).toContain("slack failed");
+  });
+
+  it("batchId is echoed back in mcp_batch_export_profiles_result", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "my-correlation-id" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall![1].batchId).toBe("my-correlation-id");
+  });
+
+  it("reports ok=false with empty results when no profiles are selected", async () => {
+    // Simulate all profiles disabled by mocking settingsStore
+    const { useSettingsStore } = await import("../store/settingsStore");
+    const orig = useSettingsStore.getState;
+    useSettingsStore.getState = () => ({
+      ...orig(),
+      disabledProfileIds: [
+        "notion-html",
+        "slack-html",
+        "email-html",
+        "github-markdown",
+        "confluence-wiki",
+        "slack-rich-markdown",
+      ],
+    });
+
+    mountBridge();
+    invokeMock.mockClear();
+    // Fire without profileIds so the bridge reads from settings
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-empty" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    expect(resultCall![1].ok).toBe(false);
+    expect(resultCall![1].results).toHaveLength(0);
+    expect(typeof resultCall![1].error).toBe("string");
+
+    // Restore
+    useSettingsStore.getState = orig;
+  });
+
+  it("uses the full ALL_PROFILE_IDS list when no profileIds are given and all are enabled", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-all" });
+    const [passedIds] = buildBatchExportProfilesMock.mock.calls[0];
+    // Should contain all 6 profile ids
+    expect(passedIds).toHaveLength(6);
+    expect(passedIds).toContain("notion-html");
+    expect(passedIds).toContain("github-markdown");
+    expect(passedIds).toContain("confluence-wiki");
+    expect(passedIds).toContain("slack-rich-markdown");
+  });
+
+  it("html field in successful results is a non-empty string", async () => {
+    mountBridge();
+    await fireEvent("mcp://batch-export-profiles", { batchId: "bp-html" });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_profiles_result",
+    );
+    for (const r of resultCall![1].results) {
+      if (r.ok) {
+        expect(typeof r.html).toBe("string");
+        expect((r.html as string).length).toBeGreaterThan(0);
+      }
+    }
   });
 });

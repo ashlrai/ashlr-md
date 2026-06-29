@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ExportTemplate } from "../lib/exportTemplates";
-import { newTemplateId, NO_TEMPLATE_ID } from "../lib/exportTemplates";
+import type { ExportTemplate, ExportProfileId } from "../lib/exportTemplates";
+import { newTemplateId, NO_TEMPLATE_ID, ALL_PROFILE_IDS } from "../lib/exportTemplates";
 import type { LintRuleConfig } from "../lib/mdlint";
 import type { UserSnippet } from "../lib/snippets";
 
@@ -134,6 +134,29 @@ interface SettingsState {
   epubEnabled: boolean;
   setEpubEnabled: (enabled: boolean) => void;
 
+  // ── Export profile toggles ──────────────────────────────────────────────────
+
+  /**
+   * Set of export profile ids that the user has explicitly disabled.
+   * All profiles not in this set are considered enabled.
+   * Defaults to empty (all 6 profiles enabled out of the box).
+   */
+  disabledProfileIds: ExportProfileId[];
+
+  /**
+   * Toggle a single export profile on or off by id.
+   * If disabled, re-enables it; if enabled, disables it.
+   */
+  toggleExportProfile: (profileId: ExportProfileId) => void;
+
+  /**
+   * Returns true when the given profile id is currently enabled.
+   */
+  isProfileEnabled: (profileId: ExportProfileId) => boolean;
+
+  /** Replace the full disabled-profiles list (used by bulk reset). */
+  setDisabledProfileIds: (ids: ExportProfileId[]) => void;
+
   // ── Snippet engine ──────────────────────────────────────────────────────────
 
   /**
@@ -243,6 +266,23 @@ export const useSettingsStore = create<SettingsState>()(
       epubEnabled: true,
       setEpubEnabled: (epubEnabled) => set({ epubEnabled }),
 
+      // ── Export profile toggles ──────────────────────────────────────────────
+      disabledProfileIds: [],
+
+      toggleExportProfile: (profileId) =>
+        set((s) => {
+          const disabled = s.disabledProfileIds;
+          const next = disabled.includes(profileId)
+            ? disabled.filter((id) => id !== profileId)
+            : [...disabled, profileId];
+          return { disabledProfileIds: next };
+        }),
+
+      isProfileEnabled: (profileId) =>
+        !get().disabledProfileIds.includes(profileId),
+
+      setDisabledProfileIds: (ids) => set({ disabledProfileIds: ids }),
+
       // ── Snippet engine ──────────────────────────────────────────────────
       customSnippets: [],
 
@@ -265,12 +305,15 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "mdopener-settings",
-      version: 6,
+      version: 7,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
       // v3 adds pasteImageTarget (default to "doc-relative").
       // v4 adds linterConfig (default to all rules enabled).
+      // v5 adds epubEnabled (default true).
+      // v6 adds customSnippets (default []).
+      // v7 adds disabledProfileIds (default [] = all profiles enabled).
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Record<string, unknown> & {
           defaultPromptDismissed?: boolean;
@@ -281,6 +324,7 @@ export const useSettingsStore = create<SettingsState>()(
           linterConfig?: { disabledRules: string[] };
           epubEnabled?: boolean;
           customSnippets?: UserSnippet[];
+          disabledProfileIds?: ExportProfileId[];
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -303,6 +347,9 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 6) {
           s.customSnippets = s.customSnippets ?? [];
+        }
+        if (version < 7) {
+          s.disabledProfileIds = s.disabledProfileIds ?? [];
         }
         return s as unknown as SettingsState;
       },

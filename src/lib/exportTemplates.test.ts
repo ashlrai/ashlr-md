@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  ALL_PROFILE_IDS,
   BUILTIN_TEMPLATES,
   EXPORT_PROFILES,
   NO_TEMPLATE_ID,
@@ -296,8 +297,8 @@ describe("theme override precedence (cascade contract)", () => {
 // ─── EXPORT_PROFILES registry ─────────────────────────────────────────────────
 
 describe("EXPORT_PROFILES", () => {
-  it("exports exactly three profiles", () => {
-    expect(EXPORT_PROFILES.length).toBe(3);
+  it("exports at least three profiles (now 6 with github-markdown, confluence-wiki, slack-rich-markdown)", () => {
+    expect(EXPORT_PROFILES.length).toBeGreaterThanOrEqual(6);
   });
 
   it("each profile has a unique id, non-empty name, description, extension, and css", () => {
@@ -538,5 +539,330 @@ describe("email-html profile CSS", () => {
 
   it("includes list rules (ul/ol/li)", () => {
     expect(profile.css).toMatch(/ul|ol|li/);
+  });
+});
+
+// ─── ALL_PROFILE_IDS ──────────────────────────────────────────────────────────
+
+describe("ALL_PROFILE_IDS", () => {
+  it("contains all 6 profile ids", () => {
+    expect(ALL_PROFILE_IDS).toHaveLength(6);
+  });
+
+  it("contains the three original profile ids", () => {
+    expect(ALL_PROFILE_IDS).toContain("notion-html");
+    expect(ALL_PROFILE_IDS).toContain("slack-html");
+    expect(ALL_PROFILE_IDS).toContain("email-html");
+  });
+
+  it("contains the three new profile ids", () => {
+    expect(ALL_PROFILE_IDS).toContain("github-markdown");
+    expect(ALL_PROFILE_IDS).toContain("confluence-wiki");
+    expect(ALL_PROFILE_IDS).toContain("slack-rich-markdown");
+  });
+
+  it("all entries correspond to registered profiles in EXPORT_PROFILES", () => {
+    for (const id of ALL_PROFILE_IDS) {
+      const found = EXPORT_PROFILES.find((p) => p.id === id);
+      expect(found, `Profile "${id}" missing from EXPORT_PROFILES`).toBeDefined();
+    }
+  });
+});
+
+// ─── github-markdown profile ──────────────────────────────────────────────────
+
+describe("github-markdown profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "github-markdown")!;
+
+  it("is defined with id github-markdown", () => {
+    expect(profile).toBeDefined();
+    expect(profile.id).toBe("github-markdown");
+  });
+
+  it("has html extension", () => {
+    expect(profile.extension).toBe("html");
+  });
+
+  it("has non-empty description", () => {
+    expect(profile.description.length).toBeGreaterThan(0);
+  });
+
+  it("constrains layout to max-width 980px (GitHub column width)", () => {
+    expect(profile.css).toContain("980px");
+  });
+
+  it("includes heading bottom-border rules (GFM h1/h2 style)", () => {
+    expect(profile.css).toMatch(/h1\s*\{[^}]*border-bottom/);
+    expect(profile.css).toMatch(/h2\s*\{[^}]*border-bottom/);
+  });
+
+  it("includes code block styles with border-radius: 6px (GitHub code fence)", () => {
+    expect(profile.css).toContain("border-radius: 6px");
+  });
+
+  it("includes GFM table striping (nth-child even)", () => {
+    expect(profile.css).toContain("nth-child(even)");
+  });
+
+  it("includes task-list checkbox support", () => {
+    expect(profile.css).toMatch(/task-list/);
+  });
+
+  it("includes callout block styles (.callout-note, .callout-warning)", () => {
+    expect(profile.css).toContain(".callout-note");
+    expect(profile.css).toContain(".callout-warning");
+  });
+
+  it("includes link rules with GH accent blue (#0969da)", () => {
+    expect(profile.css).toContain("#0969da");
+  });
+
+  it("includes image rules with max-width:100%", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+    expect(profile.css).toContain("max-width: 100%");
+  });
+
+  it("includes horizontal rule styles", () => {
+    expect(profile.css).toMatch(/hr\s*\{/);
+  });
+
+  it("does not use external @import URLs (offline-ready)", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+
+  it("does not contain <script> tags (XSS safety)", () => {
+    expect(profile.css).not.toMatch(/<script/i);
+  });
+
+  it("does not use javascript: URIs", () => {
+    expect(profile.css).not.toMatch(/javascript:/i);
+  });
+
+  it("includes details/summary element rules", () => {
+    expect(profile.css).toMatch(/details|summary/);
+  });
+});
+
+// ─── confluence-wiki profile ──────────────────────────────────────────────────
+
+describe("confluence-wiki profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "confluence-wiki")!;
+
+  it("is defined with id confluence-wiki", () => {
+    expect(profile).toBeDefined();
+    expect(profile.id).toBe("confluence-wiki");
+  });
+
+  it("has html extension", () => {
+    expect(profile.extension).toBe("html");
+  });
+
+  it("has non-empty description mentioning Atlassian or Confluence", () => {
+    expect(profile.description).toMatch(/atlassian|confluence/i);
+  });
+
+  it("constrains layout to max-width 760px (Confluence page column)", () => {
+    expect(profile.css).toContain("760px");
+  });
+
+  it("includes Atlassian heading styles with 24px h1", () => {
+    expect(profile.css).toContain("24px");
+  });
+
+  it("includes panel macro styles (.callout-note, .callout-warning, .callout-tip, .callout-danger)", () => {
+    expect(profile.css).toContain(".callout-note");
+    expect(profile.css).toContain(".callout-warning");
+    expect(profile.css).toContain(".callout-tip");
+    expect(profile.css).toContain(".callout-danger");
+  });
+
+  it("includes dark code block (Confluence code macro dark theme)", () => {
+    expect(profile.css).toMatch(/#23241f/);
+  });
+
+  it("includes table header with uppercase text transform (Confluence table style)", () => {
+    expect(profile.css).toContain("text-transform: uppercase");
+  });
+
+  it("includes link rules with Atlassian blue (#0052cc)", () => {
+    expect(profile.css).toContain("#0052cc");
+  });
+
+  it("includes image rules with border", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+    expect(profile.css).toContain("border:");
+  });
+
+  it("includes blockquote as note panel (blue background)", () => {
+    expect(profile.css).toContain("--cf-note-bg");
+    expect(profile.css).toMatch(/blockquote\s*\{/);
+  });
+
+  it("does not use external @import URLs", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+
+  it("does not contain <script> tags", () => {
+    expect(profile.css).not.toMatch(/<script/i);
+  });
+
+  it("includes list rules with margin and padding", () => {
+    expect(profile.css).toMatch(/ul|ol|li/);
+  });
+
+  it("includes horizontal rule", () => {
+    expect(profile.css).toMatch(/hr\s*\{/);
+  });
+});
+
+// ─── slack-rich-markdown profile ─────────────────────────────────────────────
+
+describe("slack-rich-markdown profile CSS", () => {
+  const profile = EXPORT_PROFILES.find((p) => p.id === "slack-rich-markdown")!;
+
+  it("is defined with id slack-rich-markdown", () => {
+    expect(profile).toBeDefined();
+    expect(profile.id).toBe("slack-rich-markdown");
+  });
+
+  it("has html extension (for Slack Canvas / Slack Docs)", () => {
+    expect(profile.extension).toBe("html");
+  });
+
+  it("has non-empty description mentioning Slack or Canvas", () => {
+    expect(profile.description).toMatch(/slack|canvas/i);
+  });
+
+  it("constrains layout to max-width 600px (Slack Canvas column)", () => {
+    expect(profile.css).toContain("600px");
+  });
+
+  it("includes Slack font stack with Lato", () => {
+    expect(profile.css).toMatch(/Lato|Slack-Lato/);
+  });
+
+  it("includes heading styles with 22px h1 (Slack Docs large heading)", () => {
+    expect(profile.css).toContain("22px");
+  });
+
+  it("includes inline code styles (Slack mono)", () => {
+    expect(profile.css).toMatch(/code\s*\{/);
+    expect(profile.css).toMatch(/Slack-Mono|Monaco|Menlo/);
+  });
+
+  it("includes code block card with left accent border (::before pseudo-element)", () => {
+    expect(profile.css).toContain("::before");
+  });
+
+  it("includes blockquote as Slack quoted-message card style", () => {
+    expect(profile.css).toMatch(/blockquote\s*\{/);
+    expect(profile.css).toContain("border-left");
+  });
+
+  it("includes coloured callout panels (.callout-note, .callout-tip, .callout-warning, .callout-danger)", () => {
+    expect(profile.css).toContain(".callout-note");
+    expect(profile.css).toContain(".callout-tip");
+    expect(profile.css).toContain(".callout-warning");
+    expect(profile.css).toContain(".callout-danger");
+  });
+
+  it("includes Slack link colour (#1264a3)", () => {
+    expect(profile.css).toContain("#1264a3");
+  });
+
+  it("includes table styles with uppercase header labels", () => {
+    expect(profile.css).toMatch(/table\s*\{/);
+    expect(profile.css).toContain("text-transform: uppercase");
+  });
+
+  it("includes task-list support", () => {
+    expect(profile.css).toMatch(/task-list/);
+  });
+
+  it("includes image rules with border-radius", () => {
+    expect(profile.css).toMatch(/img\s*\{/);
+    expect(profile.css).toContain("border-radius: 4px");
+  });
+
+  it("does not use external @import URLs", () => {
+    expect(profile.css).not.toMatch(/@import\s+url\s*\(\s*['"]?https?:/i);
+  });
+
+  it("does not contain <script> tags", () => {
+    expect(profile.css).not.toMatch(/<script/i);
+  });
+
+  it("does not use javascript: URIs", () => {
+    expect(profile.css).not.toMatch(/javascript:/i);
+  });
+});
+
+// ─── findProfile for new profiles ────────────────────────────────────────────
+
+describe("findProfile — new profiles", () => {
+  it("returns github-markdown profile by id", () => {
+    const p = findProfile("github-markdown");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("github-markdown");
+  });
+
+  it("returns confluence-wiki profile by id", () => {
+    const p = findProfile("confluence-wiki");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("confluence-wiki");
+  });
+
+  it("returns slack-rich-markdown profile by id", () => {
+    const p = findProfile("slack-rich-markdown");
+    expect(p).toBeDefined();
+    expect(p!.id).toBe("slack-rich-markdown");
+  });
+
+  it("all 6 profiles are findable by id", () => {
+    for (const id of ALL_PROFILE_IDS) {
+      expect(findProfile(id), `findProfile("${id}") returned undefined`).toBeDefined();
+    }
+  });
+});
+
+// ─── Security: all new profile CSS ───────────────────────────────────────────
+
+describe("security — all 6 profile CSS blocks", () => {
+  it("no profile CSS contains <script> tags", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css, `${p.id} has <script>`).not.toMatch(/<script/i);
+    }
+  });
+
+  it("no profile CSS uses javascript: URIs", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css, `${p.id} uses javascript:`).not.toMatch(/javascript:/i);
+    }
+  });
+
+  it("no profile CSS imports external URLs", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css, `${p.id} imports external URL`).not.toMatch(
+        /@import\s+url\s*\(\s*['"]?https?:/i,
+      );
+    }
+  });
+
+  it("all 6 profiles have non-empty css", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.css.trim().length, `${p.id} has empty css`).toBeGreaterThan(0);
+    }
+  });
+
+  it("all 6 profiles have a unique id", () => {
+    const ids = new Set(EXPORT_PROFILES.map((p) => p.id));
+    expect(ids.size).toBe(EXPORT_PROFILES.length);
+  });
+
+  it("all 6 profiles have a non-empty name and description", () => {
+    for (const p of EXPORT_PROFILES) {
+      expect(p.name.length, `${p.id} has empty name`).toBeGreaterThan(0);
+      expect(p.description.length, `${p.id} has empty description`).toBeGreaterThan(0);
+    }
   });
 });

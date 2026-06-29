@@ -10,9 +10,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ALL_PROFILE_IDS,
   BUILTIN_TEMPLATES,
+  EXPORT_PROFILES,
   NO_TEMPLATE_ID,
   validateTemplateCss,
+  type ExportProfile,
+  type ExportProfileId,
   type ExportTemplate,
 } from "../../../lib/exportTemplates";
 import { useSettingsStore } from "../../../store/settingsStore";
@@ -246,6 +250,36 @@ function CssEditor({ template, onSave, onCancel }: CssEditorProps) {
   );
 }
 
+// ─── Profile toggle row ────────────────────────────────────────────────────────
+
+interface ProfileToggleRowProps {
+  profile: ExportProfile;
+  enabled: boolean;
+  onToggle: () => void;
+}
+
+function ProfileToggleRow({ profile, enabled, onToggle }: ProfileToggleRowProps) {
+  return (
+    <div className="export-profile-toggle-row">
+      <div className="export-profile-toggle-info">
+        <span className="export-profile-toggle-name">{profile.name}</span>
+        <span className="export-profile-toggle-desc">{profile.description}</span>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={`${enabled ? "Disable" : "Enable"} ${profile.name} export profile`}
+        className={`export-profile-toggle-btn${enabled ? " enabled" : ""}`}
+        onClick={onToggle}
+        title={enabled ? `Disable "${profile.name}"` : `Enable "${profile.name}"`}
+      >
+        <span className="export-profile-toggle-knob" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 // ─── Main section component ────────────────────────────────────────────────────
 
 export function ExportTemplateSection() {
@@ -255,6 +289,8 @@ export function ExportTemplateSection() {
   const addUserTemplate = useSettingsStore((s) => s.addUserTemplate);
   const updateUserTemplate = useSettingsStore((s) => s.updateUserTemplate);
   const removeUserTemplate = useSettingsStore((s) => s.removeUserTemplate);
+  const disabledProfileIds = useSettingsStore((s) => s.disabledProfileIds);
+  const toggleExportProfile = useSettingsStore((s) => s.toggleExportProfile);
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -363,6 +399,35 @@ export function ExportTemplateSection() {
         <PlusIcon />
         <span>New template</span>
       </button>
+
+      {/* Export profile availability */}
+      <div className="export-profile-toggles-section">
+        <h3 className="export-profile-toggles-heading">Export profiles</h3>
+        <p className="export-profile-toggles-desc">
+          Choose which export profiles are available when exporting documents.
+          Disabled profiles are hidden from the export dialog and excluded from
+          batch exports.
+        </p>
+        <div
+          className="export-profile-toggles-list"
+          role="group"
+          aria-label="Export profile availability"
+        >
+          {ALL_PROFILE_IDS.map((id: ExportProfileId) => {
+            const profile = EXPORT_PROFILES.find((p) => p.id === id);
+            if (!profile) return null;
+            const enabled = !disabledProfileIds.includes(id);
+            return (
+              <ProfileToggleRow
+                key={id}
+                profile={profile}
+                enabled={enabled}
+                onToggle={() => toggleExportProfile(id)}
+              />
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

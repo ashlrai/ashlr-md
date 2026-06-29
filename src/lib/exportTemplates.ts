@@ -238,7 +238,13 @@ a:hover { text-decoration: underline; }
  * is purely additive CSS), a profile can also specify structural transformations
  * applied by buildExportHtml() in export.ts.
  */
-export type ExportProfileId = "notion-html" | "slack-html" | "email-html";
+export type ExportProfileId =
+  | "notion-html"
+  | "slack-html"
+  | "email-html"
+  | "github-markdown"
+  | "confluence-wiki"
+  | "slack-rich-markdown";
 
 export interface ExportProfile {
   /** Stable machine id used in UI and routing logic. */
@@ -463,6 +469,397 @@ hr { border: none; border-top: 1px solid #eeeeee; margin: 24px 0; }
 }
 `.trim();
 
+// ─── github-markdown profile CSS ─────────────────────────────────────────────
+
+/**
+ * github-markdown profile CSS.
+ *
+ * Goals:
+ *  - Reproduce GitHub's rendered-markdown appearance (github-markdown-css).
+ *  - Proper GFM table striping, task-list checkboxes, code fence styling.
+ *  - Syntax highlighting hint classes preserved from Shiki output.
+ *  - Max-width 980px (matches github.com article column width).
+ *  - Link colour and heading bottom-borders match GitHub's design tokens.
+ */
+const GITHUB_MARKDOWN_PROFILE_CSS = `
+/* ── github-markdown export profile ── */
+:root {
+  --gm-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --gm-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --gm-text: #1f2328;
+  --gm-secondary: #656d76;
+  --gm-bg: #ffffff;
+  --gm-code-bg: rgba(175,184,193,0.2);
+  --gm-border: #d0d7de;
+  --gm-heading-border: #d0d7de;
+  --gm-link: #0969da;
+  --gm-table-alt: #f6f8fa;
+  --gm-blockquote-border: #d0d7de;
+  --gm-blockquote-text: #656d76;
+  --gm-callout-note: #0969da;
+  --gm-callout-warn: #9a6700;
+  --gm-callout-danger: #cf222e;
+}
+body {
+  font-family: var(--gm-font);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--gm-text);
+  background: var(--gm-bg);
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 40px;
+}
+.reading-surface { max-width: 980px; padding: 0; margin: 0; }
+/* Headings */
+h1 { font-size: 2em; font-weight: 600; padding-bottom: 0.3em; border-bottom: 1px solid var(--gm-heading-border); margin: 0.67em 0; }
+h2 { font-size: 1.5em; font-weight: 600; padding-bottom: 0.3em; border-bottom: 1px solid var(--gm-heading-border); margin: 1.25em 0 0.5em; }
+h3 { font-size: 1.25em; font-weight: 600; margin: 1.25em 0 0.5em; }
+h4 { font-size: 1em; font-weight: 600; margin: 1em 0 0.4em; }
+h5 { font-size: 0.875em; font-weight: 600; margin: 1em 0 0.4em; }
+h6 { font-size: 0.85em; font-weight: 600; color: var(--gm-secondary); margin: 1em 0 0.4em; }
+/* Paragraphs & text */
+p { margin: 0 0 16px; }
+strong { font-weight: 600; }
+/* Links */
+a { color: var(--gm-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+/* Inline code */
+code {
+  font-family: var(--gm-mono);
+  font-size: 85%;
+  background: var(--gm-code-bg);
+  border-radius: 6px;
+  padding: 0.2em 0.4em;
+}
+/* Code blocks (GFM fence style) */
+pre {
+  font-family: var(--gm-mono);
+  font-size: 85%;
+  background: var(--gm-table-alt);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 0 0 16px;
+  line-height: 1.45;
+}
+pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 100%;
+}
+/* Blockquote */
+blockquote {
+  border-left: 4px solid var(--gm-blockquote-border);
+  color: var(--gm-blockquote-text);
+  margin: 0 0 16px;
+  padding: 0 16px;
+}
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+/* Callout blocks (GitHub-style > [!NOTE] syntax rendered as .callout) */
+.callout { border-radius: 6px; padding: 8px 16px; margin: 0 0 16px; border-left: 4px solid currentColor; }
+.callout-note { color: var(--gm-callout-note); background: rgba(9,105,218,0.05); }
+.callout-warning { color: var(--gm-callout-warn); background: rgba(154,103,0,0.05); }
+.callout-danger, .callout-caution { color: var(--gm-callout-danger); background: rgba(207,34,46,0.05); }
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 0 0 16px; display: block; overflow-x: auto; }
+th { font-weight: 600; background: var(--gm-table-alt); }
+th, td { border: 1px solid var(--gm-border); padding: 6px 13px; text-align: left; vertical-align: top; }
+tr:nth-child(even) td { background: var(--gm-table-alt); }
+/* Lists */
+ul, ol { margin: 0 0 16px; padding-left: 2em; }
+li { margin: 4px 0; }
+li > ul, li > ol { margin: 4px 0 0; }
+/* Task list (GFM checkboxes) */
+ul.contains-task-list { list-style: none; padding-left: 0; }
+li.task-list-item { padding-left: 1.6em; position: relative; }
+li.task-list-item input[type="checkbox"] { position: absolute; left: 0; top: 0.25em; }
+/* Images */
+img { max-width: 100%; height: auto; display: block; border-style: none; border-radius: 6px; margin: 8px 0; }
+/* Horizontal rule */
+hr { border: none; border-top: 1px solid var(--gm-border); margin: 24px 0; height: 2px; background: var(--gm-border); }
+/* Details / summary */
+details { margin: 0 0 16px; }
+summary { cursor: pointer; font-weight: 600; }
+`.trim();
+
+// ─── confluence-wiki profile CSS ──────────────────────────────────────────────
+
+/**
+ * confluence-wiki profile CSS.
+ *
+ * Goals:
+ *  - Match Atlassian Confluence's default page rendering.
+ *  - Panel macros (note/warning/info/tip) mapped from blockquote callout classes.
+ *  - Code blocks styled to match Confluence's code macro output.
+ *  - Table styling with header row highlight matching Confluence's default theme.
+ *  - Max-width 760px (Confluence default page content column).
+ *  - Atlassian Design System typography scale.
+ */
+const CONFLUENCE_WIKI_PROFILE_CSS = `
+/* ── confluence-wiki export profile ── */
+:root {
+  --cf-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --cf-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Courier New", Courier, monospace;
+  --cf-text: #172b4d;
+  --cf-secondary: #42526e;
+  --cf-subtle: #6b778c;
+  --cf-bg: #ffffff;
+  --cf-code-bg: #f4f5f7;
+  --cf-border: #dfe1e6;
+  --cf-link: #0052cc;
+  --cf-link-hover: #0065ff;
+  --cf-heading-color: #172b4d;
+  --cf-table-header-bg: #f4f5f7;
+  --cf-table-alt: #fafbfc;
+  --cf-note-bg: #deebff;
+  --cf-note-border: #0052cc;
+  --cf-warn-bg: #fffae6;
+  --cf-warn-border: #ff991f;
+  --cf-tip-bg: #e3fcef;
+  --cf-tip-border: #00875a;
+  --cf-danger-bg: #ffebe6;
+  --cf-danger-border: #de350b;
+}
+body {
+  font-family: var(--cf-font);
+  font-size: 14px;
+  line-height: 1.714;
+  color: var(--cf-text);
+  background: var(--cf-bg);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+.reading-surface { max-width: 760px; padding: 0; margin: 0; }
+/* Headings — Atlassian type scale */
+h1 { font-size: 24px; font-weight: 500; color: var(--cf-heading-color); line-height: 1.167; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 2px solid var(--cf-border); }
+h2 { font-size: 20px; font-weight: 500; color: var(--cf-heading-color); line-height: 1.2; margin: 24px 0 8px; }
+h3 { font-size: 16px; font-weight: 600; color: var(--cf-heading-color); line-height: 1.25; margin: 20px 0 6px; }
+h4 { font-size: 14px; font-weight: 600; color: var(--cf-heading-color); margin: 16px 0 4px; }
+h5, h6 { font-size: 12px; font-weight: 700; color: var(--cf-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 4px; }
+/* Body text */
+p { margin: 0 0 12px; }
+a { color: var(--cf-link); text-decoration: none; }
+a:hover { color: var(--cf-link-hover); text-decoration: underline; }
+/* Inline code */
+code {
+  font-family: var(--cf-mono);
+  font-size: 12px;
+  background: var(--cf-code-bg);
+  border: 1px solid var(--cf-border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  color: #e01e5a;
+}
+/* Code blocks — Confluence code macro style */
+pre {
+  font-family: var(--cf-mono);
+  font-size: 12px;
+  background: #23241f; /* dark terminal style like Confluence Code macro */
+  color: #f8f8f2;
+  border: 1px solid #23241f;
+  border-radius: 3px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+  line-height: 1.5;
+  position: relative;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 100%;
+  color: inherit;
+}
+/* Panel macros — mapped from callout/blockquote classes */
+blockquote {
+  background: var(--cf-note-bg);
+  border-left: 4px solid var(--cf-note-border);
+  border-radius: 3px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  color: var(--cf-text);
+}
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+.callout-note { background: var(--cf-note-bg); border-left-color: var(--cf-note-border); }
+.callout-warning { background: var(--cf-warn-bg); border-left-color: var(--cf-warn-border); }
+.callout-tip { background: var(--cf-tip-bg); border-left-color: var(--cf-tip-border); }
+.callout-danger, .callout-caution { background: var(--cf-danger-bg); border-left-color: var(--cf-danger-border); }
+/* Tables — Confluence default table macro */
+table { border-collapse: collapse; width: 100%; margin: 0 0 12px; }
+th {
+  background: var(--cf-table-header-bg);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cf-secondary);
+  border: 2px solid var(--cf-border);
+  padding: 8px 10px;
+  text-align: left;
+}
+td { border: 1px solid var(--cf-border); padding: 7px 10px; vertical-align: top; }
+tr:nth-child(even) td { background: var(--cf-table-alt); }
+/* Lists */
+ul, ol { margin: 0 0 12px; padding-left: 1.8em; }
+li { margin: 3px 0; }
+/* Images */
+img { max-width: 100%; height: auto; display: block; border: 1px solid var(--cf-border); border-radius: 3px; margin: 8px 0; }
+/* Horizontal rule */
+hr { border: none; border-top: 1px solid var(--cf-border); margin: 20px 0; }
+`.trim();
+
+// ─── slack-rich-markdown profile CSS ─────────────────────────────────────────
+
+/**
+ * slack-rich-markdown profile CSS.
+ *
+ * Goals:
+ *  - Richer visual treatment than the plain `slack-html` profile.
+ *  - Reproduces Slack's Block Kit visual language: card backgrounds,
+ *    coloured left-border callouts, monospace code blocks.
+ *  - Max-width 600px (Slack message composer / thread width on desktop).
+ *  - Syntax highlighting preserved via Shiki inline styles.
+ *  - Emoji-friendly font stack.
+ *
+ * Unlike `slack-html` (which targets paste-as-text), this profile is designed
+ * for rich HTML rendering in Slack Canvas pages and Slack Docs.
+ */
+const SLACK_RICH_MARKDOWN_PROFILE_CSS = `
+/* ── slack-rich-markdown export profile ── */
+:root {
+  --slk-font: "Slack-Lato", "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --slk-mono: "Slack-Mono", "Monaco", "Menlo", "Courier New", monospace;
+  --slk-text: #1d1c1d;
+  --slk-secondary: #616061;
+  --slk-bg: #ffffff;
+  --slk-surface: #f8f8f8;
+  --slk-code-bg: #1d1c1d0f;
+  --slk-code-border: #1d1c1d29;
+  --slk-border: #dddddd;
+  --slk-link: #1264a3;
+  --slk-link-hover: #0b4c8c;
+  --slk-mention: #1d1c1d;
+  --slk-mention-bg: #e8f5fa;
+  --slk-callout-green: #007a5a;
+  --slk-callout-red: #e01e5a;
+  --slk-callout-yellow: #ecb22e;
+  --slk-callout-blue: #1264a3;
+}
+body {
+  font-family: var(--slk-font);
+  font-size: 15px;
+  line-height: 1.4667;
+  color: var(--slk-text);
+  background: var(--slk-bg);
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.reading-surface { max-width: 600px; padding: 0; margin: 0; }
+/* Headings — Slack Docs heading styles */
+h1 { font-size: 22px; font-weight: 900; line-height: 1.25; margin: 0 0 8px; color: var(--slk-text); letter-spacing: -0.01em; }
+h2 { font-size: 18px; font-weight: 700; line-height: 1.3; margin: 20px 0 6px; color: var(--slk-text); }
+h3 { font-size: 15px; font-weight: 700; line-height: 1.4; margin: 16px 0 4px; color: var(--slk-text); }
+h4, h5, h6 { font-size: 15px; font-weight: 700; margin: 12px 0 4px; color: var(--slk-secondary); }
+/* Paragraphs */
+p { margin: 0 0 8px; }
+strong { font-weight: 700; }
+em { font-style: italic; }
+/* Links */
+a { color: var(--slk-link); text-decoration: none; cursor: pointer; }
+a:hover { color: var(--slk-link-hover); text-decoration: underline; }
+/* Inline code — Slack mono styling */
+code {
+  font-family: var(--slk-mono);
+  font-size: 12px;
+  background: var(--slk-code-bg);
+  border: 1px solid var(--slk-code-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  line-height: 1.5;
+}
+/* Code blocks — Slack snippet / code block card style */
+pre {
+  font-family: var(--slk-mono);
+  font-size: 12.5px;
+  background: var(--slk-surface);
+  border: 1px solid var(--slk-border);
+  border-radius: 4px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 8px 0;
+  line-height: 1.55;
+  position: relative;
+}
+pre::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--slk-callout-blue);
+  border-radius: 4px 0 0 4px;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 100%;
+}
+/* Blockquote — Slack's quoted message card */
+blockquote {
+  border-left: 4px solid var(--slk-border);
+  background: var(--slk-surface);
+  border-radius: 0 4px 4px 0;
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  color: var(--slk-secondary);
+  font-size: 14px;
+}
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+/* Callout panels — Slack Docs coloured panels */
+.callout { border-radius: 6px; padding: 10px 14px; margin: 8px 0; border-left: 4px solid; }
+.callout-note { background: rgba(18,100,163,0.06); border-left-color: var(--slk-callout-blue); }
+.callout-tip { background: rgba(0,122,90,0.06); border-left-color: var(--slk-callout-green); }
+.callout-warning { background: rgba(236,178,46,0.08); border-left-color: var(--slk-callout-yellow); }
+.callout-danger { background: rgba(224,30,90,0.06); border-left-color: var(--slk-callout-red); }
+/* Tables */
+table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
+th {
+  background: var(--slk-surface);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--slk-secondary);
+  border: 1px solid var(--slk-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+td { border: 1px solid var(--slk-border); padding: 6px 10px; vertical-align: top; }
+/* Lists */
+ul, ol { margin: 4px 0 8px; padding-left: 1.6em; }
+li { margin: 2px 0; }
+li > ul, li > ol { margin: 2px 0; }
+/* Task list */
+ul.contains-task-list { list-style: none; padding-left: 0; }
+li.task-list-item { padding-left: 1.4em; position: relative; }
+li.task-list-item input[type="checkbox"] { position: absolute; left: 0; top: 0.2em; }
+/* Images */
+img { max-width: 100%; height: auto; display: block; border-radius: 4px; margin: 8px 0; border: 1px solid var(--slk-border); }
+/* Horizontal rule */
+hr { border: none; border-top: 1px solid var(--slk-border); margin: 16px 0; }
+`.trim();
+
 // ─── Profile registry ─────────────────────────────────────────────────────────
 
 export const EXPORT_PROFILES: readonly ExportProfile[] = [
@@ -487,6 +884,42 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     extension: "html",
     css: EMAIL_PROFILE_CSS,
   },
+  {
+    id: "github-markdown",
+    name: "GitHub Markdown",
+    description: "Renders to GitHub's markdown style — GFM tables, task lists, callout blocks, Shiki syntax highlighting, 980px column.",
+    extension: "html",
+    css: GITHUB_MARKDOWN_PROFILE_CSS,
+  },
+  {
+    id: "confluence-wiki",
+    name: "Confluence Wiki",
+    description: "Atlassian Confluence page style — panel macros, Confluence code macro appearance, ADS typography, 760px column.",
+    extension: "html",
+    css: CONFLUENCE_WIKI_PROFILE_CSS,
+  },
+  {
+    id: "slack-rich-markdown",
+    name: "Slack Rich Markdown",
+    description: "Slack Canvas / Slack Docs rich HTML — Block Kit visual language, coloured callout panels, snippet card code blocks.",
+    extension: "html",
+    css: SLACK_RICH_MARKDOWN_PROFILE_CSS,
+  },
+] as const;
+
+/**
+ * The set of profile ids that are enabled by default when the user has not
+ * configured per-profile toggles in their settings.  All 6 profiles are
+ * enabled out of the box; users may disable individual profiles via
+ * Settings → Export Profiles.
+ */
+export const ALL_PROFILE_IDS: readonly ExportProfileId[] = [
+  "notion-html",
+  "slack-html",
+  "email-html",
+  "github-markdown",
+  "confluence-wiki",
+  "slack-rich-markdown",
 ] as const;
 
 /**

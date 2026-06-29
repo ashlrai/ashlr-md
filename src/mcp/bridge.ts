@@ -31,7 +31,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
-import { exportDocx, exportEpub, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
+import { exportDocx, exportEpub, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline, buildBatchExportProfiles, type BatchProfileResult } from "../lib/export";
+import { ALL_PROFILE_IDS, type ExportProfileId } from "../lib/exportTemplates";
 import {
   applyCanvasOp,
   buildCanvasEditor,
@@ -214,6 +215,33 @@ interface EditCanvasPayload {
 interface CopyRichTextPayload {
   /** Controls the `text/plain` fallback: 'html' | 'markdown' | 'auto'. Defaults to 'auto'. */
   format?: "html" | "markdown" | "auto";
+}
+
+// ── Batch export profiles payload ────────────────────────────────────────────
+
+/**
+ * Payload for `mcp://batch-export-profiles` — export a single document to
+ * multiple profiles (Paper/Sepia/Midnight themes + github-markdown,
+ * confluence-wiki, slack-rich-markdown) in one parallel call.
+ *
+ * `batchId`    — opaque caller-assigned correlation id echoed in the result.
+ * `profileIds` — optional subset of profile ids to include; when omitted all
+ *                enabled profiles are included (respects user settings).
+ * `content`    — optional pre-captured body HTML fragment; when omitted the
+ *                live `.markdown-body` element is captured (requires Read view).
+ */
+interface BatchExportProfilesPayload {
+  batchId: string;
+  profileIds?: ExportProfileId[];
+  content?: string;
+}
+
+/** Per-profile result item inside `mcp_batch_export_profiles_result`. */
+export interface BatchExportProfileResult {
+  profileId: ExportProfileId;
+  ok: boolean;
+  html: string | null;
+  error?: string;
 }
 
 // ── Batch / semantic tool payloads ────────────────────────────────────────────
@@ -1544,6 +1572,78 @@ export function useMcpBridge(): void {
         }
 
         await reply(true, editResults, null);
+      }),
+    );
+
+    // mcp://batch-export-profiles — export a single document to all 6 profiles in parallel.
+    //
+    // Accepts an optional `profileIds` array to restrict which profiles are
+    // included.  When omitted, respects the user's per-profile enable/disable
+    // settings stored in settingsStore.  When profileIds is explicitly provided,
+    // those specific profiles are used regardless of settings.
+    //
+    // All profile builds run concurrently (Promise.all inside buildBatchExportProfiles).
+    // We always reply via `mcp_batch_export_profiles_result` — success or partial
+    // failure — so the Rust worker never parks waiting.
+    unlisteners.push(
+      listen<BatchExportProfilesPayload>("mcp://batch-export-profiles", async (e) => {
+        const { batchId, profileIds: requestedIds, content } = e.payload;
+
+        // Determine which profile ids to include.
+        // If the caller specified a list, use that; otherwise use all profiles
+        // that are currently enabled in the user's settings.
+        let targetIds: readonly ExportProfileId[];
+        if (requestedIds && requestedIds.length > 0) {
+          targetIds = requestedIds;
+        } else {
+          const { disabledProfileIds } = useSettingsStore.getState();
+          targetIds = ALL_PROFILE_IDS.filter(
+            (id) => !disabledProfileIds.includes(id),
+          );
+        }
+
+        if (targetIds.length === 0) {
+          await invoke("mcp_batch_export_profiles_result", {
+            batchId,
+            ok: false,
+            results: [],
+            error: "No profiles selected — all profiles may be disabled in Settings.",
+          }).catch(() => {/* non-fatal */});
+          return;
+        }
+
+        try {
+          const rawResults: BatchProfileResult[] = await buildBatchExportProfiles(
+            targetIds,
+            content,
+          );
+
+          const results: BatchExportProfileResult[] = rawResults.map((r) => ({
+            profileId: r.profileId,
+            ok: r.ok,
+            html: r.html,
+            error: r.error,
+          }));
+
+          const allOk = results.every((r) => r.ok);
+          await invoke("mcp_batch_export_profiles_result", {
+            batchId,
+            ok: allOk,
+            results,
+            error: allOk
+              ? null
+              : "One or more profile exports failed — see per-profile results.",
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr =
+            typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_batch_export_profiles_result", {
+            batchId,
+            ok: false,
+            results: [],
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
       }),
     );
 
