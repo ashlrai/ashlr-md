@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# This project uses bun (bun.lock). npm/yarn lockfiles are not tracked.
+package-lock.json
+yarn.lock
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
