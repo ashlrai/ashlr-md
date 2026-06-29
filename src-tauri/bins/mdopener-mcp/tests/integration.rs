@@ -156,6 +156,9 @@ fn tools_list_contains_all_16_tools() {
         "replace_document", "search_vault", "present_document", "list_ai_actions",
         "get_conversation_context", "save_conversation_message",
         "export_markdown_archive", "export_canvas_graph",
+        "batch_export_format", "diff_documents", "edit_canvas",
+        "stream_edit", "stream_edit_apply",
+        "export_text", "export_metadata",
     ];
     for name in &expected {
         assert!(names.contains(name), "tool_list missing: {name}");
@@ -3174,4 +3177,216 @@ fn export_canvas_graph_has_non_destructive_annotation() {
     let ann = def.annotations.as_ref().expect("must have annotations");
     assert_ne!(ann["destructiveHint"].as_bool(), Some(true),
         "export_canvas_graph must not be destructive");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool: export_text — plaintext extraction + word/char counts
+// ════════════════════════════════════════════════════════════════════════════
+
+use mdopener_mcp::{
+    tool_export_text, tool_export_metadata,
+    strip_markdown, strip_inline_markdown,
+    extract_frontmatter, extract_headings, extract_wikilinks, count_embedded_images,
+    count_words,
+};
+
+/// Helper: write a temp file, run the tool, return the parsed result JSON.
+fn run_export_text_on(markdown: &str) -> Value {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("test_export_text_{}.md", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+    std::fs::write(&path, markdown).unwrap();
+    let ipc = MockIpc::new();
+    let args = json!({ "path": path.to_string_lossy() });
+    let resp = tool_export_text(json!(1), &args, &ipc);
+    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    content_text(&resp)
+}
+
+fn run_export_metadata_on(markdown: &str) -> Value {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("test_export_meta_{}.md", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+    std::fs::write(&path, markdown).unwrap();
+    let ipc = MockIpc::new();
+    let args = json!({ "path": path.to_string_lossy() });
+    let resp = tool_export_metadata(json!(1), &args, &ipc);
+    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    content_text(&resp)
+}
+
+#[test]
+fn export_text_strips_headings_and_emphasis() {
+    let md = "# Hello World\n\nThis is **bold** and _italic_ text.\n";
+    let result = run_export_text_on(md);
+    let text = result["text"].as_str().unwrap();
+    assert!(!text.contains('#'), "heading # should be stripped");
+    assert!(!text.contains("**"), "bold markers should be stripped");
+    assert!(!text.contains('_'), "italic markers should be stripped");
+    assert!(text.contains("Hello World"), "heading text preserved");
+    assert!(text.contains("bold"), "bold content preserved");
+    assert!(text.contains("italic"), "italic content preserved");
+}
+
+#[test]
+fn export_text_preserves_code_block_content() {
+    let md = "# Title\n\n```python\nprint('hello')\nx = 1 + 2\n```\n\nAfter code.\n";
+    let result = run_export_text_on(md);
+    let text = result["text"].as_str().unwrap();
+    assert!(text.contains("print('hello')"), "code content should be preserved");
+    assert!(text.contains("x = 1 + 2"), "code content should be preserved");
+    assert!(!text.contains("```"), "code fence markers should be stripped");
+    assert!(text.contains("After code"), "text after code block preserved");
+}
+
+#[test]
+fn export_text_word_and_char_counts_are_correct() {
+    // Strip a simple document and verify counts match the extracted text.
+    let md = "# Title\n\nHello world foo bar.\n";
+    let result = run_export_text_on(md);
+    let text = result["text"].as_str().unwrap();
+    let reported_words = result["word_count"].as_u64().unwrap() as usize;
+    let reported_chars = result["char_count"].as_u64().unwrap() as usize;
+    assert_eq!(reported_words, count_words(text),
+        "word_count must match count_words(text)");
+    assert_eq!(reported_chars, text.chars().count(),
+        "char_count must match text.chars().count()");
+    // "Title Hello world foo bar" = 5 words
+    assert_eq!(reported_words, 5, "expected 5 words after stripping heading marker");
+}
+
+#[test]
+fn export_text_strips_frontmatter() {
+    let md = "---\ntitle: My Doc\nauthor: Test\n---\n\nActual content here.\n";
+    let result = run_export_text_on(md);
+    let text = result["text"].as_str().unwrap();
+    assert!(!text.contains("title:"), "frontmatter key should be stripped");
+    assert!(!text.contains("author:"), "frontmatter key should be stripped");
+    assert!(text.contains("Actual content here"), "body content must be preserved");
+}
+
+#[test]
+fn export_text_ipc_fallback_when_no_path() {
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(json!({ "content": "# Title\n\nHello.", "path": "/tmp/test.md" })));
+    let resp = tool_export_text(json!(42), &json!({}), &ipc);
+    assert!(resp.error.is_none());
+    let result = content_text(&resp);
+    let text = result["text"].as_str().unwrap();
+    assert!(text.contains("Title"), "heading text extracted");
+    assert!(text.contains("Hello"), "body text extracted");
+    assert_eq!(result["path"].as_str(), Some("/tmp/test.md"), "path echoed from IPC");
+}
+
+#[test]
+fn export_text_missing_path_and_no_ipc_returns_error() {
+    // MockIpc with no handler — simulates app not running.
+    let ipc = MockIpc::new();
+    let resp = tool_export_text(json!(1), &json!({}), &ipc);
+    // Should return an RPC-level error (app not running).
+    assert!(resp.error.is_some() || is_error(&resp),
+        "should return error when path omitted and IPC fails");
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tool: export_metadata — frontmatter, headings, wikilinks, images, word count
+// ════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn export_metadata_parses_frontmatter_and_headings() {
+    let md = concat!(
+        "---\ntitle: Test Doc\ntags: notes\n---\n\n",
+        "# Introduction\n\nSome text.\n\n",
+        "## Details\n\nMore text.\n"
+    );
+    let result = run_export_metadata_on(md);
+    // Frontmatter
+    let fm = &result["frontmatter"];
+    assert!(fm.is_object(), "frontmatter should be an object");
+    assert_eq!(fm["title"].as_str(), Some("Test Doc"));
+    assert_eq!(fm["tags"].as_str(), Some("notes"));
+    // Headings
+    let headings = result["headings"].as_array().unwrap();
+    assert_eq!(headings.len(), 2, "two headings expected");
+    assert_eq!(headings[0]["level"].as_u64(), Some(1));
+    assert_eq!(headings[0]["text"].as_str(), Some("Introduction"));
+    assert_eq!(headings[1]["level"].as_u64(), Some(2));
+    assert_eq!(headings[1]["text"].as_str(), Some("Details"));
+}
+
+#[test]
+fn export_metadata_extracts_wikilinks_and_image_count() {
+    let md = concat!(
+        "# Doc\n\n",
+        "See [[PageA]] and [[PageB|alias]] for details.\n\n",
+        "![alt text](image.png)\n\n",
+        "![[embedded.png]]\n"
+    );
+    let result = run_export_metadata_on(md);
+    let wikilinks = result["wikilinks"].as_array().unwrap();
+    let wl_strs: Vec<&str> = wikilinks.iter().filter_map(|v| v.as_str()).collect();
+    assert!(wl_strs.contains(&"PageA"), "PageA should be in wikilinks");
+    assert!(wl_strs.contains(&"PageB"), "PageB (before |) should be in wikilinks");
+    let img_count = result["embedded_image_count"].as_u64().unwrap();
+    assert_eq!(img_count, 2, "two embedded images expected");
+}
+
+#[test]
+fn export_metadata_word_count_matches_plain_text() {
+    let md = "# Title\n\nHello **world** how are you.\n";
+    let result = run_export_metadata_on(md);
+    let reported = result["word_count"].as_u64().unwrap() as usize;
+    let plain = strip_markdown(md);
+    let expected = count_words(&plain);
+    assert_eq!(reported, expected,
+        "export_metadata word_count must match strip_markdown word count");
+}
+
+#[test]
+fn export_metadata_no_frontmatter_returns_null() {
+    let md = "# Just a heading\n\nNo front matter here.\n";
+    let result = run_export_metadata_on(md);
+    assert!(result["frontmatter"].is_null(),
+        "frontmatter should be null when absent");
+}
+
+#[test]
+fn export_metadata_ipc_fallback_when_no_path() {
+    let md = "---\ntitle: IPC Doc\n---\n\n# Heading\n\nBody text.\n";
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(json!({ "content": md, "path": "/tmp/ipc.md" })));
+    let resp = tool_export_metadata(json!(1), &json!({}), &ipc);
+    assert!(resp.error.is_none());
+    let result = content_text(&resp);
+    let fm = &result["frontmatter"];
+    assert_eq!(fm["title"].as_str(), Some("IPC Doc"));
+    let headings = result["headings"].as_array().unwrap();
+    assert_eq!(headings.len(), 1);
+    assert_eq!(headings[0]["text"].as_str(), Some("Heading"));
+}
+
+// ── Registry checks for the two new tools ────────────────────────────────────
+
+#[test]
+fn export_text_is_readonly_tier() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_text")
+        .expect("export_text must be in registry");
+    assert_eq!(def.tier, mdopener_mcp::ToolTier::ReadOnly,
+        "export_text must be ReadOnly tier");
+    let ann = def.annotations.as_ref().expect("export_text must have annotations");
+    assert_eq!(ann["readOnlyHint"].as_bool(), Some(true));
+    assert_ne!(ann["destructiveHint"].as_bool(), Some(true));
+}
+
+#[test]
+fn export_metadata_is_readonly_tier() {
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export_metadata")
+        .expect("export_metadata must be in registry");
+    assert_eq!(def.tier, mdopener_mcp::ToolTier::ReadOnly,
+        "export_metadata must be ReadOnly tier");
+    let ann = def.annotations.as_ref().expect("export_metadata must have annotations");
+    assert_eq!(ann["readOnlyHint"].as_bool(), Some(true));
+    assert_ne!(ann["destructiveHint"].as_bool(), Some(true));
 }

@@ -774,6 +774,217 @@ pub fn tool_registry() -> Vec<ToolDef> {
             })),
             tier: ToolTier::ReadOnly,
         },
+        ToolDef {
+            name: "edit_canvas",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, ops_applied }. Safe for remote/agent use — only operates on files ending in .canvas.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the .canvas file to edit."
+                    },
+                    "ops": {
+                        "type": "array",
+                        "description": "Ordered list of edit operations to apply atomically.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "move_node", "resize_node",
+                                        "edit_text", "edit_link", "edit_group_label",
+                                        "set_node_color",
+                                        "add_node", "delete_node",
+                                        "add_edge", "delete_edge",
+                                        "edit_edge_label", "reorder_edges"
+                                    ],
+                                    "description": "Operation type."
+                                },
+                                "id": { "type": "string", "description": "Node or edge id (required for most ops)." },
+                                "x": { "type": "number", "description": "New x coordinate (move_node)." },
+                                "y": { "type": "number", "description": "New y coordinate (move_node)." },
+                                "width": { "type": "number", "description": "New width (resize_node)." },
+                                "height": { "type": "number", "description": "New height (resize_node)." },
+                                "text": { "type": "string", "description": "New text content (edit_text)." },
+                                "url": { "type": "string", "description": "New URL (edit_link)." },
+                                "label": { "type": "string", "description": "New label (edit_group_label) or edge label (edit_edge_label). Omit to clear." },
+                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RRGGBB'. Omit to clear (set_node_color)." },
+                                "node": {
+                                    "type": "object",
+                                    "description": "Full node object to insert (add_node). Must include id, type, x, y, width, height."
+                                },
+                                "edge": {
+                                    "type": "object",
+                                    "description": "Full edge object to insert (add_edge). Must include id, fromNode, toNode."
+                                },
+                                "ids": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Complete ordered list of all edge ids (reorder_edges)."
+                                }
+                            },
+                            "required": ["type"]
+                        }
+                    },
+                    "save": {
+                        "type": "boolean",
+                        "description": "Write the mutated canvas back to disk. Defaults to true."
+                    }
+                },
+                "required": ["path", "ops"]
+            }),
+            annotations: Some(json!({
+                "title": "Edit Canvas",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "stream_edit",
+            description: "Preview a find/replace edit as a unified diff before committing. \
+                When `preview` is true (default), returns a minimal unified diff (±previewLines context) \
+                via mcp_stream_edit_preview so the agent can verify the change before applying. \
+                When the find string matches multiple locations, ALL candidate diffs are returned ranked \
+                by occurrence order (rank 1 = first match) — the agent selects a matchIndex and confirms \
+                via stream_edit_apply. For single-match or preview=false cases the edit can be applied \
+                immediately. Prefer this over edit_document for large files or when the agent needs to \
+                confirm correctness before committing.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "find": {
+                        "type": "string",
+                        "description": "Exact text to search for in the current document."
+                    },
+                    "replace": {
+                        "type": "string",
+                        "description": "Replacement text."
+                    },
+                    "preview": {
+                        "type": "boolean",
+                        "description": "When true (default), return a diff preview before applying. When false, apply immediately."
+                    },
+                    "preview_lines": {
+                        "type": "integer",
+                        "description": "Context lines on each side of the diff hunk. Defaults to 5."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open)."
+                    }
+                },
+                "required": ["find", "replace"]
+            }),
+            annotations: Some(json!({
+                "title": "Stream Edit (Preview + Apply)",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "stream_edit_apply",
+            description: "Apply a previously previewed stream_edit. Send the same find/replace plus \
+                a matchIndex (0-based, default 0) to select which occurrence to edit when the preview \
+                returned multiple candidates. The edit is applied atomically against the live document.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "edit_id": {
+                        "type": "string",
+                        "description": "Correlation id echoed from the stream_edit preview response."
+                    },
+                    "find": {
+                        "type": "string",
+                        "description": "The exact find string from the preview request."
+                    },
+                    "replace": {
+                        "type": "string",
+                        "description": "The replacement text from the preview request."
+                    },
+                    "match_index": {
+                        "type": "integer",
+                        "description": "0-based index of the candidate to apply. Defaults to 0 (first occurrence)."
+                    },
+                    "save": {
+                        "type": "boolean",
+                        "description": "Persist to disk after applying. Defaults to false."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional path assertion — errors if a different file is open."
+                    }
+                },
+                "required": ["edit_id", "find", "replace"]
+            }),
+            annotations: Some(json!({
+                "title": "Apply Stream Edit",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "export_text",
+            description: "Extract the plain text of a Markdown document — all Markdown syntax \
+                (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
+                stripped while code block contents are preserved as-is. Returns the extracted text \
+                together with word and character counts. Operates directly on disk; no running app \
+                required. Accepts an optional path override; when omitted, reads the currently open \
+                document via IPC.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the Markdown file. When omitted the currently open document is used."
+                    }
+                }
+            }),
+            annotations: Some(json!({
+                "title": "Export Plain Text",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
+        },
+        ToolDef {
+            name: "export_metadata",
+            description: "Extract structural metadata from a Markdown document without the full \
+                content: YAML front-matter (parsed to an object), a headings tree (level + text for \
+                every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
+                images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
+                on disk; no running app required. Accepts an optional path override; when omitted, \
+                reads the currently open document via IPC.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the Markdown file. When omitted the currently open document is used."
+                    }
+                }
+            }),
+            annotations: Some(json!({
+                "title": "Export Metadata",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
+        },
     ]
 }
 
@@ -797,6 +1008,11 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "export_canvas_graph",
     "batch_export_format",
     "diff_documents",
+    "edit_canvas",
+    "stream_edit",
+    "stream_edit_apply",
+    "export_text",
+    "export_metadata",
 ];
 
 /// Build the `tools/list` response payload from the data-driven registry.
@@ -827,6 +1043,11 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "export_canvas_graph" => tool_export_canvas_graph(id, &args, ipc),
         "batch_export_format" => tool_batch_export_format(id, &args, ipc),
         "diff_documents" => tool_diff_documents(id, &args),
+        "edit_canvas" => tool_edit_canvas(id, &args),
+        "stream_edit" => tool_stream_edit(id, &args, ipc),
+        "stream_edit_apply" => tool_stream_edit_apply(id, &args, ipc),
+        "export_text" => tool_export_text(id, &args, ipc),
+        "export_metadata" => tool_export_metadata(id, &args, ipc),
         other => Response::err(id, -32602, format!("Unknown tool: {other}")),
     }
 }
@@ -2366,3 +2587,1093 @@ pub fn lcs_diff<T: PartialEq>(a: &[T], b: &[T]) -> Vec<DiffOp> {
     ops.reverse();
     ops
 }
+
+// ── req_str! macro ────────────────────────────────────────────────────────────
+
+/// Extract a non-empty `&str` from a JSON Value, or return a -32602 error.
+/// Usage: `req_str!($id, $val, "error message with {}", ctx_var)`
+macro_rules! req_str {
+    ($id:expr, $val:expr, $fmt:literal $(, $arg:expr)*) => {
+        match $val.as_str() {
+            Some(s) if !s.is_empty() => s,
+            _ => return Response::err($id.clone(), -32602, format!($fmt $(, $arg)*)),
+        }
+    };
+}
+
+// ── edit_canvas tool ──────────────────────────────────────────────────────────
+
+/// Apply a list of typed edit operations to a `.canvas` file and optionally
+/// write the mutated JSON back to disk.
+///
+/// The canvas is parsed in full, all ops applied sequentially (aborting on the
+/// first error), then re-serialised.  The original file is only overwritten
+/// when every op succeeds AND `save` is `true` (default).
+pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
+    // ── Validate path ────────────────────────────────────────────────────────
+    let raw_path = match args["path"].as_str() {
+        Some(p) if !p.is_empty() => p,
+        _ => return Response::err(id, -32602, "`path` is required"),
+    };
+    if !raw_path.ends_with(".canvas") {
+        return Response::err(id, -32602, "`path` must point to a .canvas file");
+    }
+    let path = std::fs::canonicalize(raw_path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw_path.to_string());
+
+    // ── Read file ────────────────────────────────────────────────────────────
+    let raw_content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => return Response::err(id, -32000, format!("Failed to read {path}: {e}")),
+    };
+
+    // ── Parse ────────────────────────────────────────────────────────────────
+    let parsed = match parse_canvas_json(&raw_content) {
+        Ok(c) => c,
+        Err(e) => return Response::err(id, -32602, format!("Canvas parse error: {e}")),
+    };
+
+    let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
+    let mut edges: Vec<serde_json::Map<String, Value>> = parsed.edges;
+
+    // ── Apply ops ────────────────────────────────────────────────────────────
+    let ops = match args["ops"].as_array() {
+        Some(a) => a.clone(),
+        None => return Response::err(id, -32602, "`ops` must be an array"),
+    };
+    if ops.is_empty() {
+        return Response::err(id, -32602, "`ops` must not be empty");
+    }
+
+    let mut ops_applied: Vec<String> = Vec::new();
+
+    for (i, op) in ops.iter().enumerate() {
+        let op_type = match op["type"].as_str() {
+            Some(t) => t,
+            None => {
+                return Response::err(id, -32602, format!("op[{i}]: missing `type`"))
+            }
+        };
+
+        match op_type {
+            "move_node" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] move_node: `id` required")),
+                };
+                let x = match op["x"].as_f64() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] move_node: `x` required")),
+                };
+                let y = match op["y"].as_f64() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] move_node: `y` required")),
+                };
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] move_node: node `{node_id}` not found")),
+                };
+                node.insert("x".into(), json!(x));
+                node.insert("y".into(), json!(y));
+            }
+            "resize_node" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] resize_node: `id` required")),
+                };
+                let w = match op["width"].as_f64() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] resize_node: `width` required")),
+                };
+                let h = match op["height"].as_f64() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] resize_node: `height` required")),
+                };
+                if w <= 0.0 || h <= 0.0 {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] resize_node: width and height must be positive"));
+                }
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] resize_node: node `{node_id}` not found")),
+                };
+                node.insert("width".into(), json!(w));
+                node.insert("height".into(), json!(h));
+            }
+            "edit_text" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_text: `id` required")),
+                };
+                let text = match op["text"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_text: `text` required")),
+                };
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_text: node `{node_id}` not found")),
+                };
+                if node.get("type").and_then(Value::as_str) != Some("text") {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] edit_text: node `{node_id}` is not a text node"));
+                }
+                node.insert("text".into(), json!(text));
+            }
+            "edit_link" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_link: `id` required")),
+                };
+                let url = match op["url"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_link: `url` required")),
+                };
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_link: node `{node_id}` not found")),
+                };
+                if node.get("type").and_then(Value::as_str) != Some("link") {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] edit_link: node `{node_id}` is not a link node"));
+                }
+                node.insert("url".into(), json!(url));
+            }
+            "edit_group_label" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_group_label: `id` required")),
+                };
+                let label = match op["label"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_group_label: `label` required")),
+                };
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_group_label: node `{node_id}` not found")),
+                };
+                if node.get("type").and_then(Value::as_str) != Some("group") {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] edit_group_label: node `{node_id}` is not a group node"));
+                }
+                node.insert("label".into(), json!(label));
+            }
+            "set_node_color" => {
+                let node_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] set_node_color: `id` required")),
+                };
+                let node = match find_node_mut(&mut nodes, node_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] set_node_color: node `{node_id}` not found")),
+                };
+                match op.get("color") {
+                    Some(Value::Null) | None => { node.remove("color"); }
+                    Some(v) => { node.insert("color".into(), v.clone()); }
+                }
+            }
+            "add_node" => {
+                let new_node = match op["node"].as_object() {
+                    Some(n) => n,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_node: `node` object required")),
+                };
+                let new_id = match new_node.get("id").and_then(Value::as_str) {
+                    Some(s) => s,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_node: node.id required")),
+                };
+                if nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(new_id)) {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] add_node: id `{new_id}` already exists"));
+                }
+                nodes.push(new_node.clone());
+            }
+            "delete_node" => {
+                let node_id = req_str!(id, op["id"],
+                    "op[{}] delete_node: `id` required", i);
+                let before = nodes.len();
+                nodes.retain(|n| n.get("id").and_then(Value::as_str) != Some(node_id));
+                if nodes.len() == before {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] delete_node: node `{node_id}` not found"));
+                }
+                edges.retain(|e| {
+                    e.get("fromNode").and_then(Value::as_str) != Some(node_id)
+                        && e.get("toNode").and_then(Value::as_str) != Some(node_id)
+                });
+            }
+            "add_edge" => {
+                let new_edge = match op["edge"].as_object() {
+                    Some(e) => e,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: `edge` object required")),
+                };
+                let new_id = match new_edge.get("id").and_then(Value::as_str) {
+                    Some(s) => s,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: edge.id required")),
+                };
+                if edges.iter().any(|e| e.get("id").and_then(Value::as_str) == Some(new_id)) {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: id `{new_id}` already exists"));
+                }
+                let from = match new_edge.get("fromNode").and_then(Value::as_str) {
+                    Some(s) => s,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: edge.fromNode required")),
+                };
+                let to = match new_edge.get("toNode").and_then(Value::as_str) {
+                    Some(s) => s,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: edge.toNode required")),
+                };
+                if !nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(from)) {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: fromNode `{from}` not found"));
+                }
+                if !nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(to)) {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] add_edge: toNode `{to}` not found"));
+                }
+                edges.push(new_edge.clone());
+            }
+            "delete_edge" => {
+                let edge_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] delete_edge: `id` required")),
+                };
+                let before = edges.len();
+                edges.retain(|e| e.get("id").and_then(Value::as_str) != Some(edge_id));
+                if edges.len() == before {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] delete_edge: edge `{edge_id}` not found"));
+                }
+            }
+            "edit_edge_label" => {
+                let edge_id = match op["id"].as_str() {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_edge_label: `id` required")),
+                };
+                let edge = match find_edge_mut(&mut edges, edge_id) {
+                    Some(v) => v,
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] edit_edge_label: edge `{edge_id}` not found")),
+                };
+                match op.get("label") {
+                    Some(Value::Null) | None => { edge.remove("label"); }
+                    Some(v) => { edge.insert("label".into(), v.clone()); }
+                }
+            }
+            "reorder_edges" => {
+                let new_ids = match op["ids"].as_array() {
+                    Some(a) => a.clone(),
+                    None => return Response::err(id, -32602,
+                        format!("op[{i}] reorder_edges: `ids` array required")),
+                };
+                if new_ids.len() != edges.len() {
+                    return Response::err(id, -32602,
+                        format!("op[{i}] reorder_edges: expected {} ids, got {}",
+                            edges.len(), new_ids.len()));
+                }
+                let edge_map: std::collections::HashMap<String, serde_json::Map<String, Value>> =
+                    edges.iter().filter_map(|e| {
+                        e.get("id").and_then(Value::as_str)
+                            .map(|eid| (eid.to_string(), e.clone()))
+                    }).collect();
+                let mut reordered = Vec::with_capacity(edges.len());
+                for v in &new_ids {
+                    let eid = match v.as_str() {
+                        Some(s) => s,
+                        None => return Response::err(id, -32602,
+                            format!("op[{i}] reorder_edges: id must be a string")),
+                    };
+                    match edge_map.get(eid) {
+                        Some(e) => reordered.push(e.clone()),
+                        None => return Response::err(id, -32602,
+                            format!("op[{i}] reorder_edges: unknown edge id `{eid}`")),
+                    }
+                }
+                edges = reordered;
+            }
+            other => {
+                return Response::err(id, -32602,
+                    format!("op[{i}]: unknown operation type `{other}`"));
+            }
+        }
+        ops_applied.push(op_type.to_string());
+    }
+
+    // ── Serialise ────────────────────────────────────────────────────────────
+    let output = json!({ "nodes": nodes, "edges": edges });
+    let serialised = match serde_json::to_string_pretty(&output) {
+        Ok(s) => s,
+        Err(e) => return Response::err(id, -32000, format!("Serialisation error: {e}")),
+    };
+
+    // ── Write to disk ────────────────────────────────────────────────────────
+    let save = args["save"].as_bool().unwrap_or(true);
+    if save {
+        if let Err(e) = std::fs::write(&path, &serialised) {
+            return Response::err(id, -32000, format!("Failed to write {path}: {e}"));
+        }
+    }
+
+    tool_result(id, json!({
+        "ok": true,
+        "path": path,
+        "nodes_count": nodes.len(),
+        "edges_count": edges.len(),
+        "ops_applied": ops_applied,
+        "saved": save,
+        "content": if save { Value::Null } else { json!(serialised) },
+    }))
+}
+
+// ── Canvas JSON helpers ───────────────────────────────────────────────────────
+
+struct RawCanvas {
+    nodes: Vec<serde_json::Map<String, Value>>,
+    edges: Vec<serde_json::Map<String, Value>>,
+}
+
+fn parse_canvas_json(raw: &str) -> Result<RawCanvas, String> {
+    let v: Value = serde_json::from_str(raw)
+        .map_err(|e| format!("Invalid JSON: {e}"))?;
+    let obj = v.as_object().ok_or("Canvas must be a JSON object")?;
+    let nodes = obj.get("nodes")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
+        .unwrap_or_default();
+    let edges = obj.get("edges")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
+        .unwrap_or_default();
+    Ok(RawCanvas { nodes, edges })
+}
+
+fn find_node_mut<'a>(
+    nodes: &'a mut Vec<serde_json::Map<String, Value>>,
+    id: &str,
+) -> Option<&'a mut serde_json::Map<String, Value>> {
+    nodes.iter_mut().find(|n| n.get("id").and_then(Value::as_str) == Some(id))
+}
+
+fn find_edge_mut<'a>(
+    edges: &'a mut Vec<serde_json::Map<String, Value>>,
+    id: &str,
+) -> Option<&'a mut serde_json::Map<String, Value>> {
+    edges.iter_mut().find(|e| e.get("id").and_then(Value::as_str) == Some(id))
+}
+
+// (All error paths in tool_edit_canvas use explicit `return Response::err` —
+//  no additional helper traits are needed.)
+
+// ── stream_edit tool ──────────────────────────────────────────────────────────
+
+/// `StreamEditPayload` mirrors the TypeScript `StreamEditPayload` interface.
+///
+/// The Rust layer validates the input and forwards the request to the frontend
+/// via the IPC `/stream-edit` endpoint.  The frontend computes the diff against
+/// the LIVE document (never the stale 200 ms-debounced mirror) and streams back
+/// the result via `mcp_stream_edit_preview`.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StreamEditPayload {
+    /// Opaque caller-assigned correlation id echoed in all replies.
+    pub find: String,
+    pub replace: String,
+    #[serde(default = "default_preview")]
+    pub preview: bool,
+    #[serde(default = "default_preview_lines")]
+    pub preview_lines: u32,
+    pub path: Option<String>,
+}
+
+fn default_preview() -> bool { true }
+fn default_preview_lines() -> u32 { 5 }
+
+/// Preview a find/replace edit as a unified diff before committing.
+///
+/// Forwards to the frontend via POST `/stream-edit`.  The frontend calls
+/// `computeStreamEditDiff` against the LIVE document and emits
+/// `mcp_stream_edit_preview` back to the waiting IPC thread.
+///
+/// Returns the preview result including:
+///  - `diff`       — unified diff string for the first/only match
+///  - `candidates` — ranked list of diffs when find matches multiple times
+///  - `match_count`— total occurrences of find in the document
+///  - `ok`         — false when find is empty or not found
+pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let find = match args["find"].as_str() {
+        Some(f) if !f.is_empty() => f.to_string(),
+        Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
+        None => return Response::err(id, -32602, "`find` is required"),
+    };
+    let replace = match args["replace"].as_str() {
+        Some(r) => r.to_string(),
+        None => return Response::err(id, -32602, "`replace` is required"),
+    };
+    let preview = args["preview"].as_bool().unwrap_or(true);
+    let preview_lines = args["preview_lines"].as_u64().unwrap_or(5).clamp(0, 20) as u32;
+    let path = args["path"].as_str().map(str::to_string);
+
+    let body = json!({
+        "find": find,
+        "replace": replace,
+        "preview": preview,
+        "previewLines": preview_lines,
+        "path": path,
+    });
+
+    match ipc.post("/stream-edit", body) {
+        Ok(v) => {
+            if v["ok"].as_bool() == Some(false) {
+                let msg = v["error"].as_str().unwrap_or("stream-edit preview failed.");
+                return tool_error(id, msg.to_string());
+            }
+            tool_result(id, v)
+        }
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+/// Apply a previously previewed stream edit.
+///
+/// The agent sends this after reviewing the diff returned by `stream_edit`.
+/// `match_index` selects which candidate to apply when there are multiple matches.
+pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let edit_id = match args["edit_id"].as_str() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Response::err(id, -32602, "`edit_id` is required"),
+    };
+    let find = match args["find"].as_str() {
+        Some(f) if !f.is_empty() => f.to_string(),
+        Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
+        None => return Response::err(id, -32602, "`find` is required"),
+    };
+    let replace = match args["replace"].as_str() {
+        Some(r) => r.to_string(),
+        None => return Response::err(id, -32602, "`replace` is required"),
+    };
+    let match_index = args["match_index"].as_u64().unwrap_or(0) as u32;
+    let save = args["save"].as_bool().unwrap_or(false);
+    let path = args["path"].as_str().map(str::to_string);
+
+    let body = json!({
+        "editId": edit_id,
+        "find": find,
+        "replace": replace,
+        "matchIndex": match_index,
+        "save": save,
+        "path": path,
+    });
+
+    match ipc.post("/stream-edit-apply", body) {
+        Ok(v) => {
+            if v["ok"].as_bool() == Some(false) {
+                let msg = v["error"].as_str().unwrap_or("stream-edit-apply failed.");
+                return tool_error(id, msg.to_string());
+            }
+            tool_result(id, v)
+        }
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+// ── export_text tool ──────────────────────────────────────────────────────────
+
+/// Strip Markdown syntax from `content` and return the plain text.
+///
+/// Rules:
+/// - YAML front-matter fences (`---` … `---` / `---` … `...`) at the top are
+///   removed entirely.
+/// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
+///   code content is preserved as-is.
+/// - ATX headings: leading `#` characters and a space are removed.
+/// - Setext heading underlines (`===` / `---` only lines) are removed.
+/// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
+/// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
+/// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
+/// - Links `[text](url)` and `[text][ref]` → link text only.
+/// - Blockquote `>` leaders are removed.
+/// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
+/// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
+/// - HTML tags are stripped.
+/// - Horizontal rules (`---`, `***`, `___` on their own line) are removed.
+/// - Blank lines are collapsed to a single blank line between paragraphs.
+pub fn strip_markdown(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut lines = content.lines().peekable();
+
+    // Remove YAML front-matter at the very start.
+    if let Some(&first) = lines.peek() {
+        if first.trim() == "---" {
+            lines.next(); // consume opening fence
+            // Consume until closing `---` or `...`
+            for line in lines.by_ref() {
+                if line.trim() == "---" || line.trim() == "..." {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut in_code_block = false;
+
+    for line in lines {
+        // Detect fenced code blocks (``` or ~~~).
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_code_block = !in_code_block;
+            // Drop the fence line itself; preserve the code inside.
+            continue;
+        }
+        if in_code_block {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Setext heading underlines (lines that are only `=` or `-`).
+        if !trimmed.is_empty()
+            && (trimmed.chars().all(|c| c == '=') || trimmed.chars().all(|c| c == '-'))
+        {
+            continue;
+        }
+
+        // Horizontal rules (`---`, `***`, `___` optionally with spaces).
+        {
+            let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+            if no_space.len() >= 3
+                && (no_space.chars().all(|c| c == '-')
+                    || no_space.chars().all(|c| c == '*')
+                    || no_space.chars().all(|c| c == '_'))
+            {
+                continue;
+            }
+        }
+
+        // Strip ATX heading markers.
+        let line = {
+            let stripped = trimmed.trim_start_matches('#');
+            if stripped.len() < trimmed.len() && stripped.starts_with(' ') {
+                stripped.trim_start()
+            } else {
+                line
+            }
+        };
+
+        // Strip blockquote leaders.
+        let line = {
+            let mut s = line;
+            while let Some(rest) = s.trim_start().strip_prefix('>') {
+                s = rest.trim_start_matches(' ');
+            }
+            s
+        };
+
+        // Strip list markers (unordered and ordered).
+        let line = {
+            let s = line.trim_start();
+            // Unordered: `- `, `* `, `+ `
+            let s = if let Some(r) = s
+                .strip_prefix("- ")
+                .or_else(|| s.strip_prefix("* "))
+                .or_else(|| s.strip_prefix("+ "))
+            {
+                r
+            } else {
+                s
+            };
+            // Ordered: `N. ` (1–3 digit number)
+            let s = if s.len() > 2 {
+                let dot_pos = s.find(". ");
+                if let Some(pos) = dot_pos {
+                    if pos <= 3 && s[..pos].chars().all(|c| c.is_ascii_digit()) {
+                        &s[pos + 2..]
+                    } else {
+                        s
+                    }
+                } else {
+                    s
+                }
+            } else {
+                s
+            };
+            // Task-list checkboxes `[ ] ` / `[x] `
+            let s = s
+                .strip_prefix("[ ] ")
+                .or_else(|| s.strip_prefix("[x] "))
+                .or_else(|| s.strip_prefix("[X] "))
+                .unwrap_or(s);
+            s
+        };
+
+        // Now process inline Markdown on the remaining text.
+        let plain = strip_inline_markdown(line);
+        out.push_str(&plain);
+        out.push('\n');
+    }
+
+    // Collapse runs of more than one blank line into a single blank line.
+    let mut collapsed = String::with_capacity(out.len());
+    let mut blank_run = 0usize;
+    for line in out.lines() {
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run <= 1 {
+                collapsed.push('\n');
+            }
+        } else {
+            blank_run = 0;
+            collapsed.push_str(line);
+            collapsed.push('\n');
+        }
+    }
+    collapsed.trim_end().to_string()
+}
+
+/// Strip inline Markdown from a single (already block-processed) line.
+///
+/// Handles: images, links, wikilinks, bold/italic, inline code, HTML tags.
+pub fn strip_inline_markdown(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+
+    while i < n {
+        // Inline image: ![alt](url) or ![alt][ref] → alt text only
+        if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
+            if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
+                // skip the trailing (url) or [ref] if present
+                let after = skip_link_tail(&chars, end);
+                out.push_str(&alt);
+                i = after;
+                continue;
+            }
+        }
+        // Obsidian embedded image ![[…]] → empty (no useful text)
+        if chars[i] == '!'
+            && i + 2 < n
+            && chars[i + 1] == '['
+            && chars[i + 2] == '['
+        {
+            if let Some(close) = find_double_close(&chars, i + 3) {
+                i = close + 2;
+                continue;
+            }
+        }
+        // Link: [text](url) or [text][ref] → text only
+        if chars[i] == '[' {
+            if let Some((text, end)) = parse_bracket_content(&chars, i) {
+                let after = skip_link_tail(&chars, end);
+                out.push_str(&text);
+                i = after;
+                continue;
+            }
+        }
+        // Wikilink [[…]] → inner text (before any |)
+        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
+            if let Some(close) = find_double_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                let label = inner.split('|').next().map(str::to_string)
+                    .unwrap_or_else(|| inner.clone());
+                out.push_str(&label);
+                i = close + 2;
+                continue;
+            }
+        }
+        // Inline code: `` `…` `` or ` ``…`` ` — strip backticks, keep content.
+        if chars[i] == '`' {
+            let tick_count = chars[i..].iter().take_while(|&&c| c == '`').count();
+            let start = i + tick_count;
+            // Find matching closing run of same length.
+            let rest = &chars[start..];
+            let close_rel = rest
+                .windows(tick_count)
+                .enumerate()
+                .find(|(_, w)| w.iter().all(|&c| c == '`'))
+                .map(|(pos, _)| pos);
+            if let Some(rel) = close_rel {
+                let code: String = chars[start..start + rel].iter().collect();
+                out.push_str(&code);
+                i = start + rel + tick_count;
+                continue;
+            }
+        }
+        // HTML tags: <…> — skip the tag, keep surrounding text.
+        if chars[i] == '<' {
+            if let Some(close) = chars[i..].iter().position(|&c| c == '>') {
+                i += close + 1;
+                continue;
+            }
+        }
+        // Bold/italic markers: ***, **, __, *, _ — remove markers.
+        if chars[i] == '*' || chars[i] == '_' {
+            let marker = chars[i];
+            let run = chars[i..].iter().take_while(|&&c| c == marker).count();
+            i += run; // skip the marker run
+            continue;
+        }
+        // Default: copy character.
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
+}
+
+// Helper: parse `[…]` bracket content starting at `start` (which must be `[`).
+// Returns `(inner_text, index_after_closing_bracket)` or `None`.
+fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'[') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut i = start;
+    let mut inner = String::new();
+    while i < chars.len() {
+        match chars[i] {
+            '[' => { depth += 1; if depth > 1 { inner.push('['); } }
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((inner, i + 1));
+                }
+                inner.push(']');
+            }
+            c => inner.push(c),
+        }
+        i += 1;
+    }
+    None
+}
+
+// Helper: skip the `(url)` or `[ref]` tail after a link/image `]`.
+fn skip_link_tail(chars: &[char], start: usize) -> usize {
+    let opener = chars.get(start);
+    let (open, close) = match opener {
+        Some(&'(') => ('(', ')'),
+        Some(&'[') => ('[', ']'),
+        _ => return start,
+    };
+    let mut depth = 0usize;
+    let mut i = start;
+    while i < chars.len() {
+        if chars[i] == open { depth += 1; }
+        else if chars[i] == close {
+            depth -= 1;
+            if depth == 0 { return i + 1; }
+        }
+        i += 1;
+    }
+    start
+}
+
+// Helper: find `]]` starting from `start`, returns index of first `]`.
+fn find_double_close(chars: &[char], start: usize) -> Option<usize> {
+    for i in start..chars.len().saturating_sub(1) {
+        if chars[i] == ']' && chars[i + 1] == ']' {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Count words (whitespace-separated tokens) in plain text.
+pub fn count_words(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+/// MCP tool: extract plain text from a Markdown document.
+///
+/// When `args["path"]` is provided, reads that file directly from disk.
+/// When omitted, fetches the current document's content via IPC.
+///
+/// Returns `{ text, word_count, char_count, path? }`.
+pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // Resolve source: explicit path → disk read; no path → IPC current content.
+    let (markdown, path_used) = match args["path"].as_str() {
+        Some(raw) => {
+            let abs = canonicalize_path(raw);
+            match std::fs::read_to_string(&abs) {
+                Ok(c) => (c, Some(abs)),
+                Err(e) => return Response::err(id, -32002, format!("Cannot read '{abs}': {e}")),
+            }
+        }
+        None => match ipc.get("/content") {
+            Ok(v) => {
+                let content = v["content"].as_str().unwrap_or("").to_string();
+                let path = v["path"].as_str().map(str::to_string);
+                (content, path)
+            }
+            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+        },
+    };
+
+    let text = strip_markdown(&markdown);
+    let word_count = count_words(&text);
+    let char_count = text.chars().count();
+
+    let mut result = json!({
+        "text": text,
+        "word_count": word_count,
+        "char_count": char_count,
+    });
+    if let Some(p) = path_used {
+        result["path"] = json!(p);
+    }
+    tool_result(id, result)
+}
+
+// ── export_metadata tool ──────────────────────────────────────────────────────
+
+/// Extract YAML front-matter from the start of a Markdown document.
+///
+/// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
+/// `Value::Null` when no front-matter is present or it cannot be parsed as
+/// simple key: value lines.  Only scalar string/bool/number values are parsed;
+/// multi-line and nested YAML are returned as raw strings.
+pub fn extract_frontmatter(content: &str) -> Value {
+    let mut lines = content.lines();
+    let first = match lines.next() {
+        Some(l) => l.trim(),
+        None => return Value::Null,
+    };
+    if first != "---" {
+        return Value::Null;
+    }
+    let mut fm_lines: Vec<&str> = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            break;
+        }
+        fm_lines.push(line);
+    }
+    if fm_lines.is_empty() {
+        return Value::Null;
+    }
+    // Simple line-by-line `key: value` parse (handles scalar YAML only).
+    let mut map = serde_json::Map::new();
+    for line in &fm_lines {
+        if let Some(colon) = line.find(':') {
+            let key = line[..colon].trim().to_string();
+            if key.is_empty() || key.starts_with('#') {
+                continue;
+            }
+            let val_str = line[colon + 1..].trim();
+            // Try bool, then integer, then float, then string.
+            let val = if val_str == "true" {
+                json!(true)
+            } else if val_str == "false" {
+                json!(false)
+            } else if let Ok(n) = val_str.parse::<i64>() {
+                json!(n)
+            } else if let Ok(f) = val_str.parse::<f64>() {
+                json!(f)
+            } else {
+                // Strip surrounding quotes if present.
+                let s = val_str
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
+                json!(s)
+            };
+            map.insert(key, val);
+        }
+    }
+    if map.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(map)
+    }
+}
+
+/// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
+///
+/// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
+pub fn extract_headings(content: &str) -> Vec<Value> {
+    let mut headings = Vec::new();
+    let mut in_code_block = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            let level = trimmed.chars().take_while(|&c| c == '#').count();
+            if level <= 6 {
+                let after = trimmed[level..].trim_start_matches(' ').trim();
+                if !after.is_empty() {
+                    headings.push(json!({ "level": level, "text": after }));
+                }
+            }
+        }
+    }
+    headings
+}
+
+/// Extract all `[[wikilinks]]` from the content (not inside code blocks).
+///
+/// Returns a deduplicated, sorted list of link targets (the part before `|`).
+pub fn extract_wikilinks(content: &str) -> Vec<String> {
+    let mut links = std::collections::HashSet::new();
+    let mut in_code_block = false;
+    let chars: Vec<char> = content.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        // Toggle code-block state on fence lines.
+        if i == 0 || chars[i - 1] == '\n' {
+            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
+            let t = rest.trim();
+            if t.starts_with("```") || t.starts_with("~~~") {
+                in_code_block = !in_code_block;
+            }
+        }
+        if !in_code_block && chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
+            if let Some(close) = find_double_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
+                // Exclude embedded image wikilinks (preceded by `!`).
+                if i == 0 || chars[i - 1] != '!' {
+                    if !target.is_empty() {
+                        links.insert(target);
+                    }
+                }
+                i = close + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let mut sorted: Vec<String> = links.into_iter().collect();
+    sorted.sort();
+    sorted
+}
+
+/// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
+pub fn count_embedded_images(content: &str) -> usize {
+    let mut count = 0usize;
+    let mut in_code_block = false;
+    let chars: Vec<char> = content.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        // Detect code fences at line start.
+        if i == 0 || chars[i - 1] == '\n' {
+            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
+            let t = rest.trim();
+            if t.starts_with("```") || t.starts_with("~~~") {
+                in_code_block = !in_code_block;
+            }
+        }
+        if !in_code_block && chars[i] == '!' {
+            // Standard image: ![alt](url)
+            if i + 1 < n && chars[i + 1] == '[' {
+                // Check it's not a wikilink embed ![[…]]
+                if i + 2 < n && chars[i + 2] == '[' {
+                    // Embedded wikilink image ![[…]]
+                    if let Some(close) = find_double_close(&chars, i + 3) {
+                        count += 1;
+                        i = close + 2;
+                        continue;
+                    }
+                } else if let Some((_, end)) = parse_bracket_content(&chars, i + 1) {
+                    // Check for trailing (url) to confirm it's an image not just `![`
+                    if chars.get(end) == Some(&'(') {
+                        count += 1;
+                        let after = skip_link_tail(&chars, end);
+                        i = after;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    count
+}
+
+/// MCP tool: extract structural metadata from a Markdown document.
+///
+/// When `args["path"]` is provided, reads that file directly from disk.
+/// When omitted, fetches the current document's content via IPC.
+///
+/// Returns:
+/// ```json
+/// {
+///   "frontmatter": { … } | null,
+///   "headings": [{ "level": N, "text": "…" }, …],
+///   "wikilinks": ["Target", …],
+///   "embedded_image_count": N,
+///   "word_count": N,
+///   "path": "…"            // only when a path can be determined
+/// }
+/// ```
+pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let (markdown, path_used) = match args["path"].as_str() {
+        Some(raw) => {
+            let abs = canonicalize_path(raw);
+            match std::fs::read_to_string(&abs) {
+                Ok(c) => (c, Some(abs)),
+                Err(e) => return Response::err(id, -32002, format!("Cannot read '{abs}': {e}")),
+            }
+        }
+        None => match ipc.get("/content") {
+            Ok(v) => {
+                let content = v["content"].as_str().unwrap_or("").to_string();
+                let path = v["path"].as_str().map(str::to_string);
+                (content, path)
+            }
+            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+        },
+    };
+
+    let frontmatter = extract_frontmatter(&markdown);
+    let headings = extract_headings(&markdown);
+    let wikilinks = extract_wikilinks(&markdown);
+    let embedded_image_count = count_embedded_images(&markdown);
+    let plain = strip_markdown(&markdown);
+    let word_count = count_words(&plain);
+
+    let mut result = json!({
+        "frontmatter": frontmatter,
+        "headings": headings,
+        "wikilinks": wikilinks,
+        "embedded_image_count": embedded_image_count,
+        "word_count": word_count,
+    });
+    if let Some(p) = path_used {
+        result["path"] = json!(p);
+    }
+    tool_result(id, result)
+}
+

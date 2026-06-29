@@ -148,6 +148,44 @@ pub struct EditOutcome {
 #[derive(Default)]
 pub struct PendingEdits(pub Mutex<HashMap<String, mpsc::Sender<EditOutcome>>>);
 
+/// One candidate diff when `find` matches at multiple locations.
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StreamEditCandidate {
+    #[serde(rename = "matchIndex")]
+    pub match_index: u32,
+    #[serde(rename = "startLine")]
+    pub start_line: u32,
+    pub diff: String,
+    pub rank: u32,
+}
+
+/// The result of a `mcp://stream-edit` preview, forwarded from the frontend.
+#[derive(Default)]
+pub struct StreamEditPreviewOutcome {
+    pub ok: bool,
+    pub diff: String,
+    pub candidates: Option<Vec<StreamEditCandidate>>,
+    pub match_count: u32,
+    pub error: Option<String>,
+}
+
+/// In-flight `/stream-edit` round-trips. Same parking pattern as `PendingEdits`.
+#[derive(Default)]
+pub struct PendingStreamEdits(pub Mutex<HashMap<String, mpsc::Sender<StreamEditPreviewOutcome>>>);
+
+/// The result of a `mcp://stream-edit-apply`, forwarded from the frontend.
+#[derive(Default)]
+pub struct StreamEditApplyOutcome {
+    pub ok: bool,
+    pub replaced: u32,
+    pub match_index: u32,
+    pub error: Option<String>,
+}
+
+/// In-flight `/stream-edit-apply` round-trips.
+#[derive(Default)]
+pub struct PendingStreamEditsApply(pub Mutex<HashMap<String, mpsc::Sender<StreamEditApplyOutcome>>>);
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -225,6 +263,43 @@ pub fn mcp_edit_result(
     if let Some(tx) = tx {
         // The receiver may already be gone if handle_edit timed out; ignore.
         let _ = tx.send(EditOutcome { ok, replaced, error });
+    }
+}
+
+/// Called by the frontend after computing a `mcp://stream-edit` diff preview.
+/// Forwards the outcome to the IPC worker thread parked in `handle_stream_edit`.
+#[tauri::command]
+pub fn mcp_stream_edit_preview(
+    edit_id: String,
+    ok: bool,
+    diff: String,
+    candidates: Option<Vec<StreamEditCandidate>>,
+    match_count: u32,
+    #[allow(unused_variables)]
+    preview_lines: u32,
+    error: Option<String>,
+    pending: tauri::State<PendingStreamEdits>,
+) {
+    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    if let Some(tx) = tx {
+        let _ = tx.send(StreamEditPreviewOutcome { ok, diff, candidates, match_count, error });
+    }
+}
+
+/// Called by the frontend after atomically applying a `mcp://stream-edit-apply`.
+/// Forwards the outcome to the IPC worker thread parked in `handle_stream_edit_apply`.
+#[tauri::command]
+pub fn mcp_stream_edit_apply_result(
+    edit_id: String,
+    ok: bool,
+    replaced: u32,
+    match_index: u32,
+    error: Option<String>,
+    pending: tauri::State<PendingStreamEditsApply>,
+) {
+    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    if let Some(tx) = tx {
+        let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error });
     }
 }
 
@@ -485,6 +560,8 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
             (Method::Get, "/vault") => handle_vault(req, app),
             (Method::Get, "/search") => handle_search(req, query, app),
             (Method::Post, "/edit") => handle_edit(req, app),
+            (Method::Post, "/stream-edit") => handle_stream_edit(req, app),
+            (Method::Post, "/stream-edit-apply") => handle_stream_edit_apply(req, app),
             (Method::Post, "/present") => handle_present(req, app),
 
             (Method::Get, "/content") => {
@@ -965,6 +1042,146 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for the app to apply the edit — is a document open and the window responsive?",
+            }));
+        }
+    }
+}
+
+/// POST /stream-edit — preview a find/replace as a unified diff before committing.
+///
+/// Emits `mcp://stream-edit` to the frontend, which computes the diff against the
+/// LIVE document and calls back via `mcp_stream_edit_preview`. Same round-trip
+/// parking pattern as `/edit`.
+fn handle_stream_edit(mut req: Request, app: &AppHandle) {
+    #[derive(Deserialize)]
+    struct Body {
+        find: String,
+        replace: String,
+        #[serde(default = "default_true")]
+        preview: bool,
+        #[serde(rename = "previewLines", default = "default_preview_lines")]
+        preview_lines: u32,
+        path: Option<String>,
+    }
+    fn default_true() -> bool { true }
+    fn default_preview_lines() -> u32 { 5 }
+
+    let body = match read_json_body::<Body>(&mut req) {
+        Ok(b) => b,
+        Err(e) => return send_error(req, 400, &e),
+    };
+
+    if body.find.is_empty() {
+        return send_json(req, serde_json::json!({
+            "ok": false,
+            "error": "`find` must not be empty.",
+        }));
+    }
+
+    let edit_id = format!("sedit_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    let (tx, rx) = mpsc::channel::<StreamEditPreviewOutcome>();
+    {
+        let pending = app.state::<PendingStreamEdits>();
+        pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+    }
+
+    let _ = app.emit("mcp://stream-edit", serde_json::json!({
+        "editId": edit_id,
+        "find": body.find,
+        "replace": body.replace,
+        "preview": body.preview,
+        "previewLines": body.preview_lines,
+        "path": body.path,
+    }));
+
+    match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
+        Ok(outcome) if outcome.ok => {
+            send_json(req, serde_json::json!({
+                "ok": true,
+                "editId": edit_id,
+                "diff": outcome.diff,
+                "candidates": outcome.candidates,
+                "matchCount": outcome.match_count,
+            }));
+        }
+        Ok(outcome) => {
+            let msg = outcome.error.unwrap_or_else(|| "stream-edit preview failed.".into());
+            send_json(req, serde_json::json!({ "ok": false, "error": msg }));
+        }
+        Err(_) => {
+            app.state::<PendingStreamEdits>().0.lock().unwrap().remove(&edit_id);
+            send_json(req, serde_json::json!({
+                "ok": false,
+                "error": "Timed out waiting for stream-edit preview — is a document open?",
+            }));
+        }
+    }
+}
+
+/// POST /stream-edit-apply — atomically apply a previously previewed stream edit.
+///
+/// Emits `mcp://stream-edit-apply` with find/replace/matchIndex. The frontend
+/// calls `applyEditAtOccurrence` and reports back via `mcp_stream_edit_apply_result`.
+fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
+    #[derive(Deserialize)]
+    struct Body {
+        #[serde(rename = "editId")]
+        edit_id: String,
+        find: String,
+        replace: String,
+        #[serde(rename = "matchIndex", default)]
+        match_index: u32,
+        #[serde(default)]
+        save: bool,
+        path: Option<String>,
+    }
+
+    let body = match read_json_body::<Body>(&mut req) {
+        Ok(b) => b,
+        Err(e) => return send_error(req, 400, &e),
+    };
+
+    if body.find.is_empty() {
+        return send_json(req, serde_json::json!({
+            "ok": false,
+            "error": "`find` must not be empty.",
+        }));
+    }
+
+    let apply_id = format!("sapply_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    let (tx, rx) = mpsc::channel::<StreamEditApplyOutcome>();
+    {
+        let pending = app.state::<PendingStreamEditsApply>();
+        pending.0.lock().unwrap().insert(apply_id.clone(), tx);
+    }
+
+    let _ = app.emit("mcp://stream-edit-apply", serde_json::json!({
+        "editId": apply_id,
+        "find": body.find,
+        "replace": body.replace,
+        "matchIndex": body.match_index,
+        "save": body.save,
+        "path": body.path,
+        "originalEditId": body.edit_id,
+    }));
+
+    match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
+        Ok(outcome) if outcome.ok => {
+            send_json(req, serde_json::json!({
+                "ok": true,
+                "replaced": outcome.replaced,
+                "matchIndex": outcome.match_index,
+            }));
+        }
+        Ok(outcome) => {
+            let msg = outcome.error.unwrap_or_else(|| "stream-edit-apply failed.".into());
+            send_json(req, serde_json::json!({ "ok": false, "error": msg }));
+        }
+        Err(_) => {
+            app.state::<PendingStreamEditsApply>().0.lock().unwrap().remove(&apply_id);
+            send_json(req, serde_json::json!({
+                "ok": false,
+                "error": "Timed out waiting for stream-edit-apply — is a document open?",
             }));
         }
     }

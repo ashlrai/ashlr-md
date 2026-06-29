@@ -40,6 +40,8 @@ pub fn run() {
         .manage(ipc::ReviewState::default())
         .manage(ipc::VaultMirror::default())
         .manage(ipc::PendingEdits::default())
+        .manage(ipc::PendingStreamEdits::default())
+        .manage(ipc::PendingStreamEditsApply::default())
         .manage(ipc::SessionStore::default())
         .manage(afm::AfmState::default())
         .manage(activity::ActivityWatcher::default())
@@ -66,6 +68,8 @@ pub fn run() {
             ipc::mcp_sync_state,
             ipc::mcp_sync_vault,
             ipc::mcp_edit_result,
+            ipc::mcp_stream_edit_preview,
+            ipc::mcp_stream_edit_apply_result,
             ipc::set_review_verdict,
             ipc::mcp_persist_session,
             ipc::mcp_load_session,
