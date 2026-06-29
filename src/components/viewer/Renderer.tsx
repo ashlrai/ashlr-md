@@ -1,5 +1,6 @@
 import { createElement, isValidElement, memo, type ReactNode, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
+import { useUiStore } from "../../store/uiStore";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -319,6 +320,10 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
   // Subscribe to pending remote OT ops for the margin badge layer.
   const pendingOps = useDocumentStore((s) => s.pendingOps);
 
+  // Classified semantic doc type (PLAN/REVIEW/SPEC/RUNBOOK/GENERIC).
+  // Used to auto-select the best renderer and apply CSS hints.
+  const currentDocType = useUiStore((s) => s.currentDocType);
+
   // Stable selector avoids unnecessary re-renders when the array reference
   // changes but the ops themselves haven't.
   const hasBadges = pendingOps.length > 0;
@@ -327,6 +332,7 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
     <div
       className="markdown-body"
       data-doc-kind={info.kind ?? undefined}
+      data-doc-type-classified={currentDocType}
       data-review={review ? "" : undefined}
       style={{ position: "relative" }}
     >

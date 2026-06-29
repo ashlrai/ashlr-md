@@ -13,11 +13,58 @@ import {
 } from "../../ai/registry";
 import type { AIProvider } from "../../ai/types";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
+import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
 import type { ChatMessage } from "../../store/aiStore";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { memoryBlock } from "../../store/memoryStore";
+import { useUiStore } from "../../store/uiStore";
+import type { DocType } from "../../lib/docClassifier";
 import { RelatedNotes } from "./RelatedNotes";
+
+// ---------------------------------------------------------------------------
+// Doc-type context hints
+// ---------------------------------------------------------------------------
+
+/** Per-DocType prompt suggestion shown in the empty-state of the sidebar. */
+const DOC_TYPE_HINTS: Record<DocType, string | null> = {
+  PLAN: "This looks like a project plan — I can help you refine goals, check task completeness, or identify missing milestones.",
+  REVIEW: "This looks like a review document — I can help you structure feedback, identify blocking vs. non-blocking issues, or draft a summary.",
+  SPEC: "This looks like a specification — I can help you check requirement completeness, clarify acceptance criteria, or suggest edge cases.",
+  RUNBOOK: "This looks like a runbook — I can help you verify step completeness, add rollback steps, or improve troubleshooting coverage.",
+  GENERIC: null,
+};
+
+/** Renderer hint label shown alongside the doc-type badge in the sidebar. */
+const DOC_TYPE_RENDERER_HINT: Record<DocType, string | null> = {
+  PLAN:    "Tip: switch to the Plan renderer for an interactive task view.",
+  REVIEW:  "Tip: switch to the Review renderer for a structured findings view.",
+  SPEC:    "Tip: switch to the Spec renderer for a criteria-tracking view.",
+  RUNBOOK: "Tip: switch to the Runbook renderer for a step-by-step execution view.",
+  GENERIC: null,
+};
+
+function DocTypeHint({ docType }: { docType: DocType }) {
+  const hint = DOC_TYPE_HINTS[docType];
+  const rendererHint = DOC_TYPE_RENDERER_HINT[docType];
+  if (!hint) return null;
+  return (
+    <div className="ai-doc-type-hint" data-doc-type={docType} aria-live="polite">
+      <div className="ai-doc-type-hint__badge">{docType}</div>
+      <p className="ai-doc-type-hint__text">{hint}</p>
+      {rendererHint && (
+        <p className="ai-doc-type-hint__renderer-tip">{rendererHint}</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Retry constants
+// ---------------------------------------------------------------------------
+
+/** Maximum number of retry attempts after an initial failure. */
+export const MAX_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
@@ -228,10 +275,17 @@ export function AISidebar() {
   const setLibraryScope = useAIStore((s) => s.setLibraryScope);
 
   const docContent = useDocumentStore((s) => s.content);
+  const currentDocType = useUiStore((s) => s.currentDocType);
 
   const [input, setInput] = useState("");
   const [resolvedProvider, setResolvedProvider] = useState<AIProvider | null>(null);
   const [detecting, setDetecting] = useState(false);
+  // retryState: holds the pending retry context when a generation fails.
+  const [retryState, setRetryState] = useState<{
+    retryCount: number;
+    /** Re-run the last failed generation. */
+    retry: () => void;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -303,10 +357,53 @@ export function AISidebar() {
           `No document is currently open. Help the user with any Markdown or writing task.`;
   }
 
+  // Core generation runner — shared by send() and retry paths.
+  // Returns true on success, false on failure (non-abort).
+  const runGeneration = useCallback(
+    async (
+      allMessages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+      citations: LibraryCitation[],
+      controller: AbortController,
+    ): Promise<boolean> => {
+      if (!resolvedProvider) return false;
+      const startMs = Date.now();
+      try {
+        await runSelectionAction(
+          resolvedProvider,
+          allMessages,
+          (delta) => updateLast(delta),
+          controller.signal,
+        );
+        if (citations.length > 0) {
+          updateLast(`\n\n*Sources: ${citations.map((c) => c.fileName).join(" · ")}*`);
+        }
+        // Record success telemetry.
+        recordSuccess(resolvedProvider.id, resolvedProvider.capabilities.tier, Date.now() - startMs);
+        return true;
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        const isAbort =
+          errMsg === "Aborted" ||
+          (e instanceof DOMException && e.name === "AbortError");
+        if (isAbort) {
+          recordAbort(resolvedProvider.id, resolvedProvider.capabilities.tier);
+        } else {
+          recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
+          updateLast(`\n\n*Error: ${errMsg}*`);
+        }
+        return false;
+      }
+    },
+    [resolvedProvider, updateLast],
+  );
+
   // Send a chat message.
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, retryCount = 0) => {
       if (!text.trim() || !resolvedProvider || busy) return;
+
+      // Clear any previous retry state when starting a fresh send.
+      if (retryCount === 0) setRetryState(null);
 
       pushMessage({ role: "user", content: text.trim() });
       // Placeholder streaming message.
@@ -362,23 +459,27 @@ export function AISidebar() {
         ...history.slice(-20), // Keep last 20 to stay within context windows
       ];
 
-      try {
-        await runSelectionAction(
-          resolvedProvider,
-          allMessages,
-          (delta) => updateLast(delta),
-          controller.signal,
-        );
-        if (citations.length > 0) {
-          updateLast(`\n\n*Sources: ${citations.map((c) => c.fileName).join(" · ")}*`);
+      const succeeded = await runGeneration(allMessages, citations, controller);
+
+      finalizeLast();
+      setBusy(false);
+      abortRef.current = null;
+
+      // On failure (non-abort) offer retry up to MAX_RETRIES times.
+      if (!succeeded && !controller.signal.aborted) {
+        const nextRetryCount = retryCount + 1;
+        if (nextRetryCount <= MAX_RETRIES) {
+          setRetryState({
+            retryCount: nextRetryCount,
+            retry: () => {
+              setRetryState(null);
+              void send(text, nextRetryCount);
+            },
+          });
+        } else {
+          // Exceeded max retries — clear retry state.
+          setRetryState(null);
         }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg !== "Aborted") updateLast(`\n\n*Error: ${msg}*`);
-      } finally {
-        finalizeLast();
-        setBusy(false);
-        abortRef.current = null;
       }
     },
     [
@@ -390,15 +491,19 @@ export function AISidebar() {
       setBusy,
       docContent,
       libraryScope,
+      runGeneration,
     ],
   );
 
   // Run a doc-level quick action.
   const runDocAction = useCallback(
-    async (actionId: string) => {
+    async (actionId: string, retryCount = 0) => {
       if (!resolvedProvider || busy) return;
       const action = DOC_ACTIONS.find((a) => a.id === actionId);
       if (!action) return;
+
+      if (retryCount === 0) setRetryState(null);
+
       const truncated =
         docContent.length > MAX_CONTEXT_CHARS
           ? docContent.slice(0, MAX_CONTEXT_CHARS)
@@ -416,20 +521,27 @@ export function AISidebar() {
       setBusy(true);
       const controller = new AbortController();
       abortRef.current = controller;
-      try {
-        await runSelectionAction(
-          resolvedProvider,
-          msgs,
-          (d) => updateLast(d),
-          controller.signal,
-        );
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        if (m !== "Aborted") updateLast(`\n\n*Error: ${m}*`);
-      } finally {
-        finalizeLast();
-        setBusy(false);
-        abortRef.current = null;
+
+      const succeeded = await runGeneration(msgs, [], controller);
+
+      finalizeLast();
+      setBusy(false);
+      abortRef.current = null;
+
+      // Offer retry on failure (non-abort), up to MAX_RETRIES.
+      if (!succeeded && !controller.signal.aborted) {
+        const nextRetryCount = retryCount + 1;
+        if (nextRetryCount <= MAX_RETRIES) {
+          setRetryState({
+            retryCount: nextRetryCount,
+            retry: () => {
+              setRetryState(null);
+              void runDocAction(actionId, nextRetryCount);
+            },
+          });
+        } else {
+          setRetryState(null);
+        }
       }
     },
     [
@@ -440,6 +552,7 @@ export function AISidebar() {
       updateLast,
       finalizeLast,
       setBusy,
+      runGeneration,
     ],
   );
 
@@ -453,6 +566,8 @@ export function AISidebar() {
 
   function handleStop() {
     abortRef.current?.abort();
+    // Clear any pending retry when the user manually stops.
+    setRetryState(null);
   }
 
   return (
@@ -533,6 +648,7 @@ export function AISidebar() {
                 >
                   Ask anything about your document, or use the quick actions above.
                 </div>
+                {docContent && <DocTypeHint docType={currentDocType} />}
                 <RelatedNotes />
               </>
             )}
@@ -541,6 +657,36 @@ export function AISidebar() {
             ))}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Retry toast — shown after a failed generation (non-abort). */}
+          {retryState && (
+            <div className="ai-retry-toast" role="alert" aria-live="assertive">
+              <span className="ai-retry-toast__msg">
+                Generation failed.{" "}
+                {retryState.retryCount <= MAX_RETRIES
+                  ? `Retry ${retryState.retryCount} of ${MAX_RETRIES}?`
+                  : "No more retries."}
+              </span>
+              {retryState.retryCount <= MAX_RETRIES && (
+                <button
+                  type="button"
+                  className="ai-retry-btn"
+                  onClick={retryState.retry}
+                  aria-label="Retry failed AI generation"
+                >
+                  Retry
+                </button>
+              )}
+              <button
+                type="button"
+                className="ai-retry-dismiss"
+                onClick={() => setRetryState(null)}
+                aria-label="Dismiss retry"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Scope toggle: ground answers in the whole library, not just this doc. */}
           <div className="ai-scope-row">

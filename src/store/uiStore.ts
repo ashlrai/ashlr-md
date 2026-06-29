@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { DocType } from "../lib/docClassifier";
 
 interface UiState {
   exportOpen: boolean;
@@ -44,6 +45,13 @@ interface UiState {
   openOtDebug: () => void;
   closeOtDebug: () => void;
   toggleOtDebug: () => void;
+  /**
+   * The semantic type of the currently-open document as classified by
+   * docClassifier.ts.  Updated whenever the document content changes.
+   * Defaults to "GENERIC" (no document open / not yet classified).
+   */
+  currentDocType: DocType;
+  setCurrentDocType: (docType: DocType) => void;
 }
 
 /**
@@ -106,4 +114,6 @@ export const useUiStore = create<UiState>((set) => ({
   openOtDebug: () => set({ otDebugOpen: true }),
   closeOtDebug: () => set({ otDebugOpen: false }),
   toggleOtDebug: () => set((s) => ({ otDebugOpen: !s.otDebugOpen })),
+  currentDocType: "GENERIC",
+  setCurrentDocType: (docType: DocType) => set({ currentDocType: docType }),
 }));

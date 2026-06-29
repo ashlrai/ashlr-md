@@ -17,6 +17,7 @@ import { useSessionStore } from "./store/sessionStore";
 import { useSettingsStore } from "./store/settingsStore";
 import { toast } from "./store/toastStore";
 import { useUiStore } from "./store/uiStore";
+import { classify } from "./lib/docClassifier";
 import "./styles/themes.css";
 import "./styles/global.css";
 import "./styles/markdown.css";
@@ -194,6 +195,18 @@ export default function App() {
       })();
     }, 4000);
     return () => clearTimeout(t);
+  }, []);
+
+  // Classify the current document whenever its content changes, and store the
+  // result in uiStore so the AI sidebar and renderer can consume it.
+  useEffect(() => {
+    const unsub = useDocumentStore.subscribe((s) => {
+      const docType = classify(s.content);
+      useUiStore.getState().setCurrentDocType(docType);
+    });
+    // Classify on mount in case a document is already open.
+    useUiStore.getState().setCurrentDocType(classify(useDocumentStore.getState().content));
+    return unsub;
   }, []);
 
   // Activation bookkeeping + the "while you were away" Agent Activity Digest.
