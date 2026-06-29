@@ -307,6 +307,275 @@ export function fitTransform(
 }
 
 // ---------------------------------------------------------------------------
+// buildCanvasGraph (existing read-only helper — kept for CanvasViewer)
+// ---------------------------------------------------------------------------
+
+export interface CanvasGraph {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+export function buildCanvasGraph(canvas: Canvas): CanvasGraph {
+  return { nodes: [...canvas.nodes], edges: [...canvas.edges] };
+}
+
+// ---------------------------------------------------------------------------
+// serializeCanvas — write a Canvas back to JSON string
+// ---------------------------------------------------------------------------
+
+export function serializeCanvas(canvas: Canvas): string {
+  return JSON.stringify(canvas, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// CanvasEditOp — discriminated union of all mutations
+// ---------------------------------------------------------------------------
+
+export type CanvasEditOp =
+  | { type: "move_node"; id: string; x: number; y: number }
+  | { type: "resize_node"; id: string; width: number; height: number }
+  | { type: "edit_text"; id: string; text: string }
+  | { type: "edit_link"; id: string; url: string }
+  | { type: "edit_group_label"; id: string; label: string }
+  | { type: "set_node_color"; id: string; color: CanvasColor | undefined }
+  | { type: "add_node"; node: CanvasNode }
+  | { type: "delete_node"; id: string }
+  | { type: "add_edge"; edge: CanvasEdge }
+  | { type: "delete_edge"; id: string }
+  | { type: "edit_edge_label"; id: string; label: string | undefined }
+  | { type: "reorder_edges"; ids: string[] };
+
+// ---------------------------------------------------------------------------
+// CanvasEditorState — mutable AST produced by buildCanvasEditor()
+// ---------------------------------------------------------------------------
+
+export interface CanvasEditorState {
+  /** Ordered node list — mutated by editor operations. */
+  nodes: CanvasNode[];
+  /** Ordered edge list — mutated by editor operations. */
+  edges: CanvasEdge[];
+  /** Full undo stack: each entry is a snapshot before the operation. */
+  history: Canvas[];
+  /** Redo stack: snapshots popped off when a new op is applied. */
+  future: Canvas[];
+}
+
+// ---------------------------------------------------------------------------
+// buildCanvasEditor
+// ---------------------------------------------------------------------------
+
+/**
+ * Produce an editable AST from a parsed Canvas.  The returned state object
+ * is independent of the original — mutations never alias back to the source.
+ */
+export function buildCanvasEditor(canvas: Canvas): CanvasEditorState {
+  return {
+    nodes: canvas.nodes.map((n) => ({ ...n })),
+    edges: canvas.edges.map((e) => ({ ...e })),
+    history: [],
+    future: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal snapshot helpers
+// ---------------------------------------------------------------------------
+
+function snapshot(state: CanvasEditorState): Canvas {
+  return {
+    nodes: state.nodes.map((n) => ({ ...n })),
+    edges: state.edges.map((e) => ({ ...e })),
+  };
+}
+
+function pushHistory(state: CanvasEditorState): void {
+  state.history.push(snapshot(state));
+  // New op invalidates any redo future.
+  state.future = [];
+}
+
+// ---------------------------------------------------------------------------
+// applyCanvasOp — apply a single edit operation (mutates state in place)
+// ---------------------------------------------------------------------------
+
+export type CanvasOpResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export function applyCanvasOp(
+  state: CanvasEditorState,
+  op: CanvasEditOp,
+): CanvasOpResult {
+  switch (op.type) {
+    case "move_node": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      if (!Number.isFinite(op.x) || !Number.isFinite(op.y))
+        return { ok: false, error: "x and y must be finite numbers" };
+      pushHistory(state);
+      const node = state.nodes[idx];
+      state.nodes[idx] = { ...node, x: op.x, y: op.y };
+      return { ok: true };
+    }
+    case "resize_node": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      if (!Number.isFinite(op.width) || !Number.isFinite(op.height))
+        return { ok: false, error: "width and height must be finite numbers" };
+      if (op.width <= 0 || op.height <= 0)
+        return { ok: false, error: "width and height must be positive" };
+      pushHistory(state);
+      const node = state.nodes[idx];
+      state.nodes[idx] = { ...node, width: op.width, height: op.height };
+      return { ok: true };
+    }
+    case "edit_text": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      const node = state.nodes[idx];
+      if (node.type !== "text")
+        return { ok: false, error: `Node "${op.id}" is not a text node` };
+      pushHistory(state);
+      state.nodes[idx] = { ...node, text: op.text };
+      return { ok: true };
+    }
+    case "edit_link": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      const node = state.nodes[idx];
+      if (node.type !== "link")
+        return { ok: false, error: `Node "${op.id}" is not a link node` };
+      pushHistory(state);
+      state.nodes[idx] = { ...node, url: op.url };
+      return { ok: true };
+    }
+    case "edit_group_label": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      const node = state.nodes[idx];
+      if (node.type !== "group")
+        return { ok: false, error: `Node "${op.id}" is not a group node` };
+      pushHistory(state);
+      state.nodes[idx] = { ...node, label: op.label };
+      return { ok: true };
+    }
+    case "set_node_color": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      pushHistory(state);
+      const node = state.nodes[idx];
+      const updated = { ...node };
+      if (op.color === undefined) {
+        delete updated.color;
+      } else {
+        updated.color = op.color;
+      }
+      state.nodes[idx] = updated;
+      return { ok: true };
+    }
+    case "add_node": {
+      if (state.nodes.some((n) => n.id === op.node.id))
+        return { ok: false, error: `Node id "${op.node.id}" already exists` };
+      pushHistory(state);
+      state.nodes.push({ ...op.node });
+      return { ok: true };
+    }
+    case "delete_node": {
+      const idx = state.nodes.findIndex((n) => n.id === op.id);
+      if (idx === -1) return { ok: false, error: `Node "${op.id}" not found` };
+      pushHistory(state);
+      state.nodes.splice(idx, 1);
+      // Also remove all edges touching this node.
+      state.edges = state.edges.filter(
+        (e) => e.fromNode !== op.id && e.toNode !== op.id,
+      );
+      return { ok: true };
+    }
+    case "add_edge": {
+      if (state.edges.some((e) => e.id === op.edge.id))
+        return { ok: false, error: `Edge id "${op.edge.id}" already exists` };
+      if (!state.nodes.some((n) => n.id === op.edge.fromNode))
+        return { ok: false, error: `fromNode "${op.edge.fromNode}" not found` };
+      if (!state.nodes.some((n) => n.id === op.edge.toNode))
+        return { ok: false, error: `toNode "${op.edge.toNode}" not found` };
+      pushHistory(state);
+      state.edges.push({ ...op.edge });
+      return { ok: true };
+    }
+    case "delete_edge": {
+      const idx = state.edges.findIndex((e) => e.id === op.id);
+      if (idx === -1) return { ok: false, error: `Edge "${op.id}" not found` };
+      pushHistory(state);
+      state.edges.splice(idx, 1);
+      return { ok: true };
+    }
+    case "edit_edge_label": {
+      const idx = state.edges.findIndex((e) => e.id === op.id);
+      if (idx === -1) return { ok: false, error: `Edge "${op.id}" not found` };
+      pushHistory(state);
+      const edge = state.edges[idx];
+      const updated = { ...edge };
+      if (op.label === undefined) {
+        delete updated.label;
+      } else {
+        updated.label = op.label;
+      }
+      state.edges[idx] = updated;
+      return { ok: true };
+    }
+    case "reorder_edges": {
+      if (op.ids.length !== state.edges.length)
+        return {
+          ok: false,
+          error: `reorder_edges: expected ${state.edges.length} ids, got ${op.ids.length}`,
+        };
+      const edgeMap = new Map(state.edges.map((e) => [e.id, e]));
+      for (const id of op.ids) {
+        if (!edgeMap.has(id))
+          return { ok: false, error: `reorder_edges: unknown edge id "${id}"` };
+      }
+      pushHistory(state);
+      state.edges = op.ids.map((id) => edgeMap.get(id) as CanvasEdge);
+      return { ok: true };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// undoCanvasOp / redoCanvasOp
+// ---------------------------------------------------------------------------
+
+export function undoCanvasOp(state: CanvasEditorState): boolean {
+  const prev = state.history.pop();
+  if (!prev) return false;
+  // Push current snapshot onto redo stack before restoring.
+  state.future.push(snapshot(state));
+  state.nodes = prev.nodes.map((n) => ({ ...n }));
+  state.edges = prev.edges.map((e) => ({ ...e }));
+  return true;
+}
+
+export function redoCanvasOp(state: CanvasEditorState): boolean {
+  const next = state.future.pop();
+  if (!next) return false;
+  state.history.push(snapshot(state));
+  state.nodes = next.nodes.map((n) => ({ ...n }));
+  state.edges = next.edges.map((e) => ({ ...e }));
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// canvasEditorToCanvas — extract a plain Canvas for serialization
+// ---------------------------------------------------------------------------
+
+export function canvasEditorToCanvas(state: CanvasEditorState): Canvas {
+  return {
+    nodes: state.nodes.map((n) => ({ ...n })),
+    edges: state.edges.map((e) => ({ ...e })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // nodeAnchor
 // ---------------------------------------------------------------------------
 

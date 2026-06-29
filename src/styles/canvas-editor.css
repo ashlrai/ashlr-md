@@ -1,0 +1,172 @@
+/* canvas-editor.css — additional styles for the interactive CanvasEditor.
+   Extends canvas.css (already imported by CanvasViewer). */
+
+/* ── Editor surface cursor ───────────────────────────────────────────────── */
+
+.canvas-editor .canvas-surface {
+  cursor: default;
+}
+
+.canvas-surface--edge-mode {
+  cursor: crosshair !important;
+}
+
+/* ── Selected node ring ──────────────────────────────────────────────────── */
+
+.canvas-node--selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+/* ── Edge-add target highlight ───────────────────────────────────────────── */
+
+.canvas-node--edge-target:hover {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  cursor: crosshair;
+}
+
+.canvas-node--edge-source {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* ── Resize handle (visual hint; full resize is out of scope) ────────────── */
+
+.canvas-node-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: se-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    var(--border-strong) 50%
+  );
+  border-bottom-right-radius: 7px;
+}
+
+/* ── Inline edit overlay ─────────────────────────────────────────────────── */
+
+.canvas-inline-edit {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+
+.canvas-inline-edit--multi {
+  height: 100%;
+  min-height: 60px;
+}
+
+.canvas-inline-edit--single {
+  height: auto;
+}
+
+/* ── Text preview (no Renderer overhead in editor) ───────────────────────── */
+
+.canvas-node__text-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+/* ── Link in editor mode ─────────────────────────────────────────────────── */
+
+.canvas-node__link {
+  color: var(--accent);
+  word-break: break-all;
+  padding: 10px 12px;
+  display: block;
+}
+
+/* ── Edge selected state ─────────────────────────────────────────────────── */
+
+.canvas-editor-edge--selected line:last-of-type {
+  stroke: var(--accent) !important;
+  stroke-width: 3 !important;
+}
+
+/* ── Toolbar extras ──────────────────────────────────────────────────────── */
+
+.canvas-editor-toolbar {
+  left: 12px;
+  right: auto;
+  gap: 3px;
+}
+
+.canvas-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.canvas-toolbar-icon {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.canvas-toolbar-icon:hover {
+  background: var(--surface-hover);
+}
+
+.canvas-toolbar-icon--active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+.canvas-toolbar-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.canvas-toolbar-delete {
+  color: var(--text-muted);
+}
+
+.canvas-save-dirty {
+  color: var(--accent) !important;
+}
+
+/* ── Edge-add hint banner ────────────────────────────────────────────────── */
+
+.canvas-edge-add-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 6px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  color: var(--text);
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}
