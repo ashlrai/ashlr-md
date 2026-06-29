@@ -60,11 +60,6 @@ export interface ExportPayload {
   outputPath?: string | null;
 }
 
-export interface ExportEpubPayload {
-  format: "epub";
-  outputPath?: string | null;
-}
-
 export interface MarkdownArchivePayload {
   outputPath?: string | null;
   includeAssets?: boolean;

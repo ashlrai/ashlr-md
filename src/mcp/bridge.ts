@@ -94,7 +94,6 @@ export type {
   BatchExportProfileResult,
   BatchReadFileResult,
   BatchEditOpResult,
-  ExportEpubPayload,
   StreamEditPayload,
   StreamEditApplyPayload,
   StreamEditCandidateResult,

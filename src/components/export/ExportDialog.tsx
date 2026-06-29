@@ -350,6 +350,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="notion-html"
             disabled={busy}
             onClick={() => run("Notion HTML", () => exportWithProfile("notion-html", title))}
           >
@@ -367,6 +368,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="slack-html"
             disabled={busy}
             onClick={() => run("Slack (.txt)", () => exportWithProfile("slack-html", title))}
           >
@@ -384,6 +386,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="email-html"
             disabled={busy}
             onClick={() => run("Email HTML", () => exportWithProfile("email-html", title))}
           >
