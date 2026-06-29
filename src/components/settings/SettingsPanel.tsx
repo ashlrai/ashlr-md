@@ -4,6 +4,7 @@ import { useUiStore } from "../../store/uiStore";
 import {
   AgentIcon,
   AppearanceIcon,
+  ChartIcon,
   CloseIcon,
   DatabaseIcon,
   ExportIcon,
@@ -14,6 +15,7 @@ import {
   VaultIcon,
 } from "./icons";
 import { AiProviderSection } from "./sections/AiProviderSection";
+import { AiMetricsSection } from "./sections/AiMetricsSection";
 import { LinterRulesSection } from "./sections/LinterRulesSection";
 import { ExportTemplateSection } from "./sections/ExportTemplateSection";
 import { SectionHeader } from "./SectionHeader";
@@ -179,6 +181,14 @@ export function SettingsPanel() {
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="Hosted AI (Tier 3)" />
             <AiProviderSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 9 · AI provider metrics */}
+          <section className="settings-section">
+            <SectionHeader icon={<ChartIcon />} title="AI Metrics" />
+            <AiMetricsSection />
           </section>
 
           <div className="settings-divider" />

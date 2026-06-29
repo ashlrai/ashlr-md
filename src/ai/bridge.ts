@@ -4,7 +4,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAIStore } from "../store/aiStore";
+import { recordAbort, recordFailure, recordSuccess } from "../lib/telemetry";
 import type { AIMessage } from "./types";
+
+// ---------------------------------------------------------------------------
+// Provider tier map — used for telemetry recording
+// ---------------------------------------------------------------------------
+
+const PROVIDER_TIER: Record<string, number> = {
+  "apple-fm": 0,
+  ollama: 1,
+  anthropic: 2,
+  hosted: 3,
+};
 
 // ---------------------------------------------------------------------------
 // Tauri event payloads (must mirror the Rust structs in ai.rs)
@@ -86,6 +98,8 @@ export async function aiGenerateStream(
 ): Promise<void> {
   // Unique ID so multiple concurrent requests don't collide on events.
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tier = PROVIDER_TIER[providerId] ?? 1;
+  const startMs = Date.now();
 
   return new Promise<void>((resolve, reject) => {
     let unlistenDelta: (() => void) | undefined;
@@ -108,11 +122,13 @@ export async function aiGenerateStream(
       listen<{ requestId: string }>("ai://done", (e) => {
         if (e.payload.requestId !== requestId) return;
         cleanup();
+        recordSuccess(providerId, tier, Date.now() - startMs);
         resolve();
       }),
       listen<ErrorPayload>("ai://error", (e) => {
         if (e.payload.requestId !== requestId) return;
         cleanup();
+        recordFailure(providerId, tier);
         reject(new Error(e.payload.error));
       }),
     ])
@@ -124,12 +140,14 @@ export async function aiGenerateStream(
         // Handle abort before/during invoke.
         if (signal?.aborted) {
           cleanup();
+          recordAbort(providerId, tier);
           reject(new DOMException("Aborted", "AbortError"));
           return;
         }
 
         signal?.addEventListener("abort", () => {
           cleanup();
+          recordAbort(providerId, tier);
           reject(new DOMException("Aborted", "AbortError"));
         });
 
@@ -144,6 +162,7 @@ export async function aiGenerateStream(
       })
       .catch((err) => {
         cleanup();
+        recordFailure(providerId, tier);
         reject(err instanceof Error ? err : new Error(String(err)));
       });
   });
@@ -172,6 +191,9 @@ export async function afmGenerateStream(
   signal?: AbortSignal,
 ): Promise<void> {
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const providerId = "apple-fm";
+  const tier = PROVIDER_TIER[providerId];
+  const startMs = Date.now();
 
   return new Promise<void>((resolve, reject) => {
     let unlistenDelta: (() => void) | undefined;
@@ -193,11 +215,13 @@ export async function afmGenerateStream(
       listen<{ requestId: string }>("ai://done", (e) => {
         if (e.payload.requestId !== requestId) return;
         cleanup();
+        recordSuccess(providerId, tier, Date.now() - startMs);
         resolve();
       }),
       listen<ErrorPayload>("ai://error", (e) => {
         if (e.payload.requestId !== requestId) return;
         cleanup();
+        recordFailure(providerId, tier);
         reject(new Error(e.payload.error));
       }),
     ])
@@ -208,11 +232,13 @@ export async function afmGenerateStream(
 
         if (signal?.aborted) {
           cleanup();
+          recordAbort(providerId, tier);
           reject(new DOMException("Aborted", "AbortError"));
           return;
         }
         signal?.addEventListener("abort", () => {
           cleanup();
+          recordAbort(providerId, tier);
           reject(new DOMException("Aborted", "AbortError"));
         });
 
@@ -223,6 +249,7 @@ export async function afmGenerateStream(
       })
       .catch((err) => {
         cleanup();
+        recordFailure(providerId, tier);
         reject(err instanceof Error ? err : new Error(String(err)));
       });
   });

@@ -233,6 +233,17 @@ export function LinterIcon() {
   );
 }
 
+/** Bar-chart glyph for the AI Metrics section header. */
+export function ChartIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="3" y="10" width="3" height="7" rx="0.8" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="8.5" y="6" width="3" height="11" rx="0.8" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="14" y="3" width="3" height="14" rx="0.8" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 /** Gear/sun glyph for the Appearance section header. */
 export function AppearanceIcon() {
   return (
