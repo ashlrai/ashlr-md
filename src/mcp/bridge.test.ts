@@ -103,9 +103,32 @@ vi.mock("../store/recentStore", () => ({
 
 vi.mock("../store/activityStore", () => ({
   useActivityStore: {
-    getState: () => ({ watchedDir: "/vault", files: [] }),
+    getState: () => ({
+      watchedDir: "/vault",
+      files: [
+        { path: "/vault/a.md", name: "a.md", dir: "/vault", mtimeMs: 1000, size: 100 },
+        { path: "/vault/b.md", name: "b.md", dir: "/vault", mtimeMs: 2000, size: 200 },
+      ],
+    }),
     subscribe: vi.fn(() => vi.fn()),
   },
+}));
+
+// ─── crossSearch / embedSearch mocks ─────────────────────────────────────────
+
+const searchFilesMock = vi.fn().mockResolvedValue([]);
+vi.mock("../lib/crossSearch", () => ({
+  searchFiles: (...args: unknown[]) => searchFilesMock(...args),
+}));
+
+const embedSearchMock = vi.fn().mockResolvedValue([]);
+const embedAvailableMock = vi.fn().mockResolvedValue(null);
+vi.mock("../lib/embedSearch", () => ({
+  embedSearch: (...args: unknown[]) => embedSearchMock(...args),
+  embedAvailable: (...args: unknown[]) => embedAvailableMock(...args),
+  embedIndex: vi.fn().mockResolvedValue(null),
+  embedStatus: vi.fn().mockResolvedValue(null),
+  invalidateEmbedAvailable: vi.fn(),
 }));
 
 // ─── Toast capture ────────────────────────────────────────────────────────────
@@ -190,12 +213,19 @@ beforeEach(() => {
   exportHtmlMock.mockClear();
   exportMarkdownArchiveMock.mockClear();
   exportCanvasGraphMock.mockClear();
+  searchFilesMock.mockClear();
+  embedSearchMock.mockClear();
+  embedAvailableMock.mockClear();
   // Default: all export functions succeed.
   exportPdfMock.mockResolvedValue(undefined);
   exportDocxMock.mockResolvedValue(undefined);
   exportHtmlMock.mockResolvedValue(undefined);
   exportMarkdownArchiveMock.mockResolvedValue("/out/archive.tar.gz");
   exportCanvasGraphMock.mockResolvedValue("/out/vault.canvas");
+  // Default: no embedding model, no keyword hits.
+  searchFilesMock.mockResolvedValue([]);
+  embedSearchMock.mockResolvedValue([]);
+  embedAvailableMock.mockResolvedValue(null);
 
   resetDocumentStore();
   useUiStore.setState({ exportOpen: false, exportFormat: null, zenMode: false });
@@ -225,7 +255,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all eight mcp:// events", () => {
+  it("registers listeners for all eleven mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -236,6 +266,9 @@ describe("useMcpBridge — mount", () => {
       "mcp://present",
       "mcp://export-markdown-archive",
       "mcp://export-canvas-graph",
+      "mcp://batch-read",
+      "mcp://batch-edit",
+      "mcp://semantic-search",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -1147,5 +1180,388 @@ describe("mcp://export-canvas-graph event", () => {
     const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_canvas_result");
     expect(resultCall).toBeDefined();
     expect(resultCall![1].error).toContain("vault is empty");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://batch-read — multi-file read
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://batch-read event", () => {
+  it("registers listener for mcp://batch-read on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://batch-read")).toBe(true);
+  });
+
+  it("invokes read_batch_files with the provided paths", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve([]);
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-read", {
+      batchId: "br-001",
+      paths: ["/vault/a.md", "/vault/b.md"],
+    });
+    const readCall = invokeMock.mock.calls.find((c) => c[0] === "read_batch_files");
+    expect(readCall).toBeDefined();
+    expect(readCall![1]).toMatchObject({ paths: ["/vault/a.md", "/vault/b.md"] });
+  });
+
+  it("calls mcp_batch_read_result with ok=true on success", async () => {
+    const fakeResults = [
+      { path: "/vault/a.md", ok: true, content: "# A", headers: {}, metadata: { sizeBytes: 3, mtimeMs: 1000 } },
+      { path: "/vault/b.md", ok: true, content: "# B", headers: {}, metadata: { sizeBytes: 3, mtimeMs: 2000 } },
+    ];
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-read", { batchId: "br-002", paths: ["/vault/a.md", "/vault/b.md"] });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "br-002", ok: true });
+    expect(resultCall![1].results).toHaveLength(2);
+  });
+
+  it("returns per-file results including content, headers, and metadata", async () => {
+    const fakeResults = [
+      {
+        path: "/vault/notes.md",
+        ok: true,
+        content: "---\ntitle: Notes\n---\n# Notes",
+        headers: { title: "Notes" },
+        metadata: { sizeBytes: 28, mtimeMs: 5000 },
+      },
+    ];
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-read", { batchId: "br-003", paths: ["/vault/notes.md"] });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    expect(resultCall).toBeDefined();
+    const file = resultCall![1].results[0];
+    expect(file.content).toBe("---\ntitle: Notes\n---\n# Notes");
+    expect(file.headers).toMatchObject({ title: "Notes" });
+    expect(file.metadata).toMatchObject({ sizeBytes: 28 });
+  });
+
+  it("calls mcp_batch_read_result with ok=false when read_batch_files throws", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject(new Error("permission denied"));
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject(new Error("permission denied"));
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-read", { batchId: "br-004", paths: ["/vault/secret.md"] });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "br-004", ok: false });
+    expect(resultCall![1].results).toHaveLength(0);
+    expect(typeof resultCall![1].error).toBe("string");
+  });
+
+  it("always calls mcp_batch_read_result even on error (prevents Rust timeout)", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject("IPC error");
+      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_batch_files") return Promise.reject("IPC error");
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-read", { batchId: "br-005", paths: [] });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    expect(resultCall).toBeDefined();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://batch-edit — multi-file find/replace
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://batch-edit event", () => {
+  it("registers listener for mcp://batch-edit on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://batch-edit")).toBe(true);
+  });
+
+  it("applies live edit against the open document without invoking apply_batch_edit", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "Hello world" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-001",
+      ops: [{ path: "/vault/open.md", find: "Hello world", replace: "Hello there" }],
+    });
+    expect(useDocumentStore.getState().content).toBe("Hello there");
+    const diskCall = invokeMock.mock.calls.find((c) => c[0] === "apply_batch_edit");
+    expect(diskCall).toBeUndefined();
+  });
+
+  it("forwards non-open file ops to apply_batch_edit", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "current doc" });
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-002",
+      ops: [{ path: "/vault/other.md", find: "old text", replace: "new text" }],
+    });
+    const diskCall = invokeMock.mock.calls.find((c) => c[0] === "apply_batch_edit");
+    expect(diskCall).toBeDefined();
+    expect(diskCall![1].ops[0].path).toBe("/vault/other.md");
+  });
+
+  it("calls mcp_batch_edit_result with ok=true when all ops succeed", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "unique phrase" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-003",
+      ops: [{ path: "/vault/open.md", find: "unique phrase", replace: "replaced" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "be-003", ok: true });
+  });
+
+  it("calls mcp_batch_edit_result with ok=false when a live edit fails (find not found)", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "some content" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-004",
+      ops: [{ path: "/vault/open.md", find: "not present", replace: "x" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    const failedOp = resultCall![1].results.find((r: { path: string }) => r.path === "/vault/open.md");
+    expect(failedOp.ok).toBe(false);
+    expect(typeof failedOp.error).toBe("string");
+  });
+
+  it("reports partial failure: one live op fails, result reflects per-op status", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "only once here" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-005",
+      ops: [
+        { path: "/vault/open.md", find: "not present", replace: "x" },
+        { path: "/vault/other.md", find: "anything", replace: "y" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect(resultCall![1].results).toHaveLength(2);
+  });
+
+  it("always calls mcp_batch_edit_result even when apply_batch_edit throws (prevents Rust timeout)", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "doc" });
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "apply_batch_edit") return Promise.reject(new Error("disk locked"));
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "apply_batch_edit") return Promise.reject(new Error("disk locked"));
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-006",
+      ops: [{ path: "/vault/locked.md", find: "a", replace: "b" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("does not mutate live document when live edit find is ambiguous", async () => {
+    resetDocumentStore({ path: "/vault/open.md", content: "the cat and the dog" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-edit", {
+      batchId: "be-007",
+      ops: [{ path: "/vault/open.md", find: "the", replace: "a" }],
+    });
+    expect(useDocumentStore.getState().content).toBe("the cat and the dog");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://semantic-search — embeddings + BM25 vault search
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://semantic-search event", () => {
+  it("registers listener for mcp://semantic-search on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://semantic-search")).toBe(true);
+  });
+
+  it("falls back to keyword search when no embedding model is available", async () => {
+    embedAvailableMock.mockResolvedValue(null);
+    searchFilesMock.mockResolvedValue([
+      { path: "/vault/a.md", fileName: "a.md", matches: [{ lineNo: 1, snippet: "result line" }] },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-001", query: "test query" });
+    expect(searchFilesMock).toHaveBeenCalled();
+    expect(embedSearchMock).not.toHaveBeenCalled();
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ searchId: "ss-001", ok: true, usedEmbeddings: false });
+    expect(resultCall![1].results.length).toBeGreaterThan(0);
+  });
+
+  it("uses embed_search when an embedding model is available", async () => {
+    embedAvailableMock.mockResolvedValue("nomic-embed-text");
+    embedSearchMock.mockResolvedValue([
+      { path: "/vault/a.md", fileName: "a.md", snippet: "semantic hit", score: 0.9 },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-002", query: "semantic query", rerank: false });
+    expect(embedSearchMock).toHaveBeenCalled();
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ searchId: "ss-002", ok: true, usedEmbeddings: true });
+  });
+
+  it("applies RRF reranking when rerank=true and embedding model is available", async () => {
+    embedAvailableMock.mockResolvedValue("nomic-embed-text");
+    embedSearchMock.mockResolvedValue([
+      { path: "/vault/a.md", fileName: "a.md", snippet: "semantic A", score: 0.95 },
+      { path: "/vault/b.md", fileName: "b.md", snippet: "semantic B", score: 0.7 },
+    ]);
+    searchFilesMock.mockResolvedValue([
+      { path: "/vault/b.md", fileName: "b.md", matches: [{ lineNo: 1, snippet: "keyword B" }] },
+      { path: "/vault/c.md", fileName: "c.md", matches: [{ lineNo: 2, snippet: "keyword C" }] },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-003", query: "reranked", rerank: true });
+    expect(embedSearchMock).toHaveBeenCalled();
+    expect(searchFilesMock).toHaveBeenCalled();
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    // /vault/b.md appears in both lists — should rank higher after RRF fusion.
+    const paths = resultCall![1].results.map((r: { path: string }) => r.path);
+    expect(paths).toContain("/vault/b.md");
+    // /vault/c.md (keyword only) should also appear in merged results.
+    expect(paths).toContain("/vault/c.md");
+  });
+
+  it("trims results to k when more are available", async () => {
+    embedAvailableMock.mockResolvedValue(null);
+    searchFilesMock.mockResolvedValue(
+      Array.from({ length: 20 }, (_, i) => ({
+        path: `/vault/doc${i}.md`,
+        fileName: `doc${i}.md`,
+        matches: [{ lineNo: 1, snippet: `snippet ${i}` }],
+      })),
+    );
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-004", query: "many results", k: 5 });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].results).toHaveLength(5);
+  });
+
+  it("calls mcp_semantic_search_result with ok=false when embedSearch throws", async () => {
+    embedAvailableMock.mockResolvedValue("nomic-embed-text");
+    embedSearchMock.mockRejectedValue(new Error("embed model crashed"));
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-005", query: "crash test" });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ searchId: "ss-005", ok: false });
+    expect(typeof resultCall![1].error).toBe("string");
+  });
+
+  it("always calls mcp_semantic_search_result (prevents Rust timeout)", async () => {
+    embedAvailableMock.mockRejectedValue(new Error("availability check failed"));
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-006", query: "timeout test" });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+  });
+
+  it("skips BM25 reranking when rerank=false even with model available", async () => {
+    embedAvailableMock.mockResolvedValue("nomic-embed-text");
+    embedSearchMock.mockResolvedValue([
+      { path: "/vault/a.md", fileName: "a.md", snippet: "hit", score: 0.9 },
+    ]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-007", query: "no rerank", rerank: false });
+    expect(searchFilesMock).not.toHaveBeenCalled();
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+  });
+
+  it("returns empty results array (not undefined) when vault has no files", async () => {
+    embedAvailableMock.mockResolvedValue(null);
+    searchFilesMock.mockResolvedValue([]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://semantic-search", { searchId: "ss-008", query: "empty vault" });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    expect(resultCall).toBeDefined();
+    expect(Array.isArray(resultCall![1].results)).toBe(true);
+    expect(resultCall![1].results).toHaveLength(0);
   });
 });

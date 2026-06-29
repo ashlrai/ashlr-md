@@ -33,6 +33,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph } from "../lib/export";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
+import { searchFiles } from "../lib/crossSearch";
+import { embedSearch, embedAvailable } from "../lib/embedSearch";
 import { useActivityStore } from "../store/activityStore";
 import { useConversationStore } from "../store/memoryStore";
 import { useDocumentStore } from "../store/documentStore";
@@ -105,6 +107,74 @@ interface OtOpPayload {
   components: OtComponent[];
   /** When true, persist the document to disk after applying. */
   save?: boolean;
+}
+
+// ── Batch / semantic tool payloads ────────────────────────────────────────────
+
+/**
+ * Payload for `mcp://batch-read` — read multiple vault files in one call.
+ *
+ * `paths` is a list of vault-relative (or absolute) paths.  Glob patterns are
+ * expanded server-side via `read_batch_files`; the frontend forwards the list
+ * as-is and lets Rust handle expansion.
+ */
+interface BatchReadPayload {
+  batchId: string;
+  paths: string[];
+}
+
+/** Per-file result returned inside `mcp_batch_read_result`. */
+export interface BatchReadFileResult {
+  path: string;
+  ok: boolean;
+  content?: string;
+  /** Extracted YAML/TOML front-matter headers (key→value). */
+  headers?: Record<string, unknown>;
+  /** File metadata: size in bytes and mtime as ms-since-epoch. */
+  metadata?: { sizeBytes: number; mtimeMs: number };
+  error?: string;
+}
+
+/**
+ * Payload for `mcp://batch-edit` — apply multiple find/replace ops atomically.
+ *
+ * Each operation is applied against the LIVE documentStore content for the
+ * path that matches the currently-open document.  Files not currently open
+ * are forwarded to Rust (`apply_batch_edit`) to edit on disk.
+ */
+interface BatchEditPayload {
+  batchId: string;
+  ops: Array<{ path: string; find: string; replace: string; save?: boolean }>;
+}
+
+/** Per-op result returned inside `mcp_batch_edit_result`. */
+export interface BatchEditOpResult {
+  path: string;
+  ok: boolean;
+  replaced: number;
+  error?: string;
+  /** Conflict marker text when the file was modified concurrently. */
+  conflict?: string;
+}
+
+/**
+ * Payload for `mcp://semantic-search` — embeddings-backed vault search with
+ * optional BM25 re-ranking fallback.
+ *
+ * When an embedding model is available, results are ranked by cosine similarity
+ * (via the `embed_search` Rust command).  When no model is available the bridge
+ * falls back to keyword search (`search_files`) so agents always get results.
+ *
+ * `rerank` (default true) fuses keyword BM25 scores with semantic scores using
+ * reciprocal-rank fusion when both signal sources are available.
+ */
+interface SemanticSearchPayload {
+  searchId: string;
+  query: string;
+  /** Maximum results to return (default 10). */
+  k?: number;
+  /** Whether to apply BM25 re-ranking on top of semantic results (default true). */
+  rerank?: boolean;
 }
 
 // ── Session persistence helpers (exported for use in MCP tools / tests) ────────
@@ -527,6 +597,220 @@ export function useMcpBridge(): void {
         }).catch((err) => {
           console.error("[mcp bridge] mcp_ot_result reply failed:", err);
         });
+      }),
+    );
+
+    // mcp://batch-read — read multiple vault files in one round-trip.
+    //
+    // Forwards the paths list to Rust (`read_batch_files`) which handles glob
+    // expansion and returns per-file {content, headers, metadata}.  We echo
+    // the result back via `mcp_batch_read_result` keyed by batchId.
+    //
+    // Like all reply-required handlers, we ALWAYS invoke `mcp_batch_read_result`
+    // — success or failure — so the Rust worker never parks waiting.
+    unlisteners.push(
+      listen<BatchReadPayload>("mcp://batch-read", async (e) => {
+        const { batchId, paths } = e.payload;
+        try {
+          const results = await invoke<BatchReadFileResult[]>("read_batch_files", { paths });
+          await invoke("mcp_batch_read_result", {
+            batchId,
+            ok: true,
+            results,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_batch_read_result", {
+            batchId,
+            ok: false,
+            results: [],
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
+      }),
+    );
+
+    // mcp://batch-edit — apply multiple find/replace ops atomically.
+    //
+    // For each op, if the target path matches the currently-open document we
+    // apply it live against documentStore (same as mcp://edit) to avoid
+    // clobbering just-typed edits.  All other paths are sent to Rust
+    // (`apply_batch_edit`) to edit on disk.
+    //
+    // Results include per-op ok/error and an optional conflict marker when the
+    // Rust layer detects a concurrent modification.  We reply via
+    // `mcp_batch_edit_result` and always reply (prevents Rust worker timeout).
+    unlisteners.push(
+      listen<BatchEditPayload>("mcp://batch-edit", async (e) => {
+        const { batchId, ops } = e.payload;
+        const opResults: BatchEditOpResult[] = [];
+        const currentPath = useDocumentStore.getState().path;
+
+        // Separate ops for the live document from ops that target disk files.
+        const liveOps: typeof ops = [];
+        const diskOps: typeof ops = [];
+        for (const op of ops) {
+          if (currentPath && op.path === currentPath) {
+            liveOps.push(op);
+          } else {
+            diskOps.push(op);
+          }
+        }
+
+        // Apply live ops against the in-memory document (zero stale-window).
+        for (const op of liveOps) {
+          const liveContent = useDocumentStore.getState().content;
+          const outcome = applyUniqueEdit(liveContent, op.find, op.replace);
+          if (outcome.ok && outcome.content !== undefined) {
+            useDocumentStore.getState().setContent(outcome.content);
+            if (op.save) {
+              await useDocumentStore.getState().save();
+            }
+            syncNow();
+          }
+          opResults.push({
+            path: op.path,
+            ok: outcome.ok,
+            replaced: outcome.replaced,
+            error: outcome.ok ? undefined : outcome.error,
+          });
+        }
+
+        // Forward disk ops to Rust for on-disk atomic patch.
+        if (diskOps.length > 0) {
+          try {
+            const diskResults = await invoke<BatchEditOpResult[]>("apply_batch_edit", {
+              ops: diskOps,
+            });
+            opResults.push(...diskResults);
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            // Mark all forwarded disk ops as failed.
+            for (const op of diskOps) {
+              opResults.push({ path: op.path, ok: false, replaced: 0, error: errStr });
+            }
+          }
+        }
+
+        const allOk = opResults.every((r) => r.ok);
+        await invoke("mcp_batch_edit_result", {
+          batchId,
+          ok: allOk,
+          results: opResults,
+          error: allOk ? null : "One or more edits failed — see per-file results.",
+        }).catch(() => {/* non-fatal */});
+      }),
+    );
+
+    // mcp://semantic-search — embeddings-backed vault search with BM25 fallback.
+    //
+    // When an Ollama embedding model is available, `embed_search` returns
+    // semantically similar chunks ranked by cosine similarity.  When `rerank`
+    // is true (default), we fuse those results with keyword BM25 hits from
+    // `search_files` using reciprocal-rank fusion (RRF) — a simple, robust
+    // cross-encoder-free reranking that works without a second model call.
+    //
+    // When no embedding model is available we fall back to keyword-only search
+    // so agents always receive results rather than an empty list.
+    //
+    // We reply via `mcp_semantic_search_result` keyed by `searchId`.
+    unlisteners.push(
+      listen<SemanticSearchPayload>("mcp://semantic-search", async (e) => {
+        const { searchId, query, k = 10, rerank = true } = e.payload;
+        try {
+          const modelAvailable = await embedAvailable();
+          const { files } = useActivityStore.getState();
+          const vaultPaths = files.map((f) => f.path);
+
+          type SearchResultItem = {
+            path: string;
+            fileName: string;
+            snippet: string;
+            score: number;
+            source: "semantic" | "keyword";
+          };
+
+          let results: SearchResultItem[] = [];
+
+          if (modelAvailable) {
+            // Semantic pass — cosine-ranked chunks from the embed index.
+            const semanticHits = await embedSearch(query, k * 2);
+            results = semanticHits.map((h) => ({
+              path: h.path,
+              fileName: h.fileName,
+              snippet: h.snippet,
+              score: h.score,
+              source: "semantic" as const,
+            }));
+
+            if (rerank && vaultPaths.length > 0) {
+              // BM25 pass — keyword hits for RRF fusion.
+              const keywordHits = await searchFiles(vaultPaths, query, k * 2);
+
+              // Build rank maps (1-based rank).
+              const semanticRank = new Map<string, number>();
+              results.forEach((r, i) => semanticRank.set(r.path, i + 1));
+
+              const keywordRank = new Map<string, number>();
+              keywordHits.forEach((r, i) => keywordRank.set(r.path, i + 1));
+
+              // RRF constant (k=60 is the standard default).
+              const RRF_K = 60;
+              const rrfScore = (path: string): number => {
+                const sr = semanticRank.get(path);
+                const kr = keywordRank.get(path);
+                return (sr ? 1 / (RRF_K + sr) : 0) + (kr ? 1 / (RRF_K + kr) : 0);
+              };
+
+              // Merge keyword hits not already in semantic results.
+              for (const kh of keywordHits) {
+                if (!semanticRank.has(kh.path)) {
+                  results.push({
+                    path: kh.path,
+                    fileName: kh.fileName,
+                    snippet: kh.matches[0]?.snippet ?? "",
+                    score: 0,
+                    source: "keyword",
+                  });
+                }
+              }
+
+              // Re-rank by RRF score (descending).
+              results.sort((a, b) => rrfScore(b.path) - rrfScore(a.path));
+            }
+          } else {
+            // Keyword-only fallback when no embedding model is available.
+            const keywordHits = await searchFiles(vaultPaths, query, k);
+            results = keywordHits.map((h, i) => ({
+              path: h.path,
+              fileName: h.fileName,
+              snippet: h.matches[0]?.snippet ?? "",
+              score: 1 / (i + 1), // reciprocal-rank score as a proxy
+              source: "keyword" as const,
+            }));
+          }
+
+          // Trim to requested k.
+          const trimmed = results.slice(0, k);
+
+          await invoke("mcp_semantic_search_result", {
+            searchId,
+            ok: true,
+            results: trimmed,
+            usedEmbeddings: !!modelAvailable,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_semantic_search_result", {
+            searchId,
+            ok: false,
+            results: [],
+            usedEmbeddings: false,
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
       }),
     );
 
