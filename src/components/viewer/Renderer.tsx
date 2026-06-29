@@ -26,6 +26,7 @@ import { CodeBlock } from "./CodeBlock";
 import { DiffBlock } from "./DiffBlock";
 import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
+import { LinkPreviewPopover } from "../LinkPreviewPopover";
 import { MermaidBlock } from "./MermaidBlock";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { TaskCheckbox } from "./TaskCheckbox";
@@ -33,6 +34,34 @@ import { WikiEmbed } from "./WikiEmbed";
 import { Wikilink } from "./Wikilink";
 
 const CALLOUT_TYPES: CalloutType[] = ["note", "tip", "warning", "important", "caution"];
+
+// ---------------------------------------------------------------------------
+// LinkPreviewAnchor
+// ---------------------------------------------------------------------------
+
+/**
+ * A regular `<a>` element wrapped with `LinkPreviewPopover` so that hovering
+ * for 500 ms shows an inline content preview:
+ *   • .md / vault links  → first heading + paragraph of the target file
+ *   • http(s):// links   → "External link — <domain>" stub (no network fetch)
+ *   • anchor / mailto    → no popover shown
+ */
+function LinkPreviewAnchor({
+  href,
+  children,
+  ...rest
+}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: ReactNode }) {
+  const currentPath = useDocumentStore((s) => s.path);
+  return (
+    <LinkPreviewPopover href={href ?? ""} currentPath={currentPath}>
+      {(handlers) => (
+        <a href={href} target="_blank" rel="noreferrer noopener" {...handlers} {...rest}>
+          {children}
+        </a>
+      )}
+    </LinkPreviewPopover>
+  );
+}
 
 /** Recursively collect plain text from React children (for fenced code). */
 function textOf(node: ReactNode): string {
@@ -90,6 +119,8 @@ const components: Components = {
     return <pre>{children}</pre>;
   },
   // Open links in a new context; strip the react-markdown `node` prop.
+  // All non-wikilink, non-footnote anchors are wrapped in LinkPreviewPopover
+  // so hovering them shows an inline content preview (Obsidian-style).
   a({ href, children, node, ...rest }) {
     const classes = node?.properties?.className;
     // Obsidian-style [[internal link]] (tagged by remark-wikilinks).
@@ -111,10 +142,12 @@ const components: Components = {
         </FootnoteRef>
       );
     }
+    // All other links (regular markdown links + external URLs) get the
+    // inline link preview popover on hover.
     return (
-      <a href={href} target="_blank" rel="noreferrer noopener" {...rest}>
+      <LinkPreviewAnchor href={href} {...rest}>
         {children}
-      </a>
+      </LinkPreviewAnchor>
     );
   },
   h1: (p) => heading(1, p),
