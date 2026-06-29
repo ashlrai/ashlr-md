@@ -59,6 +59,7 @@ import { useReviewStore } from "../store/reviewStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { applyUniqueEdit } from "./applyEdit";
+import { syncDocToSession } from "../store/sessionPersistenceStore";
 
 // ── Atomic-edits payload shapes ───────────────────────────────────────────────
 
@@ -486,8 +487,20 @@ export function useMcpBridge(): void {
       }, 500);
     };
 
+    // Sync document content to the session persistence cache on every change
+    // (debounced 300 ms via syncDocToSession → cacheDocument).  Non-fatal.
+    const schedulePersistenceSync = () => {
+      const { path, content } = useDocumentStore.getState();
+      if (path && content) {
+        syncDocToSession(path, content).catch(() => {
+          // Non-fatal — persistence is best-effort.
+        });
+      }
+    };
+
     // Subscribe to the stores.  Zustand subscribe returns an unsubscribe fn.
     const unsubDoc = useDocumentStore.subscribe(scheduleSync);
+    const unsubDocPersistence = useDocumentStore.subscribe(schedulePersistenceSync);
     const unsubRecent = useRecentStore.subscribe(scheduleSync);
     const unsubActivity = useActivityStore.subscribe(scheduleVaultSync);
     const unsubConversation = useConversationStore.subscribe(scheduleSessionSync);
@@ -1775,6 +1788,7 @@ export function useMcpBridge(): void {
     return () => {
       disposed = true;
       unsubDoc();
+      unsubDocPersistence();
       unsubRecent();
       unsubActivity();
       unsubConversation();
