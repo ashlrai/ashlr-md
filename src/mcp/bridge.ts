@@ -32,6 +32,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
+import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../lib/mdlint";
+import { useSettingsStore } from "../store/settingsStore";
 import { copyAsRichText } from "../lib/copyRichText";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { parseDiffHunks } from "../lib/diff";
@@ -1127,6 +1129,76 @@ export function useMcpBridge(): void {
           }).catch(() => {/* non-fatal */});
         }
       }),
+    );
+
+    // mcp://lint-document — lint the current document and optionally auto-fix.
+    //
+    // Returns all violations (filtered by the user's disabled-rules list) and,
+    // when `autoFix` is true, applies all available fixes and updates the live
+    // document content via `documentStore.setContent()`.
+    //
+    // Payload:
+    //   lintId    — opaque caller-assigned correlation id
+    //   autoFix   — when true, apply all available fixes and return corrected content
+    //   content   — optional override; when omitted, the live document is used
+    //
+    // Reply: `mcp_lint_document_result` with { lintId, ok, violations, content, error }
+    unlisteners.push(
+      listen<{ lintId: string; autoFix?: boolean; content?: string }>(
+        "mcp://lint-document",
+        async (e) => {
+          const { lintId, autoFix = false, content: payloadContent } = e.payload;
+          try {
+            const doc = payloadContent ?? useDocumentStore.getState().content;
+            const { linterConfig } = useSettingsStore.getState();
+            const violations = lintDocument(doc, {
+              rules: BUILTIN_RULES,
+              disabledRules: linterConfig.disabledRules,
+            });
+            const serialisable = violations.map((v) => ({
+              ruleId: v.ruleId,
+              message: v.message,
+              severity: v.severity,
+              range: v.range
+                ? {
+                    fromLine: v.range.from.line,
+                    fromCol: v.range.from.col,
+                    toLine: v.range.to.line,
+                    toCol: v.range.to.col,
+                  }
+                : null,
+              fixable: v.fix !== null,
+            }));
+
+            let resultContent = doc;
+            if (autoFix) {
+              resultContent = applyAllFixes(doc, violations);
+              // Only push back to the live store when we used the live doc.
+              if (!payloadContent) {
+                useDocumentStore.getState().setContent(resultContent);
+                syncNow();
+              }
+            }
+
+            await invoke("mcp_lint_document_result", {
+              lintId,
+              ok: true,
+              violations: serialisable,
+              content: autoFix ? resultContent : null,
+              error: null,
+            }).catch(() => {/* non-fatal */});
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            await invoke("mcp_lint_document_result", {
+              lintId,
+              ok: false,
+              violations: [],
+              content: null,
+              error: errStr,
+            }).catch(() => {/* non-fatal */});
+          }
+        },
+      ),
     );
 
     // Track each listener's unlisten fn as it resolves (or unlisten on the spot

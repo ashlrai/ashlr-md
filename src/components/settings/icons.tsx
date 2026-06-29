@@ -217,6 +217,22 @@ export function ExportIcon() {
   );
 }
 
+/** Wrench glyph for the Linter rules section header. */
+export function LinterIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M13 3.5a4 4 0 0 1 .6 6.3L7 16.5A2 2 0 1 1 4.5 14l6.7-7a4 4 0 0 1-1.7-3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="13.5" cy="5.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Gear/sun glyph for the Appearance section header. */
 export function AppearanceIcon() {
   return (

@@ -396,6 +396,122 @@ export const ruleNoConsecutiveBlankLines: LintRule = {
   },
 };
 
+/**
+ * RULE: orphaned-heading
+ * A heading that is immediately followed by another heading (with no body text
+ * between them) is "orphaned" — it introduces a section but has no content.
+ * Fix: no autofix (the user needs to add content or remove the heading).
+ */
+export const ruleOrphanedHeading: LintRule = {
+  id: "orphaned-heading",
+  label: "No orphaned headings",
+  description: "A heading should be followed by body text before the next heading.",
+  severity: "warning",
+  check({ doc, lines }): LintViolation[] {
+    const violations: LintViolation[] = [];
+    let offset = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^#{1,6}\s/.test(line)) {
+        // Look for the next non-blank line
+        let j = i + 1;
+        while (j < lines.length && lines[j].trim() === "") j++;
+        if (j < lines.length && /^#{1,6}\s/.test(lines[j])) {
+          violations.push({
+            ruleId: "orphaned-heading",
+            message: `Orphaned heading: "${line.replace(/^#+\s+/, "").slice(0, 40)}" has no body text before the next heading.`,
+            severity: "warning",
+            range: range(doc, offset, offset + line.length),
+            fix: null,
+          });
+        }
+      }
+      offset += line.length + 1;
+    }
+    return violations;
+  },
+};
+
+/**
+ * RULE: invalid-link-target
+ * Markdown links whose href is empty or obviously broken (just `#`, bare `?`,
+ * or whitespace-only) are flagged. Autofix replaces the href with a `TODO`
+ * placeholder so it is searchable.
+ */
+export const ruleInvalidLinkTarget: LintRule = {
+  id: "invalid-link-target",
+  label: "No invalid link targets",
+  description: "Markdown link hrefs must not be empty or contain only whitespace/punctuation.",
+  severity: "warning",
+  check({ doc }): LintViolation[] {
+    const violations: LintViolation[] = [];
+    // Match [text](href) — capture the full match so we can compute offset
+    const LINK_RE = /\[([^\]]*?)\]\(([^)]*)\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = LINK_RE.exec(doc)) !== null) {
+      const href = m[2];
+      // Consider invalid: empty, whitespace-only, lone "#", lone "?"
+      if (/^\s*$/.test(href) || href === "#" || href === "?") {
+        const from = m.index;
+        const to = from + m[0].length;
+        const text = m[1] || "link";
+        violations.push({
+          ruleId: "invalid-link-target",
+          message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
+          severity: "warning",
+          range: range(doc, from, to),
+          fix: (d) => {
+            // Replace this specific occurrence by offset
+            const placeholder = `[${text}](TODO)`;
+            return d.slice(0, from) + placeholder + d.slice(to);
+          },
+        });
+      }
+    }
+    return violations;
+  },
+};
+
+/**
+ * RULE: missing-alt-text
+ * Markdown images without alt text (![](url) or ![ ](url)) are flagged.
+ * Autofix inserts a `TODO: describe image` placeholder.
+ */
+export const ruleMissingAltText: LintRule = {
+  id: "missing-alt-text",
+  label: "Images must have alt text",
+  description: "Every image must have descriptive alt text for accessibility.",
+  severity: "warning",
+  check({ doc }): LintViolation[] {
+    const violations: LintViolation[] = [];
+    // Match ![alt](src) — alt may be empty
+    const IMG_RE = /!\[([^\]]*?)\]\([^)]+\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = IMG_RE.exec(doc)) !== null) {
+      const alt = m[1];
+      if (/^\s*$/.test(alt)) {
+        const from = m.index;
+        const to = from + m[0].length;
+        // Extract the src to reconstruct the fixed image tag
+        const srcMatch = m[0].match(/\]\(([^)]+)\)/);
+        const src = srcMatch ? srcMatch[1] : "";
+        violations.push({
+          ruleId: "missing-alt-text",
+          message: `Image is missing alt text: ${src.length > 40 ? src.slice(0, 37) + "…" : src}`,
+          severity: "warning",
+          range: range(doc, from, to),
+          fix: (d) => {
+            const fixed = `![TODO: describe image](${src})`;
+            return d.slice(0, from) + fixed + d.slice(to);
+          },
+        });
+      }
+    }
+    return violations;
+  },
+};
+
 // ── Built-in rule registry ────────────────────────────────────────────────────
 
 export const BUILTIN_RULES: LintRule[] = [
@@ -407,6 +523,20 @@ export const BUILTIN_RULES: LintRule[] = [
   ruleNoTrailingSpaces,
   ruleSingleH1,
   ruleNoConsecutiveBlankLines,
+  ruleOrphanedHeading,
+  ruleInvalidLinkTarget,
+  ruleMissingAltText,
+];
+
+/**
+ * The subset of rules that are enabled by default in the Linter Toast UI.
+ * These are the four rules highlighted in the Settings → Linter rules panel.
+ */
+export const LINTER_DEFAULT_ENABLED_RULES: readonly string[] = [
+  "no-trailing-spaces",
+  "orphaned-heading",
+  "invalid-link-target",
+  "missing-alt-text",
 ];
 
 // ── Linter engine ─────────────────────────────────────────────────────────────

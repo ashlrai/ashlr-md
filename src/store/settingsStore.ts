@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ExportTemplate } from "../lib/exportTemplates";
 import { newTemplateId, NO_TEMPLATE_ID } from "../lib/exportTemplates";
+import type { LintRuleConfig } from "../lib/mdlint";
 
 export type ThemeId = "paper" | "sepia" | "midnight";
 
@@ -73,6 +74,25 @@ interface SettingsState {
   pasteImageTarget: PasteImageTarget;
   setPasteImageTarget: (target: PasteImageTarget) => void;
 
+  // ── Linter preferences ─────────────────────────────────────────────────────
+
+  /**
+   * Per-vault linter rule configuration.
+   * `disabledRules` lists rule IDs the user has explicitly turned off.
+   * All rules not in this list are enabled by default.
+   */
+  linterConfig: LintRuleConfig;
+
+  /** Replace the full linter config (used by the settings panel). */
+  setLinterConfig: (config: LintRuleConfig) => void;
+
+  /**
+   * Toggle a single rule on or off by id.
+   * If the rule is currently disabled, it is re-enabled (removed from the list).
+   * If the rule is currently enabled, it is disabled (added to the list).
+   */
+  toggleLinterRule: (ruleId: string) => void;
+
   // ── Export template registry ────────────────────────────────────────────────
 
   /**
@@ -140,6 +160,20 @@ export const useSettingsStore = create<SettingsState>()(
       neverAskDefault: () => set({ defaultPromptSnoozedUntil: NEVER_ASK_DEFAULT }),
       resetDefaultPrompt: () => set({ defaultPromptSnoozedUntil: null }),
 
+      // ── Linter preferences ───────────────────────────────────────────────
+      linterConfig: { disabledRules: [] },
+
+      setLinterConfig: (config) => set({ linterConfig: config }),
+
+      toggleLinterRule: (ruleId) =>
+        set((s) => {
+          const disabled = s.linterConfig.disabledRules;
+          const next = disabled.includes(ruleId)
+            ? disabled.filter((id) => id !== ruleId)
+            : [...disabled, ruleId];
+          return { linterConfig: { disabledRules: next } };
+        }),
+
       // ── Export template registry ──────────────────────────────────────────
       userTemplates: [],
       activeTemplateId: NO_TEMPLATE_ID,
@@ -177,11 +211,12 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "mdopener-settings",
-      version: 3,
+      version: 4,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
       // v3 adds pasteImageTarget (default to "doc-relative").
+      // v4 adds linterConfig (default to all rules enabled).
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Record<string, unknown> & {
           defaultPromptDismissed?: boolean;
@@ -189,6 +224,7 @@ export const useSettingsStore = create<SettingsState>()(
           userTemplates?: ExportTemplate[];
           activeTemplateId?: string;
           pasteImageTarget?: PasteImageTarget;
+          linterConfig?: { disabledRules: string[] };
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -202,6 +238,9 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 3) {
           s.pasteImageTarget = s.pasteImageTarget ?? "doc-relative";
+        }
+        if (version < 4) {
+          s.linterConfig = s.linterConfig ?? { disabledRules: [] };
         }
         return s as unknown as SettingsState;
       },

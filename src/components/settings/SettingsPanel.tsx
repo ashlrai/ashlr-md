@@ -8,11 +8,13 @@ import {
   DatabaseIcon,
   ExportIcon,
   LinkIcon,
+  LinterIcon,
   MemoryIcon,
   TerminalIcon,
   VaultIcon,
 } from "./icons";
 import { AiProviderSection } from "./sections/AiProviderSection";
+import { LinterRulesSection } from "./sections/LinterRulesSection";
 import { ExportTemplateSection } from "./sections/ExportTemplateSection";
 import { SectionHeader } from "./SectionHeader";
 import {
@@ -185,6 +187,14 @@ export function SettingsPanel() {
           <section className="settings-section">
             <SectionHeader icon={<ExportIcon />} title="Export templates" />
             <ExportTemplateSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 10 · Linter rules */}
+          <section className="settings-section">
+            <SectionHeader icon={<LinterIcon />} title="Linter rules" />
+            <LinterRulesSection />
           </section>
         </div>
 
