@@ -171,6 +171,84 @@
   color: var(--text);
 }
 
+/* ── Rejected hunk ──────────────────────────────────────────────────────────── */
+
+.diff-hunk--rejected {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ── Reject button — red-tinted to signal destructive intent ──────────────── */
+
+.diff-reject-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 550;
+  background: transparent;
+  color: var(--callout-warning-color, #e05c5c);
+  border: 1px solid var(--callout-warning-color, #e05c5c);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.diff-reject-btn:hover {
+  background: var(--callout-warning-color, #e05c5c);
+  color: #fff;
+}
+
+/* ── Undo button — neutral, shown only on applied hunks ──────────────────── */
+
+.diff-undo-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 550;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.diff-undo-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* ── Status labels (Applied / Rejected) ─────────────────────────────────── */
+
+.diff-applied-label,
+.diff-rejected-label {
+  font-family: var(--ui-font);
+  font-size: 11px;
+  font-weight: 550;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.diff-applied-label {
+  color: var(--callout-tip-color, #22a845);
+}
+
+.diff-rejected-label {
+  color: var(--text-muted);
+}
+
 /* ── Shiki output inside a diff hunk — extend callouts.css selectors ─────── */
 /* callouts.css already covers .code-block .shiki .line.diff.add/remove.
    DiffBlock renders .diff-hunk > .shiki, so we need the same rules there. */

@@ -34,6 +34,8 @@ import { useEffect, useRef } from "react";
 import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
 import { copyAsRichText } from "../lib/copyRichText";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
+import { parseDiffHunks } from "../lib/diff";
+import { buildHunkOp } from "../components/viewer/DiffBlock";
 import { searchFiles } from "../lib/crossSearch";
 import { embedSearch, embedAvailable } from "../lib/embedSearch";
 import { useActivityStore } from "../store/activityStore";
@@ -215,6 +217,27 @@ export interface BatchExportFileResult {
 interface BatchExportPayload {
   batchId: string;
   exports: BatchExportEntry[];
+}
+
+/**
+ * Payload for `mcp://apply-diff-hunk` — programmatically apply a single hunk
+ * from a diff string to the live document.
+ *
+ * `diffId` is an opaque caller-assigned id returned in `mcp_apply_diff_hunk_result`.
+ * `diffText` is the full unified diff string (same as what appears in a ```diff block).
+ * `hunkIndex` is the 0-based index of the hunk to apply (within parseDiffHunks()).
+ *
+ * The bridge parses the diff, finds the hunk, builds an OT op, and calls
+ * documentStore.applyOp() — exactly the same path as the UI "Apply" button.
+ * Like all reply-required handlers, we always invoke `mcp_apply_diff_hunk_result`
+ * so the Rust worker never parks waiting.
+ */
+interface ApplyDiffHunkPayload {
+  diffId: string;
+  diffText: string;
+  hunkIndex: number;
+  /** When true, persist the document to disk after applying. */
+  save?: boolean;
 }
 
 /** Payload for `mcp://diff-docs` — diff two document paths. */
@@ -1005,6 +1028,76 @@ export function useMcpBridge(): void {
             removed: 0,
             pathA,
             pathB,
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
+      }),
+    );
+
+    // mcp://apply-diff-hunk — programmatically apply a single diff hunk.
+    //
+    // Parses `diffText` with parseDiffHunks(), selects the hunk at `hunkIndex`,
+    // builds an OT operation via buildHunkOp(), and applies it atomically via
+    // documentStore.applyOp(). Replies via `mcp_apply_diff_hunk_result`.
+    //
+    // Errors surfaced: hunk index out of bounds, anchor not found / ambiguous,
+    // applyOp returning false (OT state mismatch).
+    unlisteners.push(
+      listen<ApplyDiffHunkPayload>("mcp://apply-diff-hunk", async (e) => {
+        const { diffId, diffText, hunkIndex, save } = e.payload;
+        try {
+          const hunks = parseDiffHunks(diffText);
+          if (hunkIndex < 0 || hunkIndex >= hunks.length) {
+            await invoke("mcp_apply_diff_hunk_result", {
+              diffId,
+              ok: false,
+              hunkIndex,
+              error: `hunkIndex ${hunkIndex} out of bounds — diff has ${hunks.length} hunk(s)`,
+            }).catch(() => {/* non-fatal */});
+            return;
+          }
+          const hunk = hunks[hunkIndex];
+          const liveContent = useDocumentStore.getState().content;
+          const op = buildHunkOp(liveContent, hunk.find, hunk.replace, "mcp-agent", {}, Date.now());
+          if (!op) {
+            const occurrences = liveContent.split(hunk.find).length - 1;
+            const errMsg = occurrences === 0
+              ? "Patch anchor not found in document"
+              : "Patch anchor is ambiguous — include more context lines";
+            await invoke("mcp_apply_diff_hunk_result", {
+              diffId,
+              ok: false,
+              hunkIndex,
+              error: errMsg,
+            }).catch(() => {/* non-fatal */});
+            return;
+          }
+          const applied = useDocumentStore.getState().applyOp(op);
+          if (!applied) {
+            await invoke("mcp_apply_diff_hunk_result", {
+              diffId,
+              ok: false,
+              hunkIndex,
+              error: "OT op inconsistent with current document state",
+            }).catch(() => {/* non-fatal */});
+            return;
+          }
+          if (save) {
+            await useDocumentStore.getState().save();
+          }
+          syncNow();
+          await invoke("mcp_apply_diff_hunk_result", {
+            diffId,
+            ok: true,
+            hunkIndex,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_apply_diff_hunk_result", {
+            diffId,
+            ok: false,
+            hunkIndex,
             error: errStr,
           }).catch(() => {/* non-fatal */});
         }

@@ -376,6 +376,45 @@ export function getCommands(): Command[] {
     //   • Toggle Activity— "mod+shift+a"
     // Each should carry a `when()` predicate and (optionally) a `shortcut`.
 
+    // ── Diff hunk shortcuts ───────────────────────────────────────────────
+    {
+      id: "diff.hunk.apply",
+      title: "Apply focused diff hunk",
+      group: "Edit",
+      hint: "Patches the hunk under keyboard focus (Alt+Y when hunk is focused)",
+      keywords: ["diff", "hunk", "apply", "patch"],
+      // No global shortcut — Alt+Y is handled locally in DiffBlock.tsx so it
+      // only fires when a .diff-hunk element is focused, preventing conflicts.
+      when: hasDoc,
+      run: () => {
+        // Trigger the Apply button on whichever .diff-hunk has focus or contains
+        // the active element — mirrors the Alt+Y handler in DiffBlock.tsx.
+        const focused = document.activeElement;
+        const hunk = focused?.closest<HTMLElement>(".diff-hunk");
+        if (hunk) {
+          const btn = hunk.querySelector<HTMLButtonElement>(".diff-apply-btn:not(:disabled)");
+          btn?.click();
+        }
+      },
+    },
+    {
+      id: "diff.hunk.reject",
+      title: "Reject focused diff hunk",
+      group: "Edit",
+      hint: "Discards the hunk under keyboard focus (Alt+N when hunk is focused)",
+      keywords: ["diff", "hunk", "reject", "discard"],
+      // No global shortcut — Alt+N is handled locally in DiffBlock.tsx.
+      when: hasDoc,
+      run: () => {
+        const focused = document.activeElement;
+        const hunk = focused?.closest<HTMLElement>(".diff-hunk");
+        if (hunk) {
+          const btn = hunk.querySelector<HTMLButtonElement>(".diff-reject-btn");
+          btn?.click();
+        }
+      },
+    },
+
     // ── Edit ──────────────────────────────────────────────────────────────
     {
       id: "edit.insertTable",

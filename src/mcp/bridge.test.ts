@@ -62,6 +62,16 @@ const exportDocxMock = vi.fn().mockResolvedValue(undefined);
 const exportHtmlMock = vi.fn().mockResolvedValue(undefined);
 const exportMarkdownArchiveMock = vi.fn().mockResolvedValue("/out/archive.tar.gz");
 const exportCanvasGraphMock = vi.fn().mockResolvedValue("/out/vault.canvas");
+// ─── DiffBlock mock — buildHunkOp used by mcp://apply-diff-hunk ──────────────
+
+const buildHunkOpMock = vi.fn();
+vi.mock("../components/viewer/DiffBlock", () => ({
+  buildHunkOp: (...args: unknown[]) => buildHunkOpMock(...args),
+  buildInverseHunkOp: vi.fn().mockReturnValue(null),
+  buildHunkLines: vi.fn().mockReturnValue([]),
+  DiffBlock: vi.fn(),
+}));
+
 vi.mock("../lib/export", () => ({
   exportPdf: (...args: unknown[]) => exportPdfMock(...args),
   exportDocx: (...args: unknown[]) => exportDocxMock(...args),
@@ -213,6 +223,7 @@ beforeEach(() => {
   exportHtmlMock.mockClear();
   exportMarkdownArchiveMock.mockClear();
   exportCanvasGraphMock.mockClear();
+  buildHunkOpMock.mockClear();
   searchFilesMock.mockClear();
   embedSearchMock.mockClear();
   embedAvailableMock.mockClear();
@@ -255,7 +266,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all thirteen mcp:// events", () => {
+  it("registers listeners for all fourteen mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -271,6 +282,7 @@ describe("useMcpBridge — mount", () => {
       "mcp://semantic-search",
       "mcp://batch-export",
       "mcp://diff-docs",
+      "mcp://apply-diff-hunk",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -1899,5 +1911,144 @@ describe("mcp://diff-docs event", () => {
     expect(resultCall![1].hunks).toBe(0);
     expect(resultCall![1].added).toBe(0);
     expect(resultCall![1].removed).toBe(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://apply-diff-hunk — programmatic diff hunk application
+// ════════════════════════════════════════════════════════════════════════════
+
+const SIMPLE_DIFF = `--- a/f.ts
++++ b/f.ts
+@@ -1,3 +1,3 @@
+ ctx
+-old line
++new line
+ ctx
+`;
+
+describe("mcp://apply-diff-hunk event", () => {
+  beforeEach(() => {
+    buildHunkOpMock.mockReset();
+  });
+
+  it("registers listener for mcp://apply-diff-hunk on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://apply-diff-hunk")).toBe(true);
+  });
+
+  it("calls mcp_apply_diff_hunk_result with ok=true when op is applied", async () => {
+    // Spy on applyOp to avoid needing a perfectly-covering OT op fixture.
+    const applyOpSpy = vi.spyOn(useDocumentStore.getState(), "applyOp").mockReturnValue(true);
+    const fakeOp = {
+      id: "mcp-agent:1",
+      agentId: "mcp-agent",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 4 }, { type: "delete", count: 8 }, { type: "insert", text: "new line" }, { type: "retain", count: 4 }],
+    };
+    buildHunkOpMock.mockReturnValue(fakeOp);
+    resetDocumentStore({ content: "ctx\nold line\nctx", path: "/doc.md" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-001",
+      diffText: SIMPLE_DIFF,
+      hunkIndex: 0,
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ diffId: "dh-001", ok: true, hunkIndex: 0, error: null });
+    applyOpSpy.mockRestore();
+  });
+
+  it("calls mcp_apply_diff_hunk_result with ok=false for out-of-bounds hunkIndex", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-002",
+      diffText: SIMPLE_DIFF,
+      hunkIndex: 99,
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ diffId: "dh-002", ok: false, hunkIndex: 99 });
+    expect(typeof resultCall![1].error).toBe("string");
+    expect((resultCall![1].error as string)).toMatch(/out of bounds/i);
+  });
+
+  it("calls mcp_apply_diff_hunk_result with ok=false when buildHunkOp returns null (anchor not found)", async () => {
+    buildHunkOpMock.mockReturnValue(null);
+    resetDocumentStore({ content: "completely different content", path: "/doc.md" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-003",
+      diffText: SIMPLE_DIFF,
+      hunkIndex: 0,
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ diffId: "dh-003", ok: false });
+    expect(typeof resultCall![1].error).toBe("string");
+  });
+
+  it("always calls mcp_apply_diff_hunk_result even when diff text has no hunks", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-004",
+      diffText: "not a diff at all",
+      hunkIndex: 0,
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+  });
+
+  it("calls syncNow (mcp_sync_state) after a successful apply", async () => {
+    // Spy on the real store's applyOp so we can force it to return true without
+    // needing a perfectly-covering OT op in the test fixture.
+    const applyOpSpy = vi.spyOn(useDocumentStore.getState(), "applyOp").mockReturnValue(true);
+    const content = "ctx\nold line\nctx";
+    // Build a fake op whose retain + delete covers content.length exactly.
+    const fakeOp = {
+      id: "mcp-agent:1",
+      agentId: "mcp-agent",
+      seq: 1,
+      clock: {},
+      components: [
+        { type: "retain", count: 4 },
+        { type: "delete", count: 8 },
+        { type: "insert", text: "new line" },
+        { type: "retain", count: content.length - 12 },
+      ],
+    };
+    buildHunkOpMock.mockReturnValue(fakeOp);
+    resetDocumentStore({ content, path: "/doc.md" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-005",
+      diffText: SIMPLE_DIFF,
+      hunkIndex: 0,
+    });
+    const syncCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_state");
+    expect(syncCall).toBeDefined();
+    applyOpSpy.mockRestore();
+  });
+
+  it("negative hunkIndex returns out-of-bounds error", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://apply-diff-hunk", {
+      diffId: "dh-006",
+      diffText: SIMPLE_DIFF,
+      hunkIndex: -1,
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    expect((resultCall![1].error as string)).toMatch(/out of bounds/i);
   });
 });
