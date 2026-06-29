@@ -31,6 +31,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
+import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
@@ -71,6 +72,26 @@ interface EditPayload {
   editId: string;
   find: string;
   replace: string;
+  save?: boolean;
+}
+
+/**
+ * Payload for `mcp://ot-op` — a serialised OT operation from a remote agent.
+ *
+ * The Rust IPC server (or another app window) emits this event when an agent
+ * has produced an edit encoded as an OT operation.  The bridge deserialises it,
+ * applies it atomically via `documentStore.applyOp`, and replies with
+ * `mcp_ot_result` so the sender knows whether the op landed.
+ *
+ * `opId` doubles as a correlation id (like `editId` in the find/replace path).
+ */
+interface OtOpPayload {
+  opId: string;
+  agentId: string;
+  seq: number;
+  clock: VectorClock;
+  components: OtComponent[];
+  /** When true, persist the document to disk after applying. */
   save?: boolean;
 }
 
@@ -263,6 +284,49 @@ export function useMcpBridge(): void {
         } else if (doc.path) {
           enterPresent();
         }
+      }),
+    );
+
+    // mcp://ot-op — apply a remote OT operation atomically.
+    //
+    // This is the OT counterpart to mcp://edit.  The Rust IPC worker (or a
+    // second app window acting as a peer agent) sends a fully-serialised OT
+    // operation.  We apply it against the live document, enrich it with a
+    // summary for the margin-badge UI, then reply with mcp_ot_result.
+    //
+    // Like mcp://edit, we ALWAYS reply — success or failure — so the remote
+    // side never parks waiting for an answer that never comes.
+    unlisteners.push(
+      listen<OtOpPayload>("mcp://ot-op", async (e) => {
+        const { opId, agentId, seq, clock, components, save } = e.payload;
+        const op: OtOperation = { id: opId, agentId, seq, clock, components };
+        // Enrich with summary before applying (uses the current doc content).
+        const currentContent = useDocumentStore.getState().content;
+        try {
+          op.summary = summarise(op, currentContent);
+        } catch {
+          // summarise is best-effort — don't block the apply if it fails.
+        }
+        const ok = useDocumentStore.getState().applyOp(op);
+        if (ok) {
+          if (save) {
+            await useDocumentStore.getState().save();
+          }
+          syncNow();
+          // Auto-clear margin badges after 4 s so the UI doesn't stay cluttered.
+          setTimeout(() => {
+            useDocumentStore.getState().clearPendingOps();
+          }, 4000);
+        } else {
+          toast.info(`OT op from ${agentId} could not be applied (doc state mismatch).`);
+        }
+        await invoke("mcp_ot_result", {
+          opId,
+          ok,
+          error: ok ? null : "OT op inconsistent with current document state",
+        }).catch((err) => {
+          console.error("[mcp bridge] mcp_ot_result reply failed:", err);
+        });
       }),
     );
 

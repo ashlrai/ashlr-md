@@ -9,6 +9,8 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
+import { type OtOperation } from "../../lib/ot";
+import { useDocumentStore } from "../../store/documentStore";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
@@ -214,6 +216,63 @@ function DocKindBadge({
   );
 }
 
+// ── OT margin badges ──────────────────────────────────────────────────────────
+
+/**
+ * A single diff-style margin badge summarising one remote OT operation.
+ *
+ * Rendered as an absolutely-positioned overlay anchored to the first affected
+ * line.  The badge shows the agent id and a +N / -N character-count summary.
+ * CSS classes follow the existing `.doc-kind-badge` naming convention so they
+ * pick up the design-system colour tokens automatically.
+ */
+function OtChangeBadge({ op }: { op: OtOperation }) {
+  const s = op.summary;
+  if (!s) return null;
+
+  const label = op.agentId.length > 12
+    ? `${op.agentId.slice(0, 10)}…`
+    : op.agentId;
+
+  return (
+    <div
+      className="ot-change-badge"
+      data-agent={op.agentId}
+      data-first-line={s.firstLine}
+      data-last-line={s.lastLine}
+      title={`${op.agentId}: +${s.insertedChars} / -${s.deletedChars} chars (lines ${s.firstLine + 1}–${s.lastLine + 1})`}
+      aria-label={`Remote edit by ${op.agentId}`}
+    >
+      <span className="ot-change-badge-agent">{label}</span>
+      {s.insertedChars > 0 && (
+        <span className="ot-change-badge-ins">+{s.insertedChars}</span>
+      )}
+      {s.deletedChars > 0 && (
+        <span className="ot-change-badge-del">-{s.deletedChars}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Overlay container that renders all pending remote OT badges.
+ * Positioned relative to `.markdown-body`; each badge is absolutely placed
+ * using a CSS custom property `--ot-line` that CSS rules can map to a top
+ * offset via `calc(var(--ot-line) * <line-height>)`.
+ */
+function OtChangeBadgeLayer({ ops }: { ops: OtOperation[] }) {
+  if (ops.length === 0) return null;
+  return (
+    <div className="ot-change-badge-layer" aria-live="polite" aria-label="Incoming remote edits">
+      {ops.map((op) => (
+        <OtChangeBadge key={op.id} op={op} />
+      ))}
+    </div>
+  );
+}
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+
 interface RendererProps {
   content: string;
 }
@@ -224,11 +283,19 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
   // so this is entirely non-invasive — nothing below changes when it's null.
   const review = useMemo(() => detectReviewDoc(content), [content]);
 
+  // Subscribe to pending remote OT ops for the margin badge layer.
+  const pendingOps = useDocumentStore((s) => s.pendingOps);
+
+  // Stable selector avoids unnecessary re-renders when the array reference
+  // changes but the ops themselves haven't.
+  const hasBadges = pendingOps.length > 0;
+
   return (
     <div
       className="markdown-body"
       data-doc-kind={info.kind ?? undefined}
       data-review={review ? "" : undefined}
+      style={{ position: "relative" }}
     >
       {review ? (
         <ReviewSummaryCard summary={review} />
@@ -241,6 +308,7 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
           />
         )
       )}
+      {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
       <ReactMarkdown
         remarkPlugins={[
           remarkFrontmatter,

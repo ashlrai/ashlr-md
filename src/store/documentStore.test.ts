@@ -342,3 +342,130 @@ describe("documentStore", () => {
     expect(useDocumentStore.getState().tabs[1].content).toBe("only B");
   });
 });
+
+// ── OT: applyOp / clearPendingOps ────────────────────────────────────────────
+
+import type { OtOperation } from "../lib/ot";
+
+function makeOtInsert(docLength: number, offset: number, text: string): OtOperation {
+  const components: OtOperation["components"] = [];
+  if (offset > 0) components.push({ type: "retain", count: offset });
+  components.push({ type: "insert", text });
+  if (offset < docLength) components.push({ type: "retain", count: docLength - offset });
+  return {
+    id: "test-op-1",
+    agentId: "agentX",
+    seq: 1,
+    clock: {},
+    components,
+  };
+}
+
+function makeOtDelete(docLength: number, offset: number, length: number): OtOperation {
+  const components: OtOperation["components"] = [];
+  if (offset > 0) components.push({ type: "retain", count: offset });
+  components.push({ type: "delete", count: length });
+  const trailing = docLength - offset - length;
+  if (trailing > 0) components.push({ type: "retain", count: trailing });
+  return {
+    id: "test-op-2",
+    agentId: "agentY",
+    seq: 1,
+    clock: {},
+    components,
+  };
+}
+
+describe("documentStore — applyOp", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("applyOp inserts text at the correct position", () => {
+    useDocumentStore.setState({ content: "hello world", diskContent: "hello world" });
+    const op = makeOtInsert(11, 5, "!");
+    const ok = useDocumentStore.getState().applyOp(op);
+    expect(ok).toBe(true);
+    expect(useDocumentStore.getState().content).toBe("hello! world");
+  });
+
+  it("applyOp deletes the specified range", () => {
+    useDocumentStore.setState({ content: "hello world", diskContent: "hello world" });
+    const op = makeOtDelete(11, 5, 6);
+    const ok = useDocumentStore.getState().applyOp(op);
+    expect(ok).toBe(true);
+    expect(useDocumentStore.getState().content).toBe("hello");
+  });
+
+  it("applyOp marks the document dirty when content changes from diskContent", () => {
+    useDocumentStore.setState({ content: "abc", diskContent: "abc", isDirty: false });
+    const op = makeOtInsert(3, 3, "X");
+    useDocumentStore.getState().applyOp(op);
+    expect(useDocumentStore.getState().isDirty).toBe(true);
+  });
+
+  it("applyOp returns false for an op inconsistent with doc length", () => {
+    useDocumentStore.setState({ content: "hi", diskContent: "hi" });
+    const badOp: OtOperation = {
+      id: "bad",
+      agentId: "a",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 999 }],
+    };
+    const ok = useDocumentStore.getState().applyOp(badOp);
+    expect(ok).toBe(false);
+  });
+
+  it("applyOp does not change content when it returns false", () => {
+    useDocumentStore.setState({ content: "original", diskContent: "original" });
+    const badOp: OtOperation = {
+      id: "bad",
+      agentId: "a",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 500 }],
+    };
+    useDocumentStore.getState().applyOp(badOp);
+    expect(useDocumentStore.getState().content).toBe("original");
+  });
+
+  it("applyOp accumulates ops in pendingOps", () => {
+    useDocumentStore.setState({ content: "abc", diskContent: "abc", pendingOps: [] });
+    const op1 = makeOtInsert(3, 0, "X");
+    op1.id = "op-a";
+    useDocumentStore.getState().applyOp(op1);
+    // After first op, content is "Xabc"
+    const op2 = makeOtInsert(4, 4, "Y");
+    op2.id = "op-b";
+    useDocumentStore.getState().applyOp(op2);
+    const { pendingOps } = useDocumentStore.getState();
+    expect(pendingOps).toHaveLength(2);
+    expect(pendingOps.map((o) => o.id)).toEqual(["op-a", "op-b"]);
+  });
+
+  it("clearPendingOps empties the pendingOps array", () => {
+    const op = makeOtInsert(3, 0, "X");
+    useDocumentStore.setState({
+      content: "abc",
+      diskContent: "abc",
+      pendingOps: [op],
+    });
+    useDocumentStore.getState().clearPendingOps();
+    expect(useDocumentStore.getState().pendingOps).toHaveLength(0);
+  });
+
+  it("failed applyOp does not add anything to pendingOps", () => {
+    useDocumentStore.setState({ content: "abc", diskContent: "abc", pendingOps: [] });
+    const badOp: OtOperation = {
+      id: "bad",
+      agentId: "a",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 999 }],
+    };
+    useDocumentStore.getState().applyOp(badOp);
+    expect(useDocumentStore.getState().pendingOps).toHaveLength(0);
+  });
+});

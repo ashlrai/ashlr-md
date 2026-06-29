@@ -144,6 +144,7 @@ function resetDocumentStore(patch: Partial<DocState> = {}): void {
     reloadNonce: 0,
     tabs: [],
     activeId: null,
+    pendingOps: [],
     ...patch,
   });
 }
@@ -530,5 +531,136 @@ describe("mcp://open event", () => {
     mountBridge();
     await fireEvent("mcp://open", { path: "/doc.md", mode: "read" });
     expect(useDocumentStore.getState().viewMode).toBe("read");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://ot-op — OT operation application
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://ot-op event", () => {
+  it("registers listener for mcp://ot-op on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://ot-op")).toBe(true);
+  });
+
+  it("applies a valid insert op to the document", async () => {
+    resetDocumentStore({ content: "hello world" });
+    mountBridge();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-001",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      // insert "!" at position 11 (end of "hello world")
+      components: [{ type: "retain", count: 11 }, { type: "insert", text: "!" }],
+    });
+    expect(useDocumentStore.getState().content).toBe("hello world!");
+  });
+
+  it("calls mcp_ot_result with ok=true on successful apply", async () => {
+    resetDocumentStore({ content: "hello" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-002",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 5 }, { type: "insert", text: " world" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_ot_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ opId: "ot-002", ok: true });
+  });
+
+  it("calls mcp_ot_result with ok=false when op is inconsistent with document", async () => {
+    // Doc is 5 chars but op retains 20 — out of bounds
+    resetDocumentStore({ content: "hello" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-003",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 20 }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_ot_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ opId: "ot-003", ok: false });
+  });
+
+  it("does not mutate document content when op fails", async () => {
+    resetDocumentStore({ content: "unchanged" });
+    mountBridge();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-004",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      // retain 100 chars on a 9-char doc → invalid
+      components: [{ type: "retain", count: 100 }],
+    });
+    expect(useDocumentStore.getState().content).toBe("unchanged");
+  });
+
+  it("adds the op to pendingOps after successful apply", async () => {
+    resetDocumentStore({ content: "abc" });
+    mountBridge();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-005",
+      agentId: "agentB",
+      seq: 1,
+      clock: { agentB: 0 },
+      components: [{ type: "insert", text: "X" }, { type: "retain", count: 3 }],
+    });
+    const { pendingOps } = useDocumentStore.getState();
+    expect(pendingOps.length).toBeGreaterThan(0);
+    expect(pendingOps[0].id).toBe("ot-005");
+  });
+
+  it("applies a delete op correctly", async () => {
+    resetDocumentStore({ content: "hello world" });
+    mountBridge();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-006",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      // delete " world" (6 chars starting at position 5)
+      components: [{ type: "retain", count: 5 }, { type: "delete", count: 6 }],
+    });
+    expect(useDocumentStore.getState().content).toBe("hello");
+  });
+
+  it("always calls mcp_ot_result even on failure (prevents Rust timeout)", async () => {
+    resetDocumentStore({ content: "short" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-007",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 9999 }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_ot_result");
+    expect(resultCall).toBeDefined();
+  });
+
+  it("triggers mcp_sync_state after a successful apply", async () => {
+    resetDocumentStore({ path: "/doc.md", content: "test" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://ot-op", {
+      opId: "ot-008",
+      agentId: "agentA",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 4 }, { type: "insert", text: "!" }],
+    });
+    const syncCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_state");
+    expect(syncCall).toBeDefined();
   });
 });

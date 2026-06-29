@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import { apply, type OtOperation } from "../lib/ot";
 import { useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
 
@@ -66,8 +67,25 @@ interface DocumentState {
   tabs: Tab[];
   activeId: string | null;
 
+  /**
+   * Remote OT operations that have been applied to the document but not yet
+   * acknowledged / cleared. The Renderer reads this to draw margin badges.
+   * Each entry is cleared after a short TTL by the bridge (or explicitly).
+   */
+  pendingOps: OtOperation[];
+
   openPath: (path: string) => Promise<void>;
   setContent: (content: string) => void;
+  /**
+   * Apply a remote OT operation atomically.
+   * Returns `true` if the op was applied successfully, `false` if it failed
+   * (e.g. the op is inconsistent with the current document length — this can
+   * happen if the document was replaced wholesale via set-content before the
+   * op arrived).  Failures are non-fatal; the caller should surface an error.
+   */
+  applyOp: (op: OtOperation) => boolean;
+  /** Remove all accumulated pending ops (e.g. after the badge TTL expires). */
+  clearPendingOps: () => void;
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
   save: () => Promise<void>;
@@ -167,6 +185,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   tabs: [],
   activeId: null,
+  pendingOps: [],
 
   openPath: async (path) => {
     // If this path is already open, just switch to it — no reload.
@@ -220,6 +239,32 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         tabs: syncActiveTab(next),
       };
     }),
+
+  applyOp: (op) => {
+    const s = get();
+    try {
+      const newContent = apply(s.content, op);
+      set((cur) => {
+        const next = {
+          ...cur,
+          content: newContent,
+          isDirty: newContent !== cur.diskContent,
+          pendingOps: [...cur.pendingOps, op],
+        };
+        return {
+          content: newContent,
+          isDirty: next.isDirty,
+          pendingOps: next.pendingOps,
+          tabs: syncActiveTab(next),
+        };
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  clearPendingOps: () => set({ pendingOps: [] }),
 
   setViewMode: (viewMode) =>
     set((s) => {
