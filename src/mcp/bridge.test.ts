@@ -266,7 +266,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all fifteen mcp:// events", () => {
+  it("registers listeners for all sixteen mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -284,6 +284,7 @@ describe("useMcpBridge — mount", () => {
       "mcp://diff-docs",
       "mcp://apply-diff-hunk",
       "mcp://atomic-edits",
+      "mcp://edit-canvas",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -2684,5 +2685,504 @@ describe("mcp://atomic-edits event", () => {
     const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://edit-canvas — canvas mutation with transaction semantics
+// ════════════════════════════════════════════════════════════════════════════
+
+// Helper: build a minimal valid .canvas JSON string
+function makeCanvasJson(overrides: {
+  nodes?: unknown[];
+  edges?: unknown[];
+} = {}): string {
+  return JSON.stringify({
+    nodes: overrides.nodes ?? [
+      { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "Hello" },
+      { id: "n2", type: "text", x: 200, y: 0, width: 100, height: 50, text: "World" },
+    ],
+    edges: overrides.edges ?? [{ id: "e1", fromNode: "n1", toNode: "n2" }],
+  });
+}
+
+// Helper: configure invokeMock for a canvas read/write cycle
+function setupCanvasInvoke(canvasContent: string, writeOk = true): void {
+  invokeMock.mockImplementation((cmd: string) => {
+    if (cmd === "read_canvas_file") return Promise.resolve(canvasContent);
+    if (cmd === "write_canvas_file") {
+      if (writeOk) return Promise.resolve(undefined);
+      return Promise.reject(new Error("disk write failed"));
+    }
+    if (cmd === "read_markdown_file") {
+      return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+    }
+    return Promise.resolve(undefined);
+  });
+}
+
+describe("mcp://edit-canvas event", () => {
+  // ── Registration ────────────────────────────────────────────────────────────
+
+  it("registers listener for mcp://edit-canvas on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://edit-canvas")).toBe(true);
+  });
+
+  // ── Happy path: move_node ───────────────────────────────────────────────────
+
+  it("applies move_node and returns ok=true with serialised canvas", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-001",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 500, y: 300 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1]).toMatchObject({ editId: "ec-001", ok: true });
+    // Serialised content should reflect the new position
+    const content = JSON.parse(result![1].content);
+    expect(content.nodes[0].x).toBe(500);
+    expect(content.nodes[0].y).toBe(300);
+  });
+
+  it("calls write_canvas_file with the mutated content after successful ops", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-002",
+      path: "/vault/board.canvas",
+      ops: [{ type: "edit_text", id: "n1", text: "Updated" }],
+    });
+    const writeCall = invokeMock.mock.calls.find((c) => c[0] === "write_canvas_file");
+    expect(writeCall).toBeDefined();
+    expect(writeCall![1].path).toBe("/vault/board.canvas");
+    const written = JSON.parse(writeCall![1].content);
+    const node = written.nodes.find((n: { id: string }) => n.id === "n1");
+    expect(node.text).toBe("Updated");
+  });
+
+  // ── Add node ────────────────────────────────────────────────────────────────
+
+  it("adds a node and reports nodesAffected=1", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-003",
+      path: "/vault/board.canvas",
+      ops: [
+        {
+          type: "add_node",
+          node: { id: "n3", type: "text", x: 400, y: 0, width: 100, height: 50, text: "New" },
+        },
+      ],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(true);
+    expect(result![1].nodesAffected).toBe(1);
+    const content = JSON.parse(result![1].content);
+    expect(content.nodes).toHaveLength(3);
+  });
+
+  // ── Add edge ────────────────────────────────────────────────────────────────
+
+  it("adds an edge to the canvas", async () => {
+    const canvas = makeCanvasJson({
+      nodes: [
+        { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "A" },
+        { id: "b", type: "text", x: 200, y: 0, width: 100, height: 50, text: "B" },
+      ],
+      edges: [],
+    });
+    setupCanvasInvoke(canvas);
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(canvas);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-004",
+      path: "/vault/graph.canvas",
+      ops: [{ type: "add_edge", edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" } }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const content = JSON.parse(result![1].content);
+    expect(content.edges).toHaveLength(1);
+    expect(content.edges[0].toEnd).toBe("arrow");
+  });
+
+  // ── All-or-nothing: one failing op aborts entire batch ──────────────────────
+
+  it("aborts entire batch when one op fails — no write occurs", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-005",
+      path: "/vault/board.canvas",
+      ops: [
+        { type: "move_node", id: "n1", x: 100, y: 100 },    // valid
+        { type: "move_node", id: "no-such-node", x: 0, y: 0 }, // invalid → abort
+        { type: "edit_text", id: "n2", text: "should not run" },
+      ],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/no-such-node/i);
+    // No write should have been attempted
+    const writeCall = invokeMock.mock.calls.find((c) => c[0] === "write_canvas_file");
+    expect(writeCall).toBeUndefined();
+  });
+
+  it("error message names the failing op type and index", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-006",
+      path: "/vault/board.canvas",
+      ops: [
+        { type: "edit_text", id: "n1", text: "ok" },     // [0] succeeds
+        { type: "edit_text", id: "e1", text: "bad" },    // [1] fails: e1 is an edge not a node
+      ],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/Op \[1\]/);
+    expect(result![1].error).toMatch(/edit_text/);
+  });
+
+  // ── Guard: empty ops array ──────────────────────────────────────────────────
+
+  it("returns ok=false with error when ops array is empty", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-007",
+      path: "/vault/board.canvas",
+      ops: [],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/non-empty/i);
+  });
+
+  // ── Guard: missing path ─────────────────────────────────────────────────────
+
+  it("returns ok=false with error when path is missing", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockResolvedValue(undefined);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-008",
+      path: "",
+      ops: [{ type: "move_node", id: "n1", x: 0, y: 0 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/path/i);
+  });
+
+  // ── Guard: canvas parse error ───────────────────────────────────────────────
+
+  it("returns ok=false when the canvas file contains invalid JSON", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.resolve("{ not valid json {{");
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.resolve("{ not valid json {{");
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-009",
+      path: "/vault/broken.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 0, y: 0 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/parse/i);
+  });
+
+  // ── Guard: read error ───────────────────────────────────────────────────────
+
+  it("returns ok=false when read_canvas_file throws", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.reject(new Error("file not found"));
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.reject(new Error("file not found"));
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-010",
+      path: "/vault/missing.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 0, y: 0 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toContain("file not found");
+  });
+
+  // ── Guard: write error ──────────────────────────────────────────────────────
+
+  it("returns ok=false when write_canvas_file throws", async () => {
+    setupCanvasInvoke(makeCanvasJson(), false /* writeOk=false */);
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson(), false);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-011",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 50, y: 50 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+    expect(result![1].ok).toBe(false);
+    expect(result![1].error).toMatch(/write/i);
+  });
+
+  // ── save=false skips disk write ─────────────────────────────────────────────
+
+  it("skips write_canvas_file when save=false", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-012",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 99, y: 99 }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const writeCall = invokeMock.mock.calls.find((c) => c[0] === "write_canvas_file");
+    expect(writeCall).toBeUndefined();
+    // Content is still returned even when not saved
+    expect(result![1].content).toBeTruthy();
+  });
+
+  // ── Undo/redo steps ──────────────────────────────────────────────────────────
+
+  it("applies undo steps after ops when undo>0", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-013",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 500, y: 500 }],
+      undo: 1,    // undo the move_node → canvas back to original
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const content = JSON.parse(result![1].content);
+    // After undo, node should be back at original x=0, y=0
+    expect(content.nodes[0].x).toBe(0);
+    expect(content.nodes[0].y).toBe(0);
+  });
+
+  it("always calls mcp_edit_canvas_result (prevents Rust timeout)", async () => {
+    // Even with a completely unexpected crash scenario
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.reject("IPC teardown");
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "read_canvas_file") return Promise.reject("IPC teardown");
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-014",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 0, y: 0 }],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result).toBeDefined();
+  });
+
+  // ── Multi-op batch ───────────────────────────────────────────────────────────
+
+  it("applies multiple ops in sequence — all succeed", async () => {
+    const canvas = makeCanvasJson({
+      nodes: [
+        { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "A" },
+        { id: "b", type: "text", x: 200, y: 0, width: 100, height: 50, text: "B" },
+      ],
+      edges: [],
+    });
+    setupCanvasInvoke(canvas);
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(canvas);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-015",
+      path: "/vault/board.canvas",
+      ops: [
+        { type: "move_node", id: "a", x: 10, y: 10 },
+        { type: "edit_text", id: "a", text: "A updated" },
+        { type: "set_node_color", id: "b", color: "3" },
+        { type: "add_edge", edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" } },
+      ],
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const content = JSON.parse(result![1].content);
+    expect(content.nodes[0].x).toBe(10);
+    const nodeA = content.nodes.find((n: { id: string }) => n.id === "a");
+    expect(nodeA.text).toBe("A updated");
+    const nodeB = content.nodes.find((n: { id: string }) => n.id === "b");
+    expect(nodeB.color).toBe("3");
+    expect(content.edges).toHaveLength(1);
+  });
+
+  it("delete_node op removes node and its edges", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-016",
+      path: "/vault/board.canvas",
+      ops: [{ type: "delete_node", id: "n1" }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const content = JSON.parse(result![1].content);
+    expect(content.nodes).toHaveLength(1);
+    expect(content.nodes[0].id).toBe("n2");
+    // Edge e1 connects n1 → n2, so it should be removed too
+    expect(content.edges).toHaveLength(0);
+  });
+
+  it("resize_node op updates dimensions in serialised output", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-017",
+      path: "/vault/board.canvas",
+      ops: [{ type: "resize_node", id: "n1", width: 300, height: 200 }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const node = JSON.parse(result![1].content).nodes.find((n: { id: string }) => n.id === "n1");
+    expect(node.width).toBe(300);
+    expect(node.height).toBe(200);
+  });
+
+  it("edit_group_label op updates label in serialised output", async () => {
+    const canvas = makeCanvasJson({
+      nodes: [
+        { id: "g1", type: "group", x: 0, y: 0, width: 400, height: 300, label: "Old Label" },
+      ],
+      edges: [],
+    });
+    setupCanvasInvoke(canvas);
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(canvas);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-018",
+      path: "/vault/groups.canvas",
+      ops: [{ type: "edit_group_label", id: "g1", label: "New Label" }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const node = JSON.parse(result![1].content).nodes[0];
+    expect(node.label).toBe("New Label");
+  });
+
+  it("reorder_edges op reorders edges in serialised output", async () => {
+    const canvas = makeCanvasJson({
+      nodes: [
+        { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "" },
+        { id: "b", type: "text", x: 200, y: 0, width: 100, height: 50, text: "" },
+      ],
+      edges: [
+        { id: "e1", fromNode: "a", toNode: "b" },
+        { id: "e2", fromNode: "b", toNode: "a" },
+      ],
+    });
+    setupCanvasInvoke(canvas);
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(canvas);
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-019",
+      path: "/vault/flow.canvas",
+      ops: [{ type: "reorder_edges", ids: ["e2", "e1"] }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    const edges = JSON.parse(result![1].content).edges;
+    expect(edges[0].id).toBe("e2");
+    expect(edges[1].id).toBe("e1");
+  });
+
+  it("returns editId in result payload for correlation", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "my-unique-correlation-id",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 10, y: 10 }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].editId).toBe("my-unique-correlation-id");
+  });
+
+  it("content field in result is valid JSON canvas string", async () => {
+    setupCanvasInvoke(makeCanvasJson());
+    mountBridge();
+    invokeMock.mockClear();
+    setupCanvasInvoke(makeCanvasJson());
+    await fireEvent("mcp://edit-canvas", {
+      editId: "ec-021",
+      path: "/vault/board.canvas",
+      ops: [{ type: "move_node", id: "n1", x: 1, y: 1 }],
+      save: false,
+    });
+    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
+    expect(result![1].ok).toBe(true);
+    expect(() => JSON.parse(result![1].content)).not.toThrow();
+    const parsed = JSON.parse(result![1].content);
+    expect(Array.isArray(parsed.nodes)).toBe(true);
+    expect(Array.isArray(parsed.edges)).toBe(true);
   });
 });

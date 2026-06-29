@@ -32,6 +32,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { exportDocx, exportEpub, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
+import {
+  applyCanvasOp,
+  buildCanvasEditor,
+  canvasEditorToCanvas,
+  parseCanvas,
+  serializeCanvas,
+  undoCanvasOp,
+  redoCanvasOp,
+  type CanvasEditOp,
+} from "../lib/canvas";
 import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../lib/mdlint";
 import { useSettingsStore } from "../store/settingsStore";
 import { copyAsRichText } from "../lib/copyRichText";
@@ -177,6 +187,26 @@ interface OtOpPayload {
   clock: VectorClock;
   components: OtComponent[];
   /** When true, persist the document to disk after applying. */
+  save?: boolean;
+}
+
+/**
+ * Payload for `mcp://edit-canvas` — apply a batch of CanvasEditOp mutations
+ * to a .canvas file with transaction-like (all-or-nothing) semantics.
+ *
+ * `editId`  — opaque correlation id; echoed in `mcp_edit_canvas_result`.
+ * `path`    — absolute path to the .canvas file.
+ * `ops`     — ordered array of CanvasEditOp objects.
+ * `undo`    — optional number of undo steps after all ops (default 0).
+ * `redo`    — optional number of redo steps after ops (default 0).
+ * `save`    — when true (default), write the mutated canvas back to disk.
+ */
+interface EditCanvasPayload {
+  editId: string;
+  path: string;
+  ops: CanvasEditOp[];
+  undo?: number;
+  redo?: number;
   save?: boolean;
 }
 
@@ -1514,6 +1544,121 @@ export function useMcpBridge(): void {
         }
 
         await reply(true, editResults, null);
+      }),
+    );
+
+    // mcp://edit-canvas — apply a batch of CanvasEditOp operations to a .canvas file.
+    //
+    // Transaction semantics (all-or-nothing):
+    //   1. Read the .canvas file from disk via `read_canvas_file`.
+    //   2. Parse and build an editor state.
+    //   3. Apply every op in order; if any op fails, abort — no write occurs.
+    //   4. Optionally apply undo/redo steps after the main ops batch.
+    //   5. On success, serialise and write back via `write_canvas_file`.
+    //   6. Always reply via `mcp_edit_canvas_result` (prevents Rust worker timeout).
+    //
+    // Payload:
+    //   editId   — opaque caller-assigned correlation id
+    //   path     — absolute path to the .canvas file
+    //   ops      — ordered array of CanvasEditOp mutations
+    //   undo     — optional: number of undo steps to apply after ops (default 0)
+    //   redo     — optional: number of redo steps to apply after ops (default 0)
+    //   save     — when true (default), write the result back to disk
+    unlisteners.push(
+      listen<EditCanvasPayload>("mcp://edit-canvas", async (e) => {
+        const { editId, path: canvasPath, ops, undo = 0, redo = 0, save = true } = e.payload;
+
+        const replyOk = async (nodesAffected: number, serialised: string) => {
+          await invoke("mcp_edit_canvas_result", {
+            editId,
+            ok: true,
+            path: canvasPath,
+            nodesAffected,
+            content: serialised,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        };
+
+        const replyErr = async (error: string) => {
+          await invoke("mcp_edit_canvas_result", {
+            editId,
+            ok: false,
+            path: canvasPath,
+            nodesAffected: 0,
+            content: null,
+            error,
+          }).catch(() => {/* non-fatal */});
+        };
+
+        try {
+          // ── 1. Validate payload ────────────────────────────────────────────
+          if (!canvasPath) {
+            await replyErr("`path` is required");
+            return;
+          }
+          if (!Array.isArray(ops) || ops.length === 0) {
+            await replyErr("`ops` must be a non-empty array");
+            return;
+          }
+
+          // ── 2. Read the canvas file from disk ──────────────────────────────
+          let rawContent: string;
+          try {
+            rawContent = await invoke<string>("read_canvas_file", { path: canvasPath });
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            await replyErr(`Could not read canvas file: ${errStr}`);
+            return;
+          }
+
+          // ── 3. Parse ───────────────────────────────────────────────────────
+          const parsed = parseCanvas(rawContent);
+          if (!parsed.ok) {
+            await replyErr(`Canvas parse error: ${parsed.error}`);
+            return;
+          }
+
+          // ── 4. Build editor state ──────────────────────────────────────────
+          const state = buildCanvasEditor(parsed.canvas);
+          const originalNodeCount = state.nodes.length;
+
+          // ── 5. Apply all ops — abort if any fail (all-or-nothing) ──────────
+          for (let i = 0; i < ops.length; i++) {
+            const op = ops[i] as CanvasEditOp;
+            const result = applyCanvasOp(state, op);
+            if (!result.ok) {
+              await replyErr(
+                `Op [${i}] (${op.type}) failed: ${result.error}`,
+              );
+              return; // abort — no write
+            }
+          }
+
+          // ── 6. Apply optional undo/redo steps ──────────────────────────────
+          for (let i = 0; i < undo; i++) undoCanvasOp(state);
+          for (let i = 0; i < redo; i++) redoCanvasOp(state);
+
+          // ── 7. Serialise ───────────────────────────────────────────────────
+          const canvas = canvasEditorToCanvas(state);
+          const serialised = serializeCanvas(canvas);
+
+          // ── 8. Write back to disk (if save=true) ──────────────────────────
+          if (save) {
+            try {
+              await invoke("write_canvas_file", { path: canvasPath, content: serialised });
+            } catch (err) {
+              const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+              await replyErr(`Canvas write failed: ${errStr}`);
+              return;
+            }
+          }
+
+          const nodesAffected = Math.abs(state.nodes.length - originalNodeCount);
+          await replyOk(nodesAffected, serialised);
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await replyErr(`Unexpected error in mcp://edit-canvas: ${errStr}`);
+        }
       }),
     );
 
