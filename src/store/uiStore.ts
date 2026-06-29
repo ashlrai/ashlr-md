@@ -36,6 +36,14 @@ interface UiState {
   openZen: () => void;
   closeZen: () => void;
   toggleZen: () => void;
+  /**
+   * OT debug panel (⌘⇧D) — shows pending ops, remote cursor state, and the
+   * op log.  Only meaningful when a collaborative session is active.
+   */
+  otDebugOpen: boolean;
+  openOtDebug: () => void;
+  closeOtDebug: () => void;
+  toggleOtDebug: () => void;
 }
 
 /**
@@ -94,4 +102,8 @@ export const useUiStore = create<UiState>((set) => ({
   openZen: () => set({ zenMode: true }),
   closeZen: () => set({ zenMode: false }),
   toggleZen: () => set((s) => ({ zenMode: !s.zenMode })),
+  otDebugOpen: false,
+  openOtDebug: () => set({ otDebugOpen: true }),
+  closeOtDebug: () => set({ otDebugOpen: false }),
+  toggleOtDebug: () => set((s) => ({ otDebugOpen: !s.otDebugOpen })),
 }));

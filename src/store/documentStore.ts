@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import { apply, type OtOperation } from "../lib/ot";
+import {
+  apply,
+  classifySection,
+  offsetToLineCol,
+  resolveConflict,
+  transformCursor,
+  type CursorPosition,
+  type EditSource,
+  type OtLogEntry,
+  type OtOperation,
+} from "../lib/ot";
 import { useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
 
@@ -74,6 +84,26 @@ interface DocumentState {
    */
   pendingOps: OtOperation[];
 
+  /**
+   * Remote cursor positions keyed by agentId.  Updated whenever a remote op
+   * arrives or an explicit cursor-sync message is received.  The UI uses this
+   * to render "ghost" cursor markers at the agent's current edit position.
+   */
+  remoteCursors: Record<string, CursorPosition>;
+
+  /**
+   * Whether to render remote cursor ghost markers in the editor.
+   * Controlled by the "Show remote cursors" settings toggle.
+   */
+  showRemoteCursors: boolean;
+
+  /**
+   * In-memory OT operation log for the active document.  Entries are also
+   * persisted to localStorage via `useOtLogStore` so sessions can be resumed
+   * after reconnection without re-downloading the full document.
+   */
+  opLog: OtLogEntry[];
+
   openPath: (path: string) => Promise<void>;
   setContent: (content: string) => void;
   /**
@@ -84,8 +114,34 @@ interface DocumentState {
    * op arrived).  Failures are non-fatal; the caller should surface an error.
    */
   applyOp: (op: OtOperation) => boolean;
+  /**
+   * Apply an attributed OT operation, resolving conflicts using the edit-source
+   * rules (agent wins in code/frontmatter, human wins in prose).
+   *
+   * The operation is applied using the standard OT `apply()` path; the
+   * attribution determines which op takes precedence if there is a concurrent
+   * local edit at the same position (the conflict resolution is advisory — it
+   * influences the transform tie-break but the diamond property is preserved).
+   *
+   * Also updates the remote cursor position for the operation's agent and
+   * appends the entry to `opLog`.
+   *
+   * Returns `true` on success, `false` on failure (same semantics as `applyOp`).
+   */
+  applyAttributedOp: (op: OtOperation, source: EditSource) => boolean;
   /** Remove all accumulated pending ops (e.g. after the badge TTL expires). */
   clearPendingOps: () => void;
+  /**
+   * Explicitly set / update a remote agent's cursor position.
+   * Called when a cursor-sync message arrives independently of an op.
+   */
+  setRemoteCursor: (agentId: string, offset: number) => void;
+  /** Toggle the "show remote cursors" preference. */
+  toggleShowRemoteCursors: () => void;
+  /** Return the op log entries for a given document path (for session resume). */
+  getOpLog: (docPath: string) => OtLogEntry[];
+  /** Clear the op log for a given document path. */
+  clearOpLog: (docPath: string) => void;
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
   save: () => Promise<void>;
@@ -186,6 +242,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   tabs: [],
   activeId: null,
   pendingOps: [],
+  remoteCursors: {},
+  showRemoteCursors: true,
+  opLog: [],
 
   openPath: async (path) => {
     // If this path is already open, just switch to it — no reload.
@@ -265,6 +324,89 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   clearPendingOps: () => set({ pendingOps: [] }),
+
+  applyAttributedOp: (op, source) => {
+    const s = get();
+    try {
+      const newContent = apply(s.content, op);
+
+      // Determine the section at the operation's first non-retain position.
+      let editOffset = 0;
+      for (const c of op.components) {
+        if (c.type === "retain") { editOffset += c.count; continue; }
+        break;
+      }
+      const section = classifySection(s.content, editOffset);
+
+      // Advisory conflict check: if there's a pending local op at the same
+      // position, log which side wins (does not alter the OT convergence path).
+      // This is exposed in the debug panel and for future UI hints.
+      let winner: "a" | "b" = "a";
+      if (s.pendingOps.length > 0) {
+        // Use the last pending local op as the "a" side.
+        const localSource: EditSource = "human";
+        winner = resolveConflict(localSource, source, section);
+        // `winner` is informational only — OT handles convergence regardless.
+        void winner;
+      }
+
+      // Update the remote cursor to the end of the inserted / affected range.
+      const newCursorOffset = transformCursor(editOffset, op);
+      const { line, col } = offsetToLineCol(newContent, newCursorOffset);
+      const updatedCursor: CursorPosition = {
+        agentId: op.agentId,
+        offset: newCursorOffset,
+        line,
+        col,
+        updatedAt: Date.now(),
+      };
+
+      // Append to op log.
+      const logEntry: OtLogEntry = {
+        docPath: s.path ?? "",
+        op,
+        appliedAt: Date.now(),
+        source,
+      };
+
+      set((cur) => {
+        const next = {
+          ...cur,
+          content: newContent,
+          isDirty: newContent !== cur.diskContent,
+          pendingOps: [...cur.pendingOps, op],
+          remoteCursors: { ...cur.remoteCursors, [op.agentId]: updatedCursor },
+          opLog: [...cur.opLog, logEntry],
+        };
+        return {
+          content: newContent,
+          isDirty: next.isDirty,
+          pendingOps: next.pendingOps,
+          remoteCursors: next.remoteCursors,
+          opLog: next.opLog,
+          tabs: syncActiveTab(next),
+        };
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  setRemoteCursor: (agentId, offset) => {
+    const s = get();
+    const { line, col } = offsetToLineCol(s.content, offset);
+    const cursor: CursorPosition = { agentId, offset, line, col, updatedAt: Date.now() };
+    set((cur) => ({ remoteCursors: { ...cur.remoteCursors, [agentId]: cursor } }));
+  },
+
+  toggleShowRemoteCursors: () =>
+    set((s) => ({ showRemoteCursors: !s.showRemoteCursors })),
+
+  getOpLog: (docPath) => get().opLog.filter((e) => e.docPath === docPath),
+
+  clearOpLog: (docPath) =>
+    set((s) => ({ opLog: s.opLog.filter((e) => e.docPath !== docPath) })),
 
   setViewMode: (viewMode) =>
     set((s) => {

@@ -535,6 +535,179 @@ export function concurrent(a: VectorClock, b: VectorClock): boolean {
   return !happenedBefore(a, b) && !happenedBefore(b, a);
 }
 
+// ── Edit source attribution ───────────────────────────────────────────────────
+
+/**
+ * Who authored an edit.  `"human"` = the local user,  `"agent"` = a remote
+ * AI/automation process,  `"unknown"` = attribution not available (e.g. an
+ * op that arrived before attribution metadata was added).
+ */
+export type EditSource = "human" | "agent" | "unknown";
+
+// ── Section classification ────────────────────────────────────────────────────
+
+/**
+ * Returns the section type at a given character offset in a Markdown document.
+ *
+ * - `"frontmatter"` — inside the YAML/TOML fence at the very top (`--- ... ---`)
+ * - `"code"`        — inside a fenced code block (```` ``` ... ``` ````)
+ * - `"prose"`       — everywhere else
+ *
+ * This is used by the conflict-resolution rules:
+ *   - agent edits win in frontmatter and code blocks
+ *   - human edits win in prose
+ */
+export type SectionType = "frontmatter" | "code" | "prose";
+
+export function classifySection(doc: string, offset: number): SectionType {
+  // Clamp offset to valid range.
+  const pos = Math.max(0, Math.min(offset, doc.length));
+  const before = doc.slice(0, pos);
+
+  // ── Frontmatter: starts at char 0 with "---\n" and ends at next "---\n" ──
+  if (doc.startsWith("---\n") || doc.startsWith("---\r\n")) {
+    const fmEnd = doc.indexOf("\n---", 3);
+    if (fmEnd !== -1 && pos < fmEnd + 4) {
+      return "frontmatter";
+    }
+  }
+
+  // ── Code fence: count ``` occurrences before pos ──
+  // A position is inside a code fence if there is an odd number of opening
+  // fences before it (each fence is a line starting with ``` or ~~~).
+  const fenceRe = /^(`{3,}|~{3,})/gm;
+  let fenceCount = 0;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(before)) !== null) {
+    fenceCount++;
+  }
+  if (fenceCount % 2 === 1) {
+    return "code";
+  }
+
+  return "prose";
+}
+
+// ── Cursor position ───────────────────────────────────────────────────────────
+
+/**
+ * A cursor position for a collaborating agent.  `offset` is the character
+ * offset in the current document string; `line` and `col` are 0-based and
+ * derived from `offset` for display purposes.
+ */
+export interface CursorPosition {
+  agentId: string;
+  offset: number;
+  line: number;
+  col: number;
+  /** When this position was last updated (ms since epoch). */
+  updatedAt: number;
+}
+
+/**
+ * Convert a character offset in `doc` to a `{ line, col }` pair (both 0-based).
+ */
+export function offsetToLineCol(doc: string, offset: number): { line: number; col: number } {
+  const clamped = Math.max(0, Math.min(offset, doc.length));
+  const before = doc.slice(0, clamped);
+  const lines = before.split("\n");
+  const line = lines.length - 1;
+  const col = lines[lines.length - 1].length;
+  return { line, col };
+}
+
+/**
+ * Transform a cursor offset through an OT operation.
+ *
+ * When an operation inserts text before the cursor, the cursor shifts right.
+ * When an operation deletes text that covers the cursor position, the cursor
+ * is placed at the start of the deletion range.  Deletions before the cursor
+ * shift it left.
+ *
+ * Returns the new character offset in the post-operation document.
+ */
+export function transformCursor(cursorOffset: number, op: OtOperation): number {
+  let pos = 0; // position in the original document
+  let newOffset = cursorOffset;
+
+  for (const c of op.components) {
+    if (c.type === "retain") {
+      pos += c.count;
+    } else if (c.type === "insert") {
+      // If the cursor is at or after the insertion point, shift right.
+      if (pos <= cursorOffset) {
+        newOffset += c.text.length;
+      }
+    } else {
+      // delete
+      if (pos < cursorOffset) {
+        if (pos + c.count <= cursorOffset) {
+          // Deletion is entirely before the cursor — shift left.
+          newOffset -= c.count;
+        } else {
+          // Deletion overlaps the cursor — snap to the deletion start.
+          newOffset = pos;
+        }
+      }
+      pos += c.count;
+    }
+  }
+
+  return Math.max(0, newOffset);
+}
+
+// ── Conflict resolution ───────────────────────────────────────────────────────
+
+/**
+ * Deterministic conflict-resolution rule for two concurrent operations that
+ * both edit the same position.
+ *
+ * Rules (in order):
+ *  1. If both sources agree, either wins — return `"a"`.
+ *  2. Agent edits win in `"frontmatter"` and `"code"` sections.
+ *  3. Human edits win in `"prose"` sections.
+ *  4. If attribution is `"unknown"` for either side, fall back to `"a"`
+ *     (last-write-wins / left-wins — same as the standard OT tie-break).
+ *
+ * Returns `"a"` if operation `a` should take precedence, `"b"` otherwise.
+ */
+export function resolveConflict(
+  aSource: EditSource,
+  bSource: EditSource,
+  section: SectionType,
+): "a" | "b" {
+  if (aSource === bSource) return "a";
+
+  // Unknown attribution — fall back to left-wins.
+  if (aSource === "unknown" || bSource === "unknown") return "a";
+
+  // In code/frontmatter: agent wins.
+  if (section === "code" || section === "frontmatter") {
+    return aSource === "agent" ? "a" : "b";
+  }
+
+  // In prose: human wins.
+  return aSource === "human" ? "a" : "b";
+}
+
+// ── OT operation log (for session recovery) ───────────────────────────────────
+
+/**
+ * An entry in the persisted OT operation log.  The log is written to
+ * localStorage (via `memoryStore`) so agents can resume collaborative
+ * sessions after reconnecting without re-downloading the full document.
+ */
+export interface OtLogEntry {
+  /** Unique id of the document path this entry belongs to. */
+  docPath: string;
+  /** The operation. */
+  op: OtOperation;
+  /** When this entry was appended (ms since epoch). */
+  appliedAt: number;
+  /** Attribution of this edit. */
+  source: EditSource;
+}
+
 // ── Summary extraction ────────────────────────────────────────────────────────
 
 /**

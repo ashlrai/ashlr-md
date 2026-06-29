@@ -550,3 +550,218 @@ describe("summarise", () => {
     expect(s.lastLine).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ── classifySection ───────────────────────────────────────────────────────────
+
+import { classifySection, offsetToLineCol, resolveConflict, transformCursor } from "./ot";
+
+describe("classifySection", () => {
+  it("classifies prose when there is no frontmatter or code fence", () => {
+    const doc = "# Hello\n\nJust some text.";
+    expect(classifySection(doc, 0)).toBe("prose");
+    expect(classifySection(doc, 10)).toBe("prose");
+  });
+
+  it("classifies frontmatter for offsets inside the YAML block", () => {
+    const doc = "---\ntitle: Test\n---\n\n# Hello";
+    // offset 4 is inside frontmatter ("title: ...")
+    expect(classifySection(doc, 4)).toBe("frontmatter");
+    // offset 0 is the opening "---"
+    expect(classifySection(doc, 0)).toBe("frontmatter");
+  });
+
+  it("classifies prose for content after the frontmatter fence", () => {
+    const doc = "---\ntitle: T\n---\n\n# Body";
+    // offset past the closing "---\n"
+    expect(classifySection(doc, doc.indexOf("# Body"))).toBe("prose");
+  });
+
+  it("classifies code for offsets inside a fenced code block", () => {
+    const doc = "text\n```js\nconst x = 1;\n```\nmore";
+    const codeStart = doc.indexOf("const x");
+    expect(classifySection(doc, codeStart)).toBe("code");
+  });
+
+  it("classifies prose outside a fenced code block", () => {
+    const doc = "text\n```js\ncode\n```\nafter";
+    const afterCode = doc.indexOf("after");
+    expect(classifySection(doc, afterCode)).toBe("prose");
+  });
+
+  it("handles offsets at 0 and doc.length without throwing", () => {
+    const doc = "hello";
+    expect(() => classifySection(doc, 0)).not.toThrow();
+    expect(() => classifySection(doc, doc.length)).not.toThrow();
+    // Out-of-bounds should be clamped, not throw.
+    expect(() => classifySection(doc, -5)).not.toThrow();
+    expect(() => classifySection(doc, 9999)).not.toThrow();
+  });
+});
+
+// ── offsetToLineCol ───────────────────────────────────────────────────────────
+
+describe("offsetToLineCol", () => {
+  it("offset 0 is line 0, col 0", () => {
+    expect(offsetToLineCol("hello", 0)).toEqual({ line: 0, col: 0 });
+  });
+
+  it("offset at end of first line (no newline) is line 0, col = doc length", () => {
+    expect(offsetToLineCol("hello", 5)).toEqual({ line: 0, col: 5 });
+  });
+
+  it("offset at the start of the second line", () => {
+    const doc = "hello\nworld";
+    // offset 6 is 'w' on line 1
+    expect(offsetToLineCol(doc, 6)).toEqual({ line: 1, col: 0 });
+  });
+
+  it("offset mid second line", () => {
+    const doc = "abc\ndefg";
+    // offset 6 is 'e' → line 1, col 2
+    expect(offsetToLineCol(doc, 6)).toEqual({ line: 1, col: 2 });
+  });
+
+  it("clamps negative offsets to line 0, col 0", () => {
+    expect(offsetToLineCol("hello", -3)).toEqual({ line: 0, col: 0 });
+  });
+
+  it("clamps over-length offsets to end of doc", () => {
+    const doc = "hi";
+    expect(offsetToLineCol(doc, 100)).toEqual({ line: 0, col: 2 });
+  });
+});
+
+// ── transformCursor ───────────────────────────────────────────────────────────
+
+describe("transformCursor", () => {
+  const clock0: VectorClock = {};
+
+  it("insert before cursor shifts it right by inserted length", () => {
+    // doc = "hello" (5 chars), cursor at 3, insert "AB" at offset 0
+    const op = makeInsert(5, 0, "AB", "ag", clock0, 1);
+    // Cursor was at 3; after inserting 2 chars at 0, cursor should be at 5.
+    expect(transformCursor(3, op)).toBe(5);
+  });
+
+  it("insert at cursor position shifts it right", () => {
+    const op = makeInsert(5, 2, "XY", "ag", clock0, 1);
+    // Cursor at 2, insert at 2 → cursor shifts to 4.
+    expect(transformCursor(2, op)).toBe(4);
+  });
+
+  it("insert after cursor does not move cursor", () => {
+    const op = makeInsert(5, 4, "Z", "ag", clock0, 1);
+    // Cursor at 2, insert at 4 → cursor stays at 2.
+    expect(transformCursor(2, op)).toBe(2);
+  });
+
+  it("delete entirely before cursor shifts it left", () => {
+    // doc = "hello world" (11), cursor at 8, delete [0, 6) (6 chars)
+    const op = makeDelete(11, 0, 6, "ag", clock0, 1);
+    expect(transformCursor(8, op)).toBe(2);
+  });
+
+  it("delete after cursor does not move cursor", () => {
+    const op = makeDelete(11, 8, 3, "ag", clock0, 1);
+    // Cursor at 4, delete at [8,11) → cursor stays at 4.
+    expect(transformCursor(4, op)).toBe(4);
+  });
+
+  it("delete overlapping cursor snaps cursor to deletion start", () => {
+    // doc = "abcdefgh" (8), cursor at 5, delete [3, 7) (4 chars)
+    const op = makeDelete(8, 3, 4, "ag", clock0, 1);
+    // Deletion covers cursor position 5 → snap to start of deletion = 3.
+    expect(transformCursor(5, op)).toBe(3);
+  });
+
+  it("concurrent inserts at same position — cursor moves correctly after both", () => {
+    const doc = "hello";
+    // a inserts at 2, b inserts at 2 concurrently
+    const a = makeInsert(5, 2, "AA", "ag1", clock0, 1);
+    const b = makeInsert(5, 2, "BB", "ag2", clock0, 1);
+    const [, bPrime] = transform(a, b);
+    // Apply a first, then bPrime. Cursor was at 2 in original doc.
+    const cursorAfterA = transformCursor(2, a);
+    const cursorFinal = transformCursor(cursorAfterA, bPrime);
+    // Both insertions happened; cursor should be >= 2
+    expect(cursorFinal).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── resolveConflict ───────────────────────────────────────────────────────────
+
+describe("resolveConflict", () => {
+  it("agent wins in code sections", () => {
+    expect(resolveConflict("human", "agent", "code")).toBe("b");
+    expect(resolveConflict("agent", "human", "code")).toBe("a");
+  });
+
+  it("agent wins in frontmatter sections", () => {
+    expect(resolveConflict("human", "agent", "frontmatter")).toBe("b");
+    expect(resolveConflict("agent", "human", "frontmatter")).toBe("a");
+  });
+
+  it("human wins in prose sections", () => {
+    expect(resolveConflict("human", "agent", "prose")).toBe("a");
+    expect(resolveConflict("agent", "human", "prose")).toBe("b");
+  });
+
+  it("same source always returns a (no conflict)", () => {
+    expect(resolveConflict("human", "human", "prose")).toBe("a");
+    expect(resolveConflict("agent", "agent", "code")).toBe("a");
+  });
+
+  it("unknown source falls back to a (left-wins)", () => {
+    expect(resolveConflict("unknown", "agent", "prose")).toBe("a");
+    expect(resolveConflict("agent", "unknown", "code")).toBe("a");
+    expect(resolveConflict("unknown", "unknown", "prose")).toBe("a");
+  });
+
+  it("deletion + insertion conflict: agent wins in code", () => {
+    // Represents: agent is deleting a line in a code block,
+    // human simultaneously inserts — agent should win.
+    expect(resolveConflict("agent", "human", "code")).toBe("a");
+  });
+});
+
+// ── session resume (OtLogEntry shape) ────────────────────────────────────────
+
+import type { OtLogEntry } from "./ot";
+
+describe("OtLogEntry shape", () => {
+  it("can construct a valid OtLogEntry", () => {
+    const op = makeInsert(5, 0, "hi", "ag1", {}, 1);
+    const entry: OtLogEntry = {
+      docPath: "/docs/test.md",
+      op,
+      appliedAt: Date.now(),
+      source: "agent",
+    };
+    expect(entry.docPath).toBe("/docs/test.md");
+    expect(entry.source).toBe("agent");
+    expect(entry.op.agentId).toBe("ag1");
+  });
+
+  it("log entries from a session can be replayed to reconstruct document", () => {
+    // Simulate a session: start with empty doc, apply a series of ops.
+    let doc = "";
+    const entries: OtLogEntry[] = [];
+
+    const op1 = makeInsert(0, 0, "# Title\n", "agentA", {}, 1);
+    doc = apply(doc, op1);
+    entries.push({ docPath: "/x.md", op: op1, appliedAt: Date.now(), source: "agent" });
+
+    const op2 = makeInsert(doc.length, doc.length, "\nBody text.", "human", { agentA: 1 }, 1);
+    doc = apply(doc, op2);
+    entries.push({ docPath: "/x.md", op: op2, appliedAt: Date.now(), source: "human" });
+
+    // Replay from scratch using only the log.
+    let replayed = "";
+    for (const entry of entries) {
+      replayed = apply(replayed, entry.op);
+    }
+    expect(replayed).toBe(doc);
+    expect(replayed).toContain("# Title");
+    expect(replayed).toContain("Body text.");
+  });
+});

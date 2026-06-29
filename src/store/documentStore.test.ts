@@ -30,6 +30,10 @@ function reset() {
     reloadNonce: 0,
     tabs: [],
     activeId: null,
+    pendingOps: [],
+    remoteCursors: {},
+    showRemoteCursors: true,
+    opLog: [],
   });
 }
 
@@ -345,7 +349,7 @@ describe("documentStore", () => {
 
 // ── OT: applyOp / clearPendingOps ────────────────────────────────────────────
 
-import type { OtOperation } from "../lib/ot";
+import type { OtLogEntry, OtOperation } from "../lib/ot";
 
 function makeOtInsert(docLength: number, offset: number, text: string): OtOperation {
   const components: OtOperation["components"] = [];
@@ -467,5 +471,193 @@ describe("documentStore — applyOp", () => {
     };
     useDocumentStore.getState().applyOp(badOp);
     expect(useDocumentStore.getState().pendingOps).toHaveLength(0);
+  });
+});
+
+// ── applyAttributedOp — attribution + merge rules ────────────────────────────
+
+describe("documentStore — applyAttributedOp", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("applyAttributedOp applies the op and updates content", () => {
+    useDocumentStore.setState({ content: "hello world", diskContent: "hello world", pendingOps: [], remoteCursors: {}, opLog: [] });
+    const op = makeOtInsert(11, 5, "!");
+    op.agentId = "agentZ";
+    const ok = useDocumentStore.getState().applyAttributedOp(op, "agent");
+    expect(ok).toBe(true);
+    expect(useDocumentStore.getState().content).toBe("hello! world");
+  });
+
+  it("applyAttributedOp updates remoteCursors for the op's agent", () => {
+    useDocumentStore.setState({ content: "hello", diskContent: "hello", pendingOps: [], remoteCursors: {}, opLog: [] });
+    const op = makeOtInsert(5, 3, "XY");
+    op.agentId = "bot1";
+    useDocumentStore.getState().applyAttributedOp(op, "agent");
+    const cursors = useDocumentStore.getState().remoteCursors;
+    expect(cursors["bot1"]).toBeDefined();
+    expect(cursors["bot1"].agentId).toBe("bot1");
+    expect(typeof cursors["bot1"].offset).toBe("number");
+    expect(typeof cursors["bot1"].line).toBe("number");
+    expect(typeof cursors["bot1"].col).toBe("number");
+  });
+
+  it("applyAttributedOp appends to opLog with correct source", () => {
+    useDocumentStore.setState({ content: "abc", diskContent: "abc", pendingOps: [], remoteCursors: {}, opLog: [], path: "/test.md" });
+    const op = makeOtInsert(3, 0, "Z");
+    op.agentId = "agentA";
+    useDocumentStore.getState().applyAttributedOp(op, "agent");
+    const log = useDocumentStore.getState().opLog;
+    expect(log).toHaveLength(1);
+    expect(log[0].source).toBe("agent");
+    expect(log[0].docPath).toBe("/test.md");
+    expect(log[0].op.id).toBe(op.id);
+  });
+
+  it("applyAttributedOp returns false for an invalid op (does not throw)", () => {
+    useDocumentStore.setState({ content: "hi", diskContent: "hi", pendingOps: [], remoteCursors: {}, opLog: [] });
+    const badOp: OtOperation = {
+      id: "bad",
+      agentId: "a",
+      seq: 1,
+      clock: {},
+      components: [{ type: "retain", count: 999 }],
+    };
+    const ok = useDocumentStore.getState().applyAttributedOp(badOp, "agent");
+    expect(ok).toBe(false);
+    expect(useDocumentStore.getState().content).toBe("hi");
+    expect(useDocumentStore.getState().opLog).toHaveLength(0);
+  });
+
+  it("human-attributed op in prose is accepted and logged", () => {
+    useDocumentStore.setState({ content: "Hello world", diskContent: "Hello world", pendingOps: [], remoteCursors: {}, opLog: [], path: "/prose.md" });
+    const op = makeOtInsert(11, 6, "beautiful ");
+    op.agentId = "user1";
+    useDocumentStore.getState().applyAttributedOp(op, "human");
+    const log = useDocumentStore.getState().opLog;
+    expect(log[0].source).toBe("human");
+    expect(useDocumentStore.getState().content).toBe("Hello beautiful world");
+  });
+
+  it("multiple attributed ops accumulate in opLog", () => {
+    useDocumentStore.setState({ content: "abc", diskContent: "abc", pendingOps: [], remoteCursors: {}, opLog: [], path: "/x.md" });
+    const op1 = makeOtInsert(3, 0, "X");
+    op1.id = "op-1";
+    useDocumentStore.getState().applyAttributedOp(op1, "agent");
+    // content is now "Xabc"
+    const op2 = makeOtInsert(4, 4, "Y");
+    op2.id = "op-2";
+    useDocumentStore.getState().applyAttributedOp(op2, "human");
+    expect(useDocumentStore.getState().opLog).toHaveLength(2);
+    expect(useDocumentStore.getState().opLog.map((e) => e.source)).toEqual(["agent", "human"]);
+  });
+});
+
+// ── setRemoteCursor ───────────────────────────────────────────────────────────
+
+describe("documentStore — setRemoteCursor", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("setRemoteCursor stores cursor with correct line/col derived from offset", () => {
+    useDocumentStore.setState({ content: "line0\nline1\nline2", remoteCursors: {} });
+    // Offset 6 is start of "line1" → line 1, col 0
+    useDocumentStore.getState().setRemoteCursor("agentBot", 6);
+    const cursor = useDocumentStore.getState().remoteCursors["agentBot"];
+    expect(cursor).toBeDefined();
+    expect(cursor.line).toBe(1);
+    expect(cursor.col).toBe(0);
+    expect(cursor.offset).toBe(6);
+  });
+
+  it("setRemoteCursor updates an existing cursor entry", () => {
+    useDocumentStore.setState({
+      content: "abcde",
+      remoteCursors: { bot: { agentId: "bot", offset: 0, line: 0, col: 0, updatedAt: 0 } },
+    });
+    useDocumentStore.getState().setRemoteCursor("bot", 3);
+    const cursor = useDocumentStore.getState().remoteCursors["bot"];
+    expect(cursor.offset).toBe(3);
+    expect(cursor.col).toBe(3);
+  });
+
+  it("multiple agents can have independent cursors", () => {
+    useDocumentStore.setState({ content: "hello world", remoteCursors: {} });
+    useDocumentStore.getState().setRemoteCursor("agent1", 2);
+    useDocumentStore.getState().setRemoteCursor("agent2", 8);
+    const cursors = useDocumentStore.getState().remoteCursors;
+    expect(cursors["agent1"].offset).toBe(2);
+    expect(cursors["agent2"].offset).toBe(8);
+  });
+});
+
+// ── showRemoteCursors / toggleShowRemoteCursors ───────────────────────────────
+
+describe("documentStore — showRemoteCursors toggle", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("showRemoteCursors defaults to true", () => {
+    expect(useDocumentStore.getState().showRemoteCursors).toBe(true);
+  });
+
+  it("toggleShowRemoteCursors flips the flag", () => {
+    useDocumentStore.getState().toggleShowRemoteCursors();
+    expect(useDocumentStore.getState().showRemoteCursors).toBe(false);
+    useDocumentStore.getState().toggleShowRemoteCursors();
+    expect(useDocumentStore.getState().showRemoteCursors).toBe(true);
+  });
+});
+
+// ── getOpLog / clearOpLog ─────────────────────────────────────────────────────
+
+describe("documentStore — getOpLog / clearOpLog", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("getOpLog returns only entries for the given path", () => {
+    useDocumentStore.setState({
+      content: "x",
+      diskContent: "x",
+      pendingOps: [],
+      remoteCursors: {},
+      opLog: [
+        { docPath: "/a.md", op: makeOtInsert(1, 0, "Z") as OtOperation, appliedAt: 1, source: "agent" },
+        { docPath: "/b.md", op: makeOtInsert(1, 0, "W") as OtOperation, appliedAt: 2, source: "human" },
+      ],
+    });
+    const log = useDocumentStore.getState().getOpLog("/a.md");
+    expect(log).toHaveLength(1);
+    expect(log[0].docPath).toBe("/a.md");
+  });
+
+  it("clearOpLog removes only entries for the given path", () => {
+    useDocumentStore.setState({
+      content: "x",
+      diskContent: "x",
+      pendingOps: [],
+      remoteCursors: {},
+      opLog: [
+        { docPath: "/a.md", op: makeOtInsert(1, 0, "Z") as OtOperation, appliedAt: 1, source: "agent" },
+        { docPath: "/b.md", op: makeOtInsert(1, 0, "W") as OtOperation, appliedAt: 2, source: "human" },
+      ],
+    });
+    useDocumentStore.getState().clearOpLog("/a.md");
+    const log = useDocumentStore.getState().opLog;
+    expect(log).toHaveLength(1);
+    expect(log[0].docPath).toBe("/b.md");
+  });
+
+  it("getOpLog returns empty array when no entries match", () => {
+    useDocumentStore.setState({ content: "x", diskContent: "x", pendingOps: [], remoteCursors: {}, opLog: [] });
+    expect(useDocumentStore.getState().getOpLog("/missing.md")).toEqual([]);
   });
 });
