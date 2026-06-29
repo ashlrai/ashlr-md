@@ -48,6 +48,15 @@ export function detectAnthropicKey(): string | null {
   return useAIStore.getState().apiKey ?? null;
 }
 
+/**
+ * Ask whether a hosted (Tier 3) bearer token has been stored (via aiStore).
+ * Purely a local in-memory check — the token is loaded from the OS keychain
+ * at startup via `loadHostedToken()`.
+ */
+export function detectHostedToken(): string | null {
+  return useAIStore.getState().hostedToken ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Stream generation
 // ---------------------------------------------------------------------------

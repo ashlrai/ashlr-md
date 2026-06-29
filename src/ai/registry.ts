@@ -7,6 +7,7 @@ import {
   aiGenerateStream,
   detectAfm,
   detectAnthropicKey,
+  detectHostedToken,
   detectOllama,
 } from "./bridge";
 import type { AICapabilities, AIMessage, AIProvider } from "./types";
@@ -244,32 +245,113 @@ class AnthropicProvider implements AIProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Tier 3 — Hosted / premium endpoint (STUB)
-// TODO: activate once the hosted endpoint is live and users have tokens.
-//       Endpoint: POST https://api.mdopener.app/v1/chat
-//       Auth: Bearer token stored alongside apiKey in aiStore.
+// Tier 3 — Hosted / premium endpoint
+// Endpoint: POST https://api.mdopener.app/v1/chat
+// Auth: Bearer token stored in aiStore.hostedToken (OS keychain source of truth).
+// Protocol: standard OpenAI-compatible chat completion with SSE streaming.
 // ---------------------------------------------------------------------------
+
+export const HOSTED_API_URL = "https://api.mdopener.app/v1/chat";
 
 class HostedProvider implements AIProvider {
   readonly id = "hosted";
-  readonly capabilities: AICapabilities = {
-    tier: 3,
-    modelName: "Ashlr MD Cloud",
-    isLocal: false,
-    isFree: false,
-    streaming: true,
-  };
+  private _token: string | null = null;
+
+  get capabilities(): AICapabilities {
+    return {
+      tier: 3,
+      modelName: "Ashlr MD Cloud",
+      isLocal: false,
+      isFree: false,
+      streaming: true,
+    };
+  }
 
   async isAvailable(): Promise<boolean> {
-    // TODO: check for a bearer token in aiStore / localStorage.
+    const token = detectHostedToken();
+    if (token) {
+      this._token = token;
+      return true;
+    }
+    this._token = null;
     return false;
   }
 
   async *generate(
-    _messages: AIMessage[],
-    _opts: { signal?: AbortSignal },
+    messages: AIMessage[],
+    opts: { signal?: AbortSignal },
   ): AsyncGenerator<string> {
-    throw new Error("Hosted provider is not yet active.");
+    // Always re-read from the store — never use the stale instance cache.
+    // This ensures that if the user removes the token after isAvailable() ran,
+    // generation correctly refuses rather than using the old cached value.
+    const token = detectHostedToken();
+    if (!token) throw new Error("Hosted provider: no bearer token configured");
+
+    const response = await fetch(HOSTED_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: true,
+      }),
+      signal: opts.signal,
+    });
+
+    if (response.status === 401) {
+      throw new Error("Hosted provider: invalid or expired token (401)");
+    }
+    if (!response.ok) {
+      throw new Error(`Hosted provider: request failed with status ${response.status}`);
+    }
+
+    const body = response.body;
+    if (!body) throw new Error("Hosted provider: empty response body");
+
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        // Honour abort between chunks.
+        if (opts.signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines from the buffer.
+        const lines = buffer.split("\n");
+        // Keep the last (potentially incomplete) chunk in the buffer.
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === ": keep-alive") continue;
+          if (!trimmed.startsWith("data:")) continue;
+
+          const data = trimmed.slice("data:".length).trim();
+          if (data === "[DONE]") return;
+
+          try {
+            const parsed = JSON.parse(data) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+            };
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) yield delta;
+          } catch {
+            // Malformed SSE line — skip silently.
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 

@@ -11,6 +11,7 @@ import {
   TerminalIcon,
   VaultIcon,
 } from "./icons";
+import { AiProviderSection } from "./sections/AiProviderSection";
 import { SectionHeader } from "./SectionHeader";
 import {
   ContentWidthStepper,
@@ -165,6 +166,14 @@ export function SettingsPanel() {
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="AI agents (MCP)" />
             <McpSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* 8 · Hosted AI provider (Tier 3) */}
+          <section className="settings-section">
+            <SectionHeader icon={<AgentIcon />} title="Hosted AI (Tier 3)" />
+            <AiProviderSection />
           </section>
         </div>
 

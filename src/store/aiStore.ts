@@ -14,6 +14,9 @@ import type { AICapabilities } from "../ai/types";
 /** Keychain account label for the Anthropic key (see secrets.rs `SERVICE`). */
 const AI_KEY_ACCOUNT = "anthropic";
 
+/** Keychain account label for the hosted bearer token. */
+const HOSTED_TOKEN_ACCOUNT = "hosted";
+
 /** Write/clear the key in the OS keychain. Returns whether it succeeded. */
 async function persistKeyToKeychain(key: string | null): Promise<boolean> {
   try {
@@ -86,6 +89,9 @@ interface AIState {
   /** Anthropic (or future provider) API key — held in memory only; the source
    *  of truth is the OS keychain. Loaded via `loadApiKey()` at startup. */
   apiKey: string | null;
+  /** Hosted (Tier 3) bearer token — held in memory only; OS keychain is source
+   *  of truth. Loaded via `loadHostedToken()` at startup. */
+  hostedToken: string | null;
   /** Persisted user preference for which tier to use when multiple available */
   preferredTier: 0 | 1 | 2 | 3 | null;
   /** When true, chat answers are grounded in the user's whole Markdown library. */
@@ -106,6 +112,9 @@ interface AIState {
   setApiKey(key: string | null): void;
   /** Load the key from the OS keychain (migrating any legacy plaintext key). */
   loadApiKey(): Promise<void>;
+  setHostedToken(token: string | null): void;
+  /** Load the hosted bearer token from the OS keychain at startup. */
+  loadHostedToken(): Promise<void>;
   setPreferredTier(tier: 0 | 1 | 2 | 3 | null): void;
 }
 
@@ -126,6 +135,7 @@ export const useAIStore = create<AIState>()(
       messages: [],
       busy: false,
       apiKey: null,
+      hostedToken: null,
       preferredTier: null,
       libraryScope: false,
 
@@ -228,6 +238,29 @@ export const useAIStore = create<AIState>()(
           if (key) set({ apiKey: key });
         } catch {
           // Keychain unavailable — tier-2 detection just won't auto-resolve.
+        }
+      },
+
+      setHostedToken(token) {
+        set({ hostedToken: token });
+        // Persist to / remove from the OS keychain (same pattern as apiKey).
+        if (token) {
+          void invoke("set_ai_key", { account: HOSTED_TOKEN_ACCOUNT, key: token }).catch(
+            () => {},
+          );
+        } else {
+          void invoke("delete_ai_key", { account: HOSTED_TOKEN_ACCOUNT }).catch(() => {});
+        }
+      },
+
+      async loadHostedToken() {
+        try {
+          const token = await invoke<string | null>("get_ai_key", {
+            account: HOSTED_TOKEN_ACCOUNT,
+          });
+          if (token) set({ hostedToken: token });
+        } catch {
+          // Keychain unavailable — tier-3 detection won't auto-resolve.
         }
       },
 
