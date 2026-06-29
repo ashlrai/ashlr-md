@@ -21,7 +21,7 @@ import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { copyDocumentAsRichText, copyAsRichText } from "./copyRichText";
-import { exportDocx, exportHtml, exportPdf } from "./export";
+import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
 import { buildEmptyTable } from "./tableEditor";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
@@ -149,6 +149,16 @@ export function getCommands(): Command[] {
       keywords: ["export", "docx", "word", "share"],
       when: hasDoc,
       run: () => runExport(exportDocx),
+    },
+    {
+      id: "file.export.epub",
+      title: "Export as EPUB…",
+      group: "File",
+      keywords: ["export", "epub", "ebook", "book", "kindle", "reader"],
+      // EPUB is gated behind a setting (default on) so users who never touch
+      // e-readers can hide it from the palette entirely.
+      when: () => hasDoc() && settings().epubEnabled,
+      run: () => runExport(exportEpub),
     },
     {
       id: "file.export.dialog",

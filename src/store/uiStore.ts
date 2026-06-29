@@ -4,8 +4,8 @@ import type { DocType } from "../lib/docClassifier";
 interface UiState {
   exportOpen: boolean;
   /** Format hint set by an MCP export request so the dialog pre-selects it. */
-  exportFormat: "pdf" | "docx" | "html" | null;
-  openExport: (format?: "pdf" | "docx" | "html" | null) => void;
+  exportFormat: "pdf" | "docx" | "html" | "epub" | null;
+  openExport: (format?: "pdf" | "docx" | "html" | "epub" | null) => void;
   closeExport: () => void;
   settingsOpen: boolean;
   openSettings: () => void;
@@ -61,7 +61,7 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   exportOpen: false,
   exportFormat: null,
-  openExport: (format?: "pdf" | "docx" | "html" | null) =>
+  openExport: (format?: "pdf" | "docx" | "html" | "epub" | null) =>
     set({ exportOpen: true, exportFormat: format ?? null }),
   closeExport: () => set({ exportOpen: false, exportFormat: null }),
   settingsOpen: false,

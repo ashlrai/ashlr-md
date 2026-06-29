@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { exportDocx, exportHtml, exportPdf, exportWithProfile } from "../../lib/export";
+import {
+  exportDocx,
+  exportEpub,
+  exportHtml,
+  exportPdf,
+  exportWithProfile,
+} from "../../lib/export";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useDocumentStore } from "../../store/documentStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/export.css";
 
@@ -78,6 +85,20 @@ function HtmlIcon() {
   );
 }
 
+function EpubIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M10 5C8.5 4 5.5 4 4 4.5v10C5.5 14 8.5 14 10 15c1.5-1 4.5-1 6-.5v-10C14.5 4 11.5 4 10 5z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M10 5v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -138,7 +159,11 @@ type ExportStatus =
  */
 export function ExportDialog() {
   const close = useUiStore((s) => s.closeExport);
+  // Format hint set by an MCP export request (or a format-specific command) so
+  // the dialog can pre-focus the matching button. null = no preference.
+  const exportFormat = useUiStore((s) => s.exportFormat);
   const fileName = useDocumentStore((s) => s.fileName);
+  const epubEnabled = useSettingsStore((s) => s.epubEnabled);
   // Strip extension for use as the export title.
   const title = fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
 
@@ -166,6 +191,17 @@ export function ExportDialog() {
   // on close.
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
+
+  // When opened with a format hint (e.g. from an MCP `mcp://export pdf` request
+  // or a format-specific command), pre-focus the matching format button so the
+  // caller's intent is reflected and the user can confirm with one keystroke.
+  useEffect(() => {
+    if (!exportFormat) return;
+    const btn = dialogRef.current?.querySelector<HTMLButtonElement>(
+      `.export-format-btn[data-format="${exportFormat}"]`,
+    );
+    btn?.focus();
+  }, [exportFormat]);
 
   // ── Generic runner ────────────────────────────────────────────────────────
 
@@ -240,6 +276,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="pdf"
             disabled={busy}
             onClick={() => run("PDF", () => exportPdf(title))}
           >
@@ -257,6 +294,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="docx"
             disabled={busy}
             onClick={() => run("Word (.docx)", () => exportDocx(title))}
           >
@@ -274,6 +312,7 @@ export function ExportDialog() {
           <button
             type="button"
             className="export-format-btn"
+            data-format="html"
             disabled={busy}
             onClick={() => run("HTML", () => exportHtml(title))}
           >
@@ -287,6 +326,26 @@ export function ExportDialog() {
               </span>
             </span>
           </button>
+
+          {epubEnabled && (
+            <button
+              type="button"
+              className="export-format-btn"
+              data-format="epub"
+              disabled={busy}
+              onClick={() => run("EPUB", () => exportEpub(title))}
+            >
+              <span className="export-format-icon">
+                <EpubIcon />
+              </span>
+              <span className="export-format-text">
+                <span className="export-format-name">EPUB</span>
+                <span className="export-format-desc">
+                  Reflowable eBook split into chapters by heading — for e-readers and Apple Books
+                </span>
+              </span>
+            </button>
+          )}
 
           <button
             type="button"

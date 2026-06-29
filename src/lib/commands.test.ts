@@ -40,6 +40,7 @@ vi.mock("./export", () => ({
   exportHtml: vi.fn().mockResolvedValue(undefined),
   exportPdf: vi.fn().mockResolvedValue(undefined),
   exportDocx: vi.fn().mockResolvedValue(undefined),
+  exportEpub: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./copyRichText", () => ({
@@ -98,6 +99,7 @@ const aiState = { toggle: vi.fn() };
 
 const settingsState = {
   theme: "paper" as string,
+  epubEnabled: true,
   cycleTheme: vi.fn(),
   setTheme: vi.fn(),
 };
@@ -161,7 +163,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../store/toastStore";
 import { copyDocumentAsRichText } from "./copyRichText";
 import { pickAndOpen } from "./openFile";
-import { exportHtml, exportPdf, exportDocx } from "./export";
+import { exportHtml, exportPdf, exportDocx, exportEpub } from "./export";
 
 const invokeMock = vi.mocked(invoke);
 const toastErrorMock = vi.mocked(toast.error);
@@ -171,6 +173,7 @@ const pickAndOpenMock = vi.mocked(pickAndOpen);
 const exportHtmlMock = vi.mocked(exportHtml);
 const exportPdfMock = vi.mocked(exportPdf);
 const exportDocxMock = vi.mocked(exportDocx);
+const exportEpubMock = vi.mocked(exportEpub);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -232,6 +235,8 @@ beforeEach(() => {
   exportHtmlMock.mockReset().mockResolvedValue(undefined);
   exportPdfMock.mockReset().mockResolvedValue(undefined);
   exportDocxMock.mockReset().mockResolvedValue(undefined);
+  exportEpubMock.mockReset().mockResolvedValue(undefined);
+  settingsState.epubEnabled = true;
 });
 
 afterEach(() => {
@@ -468,8 +473,8 @@ describe("Command when() predicates", () => {
     docState.path = "/tmp/test.md";
     const docCommands = [
       "file.save", "file.export.dialog", "file.export.html", "file.export.pdf",
-      "file.export.docx", "file.close", "view.read", "view.edit", "view.source",
-      "find.document", "find.replace", "edit.copyRichText",
+      "file.export.docx", "file.export.epub", "file.close", "view.read", "view.edit",
+      "view.source", "find.document", "find.replace", "edit.copyRichText",
     ];
     for (const id of docCommands) {
       const cmd = getCommands().find((c) => c.id === id);
@@ -793,6 +798,33 @@ describe("Command execution — delegates fire correctly", () => {
     docState.path = null;
     await getCommands().find((c) => c.id === "file.export.html")!.run();
     expect(exportHtmlMock).not.toHaveBeenCalled();
+  });
+
+  it("file.export.epub.run() invokes exportEpub when a doc is open", async () => {
+    docState.path = "/tmp/test.md";
+    await getCommands().find((c) => c.id === "file.export.epub")!.run();
+    expect(exportEpubMock).toHaveBeenCalledOnce();
+  });
+
+  it("file.export.epub is available when epubEnabled is true", () => {
+    docState.path = "/tmp/test.md";
+    settingsState.epubEnabled = true;
+    const cmd = getCommands().find((c) => c.id === "file.export.epub");
+    expect(cmd?.when?.()).toBe(true);
+  });
+
+  it("file.export.epub is hidden when epubEnabled is false", () => {
+    docState.path = "/tmp/test.md";
+    settingsState.epubEnabled = false;
+    const cmd = getCommands().find((c) => c.id === "file.export.epub");
+    expect(cmd?.when?.()).toBe(false);
+  });
+
+  it("file.export.epub is hidden when no doc is open even if epubEnabled", () => {
+    docState.path = null;
+    settingsState.epubEnabled = true;
+    const cmd = getCommands().find((c) => c.id === "file.export.epub");
+    expect(cmd?.when?.()).toBe(false);
   });
 });
 
