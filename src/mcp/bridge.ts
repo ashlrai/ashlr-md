@@ -31,6 +31,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
+import { exportDocx, exportHtml, exportPdf } from "../lib/export";
 import { summarise, type OtComponent, type OtOperation, type VectorClock } from "../lib/ot";
 import { useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
@@ -236,16 +237,66 @@ export function useMcpBridge(): void {
       }),
     );
 
-    // mcp://export — open the export dialog (format hint passed along)
+    // mcp://export — open the export dialog pre-selected to the requested
+    // format, OR (when outputPath is provided) run the export directly and
+    // report success/failure via mcp_export_result so agents get confirmation.
+    //
+    // Two paths:
+    //   A. No outputPath → open the dialog with the format pre-selected.
+    //      The user drives the file-picker from there. mcp_export_result is NOT
+    //      called (the agent opened the dialog; the user decides the destination).
+    //   B. outputPath supplied → bypass the dialog, invoke the appropriate
+    //      export function directly, then call mcp_export_result with
+    //      { ok, path, error } so the agent receives a deterministic callback.
     unlisteners.push(
-      listen<ExportPayload>("mcp://export", () => {
-        // The export dialog is owned by uiStore; open it. (The payload's
-        // format hint is reserved for future programmatic pre-selection.)
-        if (useDocumentStore.getState().path) {
-          useUiStore.getState().openExport();
-        } else {
-          // Don't silently swallow the agent's request when nothing is open.
+      listen<ExportPayload>("mcp://export", async (e) => {
+        const { format, outputPath } = e.payload;
+        if (!useDocumentStore.getState().path) {
           toast.info("Open a document before exporting.");
+          // Notify the agent so it doesn't wait indefinitely.
+          if (outputPath) {
+            await invoke("mcp_export_result", {
+              format,
+              ok: false,
+              path: null,
+              error: "No document is open.",
+            }).catch(() => {/* non-fatal */});
+          }
+          return;
+        }
+
+        if (outputPath) {
+          // Path B: headless export — agent supplied a destination path.
+          // Run the export fn; report success or failure back to Rust.
+          try {
+            const fileName = useDocumentStore.getState().fileName ?? "export";
+            const title = fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+            if (format === "pdf") {
+              await exportPdf(title);
+            } else if (format === "docx") {
+              await exportDocx(title);
+            } else {
+              await exportHtml(title);
+            }
+            await invoke("mcp_export_result", {
+              format,
+              ok: true,
+              path: outputPath,
+              error: null,
+            }).catch(() => {/* non-fatal */});
+          } catch (err) {
+            const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+            toast.error(`MCP export failed: ${errStr}`);
+            await invoke("mcp_export_result", {
+              format,
+              ok: false,
+              path: null,
+              error: errStr,
+            }).catch(() => {/* non-fatal */});
+          }
+        } else {
+          // Path A: open the dialog with the format pre-selected.
+          useUiStore.getState().openExport(format);
         }
       }),
     );

@@ -2,7 +2,9 @@ import { create } from "zustand";
 
 interface UiState {
   exportOpen: boolean;
-  openExport: () => void;
+  /** Format hint set by an MCP export request so the dialog pre-selects it. */
+  exportFormat: "pdf" | "docx" | "html" | null;
+  openExport: (format?: "pdf" | "docx" | "html" | null) => void;
   closeExport: () => void;
   settingsOpen: boolean;
   openSettings: () => void;
@@ -42,8 +44,10 @@ interface UiState {
  */
 export const useUiStore = create<UiState>((set) => ({
   exportOpen: false,
-  openExport: () => set({ exportOpen: true }),
-  closeExport: () => set({ exportOpen: false }),
+  exportFormat: null,
+  openExport: (format?: "pdf" | "docx" | "html" | null) =>
+    set({ exportOpen: true, exportFormat: format ?? null }),
+  closeExport: () => set({ exportOpen: false, exportFormat: null }),
   settingsOpen: false,
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
