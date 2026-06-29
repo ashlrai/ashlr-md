@@ -123,6 +123,15 @@ interface SettingsState {
 
   /** Set the active export template. Pass `NO_TEMPLATE_ID` to clear. */
   setActiveTemplateId: (id: string) => void;
+
+  // ── Export format toggles ───────────────────────────────────────────────────
+
+  /**
+   * When true, the EPUB format is shown in Settings → Export Formats and the
+   * export dialog.  Defaults to true so new installs get EPUB out of the box.
+   */
+  epubEnabled: boolean;
+  setEpubEnabled: (enabled: boolean) => void;
 }
 
 const order: ThemeId[] = THEMES.map((t) => t.id);
@@ -208,10 +217,14 @@ export const useSettingsStore = create<SettingsState>()(
         }),
 
       setActiveTemplateId: (id) => set({ activeTemplateId: id }),
+
+      // ── Export format toggles ───────────────────────────────────────────────
+      epubEnabled: true,
+      setEpubEnabled: (epubEnabled) => set({ epubEnabled }),
     }),
     {
       name: "mdopener-settings",
-      version: 4,
+      version: 5,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
@@ -225,6 +238,7 @@ export const useSettingsStore = create<SettingsState>()(
           activeTemplateId?: string;
           pasteImageTarget?: PasteImageTarget;
           linterConfig?: { disabledRules: string[] };
+          epubEnabled?: boolean;
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -241,6 +255,9 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 4) {
           s.linterConfig = s.linterConfig ?? { disabledRules: [] };
+        }
+        if (version < 5) {
+          s.epubEnabled = s.epubEnabled ?? true;
         }
         return s as unknown as SettingsState;
       },

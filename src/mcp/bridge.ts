@@ -31,7 +31,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
-import { exportDocx, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
+import { exportDocx, exportEpub, exportHtml, exportPdf, exportMarkdownArchive, exportCanvasGraph, exportOutline } from "../lib/export";
 import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../lib/mdlint";
 import { useSettingsStore } from "../store/settingsStore";
 import { copyAsRichText } from "../lib/copyRichText";
@@ -62,7 +62,15 @@ interface SetContentPayload {
 }
 
 interface ExportPayload {
-  format: "pdf" | "docx" | "html";
+  format: "pdf" | "docx" | "html" | "epub";
+  outputPath?: string | null;
+}
+
+/** Payload for `mcp://export` with `format: "epub"`. */
+export interface ExportEpubPayload {
+  /** Must be `"epub"` to route through the EPUB export path. */
+  format: "epub";
+  /** Optional pre-chosen output path; when omitted a save dialog is shown. */
   outputPath?: string | null;
 }
 
@@ -202,7 +210,7 @@ interface SemanticSearchPayload {
  */
 export interface BatchExportEntry {
   path: string;
-  format: "pdf" | "docx" | "html";
+  format: "pdf" | "docx" | "html" | "epub";
   outputDir?: string;
 }
 
@@ -504,6 +512,8 @@ export function useMcpBridge(): void {
               await exportPdf(title);
             } else if (format === "docx") {
               await exportDocx(title);
+            } else if (format === "epub") {
+              await exportEpub(title);
             } else {
               await exportHtml(title);
             }
@@ -956,12 +966,14 @@ export function useMcpBridge(): void {
                 await exportPdf(title);
               } else if (format === "docx") {
                 await exportDocx(title);
+              } else if (format === "epub") {
+                await exportEpub(title);
               } else {
                 await exportHtml(title);
               }
 
               // Derive output path: outputDir + title + extension (best-effort).
-              const ext = format === "docx" ? "docx" : format === "pdf" ? "pdf" : "html";
+              const ext = format === "docx" ? "docx" : format === "pdf" ? "pdf" : format === "epub" ? "epub" : "html";
               const dir = outputDir ?? filePath.substring(0, filePath.lastIndexOf("/")) ?? ".";
               const outputPath = `${dir}/${title}.${ext}`;
 

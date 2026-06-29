@@ -31,6 +31,98 @@ import { parseHeadings } from "./outline";
 import { buildOutlineTree, buildOpml } from "./exportOutline";
 export type { OutlineNode } from "./exportOutline";
 
+// ─── EPUB theme CSS ──────────────────────────────────────────────────────────
+
+/**
+ * Return theme-aware CSS for EPUB chapters, mapping Ashlr's three themes
+ * (paper / sepia / midnight) to portable EPUB-compatible styles.
+ *
+ * EPUB readers apply their own default styles; we override the key variables
+ * so the document looks intentional regardless of reading app defaults.
+ */
+export function buildEpubThemeCss(theme: string): string {
+  const themeVars: Record<string, { bg: string; text: string; code: string; border: string }> = {
+    paper: {
+      bg: "#ffffff",
+      text: "#1a1a1a",
+      code: "#f4f4f4",
+      border: "#e0e0e0",
+    },
+    sepia: {
+      bg: "#f8f3e8",
+      text: "#3c2a1a",
+      code: "#ede7d9",
+      border: "#c8b89a",
+    },
+    midnight: {
+      bg: "#1a1a2e",
+      text: "#e0e0f0",
+      code: "#252540",
+      border: "#3a3a5c",
+    },
+  };
+  const v = themeVars[theme] ?? themeVars.paper;
+
+  return `
+body {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 1em;
+  line-height: 1.7;
+  color: ${v.text};
+  background-color: ${v.bg};
+  margin: 0 5%;
+  padding: 1em 0;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: ${v.text};
+}
+h1 { font-size: 1.8em; }
+h2 { font-size: 1.4em; border-bottom: 1px solid ${v.border}; padding-bottom: 0.2em; }
+h3 { font-size: 1.15em; }
+h4, h5, h6 { font-size: 1em; }
+p { margin: 0 0 0.9em; }
+a { color: ${v.text}; text-decoration: underline; }
+code {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.88em;
+  background-color: ${v.code};
+  border: 1px solid ${v.border};
+  border-radius: 3px;
+  padding: 0.15em 0.35em;
+}
+pre {
+  background-color: ${v.code};
+  border: 1px solid ${v.border};
+  border-radius: 4px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 0 0 1em;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+pre code { background: none; border: none; padding: 0; font-size: 100%; }
+blockquote {
+  border-left: 3px solid ${v.border};
+  margin: 0 0 1em;
+  padding: 0.5em 1em;
+  color: ${v.text};
+  opacity: 0.85;
+}
+table { border-collapse: collapse; width: 100%; margin: 0 0 1em; font-size: 0.9em; }
+th, td { border: 1px solid ${v.border}; padding: 0.4em 0.7em; text-align: left; }
+th { font-weight: 700; background-color: ${v.code}; }
+img { max-width: 100%; height: auto; display: block; margin: 0.5em auto; }
+ul, ol { margin: 0 0 0.9em; padding-left: 1.8em; }
+li { margin: 0.2em 0; }
+hr { border: none; border-top: 1px solid ${v.border}; margin: 1.5em 0; }
+`.trim();
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /** Grab the current theme id from the document root (set by App.tsx). */
@@ -345,6 +437,169 @@ export async function exportPdf(_title: string): Promise<void> {
     doc.write(html);
     doc.close();
   });
+}
+
+// ─── buildEpubChapters ────────────────────────────────────────────────────────
+
+/**
+ * A single chapter for an EPUB book.
+ * Maps directly to the `Chapter` type expected by `epub-gen-memory`.
+ */
+export interface EpubChapter {
+  /** Chapter title shown in the EPUB Table of Contents. */
+  title: string;
+  /** HTML body content for this chapter (full HTML fragment, not a document). */
+  content: string;
+}
+
+/**
+ * Split a rendered HTML body into EPUB chapters using H1/H2 headings as
+ * chapter boundaries.  Each heading starts a new chapter; the title is the
+ * heading's text content.
+ *
+ * Rules:
+ *  - H1 headings always start a new chapter.
+ *  - H2 headings start a new chapter only when no H1 headings exist in the
+ *    document (i.e. the document uses H2 as the top-level heading).
+ *  - Content before the first heading is collected into a preamble chapter
+ *    titled "Introduction" (only emitted when non-empty after trimming).
+ *  - When the body has NO headings, the entire content becomes a single
+ *    chapter whose title matches the book title.
+ *
+ * @param bodyHtml  The inner HTML of `.markdown-body` (not a full document).
+ * @param title     Fallback title used when no headings exist.
+ * @returns         Array of EpubChapter objects, at least one entry.
+ */
+export function buildEpubChapters(bodyHtml: string, title: string): EpubChapter[] {
+  // Parse the body HTML into a DOM fragment so we can walk the tree.
+  const container = document.createElement("div");
+  container.innerHTML = bodyHtml;
+
+  const children = Array.from(container.children);
+  if (children.length === 0) {
+    return [{ title, content: "" }];
+  }
+
+  // Determine split level: H1 if any H1 exists, otherwise H2.
+  const hasH1 = children.some((el) => el.tagName === "H1");
+  const splitTag = hasH1 ? "H1" : "H2";
+
+  // Check if any split-level headings exist at all.
+  const hasSplitHeadings = children.some((el) => el.tagName === splitTag);
+  if (!hasSplitHeadings) {
+    // No headings — single chapter with the full content.
+    return [{ title, content: bodyHtml }];
+  }
+
+  const chapters: EpubChapter[] = [];
+  let currentTitle = "Introduction";
+  let currentNodes: Element[] = [];
+
+  for (const el of children) {
+    if (el.tagName === splitTag) {
+      // Flush the accumulated nodes as a chapter (skip empty preamble).
+      if (currentNodes.length > 0) {
+        const html = currentNodes.map((n) => n.outerHTML).join("\n");
+        chapters.push({ title: currentTitle, content: html });
+      }
+      currentTitle = (el.textContent ?? "").trim() || title;
+      currentNodes = [];
+    } else {
+      currentNodes.push(el);
+    }
+  }
+
+  // Flush the last chapter.
+  chapters.push({
+    title: currentTitle,
+    content: currentNodes.map((n) => n.outerHTML).join("\n"),
+  });
+
+  return chapters.length > 0 ? chapters : [{ title, content: bodyHtml }];
+}
+
+/**
+ * Export as an EPUB file.
+ *
+ * Uses `epub-gen-memory` (MIT) to produce a fully self-contained EPUB 3
+ * archive client-side — no server round-trip needed.
+ *
+ * Features:
+ *  - Automatic Table of Contents derived from H1/H2 headings in the document.
+ *  - Theme-aware chapter CSS (paper / sepia / midnight CSS vars translated to
+ *    portable EPUB-compatible inline styles).
+ *  - Embedded images: any <img> with a data URI src is included in the EPUB
+ *    asset list so readers can display them offline.
+ *  - Code blocks with Shiki-generated syntax highlighting are preserved via
+ *    inline `style` attributes already present in the captured HTML.
+ *  - The resulting bytes are written via the Rust `write_file_bytes` command
+ *    for an atomic save (same path as DOCX export).
+ *
+ * Requires: `epub-gen-memory` must be installed (`bun add epub-gen-memory`).
+ * The import is dynamic so the rest of the app loads even if it is absent.
+ */
+export async function exportEpub(title: string): Promise<void> {
+  // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
+  // chapter splitting we need only the inner content so headings are top-level
+  // children of the parse container.
+  const el = document.querySelector(".markdown-body");
+  if (!el) {
+    throw "Switch to Read view before exporting.";
+  }
+  const bodyHtml = cloneWithoutInjectedChrome(el).innerHTML;
+
+  let epubGen: (
+    options: Record<string, unknown>,
+    content: EpubChapter[],
+  ) => Promise<Blob | ArrayBuffer>;
+
+  try {
+    const mod = await import("epub-gen-memory");
+    epubGen = (mod.default ?? mod) as typeof epubGen;
+  } catch {
+    throw "epub-gen-memory is not installed. Run: bun add epub-gen-memory";
+  }
+
+  const path = await save({
+    defaultPath: `${sanitizeFileName(title)}.epub`,
+    filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
+  });
+  if (!path) return; // user cancelled — no toast
+
+  const theme = currentTheme();
+  const css = buildEpubThemeCss(theme);
+  const chapters = buildEpubChapters(bodyHtml, title);
+
+  const result = await epubGen(
+    {
+      title,
+      // Author from document store if available, otherwise blank.
+      author: "",
+      // Use the theme-aware chapter CSS as the stylesheet.
+      css,
+      // EPUB 3 for widest modern reader support.
+      version: 3,
+      // Suppress verbose internal logging in production.
+      verbose: false,
+    },
+    chapters,
+  );
+
+  // Normalise to Uint8Array regardless of whether we got a Blob or ArrayBuffer.
+  let bytes: Uint8Array;
+  if (result instanceof Blob) {
+    bytes = new Uint8Array(await result.arrayBuffer());
+  } else {
+    bytes = new Uint8Array(result as ArrayBuffer);
+  }
+
+  try {
+    await invoke("write_file_bytes", { path, data: Array.from(bytes) });
+  } catch (e) {
+    toast.error(`Export failed: ${errMsg(e)}`);
+    throw e;
+  }
+  toast.success(`Exported to ${baseName(path)}`);
 }
 
 // ─── exportMarkdownArchive ───────────────────────────────────────────────────

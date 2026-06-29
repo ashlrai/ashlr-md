@@ -31,6 +31,7 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "dompurify": "^3.4.8",
+    "epub-gen-memory": "^1.1.2",
     "github-slugger": "^2.0.0",
     "html-to-docx": "^1.8.0",
     "katex": "^0.17.0",

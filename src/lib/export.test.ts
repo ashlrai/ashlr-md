@@ -2254,3 +2254,446 @@ describe("exportWithProfile", () => {
     );
   });
 });
+
+// ─── EPUB imports ─────────────────────────────────────────────────────────────
+
+import {
+  buildEpubChapters,
+  buildEpubThemeCss,
+  exportEpub,
+  type EpubChapter,
+} from "./export";
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildEpubThemeCss — theme-aware CSS generation
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildEpubThemeCss", () => {
+  it("returns a non-empty string for paper theme", () => {
+    const css = buildEpubThemeCss("paper");
+    expect(typeof css).toBe("string");
+    expect(css.length).toBeGreaterThan(0);
+  });
+
+  it("returns a non-empty string for sepia theme", () => {
+    const css = buildEpubThemeCss("sepia");
+    expect(css.length).toBeGreaterThan(0);
+  });
+
+  it("returns a non-empty string for midnight theme", () => {
+    const css = buildEpubThemeCss("midnight");
+    expect(css.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to paper theme for unknown theme id", () => {
+    const unknown = buildEpubThemeCss("unknown-theme");
+    const paper = buildEpubThemeCss("paper");
+    expect(unknown).toBe(paper);
+  });
+
+  it("paper theme uses white background", () => {
+    const css = buildEpubThemeCss("paper");
+    expect(css).toContain("#ffffff");
+  });
+
+  it("sepia theme uses warm sepia background", () => {
+    const css = buildEpubThemeCss("sepia");
+    expect(css).toContain("#f8f3e8");
+  });
+
+  it("midnight theme uses dark background", () => {
+    const css = buildEpubThemeCss("midnight");
+    expect(css).toContain("#1a1a2e");
+  });
+
+  it("all themes include body font-family", () => {
+    for (const theme of ["paper", "sepia", "midnight"]) {
+      const css = buildEpubThemeCss(theme);
+      expect(css).toContain("font-family");
+    }
+  });
+
+  it("all themes include heading styles", () => {
+    for (const theme of ["paper", "sepia", "midnight"]) {
+      const css = buildEpubThemeCss(theme);
+      expect(css).toContain("h1");
+      expect(css).toContain("h2");
+    }
+  });
+
+  it("all themes include code block styles", () => {
+    for (const theme of ["paper", "sepia", "midnight"]) {
+      const css = buildEpubThemeCss(theme);
+      expect(css).toContain("pre");
+      expect(css).toContain("code");
+    }
+  });
+
+  it("produces distinct CSS for each theme", () => {
+    const paper = buildEpubThemeCss("paper");
+    const sepia = buildEpubThemeCss("sepia");
+    const midnight = buildEpubThemeCss("midnight");
+    expect(paper).not.toBe(sepia);
+    expect(sepia).not.toBe(midnight);
+    expect(paper).not.toBe(midnight);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// buildEpubChapters — pure chapter splitting logic
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("buildEpubChapters", () => {
+  it("returns a single chapter when body has no headings", () => {
+    const div = document.createElement("div");
+    div.innerHTML = "<p>Just a paragraph.</p>";
+    const chapters = buildEpubChapters(div.innerHTML, "My Book");
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].title).toBe("My Book");
+    expect(chapters[0].content).toContain("Just a paragraph");
+  });
+
+  it("returns a single chapter for empty body", () => {
+    const chapters = buildEpubChapters("", "Empty");
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].title).toBe("Empty");
+    expect(chapters[0].content).toBe("");
+  });
+
+  it("splits on H1 headings to create chapters", () => {
+    const html = "<h1>Chapter One</h1><p>First.</p><h1>Chapter Two</h1><p>Second.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].title).toBe("Chapter One");
+    expect(chapters[1].title).toBe("Chapter Two");
+  });
+
+  it("chapter content contains the paragraph text following the heading", () => {
+    const html = "<h1>Title</h1><p>Body text here.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters[0].content).toContain("Body text here");
+  });
+
+  it("preamble content before first H1 is collected into Introduction chapter", () => {
+    const html = "<p>Preamble text.</p><h1>Chapter</h1><p>Chapter body.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    // Two chapters: Introduction (preamble) + Chapter
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].title).toBe("Introduction");
+    expect(chapters[0].content).toContain("Preamble text");
+  });
+
+  it("falls back to H2 splitting when no H1 headings exist", () => {
+    const html = "<h2>Section A</h2><p>A text.</p><h2>Section B</h2><p>B text.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters).toHaveLength(2);
+    expect(chapters[0].title).toBe("Section A");
+    expect(chapters[1].title).toBe("Section B");
+  });
+
+  it("H2 headings are NOT split points when H1 headings exist", () => {
+    const html = "<h1>Chapter</h1><h2>Sub</h2><p>Body.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    // Only one chapter (H2 stays inside Chapter's content)
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].content).toContain("<h2>");
+  });
+
+  it("each chapter has a title string and content string", () => {
+    const html = "<h1>A</h1><p>Text A.</p><h1>B</h1><p>Text B.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    for (const ch of chapters) {
+      expect(typeof ch.title).toBe("string");
+      expect(typeof ch.content).toBe("string");
+    }
+  });
+
+  it("chapter title uses heading text content, not markup", () => {
+    const html = "<h1><strong>Bold Title</strong></h1><p>Body.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters[0].title).toBe("Bold Title");
+  });
+
+  it("deep heading hierarchy (H3+) remains in chapter content, not split", () => {
+    const html = "<h1>Chapter</h1><h2>Sub</h2><h3>Subsub</h3><p>Text.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].content).toContain("<h2>");
+    expect(chapters[0].content).toContain("<h3>");
+  });
+
+  it("empty preamble is not emitted as a chapter", () => {
+    // No content before first H1 — Introduction chapter should be skipped
+    const html = "<h1>First</h1><p>Content.</p>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters[0].title).toBe("First");
+    expect(chapters).toHaveLength(1);
+  });
+
+  it("TOC auto-creation: chapter titles match heading texts in order", () => {
+    const html = [
+      "<h1>Introduction</h1><p>Intro text.</p>",
+      "<h1>Methods</h1><p>Methods text.</p>",
+      "<h1>Results</h1><p>Results text.</p>",
+      "<h1>Conclusion</h1><p>Conclusion text.</p>",
+    ].join("");
+    const chapters = buildEpubChapters(html, "Paper");
+    const titles = chapters.map((c) => c.title);
+    expect(titles).toEqual(["Introduction", "Methods", "Results", "Conclusion"]);
+  });
+
+  it("image tags inside chapter content are preserved", () => {
+    const html = '<h1>Chapter</h1><img src="data:image/png;base64,abc" alt="fig" />';
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters[0].content).toContain("<img");
+    expect(chapters[0].content).toContain("data:image/png;base64,abc");
+  });
+
+  it("code block content inside chapter is preserved", () => {
+    const html = "<h1>Dev</h1><pre><code>const x = 1;</code></pre>";
+    const chapters = buildEpubChapters(html, "Book");
+    expect(chapters[0].content).toContain("<pre>");
+    expect(chapters[0].content).toContain("const x = 1;");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// exportEpub — integration (mocked epub-gen-memory + Tauri + dialog)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("exportEpub", () => {
+  const EPUB_BODY_HTML = `
+<h1>Chapter One</h1>
+<p>Opening paragraph with <strong>bold</strong> and <em>italic</em>.</p>
+<h2>Section 1.1</h2>
+<p>More text here.</p>
+<pre><code class="language-js">console.log("hello");</code></pre>
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==" alt="figure" />
+<h1>Chapter Two</h1>
+<p>Second chapter content.</p>
+`.trim();
+
+  function setupEpubDom(html = EPUB_BODY_HTML) {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = html;
+    document.body.appendChild(div);
+  }
+
+  beforeEach(() => {
+    setupEpubDom();
+    invokeMock.mockReset();
+    saveMock.mockReset();
+    vi.mocked(toast.success).mockReset();
+    vi.mocked(toast.error).mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    saveMock.mockResolvedValue("/out/my-doc.epub");
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.resetModules();
+  });
+
+  it("throws a user-visible error when not in Read view", async () => {
+    document.body.innerHTML = "";
+    await expect(exportEpub("No view")).rejects.toMatch(
+      "Switch to Read view before exporting.",
+    );
+  });
+
+  it("throws when epub-gen-memory is not installed", async () => {
+    vi.doMock("epub-gen-memory", () => { throw new Error("module not found"); });
+    const { exportEpub: fresh } = await import("./export");
+    await expect(fresh("Missing")).rejects.toMatch("epub-gen-memory is not installed");
+    vi.resetModules();
+  });
+
+  it("does nothing when user cancels the save dialog", async () => {
+    const fakeBlob = new Blob(["EPUB"], { type: "application/epub+zip" });
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    saveMock.mockResolvedValue(null);
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Cancelled");
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+
+  it("writes EPUB bytes via write_file_bytes and shows a success toast", async () => {
+    const fakeBlob = new Blob(["EPUB content"], { type: "application/epub+zip" });
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("My Book");
+
+    expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", {
+      path: "/out/my-doc.epub",
+      data: expect.any(Array),
+    });
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      expect.stringContaining("my-doc.epub"),
+    );
+  });
+
+  it("handles ArrayBuffer result from epub-gen-memory (not Blob)", async () => {
+    const buf = new ArrayBuffer(8);
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(buf) }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("ArrayBuf");
+
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    expect(call).toBeDefined();
+    expect(call![1].data).toBeInstanceOf(Array);
+  });
+
+  it("requests a .epub file filter in the save dialog", async () => {
+    const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Filter Test");
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.arrayContaining([
+          expect.objectContaining({ extensions: expect.arrayContaining(["epub"]) }),
+        ]),
+      }),
+    );
+  });
+
+  it("sanitises the title to a safe filename for the save dialog default path", async () => {
+    const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Hello World: <Test>/File");
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: expect.stringMatching(/Hello-World.*\.epub/),
+      }),
+    );
+  });
+
+  it("shows an error toast and re-throws when write_file_bytes fails", async () => {
+    const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
+    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    invokeMock.mockRejectedValue(new Error("write failed"));
+
+    const { exportEpub: fresh } = await import("./export");
+    await expect(fresh("Fail")).rejects.toBeDefined();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("write failed"),
+    );
+  });
+
+  it("passes title, css, and chapters to epub-gen-memory", async () => {
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("My Great Book");
+
+    expect(epubFn).toHaveBeenCalledTimes(1);
+    const [options, chapters] = epubFn.mock.calls[0];
+    expect(options).toMatchObject({ title: "My Great Book" });
+    expect(options.css).toBeTruthy();
+    expect(Array.isArray(chapters)).toBe(true);
+    expect(chapters.length).toBeGreaterThan(0);
+  });
+
+  it("generates chapters from H1 headings via buildEpubChapters", async () => {
+    // Ensure DOM is set up for this fresh-import test (vi.resetModules in
+    // afterEach tears down module state but not DOM; re-inject to be safe).
+    document.body.innerHTML = "";
+    setupEpubDom();
+
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Chapters Test");
+
+    const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
+    const titles = chapters.map((c) => c.title);
+    expect(titles).toContain("Chapter One");
+    expect(titles).toContain("Chapter Two");
+  });
+
+  it("chapter content contains paragraph body text", async () => {
+    document.body.innerHTML = "";
+    setupEpubDom();
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Content Test");
+
+    const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
+    const allContent = chapters.map((c) => c.content).join(" ");
+    expect(allContent).toContain("Opening paragraph");
+  });
+
+  it("chapter content preserves embedded image data URIs", async () => {
+    document.body.innerHTML = "";
+    setupEpubDom();
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Image Test");
+
+    const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
+    const allContent = chapters.map((c) => c.content).join(" ");
+    expect(allContent).toContain("data:image/png;base64");
+  });
+
+  it("chapter content preserves code blocks with syntax highlighting", async () => {
+    document.body.innerHTML = "";
+    setupEpubDom();
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Code Test");
+
+    const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
+    const allContent = chapters.map((c) => c.content).join(" ");
+    expect(allContent).toContain('console.log("hello")');
+  });
+
+  it("uses theme-aware CSS from buildEpubThemeCss matching current theme", async () => {
+    document.documentElement.dataset.theme = "sepia";
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Sepia Test");
+
+    const [options] = epubFn.mock.calls[0] as [{ css: string }, unknown];
+    // Sepia theme CSS should reference the sepia background
+    expect(options.css).toContain("#f8f3e8");
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("empty document body produces a single fallback chapter", async () => {
+    document.body.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = ""; // No children
+    document.body.appendChild(div);
+
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+
+    const { exportEpub: fresh } = await import("./export");
+    await fresh("Empty Doc");
+
+    const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
+    expect(chapters).toHaveLength(1);
+    expect(chapters[0].title).toBe("Empty Doc");
+  });
+});
