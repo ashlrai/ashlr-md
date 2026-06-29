@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getStoredState } from "../test-setup";
 
 // Mock the Tauri bridge so the store runs in plain Node/happy-dom.
 const invokeMock = vi.fn();
@@ -142,11 +143,8 @@ describe("aiStore", () => {
     await useAIStore.getState().loadApiKey();
     expect(useAIStore.getState().apiKey).toBe("sk-legacy");
     // After migration the plaintext key is stripped from localStorage.
-    const stored = JSON.parse(localStorage.getItem("mdopener-ai") ?? "{}") as {
-      state?: { apiKey?: string };
-    };
-    expect(stored?.state?.apiKey).toBeUndefined();
-    localStorage.removeItem("mdopener-ai");
+    const blob = getStoredState<{ apiKey?: string }>("mdopener-ai");
+    expect(blob?.state?.apiKey).toBeUndefined();
   });
 
   // ── Preferences ────────────────────────────────────────────────────────

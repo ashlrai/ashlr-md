@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { getStoredState } from "../test-setup";
 import { useRecentStore, type RecentFile } from "./recentStore";
 
 const STORE_KEY = "mdopener-recents";
@@ -115,20 +116,18 @@ describe("recentStore", () => {
 
   it("add() writes state to localStorage after mutation", () => {
     useRecentStore.getState().add("/p.md", "p.md", 5000);
-    const raw = localStorage.getItem(STORE_KEY);
-    expect(raw).not.toBeNull();
-    const parsed = JSON.parse(raw!) as { state: { recents: RecentFile[] } };
-    expect(parsed.state.recents).toHaveLength(1);
-    expect(parsed.state.recents[0].path).toBe("/p.md");
+    const blob = getStoredState<{ recents: RecentFile[] }>(STORE_KEY);
+    expect(blob).not.toBeNull();
+    expect(blob!.state.recents).toHaveLength(1);
+    expect(blob!.state.recents[0].path).toBe("/p.md");
   });
 
   it("clear() writes empty recents to localStorage", () => {
     useRecentStore.getState().add("/a.md", "a.md", 1000);
     useRecentStore.getState().clear();
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as { state: { recents: RecentFile[] } };
-      expect(parsed.state.recents).toHaveLength(0);
+    const blob = getStoredState<{ recents: RecentFile[] }>(STORE_KEY);
+    if (blob) {
+      expect(blob.state.recents).toHaveLength(0);
     }
   });
 

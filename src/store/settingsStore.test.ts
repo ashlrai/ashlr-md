@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { getStoredState } from "../test-setup";
 import {
   isDefaultPromptSnoozed,
   NEVER_ASK_DEFAULT,
@@ -130,6 +131,17 @@ describe("settingsStore — export template registry", () => {
       addUserTemplate({ name: `T${i}`, css: "" }),
     );
     expect(new Set(ids).size).toBe(10);
+  });
+
+  it("addUserTemplate writes userTemplates to localStorage via persist middleware", () => {
+    const { addUserTemplate } = useSettingsStore.getState();
+    addUserTemplate({ name: "Persisted", css: "h1{color:blue}" });
+    const blob = getStoredState<{ userTemplates: { name: string; css: string }[] }>(
+      "mdopener-settings",
+    );
+    expect(blob).not.toBeNull();
+    expect(blob!.state.userTemplates).toHaveLength(1);
+    expect(blob!.state.userTemplates[0].name).toBe("Persisted");
   });
 });
 
