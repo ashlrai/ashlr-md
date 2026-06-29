@@ -46,6 +46,10 @@ vi.mock("./copyRichText", () => ({
   copyDocumentAsRichText: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./tableEditor", () => ({
+  buildEmptyTable: vi.fn().mockReturnValue("| Column 1 | Column 2 |\n| --- | --- |\n|  |  |"),
+}));
+
 vi.mock("./openFile", () => ({
   pickAndOpen: vi.fn().mockResolvedValue(undefined),
 }));
@@ -65,11 +69,13 @@ vi.mock("./waitForElement", () => ({
 const docState = {
   path: "/tmp/test.md" as string | null,
   fileName: "test.md",
+  content: "# Hello\n\n",
   viewMode: "read" as "read" | "edit" | "source",
   splitView: false,
   tabs: [] as { id: string; path: string; fileName: string }[],
   setViewMode: vi.fn(),
   toggleSplitView: vi.fn(),
+  setContent: vi.fn(),
   save: vi.fn(),
   close: vi.fn(),
   nextTab: vi.fn(),
@@ -198,6 +204,7 @@ function makeEvent(shortcut: string): KeyboardEvent {
 beforeEach(() => {
   // Reset doc state to canonical "has a file, read view, one tab"
   docState.path = "/tmp/test.md";
+  docState.content = "# Hello\n\n";
   docState.viewMode = "read";
   docState.tabs = [{ id: "t1", path: "/tmp/test.md", fileName: "test.md" }];
   settingsState.theme = "paper";
@@ -210,6 +217,9 @@ beforeEach(() => {
     ...Object.values(settingsState),
   ].filter((v): v is ReturnType<typeof vi.fn> => typeof v === "function" && "mockReset" in v);
   for (const fn of allFns) fn.mockReset();
+
+  // Stub window.prompt for insert-table command
+  vi.stubGlobal("prompt", vi.fn().mockReturnValue("3"));
 
   // Restore return values that commands depend on
   docState.save.mockResolvedValue(undefined);
@@ -283,6 +293,7 @@ describe("Command registry — id uniqueness and shape", () => {
       "ai.toggle",
       "theme.cycle",
       "edit.copyRichText",
+      "edit.insertTable",
       "file.open",
       "file.save",
       "file.close",
@@ -302,6 +313,7 @@ describe("Command registry — id uniqueness and shape", () => {
   it("COMMAND_GROUPS exports all expected section labels", () => {
     expect(COMMAND_GROUPS).toContain("File");
     expect(COMMAND_GROUPS).toContain("View");
+    expect(COMMAND_GROUPS).toContain("Edit");
     expect(COMMAND_GROUPS).toContain("AI");
     expect(COMMAND_GROUPS).toContain("Appearance");
     expect(COMMAND_GROUPS).toContain("App");
@@ -716,6 +728,38 @@ describe("Command execution — delegates fire correctly", () => {
     expect(copyRichTextMock).toHaveBeenCalledOnce();
   });
 
+  it("edit.insertTable.run() calls doc.setContent() when doc is open and prompt returns values", async () => {
+    docState.path = "/tmp/test.md";
+    vi.stubGlobal("prompt", vi.fn().mockReturnValue("3"));
+    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    expect(docState.setContent).toHaveBeenCalled();
+    const newContent: string = docState.setContent.mock.calls[0][0] as string;
+    expect(newContent).toContain("Column 1");
+  });
+
+  it("edit.insertTable.run() does nothing when doc path is null", async () => {
+    docState.path = null;
+    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    expect(docState.setContent).not.toHaveBeenCalled();
+  });
+
+  it("edit.insertTable.run() does nothing when first prompt is cancelled (null)", async () => {
+    docState.path = "/tmp/test.md";
+    vi.stubGlobal("prompt", vi.fn().mockReturnValueOnce(null));
+    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    expect(docState.setContent).not.toHaveBeenCalled();
+  });
+
+  it("edit.insertTable.run() does nothing when second prompt is cancelled (null)", async () => {
+    docState.path = "/tmp/test.md";
+    vi.stubGlobal(
+      "prompt",
+      vi.fn().mockReturnValueOnce("2").mockReturnValueOnce(null),
+    );
+    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    expect(docState.setContent).not.toHaveBeenCalled();
+  });
+
   it("file.openInObsidian.run() invokes 'open_in_obsidian' with current path", async () => {
     docState.path = "/tmp/note.md";
     await getCommands().find((c) => c.id === "file.openInObsidian")!.run();
@@ -892,6 +936,16 @@ describe("Keyboard shortcut dispatch — bindings wire to correct commands", () 
   it("⌘⇧C → edit.copyRichText (doc open)", () => {
     docState.path = "/tmp/test.md";
     expect(dispatch(makeEvent("mod+shift+c"))).toBe("edit.copyRichText");
+  });
+
+  it("⌘⇧T → edit.insertTable (doc open)", () => {
+    docState.path = "/tmp/test.md";
+    expect(dispatch(makeEvent("mod+shift+t"))).toBe("edit.insertTable");
+  });
+
+  it("⌘⇧T → null (no doc)", () => {
+    docState.path = null;
+    expect(dispatch(makeEvent("mod+shift+t"))).toBeNull();
   });
 
   it("unregistered shortcut ⌘Z → null", () => {
