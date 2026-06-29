@@ -39,8 +39,8 @@ interface InlineAnchor {
 
 type InlinePhase =
   | { kind: "menu" }
-  | { kind: "running"; label: string }
-  | { kind: "error"; message: string };
+  | { kind: "running"; label: string; inputTokens: number; outputTokens: number }
+  | { kind: "error"; message: string; retryFn: (() => void) | null };
 
 function CrepeInner({ initialContent }: { initialContent: string }) {
   const fmRef = useRef("");
@@ -76,72 +76,96 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     setPhase({ kind: "menu" });
   }, []);
 
-  const runTransform = useCallback(async (actionId: ActionId, label: string) => {
-    const view = proseRef.current;
-    if (!view || runningRef.current) return;
-    const { from, to } = view.state.selection;
-    if (from === to) return;
-    const original = view.state.doc.textBetween(from, to, "\n");
-    if (!original.trim()) return;
+  // Estimate token count using the 1 token ≈ 4 chars heuristic.
+  const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    runningRef.current = true;
-    setPhase({ kind: "running", label });
+  const runTransform = useCallback(
+    async (actionId: ActionId, label: string, retryCount = 0) => {
+      const view = proseRef.current;
+      if (!view || runningRef.current) return;
+      const { from, to } = view.state.selection;
+      if (from === to) return;
+      const original = view.state.doc.textBetween(from, to, "\n");
+      if (!original.trim()) return;
 
-    // We always replace [start, end) with the accumulated output so streaming
-    // stays a single coherent region.
-    const start = from;
-    let end = to;
-    let acc = "";
+      const inputTokens = estimateTokens(original);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      runningRef.current = true;
+      setPhase({ kind: "running", label, inputTokens, outputTokens: 0 });
 
-    const applyOutput = (next: string) => {
-      acc = next;
-      const tr = view.state.tr.insertText(acc, start, end);
-      // Keep the new text selected so the caret/anchor track the output.
-      view.dispatch(tr);
-      end = start + acc.length;
-    };
+      // We always replace [start, end) with the accumulated output so streaming
+      // stays a single coherent region.
+      const start = from;
+      let end = to;
+      let acc = "";
 
-    try {
-      let pending = "";
-      await runInlineTransform({
-        text: original,
-        actionId,
-        signal: controller.signal,
-        onDelta: (delta) => {
-          pending += delta;
-          applyOutput(pending);
-        },
-      });
-      setAnchor(null);
-      setPhase({ kind: "menu" });
-    } catch (e) {
-      // Restore the original text on any failure or cancel.
-      try {
-        const tr = view.state.tr.insertText(original, start, start + acc.length);
+      const applyOutput = (next: string) => {
+        acc = next;
+        const tr = view.state.tr.insertText(acc, start, end);
+        // Keep the new text selected so the caret/anchor track the output.
         view.dispatch(tr);
-      } catch {
-        // View may be gone.
-      }
-      const aborted = e instanceof DOMException && e.name === "AbortError";
-      if (aborted) {
+        end = start + acc.length;
+        setPhase({
+          kind: "running",
+          label,
+          inputTokens,
+          outputTokens: estimateTokens(acc),
+        });
+      };
+
+      try {
+        let pending = "";
+        await runInlineTransform({
+          text: original,
+          actionId,
+          signal: controller.signal,
+          onDelta: (delta) => {
+            pending += delta;
+            applyOutput(pending);
+          },
+        });
         setAnchor(null);
         setPhase({ kind: "menu" });
-      } else if (e instanceof NoProviderError) {
-        setPhase({
-          kind: "error",
-          message: "No AI provider — set one up in the AI sidebar.",
-        });
-      } else {
-        const m = e instanceof Error ? e.message : String(e);
-        setPhase({ kind: "error", message: m });
+      } catch (e) {
+        // Restore the original text on any failure or cancel.
+        try {
+          const tr = view.state.tr.insertText(original, start, start + acc.length);
+          view.dispatch(tr);
+        } catch {
+          // View may be gone.
+        }
+        const aborted = e instanceof DOMException && e.name === "AbortError";
+        if (aborted) {
+          setAnchor(null);
+          setPhase({ kind: "menu" });
+        } else if (e instanceof NoProviderError) {
+          setPhase({
+            kind: "error",
+            message: "No AI provider — set one up in the AI sidebar.",
+            retryFn: null,
+          });
+        } else {
+          const m = e instanceof Error ? e.message : String(e);
+          const retryFn =
+            retryCount < 1
+              ? () => {
+                  const delay = 500 * 2 ** retryCount;
+                  setTimeout(
+                    () => void runTransformRef.current(actionId, label, retryCount + 1),
+                    delay,
+                  );
+                }
+              : null;
+          setPhase({ kind: "error", message: m, retryFn });
+        }
+      } finally {
+        runningRef.current = false;
+        abortRef.current = null;
       }
-    } finally {
-      runningRef.current = false;
-      abortRef.current = null;
-    }
-  }, []);
+    },
+    [],
+  );
 
   const runTransformRef = useRef(runTransform);
   runTransformRef.current = runTransform;
@@ -276,19 +300,32 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                 ✨
               </span>
               {phase.label}…
+              <span className="inline-ai-tokens" aria-label="token counts">
+                {phase.inputTokens}↓→{phase.outputTokens}
+              </span>
               <button
                 type="button"
                 className="inline-ai-cancel"
                 title="Cancel (Esc)"
+                aria-label="Abort generation"
                 onClick={() => abortRef.current?.abort()}
               >
-                Esc
+                ✕ <span className="inline-ai-cancel-hint">Esc</span>
               </button>
             </div>
           )}
           {phase.kind === "error" && (
             <div className="inline-ai-error" role="alert">
-              {phase.message}
+              <span className="inline-ai-error-msg">{phase.message}</span>
+              {phase.retryFn && (
+                <button
+                  type="button"
+                  className="inline-ai-retry"
+                  onClick={() => phase.retryFn?.()}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -44,8 +44,8 @@ interface InlineAnchor {
 
 type InlinePhase =
   | { kind: "menu" }
-  | { kind: "running"; label: string }
-  | { kind: "error"; message: string };
+  | { kind: "running"; label: string; inputTokens: number; outputTokens: number }
+  | { kind: "error"; message: string; retryFn: (() => void) | null };
 
 export function SourceEditor({ initialContent }: { initialContent: string }) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -82,83 +82,108 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
     return { from, to, top, left: Math.max(8, start.left) };
   }, []);
 
+  // Estimate token count using the 1 token ≈ 4 chars heuristic.
+  const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
   // Run an inline transform over the current selection, replacing it in place
   // and streaming the result as it arrives.
-  const runTransform = useCallback(async (actionId: ActionId, label: string) => {
-    const view = viewRef.current;
-    if (!view || runningRef.current) return;
+  const runTransform = useCallback(
+    async (actionId: ActionId, label: string, retryCount = 0) => {
+      const view = viewRef.current;
+      if (!view || runningRef.current) return;
 
-    const sel = view.state.selection.main;
-    if (sel.from === sel.to) return;
-    const original = view.state.sliceDoc(sel.from, sel.to);
-    if (!original.trim()) return;
+      const sel = view.state.selection.main;
+      if (sel.from === sel.to) return;
+      const original = view.state.sliceDoc(sel.from, sel.to);
+      if (!original.trim()) return;
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    runningRef.current = true;
-    setPhase({ kind: "running", label });
+      const inputTokens = estimateTokens(original);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      runningRef.current = true;
+      setPhase({ kind: "running", label, inputTokens, outputTokens: 0 });
 
-    // The span currently occupied by AI output. Starts as the selection;
-    // grows as deltas stream in. We always replace [start, end) so streaming
-    // stays one coherent, single-undo edit region.
-    const start = sel.from;
-    let end = sel.to;
-    let acc = "";
+      // The span currently occupied by AI output. Starts as the selection;
+      // grows as deltas stream in. We always replace [start, end) so streaming
+      // stays one coherent, single-undo edit region.
+      const start = sel.from;
+      let end = sel.to;
+      let acc = "";
 
-    const applyOutput = (next: string) => {
-      acc = next;
-      view.dispatch({
-        changes: { from: start, to: end, insert: acc },
-        // Keep the growing output selected so the anchor tracks it.
-        selection: { anchor: start, head: start + acc.length },
-      });
-      end = start + acc.length;
-    };
-
-    try {
-      let pending = "";
-      await runInlineTransform({
-        text: original,
-        actionId,
-        signal: controller.signal,
-        onDelta: (delta) => {
-          pending += delta;
-          applyOutput(pending);
-        },
-      });
-      setContentRef.current(view.state.doc.toString());
-      setAnchor(null);
-      setPhase({ kind: "menu" });
-    } catch (e) {
-      // Restore the original text on any failure or cancel so nothing is lost.
-      try {
+      const applyOutput = (next: string) => {
+        acc = next;
         view.dispatch({
-          changes: { from: start, to: start + acc.length, insert: original },
-          selection: { anchor: start, head: start + original.length },
+          changes: { from: start, to: end, insert: acc },
+          // Keep the growing output selected so the anchor tracks it.
+          selection: { anchor: start, head: start + acc.length },
+        });
+        end = start + acc.length;
+        setPhase({
+          kind: "running",
+          label,
+          inputTokens,
+          outputTokens: estimateTokens(acc),
+        });
+      };
+
+      try {
+        let pending = "";
+        await runInlineTransform({
+          text: original,
+          actionId,
+          signal: controller.signal,
+          onDelta: (delta) => {
+            pending += delta;
+            applyOutput(pending);
+          },
         });
         setContentRef.current(view.state.doc.toString());
-      } catch {
-        // View may be gone (unmount) — nothing to restore.
-      }
-
-      const aborted = e instanceof DOMException && e.name === "AbortError";
-      if (aborted) {
         setAnchor(null);
         setPhase({ kind: "menu" });
-      } else if (e instanceof NoProviderError) {
-        setPhase({
-          kind: "error",
-          message: "No AI provider — set one up in the AI sidebar.",
-        });
-      } else {
-        const m = e instanceof Error ? e.message : String(e);
-        setPhase({ kind: "error", message: m });
+      } catch (e) {
+        // Restore the original text on any failure or cancel so nothing is lost.
+        try {
+          view.dispatch({
+            changes: { from: start, to: start + acc.length, insert: original },
+            selection: { anchor: start, head: start + original.length },
+          });
+          setContentRef.current(view.state.doc.toString());
+        } catch {
+          // View may be gone (unmount) — nothing to restore.
+        }
+
+        const aborted = e instanceof DOMException && e.name === "AbortError";
+        if (aborted) {
+          setAnchor(null);
+          setPhase({ kind: "menu" });
+        } else if (e instanceof NoProviderError) {
+          setPhase({
+            kind: "error",
+            message: "No AI provider — set one up in the AI sidebar.",
+            retryFn: null,
+          });
+        } else {
+          const m = e instanceof Error ? e.message : String(e);
+          // Allow one automatic retry with exponential back-off (500 ms → 1 s).
+          const retryFn =
+            retryCount < 1
+              ? () => {
+                  const delay = 500 * 2 ** retryCount;
+                  setTimeout(
+                    () => void runTransformRef.current(actionId, label, retryCount + 1),
+                    delay,
+                  );
+                }
+              : null;
+          setPhase({ kind: "error", message: m, retryFn });
+        }
+      } finally {
+        runningRef.current = false;
+        abortRef.current = null;
       }
-    } finally {
-      runningRef.current = false;
-      abortRef.current = null;
-    }
-  }, []);
+    },
+    [],
+  );
 
   const runTransformRef = useRef(runTransform);
   runTransformRef.current = runTransform;
@@ -317,19 +342,32 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
                 ✨
               </span>
               {phase.label}…
+              <span className="inline-ai-tokens" aria-label="token counts">
+                {phase.inputTokens}↓→{phase.outputTokens}
+              </span>
               <button
                 type="button"
                 className="inline-ai-cancel"
                 title="Cancel (Esc)"
+                aria-label="Abort generation"
                 onClick={() => abortRef.current?.abort()}
               >
-                Esc
+                ✕ <span className="inline-ai-cancel-hint">Esc</span>
               </button>
             </div>
           )}
           {phase.kind === "error" && (
             <div className="inline-ai-error" role="alert">
-              {phase.message}
+              <span className="inline-ai-error-msg">{phase.message}</span>
+              {phase.retryFn && (
+                <button
+                  type="button"
+                  className="inline-ai-retry"
+                  onClick={() => phase.retryFn?.()}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
         </div>
