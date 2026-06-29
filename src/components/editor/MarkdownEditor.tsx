@@ -8,8 +8,16 @@ import "@milkdown/crepe/theme/frame.css";
 import type { ActionId } from "../../ai/actions";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
-import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
+import {
+  extractImageRefs,
+  reorderImageInMarkdown,
+} from "../../lib/milkdownImageDragDrop";
+import {
+  clipboardHasImage,
+  handleImagePasteWithSettings,
+} from "../../lib/pasteImage";
 import { useDocumentStore } from "../../store/documentStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import "../../styles/editor.css";
 
 /**
@@ -48,6 +56,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
   const setContent = useDocumentStore((s) => s.setContent);
   const setContentRef = useRef(setContent);
   setContentRef.current = setContent;
+  const pasteImageTarget = useSettingsStore((s) => s.pasteImageTarget);
 
   // The live ProseMirror view, captured once the editor is created.
   const proseRef = useRef<ProseView | null>(null);
@@ -204,9 +213,10 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     }
   }, [loading, get]);
 
-  // Paste an image → save it next to the doc and insert a relative ![](assets/…)
-  // embed at the cursor. Bound on the ProseMirror DOM (capture phase) so it runs
-  // before Crepe's own paste handling; non-image pastes fall through untouched.
+  // Paste an image → save it to the configured location and insert the Markdown
+  // reference at the cursor. Bound on the ProseMirror DOM (capture phase) so it
+  // runs before Crepe's own paste handling; non-image pastes fall through
+  // untouched.
   useEffect(() => {
     if (loading) return;
     const view = proseRef.current;
@@ -215,16 +225,102 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
       if (!clipboardHasImage(event.clipboardData)) return;
       event.preventDefault();
       event.stopPropagation();
-      void handleImagePaste(event.clipboardData).then((markdownRef) => {
-        if (!markdownRef) return;
-        const { from, to } = view.state.selection;
-        // insertText routes the raw Markdown through the editor; Crepe's
-        // markdownUpdated listener then re-parses it into a rendered image.
-        view.dispatch(view.state.tr.insertText(markdownRef, from, to));
-      });
+      void handleImagePasteWithSettings(event.clipboardData, pasteImageTarget).then(
+        (markdownRef) => {
+          if (!markdownRef) return;
+          const { from, to } = view.state.selection;
+          // insertText routes the raw Markdown through the editor; Crepe's
+          // markdownUpdated listener then re-parses it into a rendered image.
+          view.dispatch(view.state.tr.insertText(markdownRef, from, to));
+        },
+      );
     };
     view.dom.addEventListener("paste", onPaste, true);
     return () => view.dom.removeEventListener("paste", onPaste, true);
+  }, [loading, pasteImageTarget]);
+
+  // Drag-drop image reordering — when the user drags an embedded image token
+  // within the editor and drops it at a new position, we reorder the image
+  // references in the raw Markdown source and push the result to documentStore.
+  //
+  // We annotate every rendered img element with `data-image-index` (the
+  // document-order index into the image list) in a MutationObserver callback,
+  // then listen for native dragstart / drop events on the editor DOM.
+  useEffect(() => {
+    if (loading) return;
+    const view = proseRef.current;
+    if (!view) return;
+
+    /** Stamp every rendered <img> with its document-order index. */
+    const stampImages = () => {
+      const imgs = view.dom.querySelectorAll<HTMLImageElement>("img");
+      imgs.forEach((img, i) => {
+        img.setAttribute("data-image-index", String(i));
+        img.setAttribute("draggable", "true");
+      });
+    };
+    stampImages();
+
+    // Re-stamp whenever the editor DOM mutates (new images rendered, etc.).
+    const observer = new MutationObserver(stampImages);
+    observer.observe(view.dom, { childList: true, subtree: true });
+
+    let dragFromIndex = -1;
+
+    const onDragStart = (event: DragEvent) => {
+      let el = event.target as Element | null;
+      while (el) {
+        const idx = el.getAttribute?.("data-image-index");
+        if (idx !== null && idx !== undefined) {
+          dragFromIndex = Number(idx);
+          event.dataTransfer?.setData("text/x-image-index", idx);
+          return;
+        }
+        el = el.parentElement;
+      }
+    };
+
+    const onDrop = (event: DragEvent) => {
+      if (dragFromIndex < 0) return;
+      let el = event.target as Element | null;
+      let toIndex = -1;
+      while (el) {
+        const idx = el.getAttribute?.("data-image-index");
+        if (idx !== null && idx !== undefined) {
+          toIndex = Number(idx);
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (toIndex >= 0 && toIndex !== dragFromIndex) {
+        event.preventDefault();
+        event.stopPropagation();
+        // Compute the new Markdown source.
+        const { frontmatter, body } = splitFrontmatter(
+          useDocumentStore.getState().content,
+        );
+        const newBody = reorderImageInMarkdown(body, dragFromIndex, toIndex);
+        if (newBody !== body) {
+          setContentRef.current(joinFrontmatter(frontmatter, newBody));
+        }
+      }
+      dragFromIndex = -1;
+    };
+
+    const onDragEnd = () => {
+      dragFromIndex = -1;
+    };
+
+    view.dom.addEventListener("dragstart", onDragStart as EventListener, true);
+    view.dom.addEventListener("drop", onDrop as EventListener, true);
+    view.dom.addEventListener("dragend", onDragEnd);
+
+    return () => {
+      observer.disconnect();
+      view.dom.removeEventListener("dragstart", onDragStart as EventListener, true);
+      view.dom.removeEventListener("drop", onDrop as EventListener, true);
+      view.dom.removeEventListener("dragend", onDragEnd);
+    };
   }, [loading]);
 
   // Track selection changes (mouse + keyboard) to show/hide the affordance,

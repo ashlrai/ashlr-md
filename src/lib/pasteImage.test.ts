@@ -379,3 +379,175 @@ describe("handleImagePaste", () => {
     expect(md).toMatch(/^!\[\]\(/);
   });
 });
+
+// ── handleImagePasteWithSettings ──────────────────────────────────────────────
+
+import {
+  expectedSavePath,
+  handleImagePasteWithSettings,
+  pasteImageFilename,
+} from "./pasteImage";
+
+describe("handleImagePasteWithSettings — doc-relative mode", () => {
+  beforeEach(() => {
+    mockDocPath = "/vault/notes/doc.md";
+    invokeMock.mockReset();
+    toastInfoMock.mockReset();
+    toastErrorMock.mockReset();
+    invokeMock.mockResolvedValue("assets/image.png");
+  });
+
+  it("calls save_pasted_image (not the downloads variant) in doc-relative mode", async () => {
+    const dt = makeDataTransfer(makeItem("image/png"));
+    await handleImagePasteWithSettings(dt, "doc-relative");
+    expect(invokeMock).toHaveBeenCalledWith("save_pasted_image", expect.any(Object));
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "save_pasted_image_to_downloads",
+      expect.any(Object),
+    );
+  });
+
+  it("returns ![](relPath) from the relative path returned by Rust", async () => {
+    invokeMock.mockResolvedValue("assets/screenshot.png");
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const md = await handleImagePasteWithSettings(dt, "doc-relative");
+    expect(md).toBe("![](assets/screenshot.png)");
+  });
+
+  it("returns null and shows info toast when doc path is null in doc-relative mode", async () => {
+    mockDocPath = null;
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const result = await handleImagePasteWithSettings(dt, "doc-relative");
+    expect(result).toBeNull();
+    expect(toastInfoMock).toHaveBeenCalledWith(expect.stringContaining("Save the document"));
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("returns null for null DataTransfer", async () => {
+    expect(await handleImagePasteWithSettings(null, "doc-relative")).toBeNull();
+  });
+
+  it("shows error toast when Rust save fails in doc-relative mode", async () => {
+    invokeMock.mockRejectedValue(new Error("no space left"));
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const result = await handleImagePasteWithSettings(dt, "doc-relative");
+    expect(result).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("no space left"));
+  });
+});
+
+describe("handleImagePasteWithSettings — downloads mode", () => {
+  beforeEach(() => {
+    mockDocPath = null; // downloads mode does NOT need a saved doc
+    invokeMock.mockReset();
+    toastInfoMock.mockReset();
+    toastErrorMock.mockReset();
+    invokeMock.mockResolvedValue("/Users/user/Downloads/mdopener-paste/image.png");
+  });
+
+  it("calls save_pasted_image_to_downloads (not save_pasted_image) in downloads mode", async () => {
+    const dt = makeDataTransfer(makeItem("image/png"));
+    await handleImagePasteWithSettings(dt, "downloads");
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_pasted_image_to_downloads",
+      expect.any(Object),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("save_pasted_image", expect.any(Object));
+  });
+
+  it("does NOT require a saved document in downloads mode", async () => {
+    mockDocPath = null;
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const result = await handleImagePasteWithSettings(dt, "downloads");
+    expect(result).not.toBeNull();
+    expect(toastInfoMock).not.toHaveBeenCalled();
+  });
+
+  it("returns ![](absPath) from the absolute path returned by Rust", async () => {
+    invokeMock.mockResolvedValue("/Users/user/Downloads/mdopener-paste/img.png");
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const md = await handleImagePasteWithSettings(dt, "downloads");
+    expect(md).toBe("![](/Users/user/Downloads/mdopener-paste/img.png)");
+  });
+
+  it("passes bytes and ext but NOT docPath to the downloads Rust command", async () => {
+    const dt = makeDataTransfer(makeItem("image/webp"));
+    await handleImagePasteWithSettings(dt, "downloads");
+    const [cmd, args] = invokeMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(cmd).toBe("save_pasted_image_to_downloads");
+    expect(args).toHaveProperty("bytes");
+    expect(args).toHaveProperty("ext", "webp");
+    expect(args).not.toHaveProperty("docPath");
+  });
+
+  it("shows error toast and returns null when downloads Rust command fails", async () => {
+    invokeMock.mockRejectedValue(new Error("Downloads folder missing"));
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const result = await handleImagePasteWithSettings(dt, "downloads");
+    expect(result).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Downloads folder missing"),
+    );
+  });
+
+  it("returns null when no image is in clipboard regardless of mode", async () => {
+    const dt = makeDataTransfer(makeItem("text/plain", "string"));
+    expect(await handleImagePasteWithSettings(dt, "downloads")).toBeNull();
+  });
+});
+
+// ── expectedSavePath ──────────────────────────────────────────────────────────
+
+describe("expectedSavePath", () => {
+  it("returns a downloads path when target is 'downloads'", () => {
+    const p = expectedSavePath("/vault/notes/doc.md", "img.png", "downloads");
+    expect(p).toBe("~/Downloads/mdopener-paste/img.png");
+  });
+
+  it("downloads path is independent of docPath", () => {
+    const p1 = expectedSavePath("/a/b/doc.md", "x.jpg", "downloads");
+    const p2 = expectedSavePath(null, "x.jpg", "downloads");
+    expect(p1).toBe(p2);
+  });
+
+  it("doc-relative path includes the doc's directory and assets/ subfolder", () => {
+    const p = expectedSavePath("/vault/notes/doc.md", "img.png", "doc-relative");
+    expect(p).toBe("/vault/notes/assets/img.png");
+  });
+
+  it("doc-relative path with nested doc directory", () => {
+    const p = expectedSavePath("/vault/projects/2024/notes.md", "shot.webp", "doc-relative");
+    expect(p).toBe("/vault/projects/2024/assets/shot.webp");
+  });
+
+  it("doc-relative fallback when docPath is null", () => {
+    const p = expectedSavePath(null, "img.png", "doc-relative");
+    expect(p).toBe("assets/img.png");
+  });
+});
+
+// ── pasteImageFilename ────────────────────────────────────────────────────────
+
+describe("pasteImageFilename", () => {
+  it("generates a filename with the correct extension", () => {
+    const name = pasteImageFilename("png", "TOKEN");
+    expect(name).toBe("image-TOKEN.png");
+  });
+
+  it("uses the supplied token verbatim", () => {
+    expect(pasteImageFilename("jpg", "ABCD1234")).toBe("image-ABCD1234.jpg");
+  });
+
+  it("generates a filename without a token (non-deterministic, sanity check)", () => {
+    const name = pasteImageFilename("webp");
+    expect(name).toMatch(/^image-.+\.webp$/);
+  });
+
+  it("two auto-generated filenames with no token are different", () => {
+    // The random suffix should prevent collisions in practice.
+    const a = pasteImageFilename("gif");
+    const b = pasteImageFilename("gif");
+    // Very unlikely to collide; if this flakes, the random suffix logic is broken.
+    expect(a).not.toBe(b);
+  });
+});

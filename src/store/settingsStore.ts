@@ -5,6 +5,13 @@ import { newTemplateId, NO_TEMPLATE_ID } from "../lib/exportTemplates";
 
 export type ThemeId = "paper" | "sepia" | "midnight";
 
+/**
+ * Where pasted images are saved.
+ *   "doc-relative" — `<doc-dir>/assets/<filename>` (default, next to the document)
+ *   "downloads"    — `~/Downloads/mdopener-paste/<filename>`
+ */
+export type PasteImageTarget = "doc-relative" | "downloads";
+
 // Re-export so consumers can import from the store without touching lib.
 export type { ExportTemplate };
 export { NO_TEMPLATE_ID };
@@ -57,6 +64,14 @@ interface SettingsState {
   neverAskDefault: () => void;
   /** Clear any snooze so the prompt can show again. */
   resetDefaultPrompt: () => void;
+
+  /**
+   * Where pasted images are saved.
+   * Toggle in Settings → "Save pasted images to Downloads".
+   * @default "doc-relative"
+   */
+  pasteImageTarget: PasteImageTarget;
+  setPasteImageTarget: (target: PasteImageTarget) => void;
 
   // ── Export template registry ────────────────────────────────────────────────
 
@@ -113,6 +128,9 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: true,
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
 
+      pasteImageTarget: "doc-relative",
+      setPasteImageTarget: (pasteImageTarget) => set({ pasteImageTarget }),
+
       vaultRoot: null,
       setVaultRoot: (vaultRoot) => set({ vaultRoot }),
 
@@ -159,16 +177,18 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "mdopener-settings",
-      version: 2,
+      version: 3,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
+      // v3 adds pasteImageTarget (default to "doc-relative").
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Record<string, unknown> & {
           defaultPromptDismissed?: boolean;
           defaultPromptSnoozedUntil?: number | null;
           userTemplates?: ExportTemplate[];
           activeTemplateId?: string;
+          pasteImageTarget?: PasteImageTarget;
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -179,6 +199,9 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 2) {
           s.userTemplates = s.userTemplates ?? [];
           s.activeTemplateId = s.activeTemplateId ?? NO_TEMPLATE_ID;
+        }
+        if (version < 3) {
+          s.pasteImageTarget = s.pasteImageTarget ?? "doc-relative";
         }
         return s as unknown as SettingsState;
       },
