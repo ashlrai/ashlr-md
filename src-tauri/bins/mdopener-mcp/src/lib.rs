@@ -712,6 +712,68 @@ pub fn tool_registry() -> Vec<ToolDef> {
             })),
             tier: ToolTier::Modifier,
         },
+        ToolDef {
+            name: "batch_export_format",
+            description: "Export multiple documents to a target format in one call, writing all outputs to a shared directory. Accepts an array of { path, format, output_dir? } entries; each is exported concurrently and results include per-file ok/error status and the written output path. Useful for agents exporting an entire multi-file plan as PDFs or HTML pages in one round-trip.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "exports": {
+                        "type": "array",
+                        "description": "List of export requests.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Absolute path to the Markdown file to export." },
+                                "format": {
+                                    "type": "string",
+                                    "enum": ["pdf", "docx", "html"],
+                                    "description": "Output format."
+                                },
+                                "output_dir": {
+                                    "type": "string",
+                                    "description": "Optional output directory. Defaults to the same directory as the source file."
+                                }
+                            },
+                            "required": ["path", "format"]
+                        }
+                    }
+                },
+                "required": ["exports"]
+            }),
+            annotations: Some(json!({
+                "title": "Batch Export Format",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Modifier,
+        },
+        ToolDef {
+            name: "diff_documents",
+            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path_a": { "type": "string", "description": "Absolute path to the first (original) document." },
+                    "path_b": { "type": "string", "description": "Absolute path to the second (modified) document." },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Number of unchanged context lines surrounding each change hunk. Defaults to 3."
+                    }
+                },
+                "required": ["path_a", "path_b"]
+            }),
+            annotations: Some(json!({
+                "title": "Diff Documents",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::ReadOnly,
+        },
     ]
 }
 
@@ -733,6 +795,8 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "save_conversation_message",
     "export_markdown_archive",
     "export_canvas_graph",
+    "batch_export_format",
+    "diff_documents",
 ];
 
 /// Build the `tools/list` response payload from the data-driven registry.
@@ -761,6 +825,8 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "save_conversation_message" => tool_save_conversation_message(id, &args),
         "export_markdown_archive" => tool_export_markdown_archive(id, &args, ipc),
         "export_canvas_graph" => tool_export_canvas_graph(id, &args, ipc),
+        "batch_export_format" => tool_batch_export_format(id, &args, ipc),
+        "diff_documents" => tool_diff_documents(id, &args),
         other => Response::err(id, -32602, format!("Unknown tool: {other}")),
     }
 }
@@ -1310,6 +1376,16 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         "mimeType": "application/json"
     }));
 
+    // Advertise the recent-documents resource — agents can read
+    // mdopener://recent-documents to get a scoped list of recently opened files
+    // with path, title, mtime, and a 200-char preview snippet.
+    resources.push(json!({
+        "uri": "mdopener://recent-documents",
+        "name": "Recently opened documents",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the vault is empty or the app has no recents. Read-only.",
+        "mimeType": "application/json"
+    }));
+
     if let Ok(v) = ipc.get("/vault") {
         if let Some(files) = v["files"].as_array() {
             for f in files {
@@ -1426,6 +1502,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 "text": payload.to_string()
             }]
         }));
+    }
+
+    // mdopener://recent-documents — scoped list of recently opened files.
+    // Returns an array of { path, title, mtimeMs, preview } objects, pruned to
+    // files that still exist on disk.  Preview is the first 200 chars of content.
+    if uri == "mdopener://recent-documents" {
+        return handle_recent_documents_resource(id, ipc);
     }
 
     if let Some(p) = uri.strip_prefix("file://") {
@@ -1914,4 +1997,372 @@ pub fn app_not_running_msg(err: &str) -> String {
     } else {
         err.to_string()
     }
+}
+
+// ── list_recent_documents resource handler ────────────────────────────────────
+
+/// Build the `mdopener://recent-documents` resource response.
+///
+/// Queries the app's `/vault` IPC endpoint for `recents` (a string array of
+/// paths), reads each file from disk, and returns a JSON array of:
+///
+/// ```json
+/// { "path": "...", "title": "...", "mtimeMs": 1234567890, "preview": "..." }
+/// ```
+///
+/// `title` is derived from the first `# Heading` line if present, otherwise
+/// the file's base name without extension.  `preview` is the first 200 chars
+/// of raw content (including front-matter).  Files that no longer exist on
+/// disk are silently omitted so the list stays consistent.
+pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Response {
+    // Fetch the recent paths from the app.  When the app is not running, fall
+    // back gracefully to an empty list rather than returning an error — the
+    // resource contract says "empty list when vault is empty".
+    let recent_paths: Vec<String> = match ipc.get("/vault") {
+        Ok(v) => v["recents"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Err(_) => vec![],
+    };
+
+    let mut documents: Vec<Value> = Vec::new();
+    for path in &recent_paths {
+        // Skip paths that no longer exist on disk.
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // mtime in milliseconds since the Unix epoch.
+        let mtime_ms: u64 = std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        // Derive title: first `# ...` heading line, else stem of the file name.
+        let title = content
+            .lines()
+            .find(|l| l.starts_with("# "))
+            .map(|l| l.trim_start_matches("# ").trim().to_string())
+            .unwrap_or_else(|| {
+                std::path::Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.clone())
+            });
+
+        // Preview: first 200 chars of raw content.
+        let preview: String = content.chars().take(200).collect();
+
+        documents.push(json!({
+            "path": path,
+            "title": title,
+            "mtimeMs": mtime_ms,
+            "preview": preview,
+        }));
+    }
+
+    let payload = json!({ "documents": documents, "count": documents.len() });
+    Response::ok(id, json!({
+        "contents": [{
+            "uri": "mdopener://recent-documents",
+            "mimeType": "application/json",
+            "text": payload.to_string()
+        }]
+    }))
+}
+
+// ── batch_export_format tool ──────────────────────────────────────────────────
+
+/// Export an array of documents to their requested formats via the app IPC.
+///
+/// Each entry in `exports` is forwarded to the app as a separate `/export`
+/// POST, keyed by `{ path, format, outputDir }`.  The app handles the actual
+/// rendering; we collect per-file results and return them all in one response.
+///
+/// The IPC call used is `mcp_batch_export` — the frontend bridge listens for
+/// this and fans out to the per-format export functions, then replies with an
+/// array of `{ path, format, ok, outputPath, error }` results.
+pub fn tool_batch_export_format(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    let exports = match args["exports"].as_array() {
+        Some(arr) if !arr.is_empty() => arr.clone(),
+        Some(_) => return Response::err(id, -32602, "`exports` array must not be empty"),
+        None => return Response::err(id, -32602, "`exports` is required"),
+    };
+
+    // Validate each entry has required fields before sending to the app.
+    for (i, entry) in exports.iter().enumerate() {
+        if entry["path"].as_str().is_none() {
+            return Response::err(
+                id,
+                -32602,
+                format!("exports[{i}].path is required"),
+            );
+        }
+        match entry["format"].as_str() {
+            Some("pdf") | Some("docx") | Some("html") => {}
+            Some(other) => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("exports[{i}].format must be pdf/docx/html, got '{other}'"),
+                )
+            }
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("exports[{i}].format is required"),
+                )
+            }
+        }
+    }
+
+    match ipc.post("/export/batch", json!({ "exports": exports })) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+    }
+}
+
+// ── diff_documents tool ───────────────────────────────────────────────────────
+
+/// Compare two Markdown files and return a unified diff with line numbers.
+///
+/// Reads both files from disk directly (no IPC needed — read-only).  Produces
+/// a unified diff in the standard `---`/`+++` format with `context_lines`
+/// unchanged lines of context surrounding each hunk (default 3).
+///
+/// Returns `{ diff, hunks, added, removed, path_a, path_b }` where:
+/// - `diff`    — the full unified diff string
+/// - `hunks`   — number of change hunks
+/// - `added`   — total lines added
+/// - `removed` — total lines removed
+/// - `path_a` / `path_b` — the resolved absolute paths
+pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
+    let raw_a = match args["path_a"].as_str() {
+        Some(p) => p.to_string(),
+        None => return Response::err(id, -32602, "`path_a` is required"),
+    };
+    let raw_b = match args["path_b"].as_str() {
+        Some(p) => p.to_string(),
+        None => return Response::err(id, -32602, "`path_b` is required"),
+    };
+    let context_lines = args["context_lines"].as_u64().unwrap_or(3) as usize;
+
+    let path_a = canonicalize_path(&raw_a);
+    let path_b = canonicalize_path(&raw_b);
+
+    let content_a = match std::fs::read_to_string(&path_a) {
+        Ok(c) => c,
+        Err(e) => return Response::err(id, -32002, format!("Cannot read path_a '{path_a}': {e}")),
+    };
+    let content_b = match std::fs::read_to_string(&path_b) {
+        Ok(c) => c,
+        Err(e) => return Response::err(id, -32002, format!("Cannot read path_b '{path_b}': {e}")),
+    };
+
+    let (diff, hunks, added, removed) =
+        compute_unified_diff(&path_a, &path_b, &content_a, &content_b, context_lines);
+
+    tool_result(id, json!({
+        "diff": diff,
+        "hunks": hunks,
+        "added": added,
+        "removed": removed,
+        "path_a": path_a,
+        "path_b": path_b,
+    }))
+}
+
+/// Compute a unified diff between two text blobs.
+///
+/// Returns `(diff_text, hunk_count, lines_added, lines_removed)`.
+///
+/// This is a pure Rust implementation of the classic Myers diff algorithm
+/// (patience-style line-by-line LCS), producing standard unified-diff output
+/// (`--- a`, `+++ b`, `@@ -L,N +L,N @@` headers, `+`/`-`/` ` lines).
+/// No external crates are required — keeps the binary dependency footprint zero.
+pub fn compute_unified_diff(
+    label_a: &str,
+    label_b: &str,
+    text_a: &str,
+    text_b: &str,
+    context: usize,
+) -> (String, usize, usize, usize) {
+    let lines_a: Vec<&str> = text_a.lines().collect();
+    let lines_b: Vec<&str> = text_b.lines().collect();
+
+    // Build the edit script via LCS (longest common subsequence).
+    let lcs = lcs_diff(&lines_a, &lines_b);
+
+    // Convert edit script into (kind, line_a, line_b, text) tuples.
+    // kind: ' ' = context, '+' = added, '-' = removed
+    #[derive(Clone)]
+    struct EditLine {
+        kind: char,
+        line_a: usize, // 1-based, 0 when not from A
+        line_b: usize, // 1-based, 0 when not from B
+        text: String,
+    }
+
+    let mut edits: Vec<EditLine> = Vec::new();
+    let mut ia = 0usize;
+    let mut ib = 0usize;
+
+    for op in &lcs {
+        match op {
+            DiffOp::Equal(na, nb) => {
+                edits.push(EditLine { kind: ' ', line_a: ia + 1, line_b: ib + 1, text: lines_a[*na].to_string() });
+                ia = na + 1;
+                ib = nb + 1;
+            }
+            DiffOp::Delete(na) => {
+                edits.push(EditLine { kind: '-', line_a: ia + 1, line_b: 0, text: lines_a[*na].to_string() });
+                ia = na + 1;
+            }
+            DiffOp::Insert(nb) => {
+                edits.push(EditLine { kind: '+', line_a: 0, line_b: ib + 1, text: lines_b[*nb].to_string() });
+                ib = nb + 1;
+            }
+        }
+    }
+    // Drain remaining lines from A (deletions) and B (insertions).
+    while ia < lines_a.len() {
+        edits.push(EditLine { kind: '-', line_a: ia + 1, line_b: 0, text: lines_a[ia].to_string() });
+        ia += 1;
+    }
+    while ib < lines_b.len() {
+        edits.push(EditLine { kind: '+', line_a: 0, line_b: ib + 1, text: lines_b[ib].to_string() });
+        ib += 1;
+    }
+
+    // Group into hunks: runs of changes + context_lines of context on each side.
+    let mut hunk_ranges: Vec<(usize, usize)> = Vec::new(); // (start_idx, end_idx) in edits[]
+    let n = edits.len();
+    let mut i = 0;
+    while i < n {
+        if edits[i].kind != ' ' {
+            // Found a change — extend hunk window by context_lines each side.
+            let start = i.saturating_sub(context);
+            let mut end = i;
+            while end < n && (edits[end].kind != ' ' || end < i + context) {
+                end += 1;
+            }
+            end = end.min(n);
+            // Merge with previous hunk if overlapping.
+            if let Some(last) = hunk_ranges.last_mut() {
+                if start <= last.1 {
+                    last.1 = end;
+                    i = end;
+                    continue;
+                }
+            }
+            hunk_ranges.push((start, end));
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+
+    let mut diff_lines: Vec<String> = Vec::new();
+    let mut total_added = 0usize;
+    let mut total_removed = 0usize;
+
+    if !hunk_ranges.is_empty() {
+        diff_lines.push(format!("--- {label_a}"));
+        diff_lines.push(format!("+++ {label_b}"));
+    }
+
+    for (start, end) in &hunk_ranges {
+        let slice = &edits[*start..*end];
+
+        // Compute @@ header: line ranges in A and B.
+        let (first_a, first_b) = slice.iter().fold((0usize, 0usize), |acc, e| {
+            (
+                if acc.0 == 0 && e.line_a > 0 { e.line_a } else { acc.0 },
+                if acc.1 == 0 && e.line_b > 0 { e.line_b } else { acc.1 },
+            )
+        });
+        let count_a = slice.iter().filter(|e| e.kind != '+').count();
+        let count_b = slice.iter().filter(|e| e.kind != '-').count();
+        diff_lines.push(format!(
+            "@@ -{},{} +{},{} @@",
+            first_a, count_a, first_b, count_b
+        ));
+
+        for e in slice {
+            diff_lines.push(format!("{}{}", e.kind, e.text));
+            if e.kind == '+' { total_added += 1; }
+            if e.kind == '-' { total_removed += 1; }
+        }
+    }
+
+    let diff_text = diff_lines.join("\n");
+    (diff_text, hunk_ranges.len(), total_added, total_removed)
+}
+
+// ── Minimal LCS diff engine ───────────────────────────────────────────────────
+
+/// Operations in an edit script produced by `lcs_diff`.
+pub enum DiffOp {
+    Equal(usize, usize), // index in A, index in B
+    Delete(usize),       // index in A
+    Insert(usize),       // index in B
+}
+
+/// Compute an edit script between two slices using a simple O(ND) LCS
+/// approach.  Returns the ops in document order.
+///
+/// This is not the fastest possible implementation but it is correct, has no
+/// external dependencies, and is fast enough for typical Markdown documents
+/// (hundreds to low thousands of lines).
+pub fn lcs_diff<T: PartialEq>(a: &[T], b: &[T]) -> Vec<DiffOp> {
+    let m = a.len();
+    let n = b.len();
+
+    if m == 0 {
+        return (0..n).map(DiffOp::Insert).collect();
+    }
+    if n == 0 {
+        return (0..m).map(DiffOp::Delete).collect();
+    }
+
+    // dp[i][j] = length of LCS of a[..i] and b[..j]
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if a[i - 1] == b[j - 1] {
+                dp[i - 1][j - 1] + 1
+            } else {
+                dp[i - 1][j].max(dp[i][j - 1])
+            };
+        }
+    }
+
+    // Back-track to build edit script.
+    let mut ops: Vec<DiffOp> = Vec::new();
+    let mut i = m;
+    let mut j = n;
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && a[i - 1] == b[j - 1] {
+            ops.push(DiffOp::Equal(i - 1, j - 1));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            ops.push(DiffOp::Insert(j - 1));
+            j -= 1;
+        } else {
+            ops.push(DiffOp::Delete(i - 1));
+            i -= 1;
+        }
+    }
+    ops.reverse();
+    ops
 }

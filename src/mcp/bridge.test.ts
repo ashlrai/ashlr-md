@@ -255,7 +255,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all eleven mcp:// events", () => {
+  it("registers listeners for all thirteen mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -269,6 +269,8 @@ describe("useMcpBridge — mount", () => {
       "mcp://batch-read",
       "mcp://batch-edit",
       "mcp://semantic-search",
+      "mcp://batch-export",
+      "mcp://diff-docs",
     ];
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
@@ -1563,5 +1565,339 @@ describe("mcp://semantic-search event", () => {
     expect(resultCall).toBeDefined();
     expect(Array.isArray(resultCall![1].results)).toBe(true);
     expect(resultCall![1].results).toHaveLength(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://batch-export — concurrent multi-document export
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://batch-export event", () => {
+  it("registers listener for mcp://batch-export on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://batch-export")).toBe(true);
+  });
+
+  it("calls mcp_batch_export_result with ok=true when all exports succeed", async () => {
+    resetDocumentStore({ path: "/vault/a.md", fileName: "a.md" });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-001",
+      exports: [
+        { path: "/vault/a.md", format: "pdf" },
+        { path: "/vault/b.md", format: "html" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "be-001", ok: true });
+    expect(resultCall![1].results).toHaveLength(2);
+  });
+
+  it("runs all exports concurrently (both export functions invoked)", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-002",
+      exports: [
+        { path: "/vault/a.md", format: "pdf" },
+        { path: "/vault/b.md", format: "docx" },
+        { path: "/vault/c.md", format: "html" },
+      ],
+    });
+    expect(exportPdfMock).toHaveBeenCalledTimes(1);
+    expect(exportDocxMock).toHaveBeenCalledTimes(1);
+    expect(exportHtmlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns per-file ok=true results including derived outputPath", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-003",
+      exports: [{ path: "/vault/notes.md", format: "pdf", outputDir: "/out" }],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    expect(resultCall).toBeDefined();
+    const file = resultCall![1].results[0];
+    expect(file.ok).toBe(true);
+    expect(file.outputPath).toContain("notes");
+    expect(file.outputPath).toContain(".pdf");
+  });
+
+  it("reports per-file ok=false when one export throws, overall ok=false", async () => {
+    exportPdfMock.mockRejectedValue(new Error("pdf crashed"));
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-004",
+      exports: [
+        { path: "/vault/fail.md", format: "pdf" },
+        { path: "/vault/ok.md", format: "html" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(false);
+    const failedFile = resultCall![1].results.find(
+      (r: { path: string }) => r.path === "/vault/fail.md"
+    );
+    expect(failedFile.ok).toBe(false);
+    expect(typeof failedFile.error).toBe("string");
+    const okFile = resultCall![1].results.find(
+      (r: { path: string }) => r.path === "/vault/ok.md"
+    );
+    expect(okFile.ok).toBe(true);
+  });
+
+  it("always calls mcp_batch_export_result even on total failure (prevents Rust timeout)", async () => {
+    exportPdfMock.mockRejectedValue(new Error("crash"));
+    exportDocxMock.mockRejectedValue(new Error("crash"));
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-005",
+      exports: [
+        { path: "/vault/a.md", format: "pdf" },
+        { path: "/vault/b.md", format: "docx" },
+      ],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    expect(resultCall).toBeDefined();
+  });
+
+  it("returns ok=false with error when exports array is empty", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-006",
+      exports: [],
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ batchId: "be-006", ok: false });
+    expect(typeof resultCall![1].error).toBe("string");
+    expect(resultCall![1].results).toHaveLength(0);
+  });
+
+  it("strips markdown extension from filename when deriving export title", async () => {
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+    await fireEvent("mcp://batch-export", {
+      batchId: "be-007",
+      exports: [{ path: "/vault/my-plan.md", format: "pdf" }],
+    });
+    expect(exportPdfMock).toHaveBeenCalledWith("my-plan");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// mcp://diff-docs — unified diff between two documents
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("mcp://diff-docs event", () => {
+  it("registers listener for mcp://diff-docs on mount", () => {
+    mountBridge();
+    expect(listenHandlers.has("mcp://diff-docs")).toBe(true);
+  });
+
+  it("invokes mcp_diff_docs with pathA, pathB, and contextLines", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({
+          diff: "--- a\n+++ b\n@@ -1,1 +1,1 @@\n-old\n+new",
+          hunks: 1,
+          added: 1,
+          removed: 1,
+          path_a: "/vault/a.md",
+          path_b: "/vault/b.md",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({
+          diff: "--- a\n+++ b\n@@ -1,1 +1,1 @@\n-old\n+new",
+          hunks: 1,
+          added: 1,
+          removed: 1,
+          path_a: "/vault/a.md",
+          path_b: "/vault/b.md",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-001",
+      pathA: "/vault/a.md",
+      pathB: "/vault/b.md",
+      contextLines: 3,
+    });
+    const diffCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs");
+    expect(diffCall).toBeDefined();
+    expect(diffCall![1]).toMatchObject({
+      pathA: "/vault/a.md",
+      pathB: "/vault/b.md",
+      contextLines: 3,
+    });
+  });
+
+  it("calls mcp_diff_docs_result with ok=true and diff data on success", async () => {
+    const fakeDiff = "--- a\n+++ b\n@@ -1,2 +1,2 @@\n-hello\n+world";
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({
+          diff: fakeDiff,
+          hunks: 1,
+          added: 1,
+          removed: 1,
+          path_a: "/vault/a.md",
+          path_b: "/vault/b.md",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({
+          diff: fakeDiff,
+          hunks: 1,
+          added: 1,
+          removed: 1,
+          path_a: "/vault/a.md",
+          path_b: "/vault/b.md",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-002",
+      pathA: "/vault/a.md",
+      pathB: "/vault/b.md",
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({
+      diffId: "dd-002",
+      ok: true,
+      diff: fakeDiff,
+      hunks: 1,
+      added: 1,
+      removed: 1,
+    });
+  });
+
+  it("defaults contextLines to 3 when omitted from payload", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+      }
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-003",
+      pathA: "/vault/a.md",
+      pathB: "/vault/b.md",
+    });
+    const diffCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs");
+    expect(diffCall).toBeDefined();
+    expect(diffCall![1].contextLines).toBe(3);
+  });
+
+  it("calls mcp_diff_docs_result with ok=false when mcp_diff_docs throws", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.reject(new Error("file not found"));
+      }
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.reject(new Error("file not found"));
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-004",
+      pathA: "/vault/missing.md",
+      pathB: "/vault/b.md",
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1]).toMatchObject({ diffId: "dd-004", ok: false });
+    expect(typeof resultCall![1].error).toBe("string");
+    expect(resultCall![1].error).toContain("file not found");
+  });
+
+  it("always calls mcp_diff_docs_result even on error (prevents Rust timeout)", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") return Promise.reject("IPC crashed");
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") return Promise.reject("IPC crashed");
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-005",
+      pathA: "/vault/a.md",
+      pathB: "/vault/b.md",
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    expect(resultCall).toBeDefined();
+  });
+
+  it("returns empty diff string (not undefined) when documents are identical", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+      }
+      return Promise.resolve(undefined);
+    });
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "mcp_diff_docs") {
+        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+      }
+      return Promise.resolve(undefined);
+    });
+    await fireEvent("mcp://diff-docs", {
+      diffId: "dd-006",
+      pathA: "/vault/a.md",
+      pathB: "/vault/a.md",
+    });
+    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    expect(resultCall).toBeDefined();
+    expect(resultCall![1].ok).toBe(true);
+    expect(resultCall![1].diff).toBe("");
+    expect(resultCall![1].hunks).toBe(0);
+    expect(resultCall![1].added).toBe(0);
+    expect(resultCall![1].removed).toBe(0);
   });
 });

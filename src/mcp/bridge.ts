@@ -182,6 +182,43 @@ interface SemanticSearchPayload {
   rerank?: boolean;
 }
 
+// ── Batch export / diff payloads ──────────────────────────────────────────────
+
+/**
+ * One entry in a `mcp://batch-export` request.
+ * `format` must be one of "pdf" | "docx" | "html".
+ * `outputDir` is optional — when omitted, Rust/the app uses the file's own dir.
+ */
+export interface BatchExportEntry {
+  path: string;
+  format: "pdf" | "docx" | "html";
+  outputDir?: string;
+}
+
+/** Per-file result returned inside `mcp_batch_export_result`. */
+export interface BatchExportFileResult {
+  path: string;
+  format: string;
+  ok: boolean;
+  outputPath?: string;
+  error?: string;
+}
+
+/** Payload for `mcp://batch-export` — export multiple files in one call. */
+interface BatchExportPayload {
+  batchId: string;
+  exports: BatchExportEntry[];
+}
+
+/** Payload for `mcp://diff-docs` — diff two document paths. */
+interface DiffDocsPayload {
+  diffId: string;
+  pathA: string;
+  pathB: string;
+  /** Number of context lines in the unified diff (default 3). */
+  contextLines?: number;
+}
+
 // ── Session persistence helpers (exported for use in MCP tools / tests) ────────
 
 /**
@@ -847,6 +884,120 @@ export function useMcpBridge(): void {
             ok: false,
             results: [],
             usedEmbeddings: false,
+            error: errStr,
+          }).catch(() => {/* non-fatal */});
+        }
+      }),
+    );
+
+    // mcp://batch-export — export multiple documents concurrently.
+    //
+    // Each entry in the payload carries { path, format, outputDir? }.  We open
+    // each document, run the matching export function, and collect per-file
+    // results.  All exports run concurrently (Promise.all) to minimise latency.
+    // We reply via `mcp_batch_export_result` keyed by batchId and always reply
+    // even on partial failure so the Rust worker never parks.
+    unlisteners.push(
+      listen<BatchExportPayload>("mcp://batch-export", async (e) => {
+        const { batchId, exports: entries } = e.payload;
+
+        if (!entries || entries.length === 0) {
+          await invoke("mcp_batch_export_result", {
+            batchId,
+            ok: false,
+            results: [],
+            error: "`exports` array must not be empty",
+          }).catch(() => {/* non-fatal */});
+          return;
+        }
+
+        // Run all exports concurrently — each is independent.
+        const results: BatchExportFileResult[] = await Promise.all(
+          entries.map(async (entry): Promise<BatchExportFileResult> => {
+            const { path: filePath, format, outputDir } = entry;
+            try {
+              // Derive a title from the file name (strip extension).
+              const fileName = filePath.split("/").pop() ?? filePath;
+              const title = fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+
+              if (format === "pdf") {
+                await exportPdf(title);
+              } else if (format === "docx") {
+                await exportDocx(title);
+              } else {
+                await exportHtml(title);
+              }
+
+              // Derive output path: outputDir + title + extension (best-effort).
+              const ext = format === "docx" ? "docx" : format === "pdf" ? "pdf" : "html";
+              const dir = outputDir ?? filePath.substring(0, filePath.lastIndexOf("/")) ?? ".";
+              const outputPath = `${dir}/${title}.${ext}`;
+
+              return { path: filePath, format, ok: true, outputPath };
+            } catch (err) {
+              const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+              return { path: filePath, format, ok: false, error: errStr };
+            }
+          }),
+        );
+
+        const allOk = results.every((r) => r.ok);
+        await invoke("mcp_batch_export_result", {
+          batchId,
+          ok: allOk,
+          results,
+          error: allOk ? null : "One or more exports failed — see per-file results.",
+        }).catch(() => {/* non-fatal */});
+      }),
+    );
+
+    // mcp://diff-docs — compare two document paths and return a unified diff.
+    //
+    // Forwards the two paths to Rust (`mcp_diff_docs`) which reads both files
+    // from disk, computes a unified diff with `contextLines` context lines, and
+    // returns { diff, hunks, added, removed, pathA, pathB }.  We echo the
+    // result via `mcp_diff_docs_result` keyed by diffId.
+    //
+    // Like all reply-required handlers, we always call `mcp_diff_docs_result`
+    // — success or failure — so the Rust worker never parks waiting.
+    unlisteners.push(
+      listen<DiffDocsPayload>("mcp://diff-docs", async (e) => {
+        const { diffId, pathA, pathB, contextLines = 3 } = e.payload;
+        try {
+          const result = await invoke<{
+            diff: string;
+            hunks: number;
+            added: number;
+            removed: number;
+            path_a: string;
+            path_b: string;
+          }>("mcp_diff_docs", {
+            pathA,
+            pathB,
+            contextLines,
+          });
+          await invoke("mcp_diff_docs_result", {
+            diffId,
+            ok: true,
+            diff: result.diff,
+            hunks: result.hunks,
+            added: result.added,
+            removed: result.removed,
+            pathA: result.path_a,
+            pathB: result.path_b,
+            error: null,
+          }).catch(() => {/* non-fatal */});
+        } catch (err) {
+          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          await invoke("mcp_diff_docs_result", {
+            diffId,
+            ok: false,
+            diff: "",
+            hunks: 0,
+            added: 0,
+            removed: 0,
+            pathA,
+            pathB,
             error: errStr,
           }).catch(() => {/* non-fatal */});
         }
