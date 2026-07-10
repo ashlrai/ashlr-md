@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "mode": "replace-detected",
+  "commands": [
+    {
+      "id": "typecheck",
+      "kind": "typecheck",
+      "cmd": ["bun", "run", "typecheck"],
+      "cwd": ".",
+      "timeoutMs": 180000,
+      "required": true,
+      "profiles": ["quick", "merge"]
+    },
+    {
+      "id": "cargo-check",
+      "kind": "typecheck",
+      "cmd": ["cargo", "--config", "env.TAURI_CONFIG=\"{\\\"bundle\\\":{\\\"resources\\\":null}}\"", "check", "--workspace", "--locked", "--manifest-path", "src-tauri/Cargo.toml"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "required": true,
+      "profiles": ["merge"]
+    },
+    {
+      "id": "lint",
+      "kind": "lint",
+      "cmd": ["bun", "run", "lint"],
+      "cwd": ".",
+      "timeoutMs": 180000,
+      "required": true,
+      "profiles": ["quick", "merge"]
+    },
+    {
+      "id": "clippy",
+      "kind": "lint",
+      "cmd": ["cargo", "--config", "env.TAURI_CONFIG=\"{\\\"bundle\\\":{\\\"resources\\\":null}}\"", "clippy", "--workspace", "--all-targets", "--locked", "--manifest-path", "src-tauri/Cargo.toml", "--", "-D", "warnings"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "required": true,
+      "profiles": ["merge"]
+    },
+    {
+      "id": "build",
+      "kind": "build",
+      "cmd": ["bun", "run", "build"],
+      "cwd": ".",
+      "timeoutMs": 300000,
+      "required": true,
+      "profiles": ["merge"]
+    },
+    {
+      "id": "test",
+      "kind": "test",
+      "cmd": ["bun", "run", "test"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "required": true,
+      "profiles": ["quick", "merge"]
+    },
+    {
+      "id": "cargo-test",
+      "kind": "test",
+      "cmd": ["cargo", "--config", "env.TAURI_CONFIG=\"{\\\"bundle\\\":{\\\"resources\\\":null}}\"", "test", "--workspace", "--locked", "--manifest-path", "src-tauri/Cargo.toml"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "required": true,
+      "profiles": ["merge"]
+    }
+  ]
+}
