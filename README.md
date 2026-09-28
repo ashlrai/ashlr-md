@@ -159,18 +159,20 @@ agent's output folder and open new `.md` files the moment they appear. Full guid
 Downloads are on the [GitHub Releases page](https://github.com/ashlrai/ashlr-md/releases).
 Full, per-OS instructions live in [**docs/INSTALL.md**](./docs/INSTALL.md).
 
-| Platform | Artifact | Package manager |
-|---|---|---|
-| macOS | `.dmg` (drag to `/Applications`) | `brew install --cask ashlr-md` |
-| Windows | `.msi` / NSIS `.exe` installer | `winget install ashlrai.AshlrMD` |
-| Linux | `.deb` (Debian/Ubuntu) · `.AppImage` (universal) | AUR: `yay -S ashlr-md` |
+| Platform | Download (latest release) |
+|---|---|
+| macOS (Apple Silicon only) | `.dmg` (drag to `/Applications`) |
+| Windows (x64) | `.msi` or NSIS `-setup.exe` installer |
+| Linux (x86_64) | `.deb` · `.rpm` · `.AppImage` |
 
-Auto-update is built in on every platform.
+Auto-update is built in on every platform. Intel Macs aren't covered by the
+current release; build from source (below).
 
-> **Note:** Windows code-signing is not yet set up — you may see a SmartScreen
-> warning; click "More info → Run anyway". macOS builds are notarized. Linux
-> AppImages ship unsigned. Homebrew / winget / AUR availability tracks the
-> first signed release — see [docs/RELEASING.md](./docs/RELEASING.md).
+> **Note:** Release builds aren't code-signed yet. On macOS the app isn't
+> notarized, so right-click the app and choose **Open** the first time. On
+> Windows you may see a SmartScreen warning ("More info → Run anyway"). There
+> are no Homebrew, winget or AUR packages yet; use the release downloads. See
+> [docs/RELEASING.md](./docs/RELEASING.md).
 
 There's also a one-shot installer that builds from source, installs the `mdopen`
 CLI, and wires up Claude Code:
