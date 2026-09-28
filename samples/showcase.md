@@ -60,11 +60,7 @@ def fibonacci(n: int) -> int:
 ```
 
 ```bash
-# macOS (Homebrew cask)
-brew install --cask ashlr-md
-
-# Windows (winget) · Linux (AUR): see docs/INSTALL.md
-# All platforms: download from GitHub Releases, then:
+# Download from GitHub Releases (see docs/INSTALL.md), then:
 mdopen ./README.md
 ```
 

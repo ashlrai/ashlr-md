@@ -1,44 +1,26 @@
 # Installing Ashlr MD
 
-Ashlr MD is available for macOS, Windows, and Linux.
+Ashlr MD is available for macOS (Apple Silicon), Windows (x64) and Linux (x86_64)
+from [GitHub Releases](https://github.com/ashlrai/ashlr-md/releases/latest).
+There are no Homebrew, winget or AUR packages yet.
 
 ---
 
 ## macOS
 
-### Option A — DMG (recommended for one-off installs)
+### DMG
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
-2. Download the correct DMG for your Mac:
-   - **Apple Silicon (M1/M2/M3/M4):** `Ashlr.MD_X.Y.Z_aarch64.dmg`
-   - **Intel:** `Ashlr.MD_X.Y.Z_x64.dmg`
+2. Download `Ashlr_MD_X.Y.Z_aarch64.dmg` (Apple Silicon, M1 or later). The
+   current release has no Intel build; on an Intel Mac, build from source (see
+   the README).
 3. Open the DMG, drag **Ashlr MD.app** to `/Applications`.
 4. On first launch, right-click the app and choose **Open** to bypass Gatekeeper
    (required for unsigned/unnotarized builds — see note below).
 
-> **Note on Gatekeeper:** If the release is not notarized with an Apple Developer
-> certificate, macOS will show a warning. Right-click → Open bypasses this
-> one time. Once you have opened it this way, future launches work normally.
-
-### Option B — Homebrew Cask (recommended for managed installs)
-
-```bash
-brew tap ashlrai/ashlr-md
-brew install --cask ashlr-md
-```
-
-To upgrade later:
-```bash
-brew upgrade --cask ashlr-md
-```
-
-To uninstall (including preferences):
-```bash
-brew uninstall --zap --cask ashlr-md
-```
-
-> The Homebrew tap lives at **github.com/ashlrai/homebrew-ashlr-md**.
-> It must be set up before this command works (see `docs/RELEASING.md §5`).
+> **Note on Gatekeeper:** Current releases are not notarized with an Apple
+> Developer ID, so macOS shows a warning. Right-click → Open bypasses this one
+> time. Once you have opened it this way, future launches work normally.
 
 ### Set Ashlr MD as the default Markdown app (macOS)
 
@@ -53,7 +35,7 @@ brew uninstall --zap --cask ashlr-md
 ### Option A — NSIS Installer (recommended)
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
-2. Download `Ashlr.MD_X.Y.Z_x64-setup.exe`.
+2. Download `Ashlr_MD_X.Y.Z_x64-setup.exe`.
 3. Run the installer. It installs to `%LOCALAPPDATA%\Programs\Ashlr MD\` by default.
 4. If Windows Defender SmartScreen appears, click **More info → Run anyway**.
    (This warning appears for unsigned installers. It will disappear once the
@@ -61,28 +43,13 @@ brew uninstall --zap --cask ashlr-md
 
 > **Silent install** (for IT/automation):
 > ```bat
-> Ashlr.MD_X.Y.Z_x64-setup.exe /S
+> Ashlr_MD_X.Y.Z_x64-setup.exe /S
 > ```
 
 ### Option B — MSI Package
 
-Download `Ashlr.MD_X.Y.Z_x64_en-US.msi` from the same release page.
+Download `Ashlr_MD_X.Y.Z_x64_en-US.msi` from the same release page.
 Double-click to install, or deploy silently via Group Policy / MDM.
-
-### Option C — winget
-
-```powershell
-winget install ashlrai.AshlrMD
-```
-
-To upgrade:
-```powershell
-winget upgrade ashlrai.AshlrMD
-```
-
-> winget availability depends on the package being accepted into the
-> `microsoft/winget-pkgs` community repository. See `docs/RELEASING.md §6`
-> for submission status.
 
 ### Set Ashlr MD as the default Markdown app (Windows)
 
@@ -101,7 +68,7 @@ file associations automatically. To change the default:
 ```bash
 # Download the .deb from the latest release
 curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/latest/download/ashlr-md_X.Y.Z_amd64.deb" \
+  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.deb" \
   -o ashlr-md.deb
 
 # Install
@@ -119,12 +86,17 @@ The `.deb` installs:
 After install, `.md` files will appear in **Open With → Ashlr MD** in Nautilus
 and other XDG-compliant file managers.
 
+### Fedora / RHEL (.rpm)
+
+Download `Ashlr_MD_X.Y.Z_x86_64.rpm` from the latest release and install it with
+`sudo dnf install ./Ashlr_MD_X.Y.Z_x86_64.rpm`.
+
 ### Option B — AppImage (portable, any distro)
 
 ```bash
 # Download the AppImage
 curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr.MD_X.Y.Z_amd64.AppImage" \
+  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.AppImage" \
   -o AshlrMD.AppImage
 
 # Make executable and run
@@ -141,21 +113,6 @@ To integrate with your desktop environment (optional):
 
 > The AppImage bundles all dependencies and runs on any x86_64 Linux distro
 > with glibc ≥ 2.35 (Ubuntu 22.04+, Fedora 36+, etc.).
-
-### Option C — AUR (Arch Linux)
-
-```bash
-# Using an AUR helper (e.g. yay or paru):
-yay -S ashlr-md
-
-# Or manually:
-git clone https://aur.archlinux.org/ashlr-md.git
-cd ashlr-md
-makepkg -si
-```
-
-> AUR availability depends on the package being published to
-> aur.archlinux.org. See `docs/RELEASING.md §7` for submission status.
 
 ### Set Ashlr MD as the default Markdown app (Linux)
 
@@ -188,11 +145,9 @@ by platform).
 | Platform | Method |
 |---|---|
 | macOS DMG | Drag `Ashlr MD.app` from `/Applications` to Trash |
-| macOS Homebrew | `brew uninstall --zap --cask ashlr-md` |
 | Windows | Settings → Apps → Ashlr MD → Uninstall |
 | Linux .deb | `sudo apt remove ashlr-md` |
 | Linux AppImage | Delete the `.AppImage` file |
-| Linux AUR | `yay -R ashlr-md` or `sudo pacman -R ashlr-md` |
 
 Preferences and app data are stored at:
 - **macOS:** `~/Library/Application Support/app.mdopener.desktop`
