@@ -85,6 +85,8 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
   export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
   the instant they land and **"Explain changes"** narrates each on-disk edit.
   One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](./docs/AGENTS.md).
+- **Phantom's Markdown opener** — [Phantom](https://github.com/ashlrai/phantom) opens
+  `.md` files in Ashlr MD out of the box. See [**docs/PHANTOM.md**](./docs/PHANTOM.md).
 - **Obsidian integration** — the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.
