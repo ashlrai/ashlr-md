@@ -17,7 +17,7 @@ Detection paths Phantom checks: `mdopen` on `PATH`; macOS `/Applications/Ashlr M
 `~/Applications/Ashlr MD.app`; Windows `%LOCALAPPDATA%\Programs\Ashlr MD\Ashlr MD.exe`;
 Linux `/usr/bin/md-opener` (or `/usr/bin/ashlr-md`) or an `Ashlr MD.desktop` entry. Changing the product name,
 bundle path, or the `mdopener` scheme is a breaking change for Phantom — update
-`src/core/markdown-opener.ts` in ashlrai/phantom alongside it.
+the Markdown-opener section of `src/cli/open.ts` in ashlrai/phantom alongside it.
 
 ## Opting out (Phantom side)
 
