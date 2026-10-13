@@ -81,7 +81,7 @@ claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/MacOS/
 claude mcp add --scope user ashlr-md "%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb install default; AppImage: use the resource dir inside the mount)
-claude mcp add --scope user ashlr-md /usr/lib/ashlr-md/mdopener-mcp
+claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
 After running either, **restart Claude Code** (or run `claude restart`) once.
@@ -99,7 +99,7 @@ claude mcp add --scope user ashlr-md <resolved-mdopener-mcp-path>
 claude mcp list
 # macOS:   ashlr-md  /Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp
 # Windows: ashlr-md  C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe
-# Linux:   ashlr-md  /usr/lib/ashlr-md/mdopener-mcp
+# Linux:   ashlr-md  "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
 ### Using the tools in Claude Code
@@ -142,7 +142,7 @@ codex mcp add --transport stdio ashlr-md -- "/Applications/Ashlr MD.app/Contents
 codex mcp add --transport stdio ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb)
-codex mcp add --transport stdio ashlr-md -- /usr/lib/ashlr-md/mdopener-mcp
+codex mcp add --transport stdio ashlr-md -- "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
 ### Manual — `config.toml`
@@ -158,7 +158,7 @@ command = "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
 # Windows (adjust to your install dir):
 # command = "C:\\Users\\<you>\\AppData\\Local\\Ashlr MD\\mdopener-mcp.exe"
 # Linux (.deb):
-# command = "/usr/lib/ashlr-md/mdopener-mcp"
+# command = ""/usr/lib/Ashlr MD/mdopener-mcp""
 args = []
 ```
 
@@ -192,7 +192,7 @@ Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
 
 On **Windows**, replace `command` with the path to `mdopener-mcp.exe` in your
 install directory (e.g. `C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe`).
-On **Linux**, use `/usr/lib/ashlr-md/mdopener-mcp` (`.deb`) or the binary inside
+On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`) or the binary inside
 the AppImage resource directory — verify the exact path after install.
 
 If the file already has other servers, merge only the `"ashlr-md"` key into the
