@@ -224,6 +224,10 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 See [`docs/VISION.md`](./docs/VISION.md) for the north star and
 [`docs/RELEASING.md`](./docs/RELEASING.md) for the release process.
 
+## Part of the Ashlr ecosystem
+
+Ashlr Markdown is one of the open-source tools from [Ashlr](https://ashlr.ai), a forward-deployed engineering company. Its siblings: [Lexicon](https://github.com/ashlrai/lexicon), [Locus](https://github.com/ashlrai/locus), [Phantom Secrets](https://github.com/ashlrai/phantom-secrets), [Ashlr Stack](https://github.com/ashlrai/ashlr-stack), [Ashlr plugin](https://github.com/ashlrai/ashlr-plugin).
+
 ## Contributing
 
 Contributions welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md). The
