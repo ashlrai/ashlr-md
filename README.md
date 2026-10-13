@@ -29,6 +29,32 @@ free, private, **on-device AI** built in.
 
 ---
 
+## 30-second start
+
+1. Download v0.4.0 for your OS from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest): `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
+2. Double-click any `.md` file, or run `mdopen notes.md`.
+3. Ask the built-in on-device AI about it. No account, no API key.
+
+## Connect your agent (MCP)
+
+Easiest: **Preferences → AI agents (MCP) → Connect to Claude Code / Cursor**. By hand, with the bundled `mdopener-mcp`:
+
+```bash
+# Claude Code (macOS path shown; Linux: "/usr/lib/Ashlr MD/mdopener-mcp")
+claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+# Codex
+codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+```
+
+Cursor (`~/.cursor/mcp.json`):
+
+```json
+{ "mcpServers": { "ashlr-md": { "command": "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp" } } }
+```
+
+Windows path: `%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe`. More in [docs/AGENTS.md](./docs/AGENTS.md).
+
+
 ## Why
 
 Your AI agents write Markdown all day — `README.md`, `PLAN.md`, research dumps.
@@ -136,17 +162,6 @@ Shown with ⌘ on macOS — use **Ctrl** on Windows & Linux.
 | Agent activity drawer | `⌘B` |
 | Outline | `⌘⇧O` |
 | Settings | `⌘,` |
-
-## Use it with an AI agent
-
-```bash
-# Open a file from any terminal or agent:
-mdopen notes.md
-open "mdopener://open?path=$PWD/notes.md"
-
-# Let Claude Code drive the app (open / read / edit / export the current doc):
-claude mcp add --scope user ashlr-md /path/to/mdopener-mcp
-```
 
 ## One-click agent setup
 
