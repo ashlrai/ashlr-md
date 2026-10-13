@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-import { useReviewStore, type PendingReview } from "./reviewStore";
+import { type PendingReview, useReviewStore } from "./reviewStore";
 
 function makePending(overrides?: Partial<PendingReview>): PendingReview {
   return {

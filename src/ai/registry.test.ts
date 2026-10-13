@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 // ---------------------------------------------------------------------------
 
 import { useAIStore } from "../store/aiStore";
-import { HOSTED_API_URL, detectProvider, NOOP_PROVIDER_ID } from "./registry";
+import { detectProvider, HOSTED_API_URL, NOOP_PROVIDER_ID } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,9 +48,7 @@ function resetStore() {
 /** Build a minimal SSE stream from an array of text deltas. */
 function makeSSEStream(deltas: string[], status = 200): Response {
   const lines: string[] = deltas
-    .map((d) =>
-      `data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`,
-    )
+    .map((d) => `data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`)
     .concat(["data: [DONE]\n\n"]);
 
   const body = new ReadableStream<Uint8Array>({
@@ -63,7 +61,10 @@ function makeSSEStream(deltas: string[], status = 200): Response {
     },
   });
 
-  return new Response(body, { status, headers: { "Content-Type": "text/event-stream" } });
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/event-stream" },
+  });
 }
 
 /** Build a plain (non-streaming) error Response. */

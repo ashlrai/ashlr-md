@@ -31,17 +31,11 @@ describe("parseSpec — title extraction", () => {
 
 describe("parseSpec — ## Goals / ## Approach / ## Unknowns detection", () => {
   it("parses ## Goals heading into sections", () => {
-    const doc = [
-      "# Spec",
-      "",
-      "## Goals",
-      "- Build the thing",
-      "- Ship it fast",
-    ].join("\n");
-    const r = parseSpec(doc);
-    const goalsSection = r.sections.find(
-      (s) => s.title.toLowerCase() === "goals",
+    const doc = ["# Spec", "", "## Goals", "- Build the thing", "- Ship it fast"].join(
+      "\n",
     );
+    const r = parseSpec(doc);
+    const goalsSection = r.sections.find((s) => s.title.toLowerCase() === "goals");
     expect(goalsSection).toBeDefined();
     expect(goalsSection?.body).toContain("Build the thing");
   });
@@ -67,12 +61,9 @@ describe("parseSpec — ## Goals / ## Approach / ## Unknowns detection", () => {
   });
 
   it("parses ## Unknowns via 'open questions' alias", () => {
-    const doc = [
-      "# Spec",
-      "",
-      "## Open Questions",
-      "- How do we handle auth?",
-    ].join("\n");
+    const doc = ["# Spec", "", "## Open Questions", "- How do we handle auth?"].join(
+      "\n",
+    );
     const r = parseSpec(doc);
     const section = r.sections.find((s) =>
       s.title.toLowerCase().includes("open question"),
@@ -153,8 +144,8 @@ describe("parseSpec — acceptance criteria", () => {
   it("records 1-based line numbers for criteria", () => {
     const doc = [
       "## Acceptance Criteria", // line 1
-      "- [ ] First",             // line 2
-      "- [x] Second",            // line 3
+      "- [ ] First", // line 2
+      "- [x] Second", // line 3
     ].join("\n");
     const r = parseSpec(doc);
     expect(r.criteria[0].line).toBe(2);
@@ -198,14 +189,9 @@ describe("parseSpec — frontmatter / plan badge stripping", () => {
   });
 
   it("skips frontmatter closed by ... (YAML document-end marker)", () => {
-    const doc = [
-      "---",
-      "kind: spec",
-      "...",
-      "# Title",
-      "## Background",
-      "text",
-    ].join("\n");
+    const doc = ["---", "kind: spec", "...", "# Title", "## Background", "text"].join(
+      "\n",
+    );
     const r = parseSpec(doc);
     expect(r.title).toBe("Title");
     const bg = r.sections.find((s) => s.title === "Background");
@@ -318,10 +304,10 @@ describe("parseSpec — malformed input", () => {
 
   it("records correct line numbers for sections", () => {
     const doc = [
-      "# Title",   // line 1
-      "",          // line 2
-      "## Goals",  // line 3
-      "body",      // line 4
+      "# Title", // line 1
+      "", // line 2
+      "## Goals", // line 3
+      "body", // line 4
     ].join("\n");
     const r = parseSpec(doc);
     const goals = r.sections.find((s) => s.title === "Goals");

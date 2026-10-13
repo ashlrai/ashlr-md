@@ -15,7 +15,7 @@
  *  11.  Escaping and edge cases (nested fences, empty docs, unicode)
  */
 
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Tauri mocks (required transitively via settingsStore → zustand persist)
@@ -32,6 +32,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 // Module imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { useSettingsStore } from "../store/settingsStore";
 import {
   BUILTIN_SNIPPETS,
   buildSnippetExtension,
@@ -41,10 +42,9 @@ import {
   lineTextBefore,
   markdownSnippetSource,
   rawToCompletion,
-  userSnippetToCompletion,
   type UserSnippet,
+  userSnippetToCompletion,
 } from "./snippets";
-import { useSettingsStore } from "../store/settingsStore";
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal CompletionContext-like object.
@@ -54,8 +54,8 @@ import { useSettingsStore } from "../store/settingsStore";
 // object from @codemirror/state.
 // ---------------------------------------------------------------------------
 
-import { EditorState } from "@codemirror/state";
 import { CompletionContext } from "@codemirror/autocomplete";
+import { EditorState } from "@codemirror/state";
 
 /** Build a real (minimal) CompletionContext for `markdownSnippetSource` tests. */
 function makeContext(doc: string, pos: number, explicit = false): CompletionContext {
@@ -433,9 +433,7 @@ describe("markdownSnippetSource", () => {
   });
 
   it("includes user snippets in the results", () => {
-    const userSnippets: UserSnippet[] = [
-      { label: "mysnippet", template: "hello $0" },
-    ];
+    const userSnippets: UserSnippet[] = [{ label: "mysnippet", template: "hello $0" }];
     const source = markdownSnippetSource(userSnippets);
     const doc = "mys";
     const ctx = makeContext(doc, doc.length, false);
@@ -498,9 +496,7 @@ describe("buildSnippetExtension", () => {
   });
 
   it("accepts user snippets without throwing", () => {
-    const snippets: UserSnippet[] = [
-      { label: "test", template: "test $0" },
-    ];
+    const snippets: UserSnippet[] = [{ label: "test", template: "test $0" }];
     expect(() => buildSnippetExtension(snippets)).not.toThrow();
   });
 
@@ -574,7 +570,10 @@ describe("settingsStore — customSnippets", () => {
   it("setCustomSnippets replaces the entire list", () => {
     const store = useSettingsStore.getState();
     store.addCustomSnippet({ label: "old", template: "$0" });
-    store.setCustomSnippets([{ label: "new1", template: "$0" }, { label: "new2", template: "$0" }]);
+    store.setCustomSnippets([
+      { label: "new1", template: "$0" },
+      { label: "new2", template: "$0" },
+    ]);
     const { customSnippets } = useSettingsStore.getState();
     expect(customSnippets).toHaveLength(2);
     expect(customSnippets[0].label).toBe("new1");

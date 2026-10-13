@@ -7,17 +7,6 @@ import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import type { ActionId } from "../../ai/actions";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
-import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
-import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
-import {
-  clipboardHasImage,
-  handleImagePasteWithSettings,
-} from "../../lib/pasteImage";
-import {
-  applyTableEdit,
-  isInsideTable,
-  type ColAlignment,
-} from "../../lib/tableEditor";
 import {
   buildLinkMarkdown,
   buildTableMarkdown,
@@ -25,6 +14,14 @@ import {
   detectListContext,
   isUrl,
 } from "../../lib/editorShortcuts";
+import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
+import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
+import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
+import {
+  applyTableEdit,
+  type ColAlignment,
+  isInsideTable,
+} from "../../lib/tableEditor";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import "../../styles/editor.css";
@@ -448,7 +445,8 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         target?.closest(".table-cell-toolbar") ||
         target?.closest(".table-wizard-modal") ||
         target?.closest(".link-suggestion-pill")
-      ) return;
+      )
+        return;
       setTableMenu(null);
       setTableToolbar(null);
       setTableWizard(null);
@@ -545,8 +543,12 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           });
         });
         // Store cursor position for accept/dismiss to be able to replace text.
-        (view as ProseView & { _urlPasteFrom?: number; _urlPasteText?: string })._urlPasteFrom = from;
-        (view as ProseView & { _urlPasteFrom?: number; _urlPasteText?: string })._urlPasteText = pastedText.trim();
+        (
+          view as ProseView & { _urlPasteFrom?: number; _urlPasteText?: string }
+        )._urlPasteFrom = from;
+        (
+          view as ProseView & { _urlPasteFrom?: number; _urlPasteText?: string }
+        )._urlPasteText = pastedText.trim();
       }
     };
     view.dom.addEventListener("paste", onPaste, true);
@@ -743,7 +745,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           >
             Insert col right
           </button>
-          <div className="table-context-menu-divider" role="separator" />
+          <div className="table-context-menu-divider" aria-hidden="true" />
           <button
             type="button"
             role="menuitem"
@@ -770,7 +772,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           >
             Delete col
           </button>
-          <div className="table-context-menu-divider" role="separator" />
+          <div className="table-context-menu-divider" aria-hidden="true" />
           {(["left", "center", "right"] as ColAlignment[]).map((align) => (
             <button
               key={align}
@@ -846,9 +848,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
               const { from, to } = view.state.selection;
               const text = view.state.doc.textBetween(from, to, "");
               if (text) {
-                view.dispatch(
-                  view.state.tr.insertText(`\`${text}\``, from, to),
-                );
+                view.dispatch(view.state.tr.insertText(`\`${text}\``, from, to));
               }
             }}
           >

@@ -27,13 +27,13 @@ import {
   useState,
 } from "react";
 import {
+  applyCanvasOp,
+  buildCanvasEditor,
   type CanvasBounds,
   type CanvasEdge,
   type CanvasEditorState,
   type CanvasNode,
   type CanvasNodeBase,
-  applyCanvasOp,
-  buildCanvasEditor,
   canvasBounds,
   canvasEditorToCanvas,
   fitTransform,
@@ -107,7 +107,12 @@ export interface CanvasEditorProps {
 // CanvasEditor
 // ---------------------------------------------------------------------------
 
-export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEditorProps) {
+export function CanvasEditor({
+  content,
+  filePath,
+  onSave,
+  onDirty,
+}: CanvasEditorProps) {
   const parsed = useMemo(() => parseCanvas(content), [content]);
 
   // Editor state lives in a ref — mutations don't re-render on their own;
@@ -275,7 +280,15 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
     const id = generateId();
     mutate({
       type: "add_node",
-      node: { id, type: "text", x: cx - 100, y: cy - 50, width: 200, height: 100, text: "New note" },
+      node: {
+        id,
+        type: "text",
+        x: cx - 100,
+        y: cy - 50,
+        width: 200,
+        height: 100,
+        text: "New note",
+      },
     });
     setSelectedId(id);
   }
@@ -288,7 +301,15 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
     const id = generateId();
     mutate({
       type: "add_node",
-      node: { id, type: "link", x: cx - 100, y: cy - 50, width: 200, height: 80, url: "https://" },
+      node: {
+        id,
+        type: "link",
+        x: cx - 100,
+        y: cy - 50,
+        width: 200,
+        height: 80,
+        url: "https://",
+      },
     });
     setSelectedId(id);
     setEditingId(id);
@@ -302,7 +323,15 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
     const id = generateId();
     mutate({
       type: "add_node",
-      node: { id, type: "group", x: cx - 150, y: cy - 100, width: 300, height: 200, label: "Group" },
+      node: {
+        id,
+        type: "group",
+        x: cx - 150,
+        y: cy - 100,
+        width: 300,
+        height: 200,
+        label: "Group",
+      },
     });
     setSelectedId(id);
   }
@@ -346,8 +375,14 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
   // Surface pointer events — only start pan if not on a node.
   const onSurfacePointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest("[data-canvas-node]") || target.closest("[data-canvas-edge]")) return;
-    panDrag.current = { x: e.clientX, y: e.clientY, ox: view.offsetX, oy: view.offsetY };
+    if (target.closest("[data-canvas-node]") || target.closest("[data-canvas-edge]"))
+      return;
+    panDrag.current = {
+      x: e.clientX,
+      y: e.clientY,
+      ox: view.offsetX,
+      oy: view.offsetY,
+    };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     if (!edgeAddMode) setSelectedId(null);
   };
@@ -475,8 +510,10 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
       const node = stateRef.current.nodes.find((n) => n.id === nodeId);
       if (!node) return;
       if (node.type === "text") mutate({ type: "edit_text", id: nodeId, text: value });
-      else if (node.type === "link") mutate({ type: "edit_link", id: nodeId, url: value });
-      else if (node.type === "group") mutate({ type: "edit_group_label", id: nodeId, label: value });
+      else if (node.type === "link")
+        mutate({ type: "edit_link", id: nodeId, url: value });
+      else if (node.type === "group")
+        mutate({ type: "edit_group_label", id: nodeId, label: value });
       setEditingId(null);
     },
     [], // eslint-disable-line react-hooks/exhaustive-deps
@@ -593,7 +630,9 @@ export function CanvasEditor({ content, filePath, onSave, onDirty }: CanvasEdito
 
       {edgeAddMode && (
         <div className="canvas-edge-add-hint">
-          {edgeFromRef.current ? "Click target node to complete edge" : "Click source node"}
+          {edgeFromRef.current
+            ? "Click target node to complete edge"
+            : "Click source node"}
         </div>
       )}
 
@@ -710,7 +749,8 @@ function CanvasEditorEdges({
         </defs>
         {drawn.map(({ e, a, b }) => {
           const isSelected = selectedId === e.id;
-          const stroke = resolveCanvasColor(e.color) ?? "var(--canvas-edge, var(--text-muted))";
+          const stroke =
+            resolveCanvasColor(e.color) ?? "var(--canvas-edge, var(--text-muted))";
           const toArrow = e.toEnd !== "none";
           const fromArrow = e.fromEnd === "arrow";
           const mx = (a.x + b.x) / 2;
@@ -725,12 +765,18 @@ function CanvasEditorEdges({
             >
               {/* Wide invisible hit area */}
               <line
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
                 stroke="transparent"
                 strokeWidth={12}
               />
               <line
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
                 stroke={isSelected ? "var(--accent)" : stroke}
                 strokeWidth={isSelected ? 3 : 2}
                 markerEnd={toArrow ? `url(#${markerId})` : undefined}
@@ -905,7 +951,9 @@ const CanvasEditorNodeView = memo(function CanvasEditorNodeView({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="canvas-node__title">{node.file.split("/").pop() ?? node.file}</div>
+      <div className="canvas-node__title">
+        {node.file.split("/").pop() ?? node.file}
+      </div>
       {node.subpath && (
         <div className="canvas-node__scroll canvas-node__muted">{node.subpath}</div>
       )}
@@ -925,7 +973,12 @@ interface InlineTextEditProps {
   singleLine?: boolean;
 }
 
-function InlineTextEdit({ initialValue, onCommit, placeholder, singleLine }: InlineTextEditProps) {
+function InlineTextEdit({
+  initialValue,
+  onCommit,
+  placeholder,
+  singleLine,
+}: InlineTextEditProps) {
   const [value, setValue] = useState(initialValue);
   const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
 

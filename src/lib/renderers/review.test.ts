@@ -102,9 +102,9 @@ describe("parseReview — files changed section", () => {
 
   it("records 1-based line numbers for file entries", () => {
     const doc = [
-      "## Files Changed",  // line 1
-      "- a/b.ts",          // line 2
-      "- c/d.ts",          // line 3
+      "## Files Changed", // line 1
+      "- a/b.ts", // line 2
+      "- c/d.ts", // line 3
     ].join("\n");
     const r = parseReview(doc);
     // sectionStartLine offset is i+2 (heading line + 1 for body), idx is 0-based.
@@ -146,10 +146,7 @@ describe("parseReview — feedback section", () => {
     // The bold-lead branch fires only when annotLabel is empty. The regex
     // `^\*\*([^*]+)\*\*:?` captures the text inside ** including any trailing
     // colon, so "**Performance:**" yields label "Performance:".
-    const doc = [
-      "## Feedback",
-      "**Performance:** The query runs N+1.",
-    ].join("\n");
+    const doc = ["## Feedback", "**Performance:** The query runs N+1."].join("\n");
     const r = parseReview(doc);
     expect(r.feedback.length).toBeGreaterThanOrEqual(1);
     // label includes the trailing colon from the bold span: "Performance:"
@@ -306,12 +303,7 @@ describe("parseReview — missing content and empty input", () => {
 
 describe("parseReview — malformed input", () => {
   it("handles broken frontmatter (unclosed ---) without throwing", () => {
-    const doc = [
-      "---",
-      "kind: review",
-      "## Summary",
-      "Content here.",
-    ].join("\n");
+    const doc = ["---", "kind: review", "## Summary", "Content here."].join("\n");
     expect(() => parseReview(doc)).not.toThrow();
     // Everything is consumed as frontmatter.
     const r = parseReview(doc);
@@ -319,10 +311,7 @@ describe("parseReview — malformed input", () => {
   });
 
   it("handles truncated feedback section (heading with no body)", () => {
-    const doc = [
-      "## Feedback",
-      "### Truncated comment",
-    ].join("\n");
+    const doc = ["## Feedback", "### Truncated comment"].join("\n");
     expect(() => parseReview(doc)).not.toThrow();
     const r = parseReview(doc);
     expect(r.feedback).toHaveLength(1);
@@ -331,10 +320,9 @@ describe("parseReview — malformed input", () => {
   });
 
   it("handles files section with no list items (just prose)", () => {
-    const doc = [
-      "## Files Changed",
-      "No files were changed in this review.",
-    ].join("\n");
+    const doc = ["## Files Changed", "No files were changed in this review."].join(
+      "\n",
+    );
     const r = parseReview(doc);
     expect(r.files).toHaveLength(0);
   });

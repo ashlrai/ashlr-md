@@ -2974,14 +2974,14 @@ fn parse_canvas_json(raw: &str) -> Result<RawCanvas, String> {
 }
 
 fn find_node_mut<'a>(
-    nodes: &'a mut Vec<serde_json::Map<String, Value>>,
+    nodes: &'a mut [serde_json::Map<String, Value>],
     id: &str,
 ) -> Option<&'a mut serde_json::Map<String, Value>> {
     nodes.iter_mut().find(|n| n.get("id").and_then(Value::as_str) == Some(id))
 }
 
 fn find_edge_mut<'a>(
-    edges: &'a mut Vec<serde_json::Map<String, Value>>,
+    edges: &'a mut [serde_json::Map<String, Value>],
     id: &str,
 ) -> Option<&'a mut serde_json::Map<String, Value>> {
     edges.iter_mut().find(|e| e.get("id").and_then(Value::as_str) == Some(id))
@@ -3394,12 +3394,7 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
 
 // Helper: find `]]` starting from `start`, returns index of first `]`.
 fn find_double_close(chars: &[char], start: usize) -> Option<usize> {
-    for i in start..chars.len().saturating_sub(1) {
-        if chars[i] == ']' && chars[i + 1] == ']' {
-            return Some(i);
-        }
-    }
-    None
+    (start..chars.len().saturating_sub(1)).find(|&i| chars[i] == ']' && chars[i + 1] == ']')
 }
 
 /// Count words (whitespace-separated tokens) in plain text.
@@ -3563,11 +3558,10 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
                 let inner: String = chars[i + 2..close].iter().collect();
                 let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
                 // Exclude embedded image wikilinks (preceded by `!`).
-                if i == 0 || chars[i - 1] != '!' {
-                    if !target.is_empty() {
+                if (i == 0 || chars[i - 1] != '!')
+                    && !target.is_empty() {
                         links.insert(target);
                     }
-                }
                 i = close + 2;
                 continue;
             }

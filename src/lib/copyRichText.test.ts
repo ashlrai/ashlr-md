@@ -31,9 +31,11 @@ vi.mock("./waitForElement", () => ({
 }));
 
 vi.mock("./export", () => ({
-  buildStandaloneHtml: vi.fn().mockReturnValue(
-    '<!doctype html><html><body><div class="reading-surface"><div class="markdown-body"><h1>Fallback</h1></div></div></body></html>',
-  ),
+  buildStandaloneHtml: vi
+    .fn()
+    .mockReturnValue(
+      '<!doctype html><html><body><div class="reading-surface"><div class="markdown-body"><h1>Fallback</h1></div></div></body></html>',
+    ),
   cloneWithoutInjectedChrome: vi.fn().mockImplementation((el: Element) => {
     const clone = el.cloneNode(true) as Element;
     for (const node of clone.querySelectorAll(".review-card")) node.remove();
@@ -65,15 +67,15 @@ vi.mock("../store/documentStore", () => ({
 
 // ── Imports under test (after mocks) ─────────────────────────────────────────
 
+import { toast } from "../store/toastStore";
 import {
-  wrapRichTextBody,
   buildRichTextHtml,
   buildThemeAwareRichHtml,
-  THEME_PALETTES,
   copyAsRichText,
+  THEME_PALETTES,
+  wrapRichTextBody,
 } from "./copyRichText";
 import { cloneWithoutInjectedChrome } from "./export";
-import { toast } from "../store/toastStore";
 import { waitForElement } from "./waitForElement";
 
 const toastInfoMock = vi.mocked(toast.info);
@@ -87,14 +89,22 @@ const waitForElementMock = vi.mocked(waitForElement);
 let clipboardWriteMock: ReturnType<typeof vi.fn>;
 let clipboardWriteTextMock: ReturnType<typeof vi.fn>;
 
-function installClipboardMocks(opts: { writeRejects?: boolean; noClipboardItem?: boolean } = {}) {
-  clipboardWriteMock = vi.fn().mockImplementation(opts.writeRejects
-    ? () => Promise.reject(new Error("clipboard write denied"))
-    : () => Promise.resolve());
+function installClipboardMocks(
+  opts: { writeRejects?: boolean; noClipboardItem?: boolean } = {},
+) {
+  clipboardWriteMock = vi
+    .fn()
+    .mockImplementation(
+      opts.writeRejects
+        ? () => Promise.reject(new Error("clipboard write denied"))
+        : () => Promise.resolve(),
+    );
   clipboardWriteTextMock = vi.fn().mockResolvedValue(undefined);
 
   Object.defineProperty(globalThis, "navigator", {
-    value: { clipboard: { write: clipboardWriteMock, writeText: clipboardWriteTextMock } },
+    value: {
+      clipboard: { write: clipboardWriteMock, writeText: clipboardWriteTextMock },
+    },
     writable: true,
     configurable: true,
   });
@@ -304,7 +314,9 @@ describe("buildThemeAwareRichHtml", () => {
   it("handles nested lists without corruption", () => {
     const nested = "<ul><li>A<ul><li>B</li><li>C</li></ul></li><li>D</li></ul>";
     const html = buildThemeAwareRichHtml(nested, "paper");
-    expect(html).toContain("<ul><li>A<ul><li>B</li><li>C</li></ul></li><li>D</li></ul>");
+    expect(html).toContain(
+      "<ul><li>A<ul><li>B</li><li>C</li></ul></li><li>D</li></ul>",
+    );
   });
 
   it("falls back to paper palette for an unknown theme", () => {
@@ -337,9 +349,15 @@ describe("buildThemeAwareRichHtml", () => {
 
 describe("THEME_PALETTES", () => {
   const REQUIRED_TOKENS = [
-    "--bg", "--text", "--accent", "--border",
-    "--code-bg", "--inline-code-bg", "--inline-code-text",
-    "--quote-border", "--quote-text",
+    "--bg",
+    "--text",
+    "--accent",
+    "--border",
+    "--code-bg",
+    "--inline-code-bg",
+    "--inline-code-text",
+    "--quote-border",
+    "--quote-text",
   ];
 
   for (const theme of ["paper", "sepia", "midnight"] as const) {
@@ -347,10 +365,7 @@ describe("THEME_PALETTES", () => {
       const palette = THEME_PALETTES[theme];
       expect(palette).toBeDefined();
       for (const token of REQUIRED_TOKENS) {
-        expect(
-          palette[token],
-          `${theme} is missing token ${token}`,
-        ).toBeTruthy();
+        expect(palette[token], `${theme} is missing token ${token}`).toBeTruthy();
       }
     });
   }
@@ -497,8 +512,7 @@ describe("copyAsRichText", () => {
 
   it("preserves code block content from the DOM body", async () => {
     const el = document.querySelector(".markdown-body")!;
-    el.innerHTML =
-      '<pre><code class="language-ts">const x = 1;</code></pre>';
+    el.innerHTML = '<pre><code class="language-ts">const x = 1;</code></pre>';
     await copyAsRichText("auto");
     const [items] = clipboardWriteMock.mock.calls[0] as [ClipboardItem[]];
     const item = items[0] as unknown as { data: Record<string, Blob> };
@@ -508,8 +522,7 @@ describe("copyAsRichText", () => {
 
   it("strips the .review-card from the copied HTML", async () => {
     const el = document.querySelector(".markdown-body")!;
-    el.innerHTML =
-      '<aside class="review-card">AI REVIEW</aside><h1>Doc</h1>';
+    el.innerHTML = '<aside class="review-card">AI REVIEW</aside><h1>Doc</h1>';
     await copyAsRichText("auto");
     const [items] = clipboardWriteMock.mock.calls[0] as [ClipboardItem[]];
     const item = items[0] as unknown as { data: Record<string, Blob> };

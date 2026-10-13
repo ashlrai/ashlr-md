@@ -10,12 +10,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   applyCanvasOp,
   buildCanvasEditor,
+  type CanvasEditOp,
   canvasEditorToCanvas,
   parseCanvas,
+  redoCanvasOp,
   serializeCanvas,
   undoCanvasOp,
-  redoCanvasOp,
-  type CanvasEditOp,
 } from "../../lib/canvas";
 import type { EditCanvasPayload } from "./types";
 
@@ -23,7 +23,14 @@ import type { EditCanvasPayload } from "./types";
 
 export function handleEditCanvas(): Promise<UnlistenFn> {
   return listen<EditCanvasPayload>("mcp://edit-canvas", async (e) => {
-    const { editId, path: canvasPath, ops, undo = 0, redo = 0, save = true } = e.payload;
+    const {
+      editId,
+      path: canvasPath,
+      ops,
+      undo = 0,
+      redo = 0,
+      save = true,
+    } = e.payload;
 
     const replyOk = async (nodesAffected: number, serialised: string) => {
       await invoke("mcp_edit_canvas_result", {
@@ -33,7 +40,9 @@ export function handleEditCanvas(): Promise<UnlistenFn> {
         nodesAffected,
         content: serialised,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     };
 
     const replyErr = async (error: string) => {
@@ -44,7 +53,9 @@ export function handleEditCanvas(): Promise<UnlistenFn> {
         nodesAffected: 0,
         content: null,
         error,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     };
 
     try {
@@ -61,7 +72,8 @@ export function handleEditCanvas(): Promise<UnlistenFn> {
       try {
         rawContent = await invoke<string>("read_canvas_file", { path: canvasPath });
       } catch (err) {
-        const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        const errStr =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         await replyErr(`Could not read canvas file: ${errStr}`);
         return;
       }
@@ -94,7 +106,8 @@ export function handleEditCanvas(): Promise<UnlistenFn> {
         try {
           await invoke("write_canvas_file", { path: canvasPath, content: serialised });
         } catch (err) {
-          const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+          const errStr =
+            typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
           await replyErr(`Canvas write failed: ${errStr}`);
           return;
         }
@@ -103,7 +116,8 @@ export function handleEditCanvas(): Promise<UnlistenFn> {
       const nodesAffected = Math.abs(state.nodes.length - originalNodeCount);
       await replyOk(nodesAffected, serialised);
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await replyErr(`Unexpected error in mcp://edit-canvas: ${errStr}`);
     }
   });

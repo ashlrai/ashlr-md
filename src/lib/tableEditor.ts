@@ -76,10 +76,14 @@ function renderRow(cells: string[]): string {
 function renderSeparator(alignments: ColAlignment[]): string {
   const cells = alignments.map((a) => {
     switch (a) {
-      case "left":   return ":---";
-      case "center": return ":---:";
-      case "right":  return "---:";
-      default:       return "---";
+      case "left":
+        return ":---";
+      case "center":
+        return ":---:";
+      case "right":
+        return "---:";
+      default:
+        return "---";
     }
   });
   return `|${cells.map(padCell).join("|")}|`;
@@ -120,7 +124,10 @@ export function isInsideTable(markdown: string, cursorOffset: number): boolean {
  *
  * Returns `null` when the cursor is not inside a table.
  */
-export function findTableRange(markdown: string, cursorOffset: number): TableRange | null {
+export function findTableRange(
+  markdown: string,
+  cursorOffset: number,
+): TableRange | null {
   const lines = markdown.split("\n");
 
   // Build a map of line-start offsets.
@@ -258,7 +265,11 @@ export function buildEmptyTable(rows: number, cols: number): string {
  * - `below: true` inserts after `atIndex`; `false` inserts before `atIndex`.
  * - When the table has no data rows yet, the new row is always appended.
  */
-export function insertRow(table: ParsedTable, atIndex: number, below: boolean): ParsedTable {
+export function insertRow(
+  table: ParsedTable,
+  atIndex: number,
+  below: boolean,
+): ParsedTable {
   const cols = table.headers.length;
   const emptyRow = Array<string>(cols).fill("");
   const rows = [...table.rows];
@@ -293,9 +304,7 @@ export function insertColumn(
   right: boolean,
 ): ParsedTable {
   const cols = table.headers.length;
-  const insertAt = right
-    ? clamp(atIndex + 1, 0, cols)
-    : clamp(atIndex, 0, cols);
+  const insertAt = right ? clamp(atIndex + 1, 0, cols) : clamp(atIndex, 0, cols);
 
   const headers = [...table.headers];
   headers.splice(insertAt, 0, "");
@@ -350,11 +359,7 @@ export function setColumnAlignment(
  * Return the content of the cell at [row, col] (0-based, data rows only).
  * Returns `""` when coordinates are out of range.
  */
-export function getCellContent(
-  table: ParsedTable,
-  row: number,
-  col: number,
-): string {
+export function getCellContent(table: ParsedTable, row: number, col: number): string {
   return table.rows[row]?.[col] ?? "";
 }
 

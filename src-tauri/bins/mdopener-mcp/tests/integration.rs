@@ -1539,7 +1539,7 @@ fn export_tool_permission_denied_error_propagated() {
     assert!(resp.error.is_some());
     assert_eq!(resp.error.as_ref().unwrap().code, -32000);
     // The error message must surface enough detail for the agent to understand.
-    assert!(resp.error.unwrap().message.len() > 0);
+    assert!(!resp.error.unwrap().message.is_empty());
 }
 
 #[test]
@@ -1955,7 +1955,7 @@ fn grep_vault_with_real_temp_file_finds_match() {
     let results = grep_vault("quarterly", 50, &ipc).expect("grep_vault ok");
     assert!(!results.is_empty(), "should find match for 'quarterly'");
     let first = &results[0];
-    assert!(first["path"].as_str().unwrap().len() > 0);
+    assert!(!first["path"].as_str().unwrap().is_empty());
     assert!(first["snippet"].as_str().unwrap().contains("quarterly"));
     assert!(first["score"].as_f64().unwrap() > 0.0);
 }
@@ -3185,8 +3185,7 @@ fn export_canvas_graph_has_non_destructive_annotation() {
 
 use mdopener_mcp::{
     tool_export_text, tool_export_metadata,
-    strip_markdown, strip_inline_markdown,
-    extract_frontmatter, extract_headings, extract_wikilinks, count_embedded_images,
+    strip_markdown,
     count_words,
 };
 

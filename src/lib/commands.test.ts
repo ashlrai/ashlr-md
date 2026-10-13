@@ -48,7 +48,9 @@ vi.mock("./copyRichText", () => ({
 }));
 
 vi.mock("./tableEditor", () => ({
-  buildEmptyTable: vi.fn().mockReturnValue("| Column 1 | Column 2 |\n| --- | --- |\n|  |  |"),
+  buildEmptyTable: vi
+    .fn()
+    .mockReturnValue("| Column 1 | Column 2 |\n| --- | --- |\n|  |  |"),
 }));
 
 vi.mock("./openFile", () => ({
@@ -154,16 +156,16 @@ vi.mock("../store/settingsStore", () => ({
 
 // ── Imports of modules under test (after all mocks) ───────────────────────────
 
-import { getCommands, getShortcutCommands, COMMAND_GROUPS } from "./commands";
-import { matchShortcut, formatShortcut } from "./keymap";
+import { COMMAND_GROUPS, getCommands, getShortcutCommands } from "./commands";
+import { formatShortcut, matchShortcut } from "./keymap";
 
 // ── Typed access to mocked modules ───────────────────────────────────────────
 
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../store/toastStore";
 import { copyDocumentAsRichText } from "./copyRichText";
+import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
 import { pickAndOpen } from "./openFile";
-import { exportHtml, exportPdf, exportDocx, exportEpub } from "./export";
 
 const invokeMock = vi.mocked(invoke);
 const toastErrorMock = vi.mocked(toast.error);
@@ -189,7 +191,8 @@ function makeEvent(shortcut: string): KeyboardEvent {
   const mod = parts.includes("mod");
   const shift = parts.includes("shift");
   const alt = parts.includes("alt") || parts.includes("option");
-  const key = parts.find((p) => !["mod", "shift", "alt", "option", "opt"].includes(p)) ?? "";
+  const key =
+    parts.find((p) => !["mod", "shift", "alt", "option", "opt"].includes(p)) ?? "";
   return {
     // IS_MAC=false in happy-dom → mod resolves to ctrlKey, not metaKey
     ctrlKey: mod,
@@ -218,7 +221,9 @@ beforeEach(() => {
     ...Object.values(uiState),
     ...Object.values(aiState),
     ...Object.values(settingsState),
-  ].filter((v): v is ReturnType<typeof vi.fn> => typeof v === "function" && "mockReset" in v);
+  ].filter(
+    (v): v is ReturnType<typeof vi.fn> => typeof v === "function" && "mockReset" in v,
+  );
   for (const fn of allFns) fn.mockReset();
 
   // Stub window.prompt for insert-table command
@@ -254,7 +259,9 @@ describe("Command registry — id uniqueness and shape", () => {
 
   it("every command has a non-empty id string", () => {
     for (const cmd of getCommands()) {
-      expect(typeof cmd.id, `command id must be a string (got ${typeof cmd.id})`).toBe("string");
+      expect(typeof cmd.id, `command id must be a string (got ${typeof cmd.id})`).toBe(
+        "string",
+      );
       expect(cmd.id.trim().length, `id must be non-empty`).toBeGreaterThan(0);
     }
   });
@@ -275,7 +282,10 @@ describe("Command registry — id uniqueness and shape", () => {
   it("every command belongs to a declared COMMAND_GROUPS section", () => {
     const allowedGroups = new Set<string>([...COMMAND_GROUPS]);
     for (const cmd of getCommands()) {
-      expect(allowedGroups.has(cmd.group), `Unknown group '${cmd.group}' on command '${cmd.id}'`).toBe(true);
+      expect(
+        allowedGroups.has(cmd.group),
+        `Unknown group '${cmd.group}' on command '${cmd.id}'`,
+      ).toBe(true);
     }
   });
 
@@ -373,8 +383,14 @@ describe("Command shortcuts — parsing and collision detection", () => {
     for (const cmd of getShortcutCommands()) {
       const parts = (cmd.shortcut as string).toLowerCase().split("+");
       const keys = parts.filter((p) => !modifiers.has(p));
-      expect(keys.length, `No key token in shortcut '${cmd.shortcut}' (${cmd.id})`).toBeGreaterThanOrEqual(1);
-      expect(keys[0].trim().length, `Empty key token in '${cmd.shortcut}' (${cmd.id})`).toBeGreaterThan(0);
+      expect(
+        keys.length,
+        `No key token in shortcut '${cmd.shortcut}' (${cmd.id})`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        keys[0].trim().length,
+        `Empty key token in '${cmd.shortcut}' (${cmd.id})`,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -472,25 +488,44 @@ describe("Command when() predicates", () => {
   it("hasDoc commands return true when path is set", () => {
     docState.path = "/tmp/test.md";
     const docCommands = [
-      "file.save", "file.export.dialog", "file.export.html", "file.export.pdf",
-      "file.export.docx", "file.export.epub", "file.close", "view.read", "view.edit",
-      "view.source", "find.document", "find.replace", "edit.copyRichText",
+      "file.save",
+      "file.export.dialog",
+      "file.export.html",
+      "file.export.pdf",
+      "file.export.docx",
+      "file.export.epub",
+      "file.close",
+      "view.read",
+      "view.edit",
+      "view.source",
+      "find.document",
+      "find.replace",
+      "edit.copyRichText",
     ];
     for (const id of docCommands) {
       const cmd = getCommands().find((c) => c.id === id);
-      expect(cmd?.when?.(), `'${id}'.when() should be true when path is set`).toBe(true);
+      expect(cmd?.when?.(), `'${id}'.when() should be true when path is set`).toBe(
+        true,
+      );
     }
   });
 
   it("hasDoc commands return false when path is null", () => {
     docState.path = null;
     const docCommands = [
-      "file.save", "file.export.dialog", "file.close",
-      "view.read", "view.edit", "view.source", "edit.copyRichText",
+      "file.save",
+      "file.export.dialog",
+      "file.close",
+      "view.read",
+      "view.edit",
+      "view.source",
+      "edit.copyRichText",
     ];
     for (const id of docCommands) {
       const cmd = getCommands().find((c) => c.id === id);
-      expect(cmd?.when?.(), `'${id}'.when() should be false when path is null`).toBe(false);
+      expect(cmd?.when?.(), `'${id}'.when() should be false when path is null`).toBe(
+        false,
+      );
     }
   });
 
@@ -503,24 +538,40 @@ describe("Command when() predicates", () => {
   it("view.split.toggle is false in read view (even with a doc)", () => {
     docState.path = "/tmp/test.md";
     docState.viewMode = "read";
-    expect(getCommands().find((c) => c.id === "view.split.toggle")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "view.split.toggle")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("view.split.toggle is true in edit view with a doc", () => {
     docState.path = "/tmp/test.md";
     docState.viewMode = "edit";
-    expect(getCommands().find((c) => c.id === "view.split.toggle")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "view.split.toggle")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("view.split.toggle is true in source view with a doc", () => {
     docState.path = "/tmp/test.md";
     docState.viewMode = "source";
-    expect(getCommands().find((c) => c.id === "view.split.toggle")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "view.split.toggle")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("tab.next is false with one tab", () => {
     docState.tabs = [{ id: "t1", path: "/tmp/a.md", fileName: "a.md" }];
-    expect(getCommands().find((c) => c.id === "tab.next")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.next")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("tab.next is true with two or more tabs", () => {
@@ -528,12 +579,20 @@ describe("Command when() predicates", () => {
       { id: "t1", path: "/tmp/a.md", fileName: "a.md" },
       { id: "t2", path: "/tmp/b.md", fileName: "b.md" },
     ];
-    expect(getCommands().find((c) => c.id === "tab.next")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.next")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("tab.prev is false with one tab", () => {
     docState.tabs = [{ id: "t1", path: "/tmp/a.md", fileName: "a.md" }];
-    expect(getCommands().find((c) => c.id === "tab.prev")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.prev")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("tab.prev is true with two or more tabs", () => {
@@ -541,47 +600,83 @@ describe("Command when() predicates", () => {
       { id: "t1", path: "/a.md", fileName: "a.md" },
       { id: "t2", path: "/b.md", fileName: "b.md" },
     ];
-    expect(getCommands().find((c) => c.id === "tab.prev")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.prev")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("tab.close is false with no tabs", () => {
     docState.tabs = [];
-    expect(getCommands().find((c) => c.id === "tab.close")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.close")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("tab.close is true with one tab", () => {
     docState.tabs = [{ id: "t1", path: "/a.md", fileName: "a.md" }];
-    expect(getCommands().find((c) => c.id === "tab.close")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "tab.close")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("view.outline.toggle is true when path is set", () => {
     docState.path = "/tmp/doc.md";
-    expect(getCommands().find((c) => c.id === "view.outline.toggle")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "view.outline.toggle")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("view.outline.toggle is false when path is null", () => {
     docState.path = null;
-    expect(getCommands().find((c) => c.id === "view.outline.toggle")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "view.outline.toggle")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("theme.set.paper when() is false when paper theme is active", () => {
     settingsState.theme = "paper";
-    expect(getCommands().find((c) => c.id === "theme.set.paper")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "theme.set.paper")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("theme.set.sepia when() is true when paper theme is active", () => {
     settingsState.theme = "paper";
-    expect(getCommands().find((c) => c.id === "theme.set.sepia")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "theme.set.sepia")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("theme.set.midnight when() is true when paper theme is active", () => {
     settingsState.theme = "paper";
-    expect(getCommands().find((c) => c.id === "theme.set.midnight")?.when?.()).toBe(true);
+    expect(
+      getCommands()
+        .find((c) => c.id === "theme.set.midnight")
+        ?.when?.(),
+    ).toBe(true);
   });
 
   it("theme.set.midnight when() is false when midnight theme is active", () => {
     settingsState.theme = "midnight";
-    expect(getCommands().find((c) => c.id === "theme.set.midnight")?.when?.()).toBe(false);
+    expect(
+      getCommands()
+        .find((c) => c.id === "theme.set.midnight")
+        ?.when?.(),
+    ).toBe(false);
   });
 
   it("predicates are deterministic: same state produces same result on repeated calls", () => {
@@ -618,125 +713,173 @@ describe("Command when() predicates", () => {
 
 describe("Command execution — delegates fire correctly", () => {
   it("app.commandPalette.run() calls uiStore.toggleCommandPalette()", () => {
-    getCommands().find((c) => c.id === "app.commandPalette")!.run();
+    getCommands()
+      .find((c) => c.id === "app.commandPalette")!
+      .run();
     expect(uiState.toggleCommandPalette).toHaveBeenCalledOnce();
   });
 
   it("app.settings.run() calls uiStore.openSettings()", () => {
-    getCommands().find((c) => c.id === "app.settings")!.run();
+    getCommands()
+      .find((c) => c.id === "app.settings")!
+      .run();
     expect(uiState.openSettings).toHaveBeenCalledOnce();
   });
 
   it("file.open.run() calls pickAndOpen()", () => {
-    getCommands().find((c) => c.id === "file.open")!.run();
+    getCommands()
+      .find((c) => c.id === "file.open")!
+      .run();
     expect(pickAndOpenMock).toHaveBeenCalledOnce();
   });
 
   it("file.save.run() calls doc.save()", () => {
-    getCommands().find((c) => c.id === "file.save")!.run();
+    getCommands()
+      .find((c) => c.id === "file.save")!
+      .run();
     expect(docState.save).toHaveBeenCalledOnce();
   });
 
   it("file.close.run() calls doc.close()", () => {
-    getCommands().find((c) => c.id === "file.close")!.run();
+    getCommands()
+      .find((c) => c.id === "file.close")!
+      .run();
     expect(docState.close).toHaveBeenCalledOnce();
   });
 
   it("file.export.dialog.run() calls uiStore.openExport()", () => {
-    getCommands().find((c) => c.id === "file.export.dialog")!.run();
+    getCommands()
+      .find((c) => c.id === "file.export.dialog")!
+      .run();
     expect(uiState.openExport).toHaveBeenCalledOnce();
   });
 
   it("view.read.run() calls doc.setViewMode('read')", () => {
-    getCommands().find((c) => c.id === "view.read")!.run();
+    getCommands()
+      .find((c) => c.id === "view.read")!
+      .run();
     expect(docState.setViewMode).toHaveBeenCalledWith("read");
   });
 
   it("view.edit.run() calls doc.setViewMode('edit')", () => {
-    getCommands().find((c) => c.id === "view.edit")!.run();
+    getCommands()
+      .find((c) => c.id === "view.edit")!
+      .run();
     expect(docState.setViewMode).toHaveBeenCalledWith("edit");
   });
 
   it("view.source.run() calls doc.setViewMode('source')", () => {
-    getCommands().find((c) => c.id === "view.source")!.run();
+    getCommands()
+      .find((c) => c.id === "view.source")!
+      .run();
     expect(docState.setViewMode).toHaveBeenCalledWith("source");
   });
 
   it("view.zen.toggle.run() calls uiStore.toggleZen()", () => {
-    getCommands().find((c) => c.id === "view.zen.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "view.zen.toggle")!
+      .run();
     expect(uiState.toggleZen).toHaveBeenCalledOnce();
   });
 
   it("view.search.toggle.run() calls uiStore.toggleSearch()", () => {
-    getCommands().find((c) => c.id === "view.search.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "view.search.toggle")!
+      .run();
     expect(uiState.toggleSearch).toHaveBeenCalledOnce();
   });
 
   it("view.activity.toggle.run() calls uiStore.toggleActivity()", () => {
-    getCommands().find((c) => c.id === "view.activity.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "view.activity.toggle")!
+      .run();
     expect(uiState.toggleActivity).toHaveBeenCalledOnce();
   });
 
   it("view.outline.toggle.run() calls uiStore.toggleOutline()", () => {
-    getCommands().find((c) => c.id === "view.outline.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "view.outline.toggle")!
+      .run();
     expect(uiState.toggleOutline).toHaveBeenCalledOnce();
   });
 
   it("ai.toggle.run() calls aiStore.toggle()", () => {
-    getCommands().find((c) => c.id === "ai.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "ai.toggle")!
+      .run();
     expect(aiState.toggle).toHaveBeenCalledOnce();
   });
 
   it("theme.cycle.run() calls settingsStore.cycleTheme()", () => {
-    getCommands().find((c) => c.id === "theme.cycle")!.run();
+    getCommands()
+      .find((c) => c.id === "theme.cycle")!
+      .run();
     expect(settingsState.cycleTheme).toHaveBeenCalledOnce();
   });
 
   it("theme.set.paper.run() calls settingsStore.setTheme('paper')", () => {
-    getCommands().find((c) => c.id === "theme.set.paper")!.run();
+    getCommands()
+      .find((c) => c.id === "theme.set.paper")!
+      .run();
     expect(settingsState.setTheme).toHaveBeenCalledWith("paper");
   });
 
   it("theme.set.sepia.run() calls settingsStore.setTheme('sepia')", () => {
-    getCommands().find((c) => c.id === "theme.set.sepia")!.run();
+    getCommands()
+      .find((c) => c.id === "theme.set.sepia")!
+      .run();
     expect(settingsState.setTheme).toHaveBeenCalledWith("sepia");
   });
 
   it("theme.set.midnight.run() calls settingsStore.setTheme('midnight')", () => {
-    getCommands().find((c) => c.id === "theme.set.midnight")!.run();
+    getCommands()
+      .find((c) => c.id === "theme.set.midnight")!
+      .run();
     expect(settingsState.setTheme).toHaveBeenCalledWith("midnight");
   });
 
   it("tab.next.run() calls doc.nextTab()", () => {
-    getCommands().find((c) => c.id === "tab.next")!.run();
+    getCommands()
+      .find((c) => c.id === "tab.next")!
+      .run();
     expect(docState.nextTab).toHaveBeenCalledOnce();
   });
 
   it("tab.prev.run() calls doc.prevTab()", () => {
-    getCommands().find((c) => c.id === "tab.prev")!.run();
+    getCommands()
+      .find((c) => c.id === "tab.prev")!
+      .run();
     expect(docState.prevTab).toHaveBeenCalledOnce();
   });
 
   it("tab.close.run() calls doc.close()", () => {
-    getCommands().find((c) => c.id === "tab.close")!.run();
+    getCommands()
+      .find((c) => c.id === "tab.close")!
+      .run();
     expect(docState.close).toHaveBeenCalledOnce();
   });
 
   it("view.split.toggle.run() calls doc.toggleSplitView()", () => {
     docState.viewMode = "edit";
-    getCommands().find((c) => c.id === "view.split.toggle")!.run();
+    getCommands()
+      .find((c) => c.id === "view.split.toggle")!
+      .run();
     expect(docState.toggleSplitView).toHaveBeenCalledOnce();
   });
 
   it("edit.copyRichText.run() calls copyDocumentAsRichText()", async () => {
-    await getCommands().find((c) => c.id === "edit.copyRichText")!.run();
+    await getCommands()
+      .find((c) => c.id === "edit.copyRichText")!
+      .run();
     expect(copyRichTextMock).toHaveBeenCalledOnce();
   });
 
   it("edit.insertTable.run() calls doc.setContent() when doc is open and prompt returns values", async () => {
     docState.path = "/tmp/test.md";
     vi.stubGlobal("prompt", vi.fn().mockReturnValue("3"));
-    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    await getCommands()
+      .find((c) => c.id === "edit.insertTable")!
+      .run();
     expect(docState.setContent).toHaveBeenCalled();
     const newContent: string = docState.setContent.mock.calls[0][0] as string;
     expect(newContent).toContain("Column 1");
@@ -744,43 +887,56 @@ describe("Command execution — delegates fire correctly", () => {
 
   it("edit.insertTable.run() does nothing when doc path is null", async () => {
     docState.path = null;
-    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    await getCommands()
+      .find((c) => c.id === "edit.insertTable")!
+      .run();
     expect(docState.setContent).not.toHaveBeenCalled();
   });
 
   it("edit.insertTable.run() does nothing when first prompt is cancelled (null)", async () => {
     docState.path = "/tmp/test.md";
     vi.stubGlobal("prompt", vi.fn().mockReturnValueOnce(null));
-    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    await getCommands()
+      .find((c) => c.id === "edit.insertTable")!
+      .run();
     expect(docState.setContent).not.toHaveBeenCalled();
   });
 
   it("edit.insertTable.run() does nothing when second prompt is cancelled (null)", async () => {
     docState.path = "/tmp/test.md";
-    vi.stubGlobal(
-      "prompt",
-      vi.fn().mockReturnValueOnce("2").mockReturnValueOnce(null),
-    );
-    await getCommands().find((c) => c.id === "edit.insertTable")!.run();
+    vi.stubGlobal("prompt", vi.fn().mockReturnValueOnce("2").mockReturnValueOnce(null));
+    await getCommands()
+      .find((c) => c.id === "edit.insertTable")!
+      .run();
     expect(docState.setContent).not.toHaveBeenCalled();
   });
 
   it("file.openInObsidian.run() invokes 'open_in_obsidian' with current path", async () => {
     docState.path = "/tmp/note.md";
-    await getCommands().find((c) => c.id === "file.openInObsidian")!.run();
-    expect(invokeMock).toHaveBeenCalledWith("open_in_obsidian", { path: "/tmp/note.md" });
+    await getCommands()
+      .find((c) => c.id === "file.openInObsidian")!
+      .run();
+    expect(invokeMock).toHaveBeenCalledWith("open_in_obsidian", {
+      path: "/tmp/note.md",
+    });
   });
 
   it("file.openInObsidian.run() does nothing when path is null", async () => {
     docState.path = null;
-    await getCommands().find((c) => c.id === "file.openInObsidian")!.run();
+    await getCommands()
+      .find((c) => c.id === "file.openInObsidian")!
+      .run();
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it("file.openInObsidian.run() shows error toast and does not rethrow when invoke rejects", async () => {
     docState.path = "/tmp/note.md";
     invokeMock.mockRejectedValueOnce(new Error("Obsidian not found"));
-    await expect(getCommands().find((c) => c.id === "file.openInObsidian")!.run()).resolves.not.toThrow();
+    await expect(
+      getCommands()
+        .find((c) => c.id === "file.openInObsidian")!
+        .run(),
+    ).resolves.not.toThrow();
     expect(toastErrorMock).toHaveBeenCalled();
   });
 
@@ -789,20 +945,36 @@ describe("Command execution — delegates fire correctly", () => {
     // runExport switches to read view then calls the export fn — since .markdown-body
     // is absent in the test DOM, waitForElement mock resolves instantly and the
     // export stub is called.
-    await expect(getCommands().find((c) => c.id === "file.export.html")!.run()).resolves.not.toThrow();
-    await expect(getCommands().find((c) => c.id === "file.export.pdf")!.run()).resolves.not.toThrow();
-    await expect(getCommands().find((c) => c.id === "file.export.docx")!.run()).resolves.not.toThrow();
+    await expect(
+      getCommands()
+        .find((c) => c.id === "file.export.html")!
+        .run(),
+    ).resolves.not.toThrow();
+    await expect(
+      getCommands()
+        .find((c) => c.id === "file.export.pdf")!
+        .run(),
+    ).resolves.not.toThrow();
+    await expect(
+      getCommands()
+        .find((c) => c.id === "file.export.docx")!
+        .run(),
+    ).resolves.not.toThrow();
   });
 
   it("file.export.html.run() does nothing when no doc is open", async () => {
     docState.path = null;
-    await getCommands().find((c) => c.id === "file.export.html")!.run();
+    await getCommands()
+      .find((c) => c.id === "file.export.html")!
+      .run();
     expect(exportHtmlMock).not.toHaveBeenCalled();
   });
 
   it("file.export.epub.run() invokes exportEpub when a doc is open", async () => {
     docState.path = "/tmp/test.md";
-    await getCommands().find((c) => c.id === "file.export.epub")!.run();
+    await getCommands()
+      .find((c) => c.id === "file.export.epub")!
+      .run();
     expect(exportEpubMock).toHaveBeenCalledOnce();
   });
 
@@ -952,7 +1124,13 @@ describe("Keyboard shortcut dispatch — bindings wire to correct commands", () 
     ];
     // Browser reports shifted-bracket as '}'; SHIFTED_TO_BASE maps it back to ']'
     // IS_MAC=false in happy-dom so mod=ctrlKey
-    const e = { ctrlKey: true, metaKey: false, shiftKey: true, altKey: false, key: "}" } as unknown as KeyboardEvent;
+    const e = {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      key: "}",
+    } as unknown as KeyboardEvent;
     expect(dispatch(e)).toBe("tab.next");
   });
 
@@ -961,7 +1139,13 @@ describe("Keyboard shortcut dispatch — bindings wire to correct commands", () 
       { id: "t1", path: "/a.md", fileName: "a.md" },
       { id: "t2", path: "/b.md", fileName: "b.md" },
     ];
-    const e = { ctrlKey: true, metaKey: false, shiftKey: true, altKey: false, key: "{" } as unknown as KeyboardEvent;
+    const e = {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      key: "{",
+    } as unknown as KeyboardEvent;
     expect(dispatch(e)).toBe("tab.prev");
   });
 
@@ -986,7 +1170,13 @@ describe("Keyboard shortcut dispatch — bindings wire to correct commands", () 
 
   it("no match when event has no mod and no key registers", () => {
     // Neither ctrlKey nor metaKey held → no shortcut should fire
-    const e = { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, key: "k" } as unknown as KeyboardEvent;
+    const e = {
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "k",
+    } as unknown as KeyboardEvent;
     expect(dispatch(e)).toBeNull();
   });
 });
@@ -1002,7 +1192,13 @@ describe("keymap — matchShortcut", () => {
 
   it("does not match when the mod key is absent", () => {
     // IS_MAC=false in happy-dom → mod=ctrlKey; neither ctrl nor meta held here
-    const e = { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, key: "k" } as unknown as KeyboardEvent;
+    const e = {
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "k",
+    } as unknown as KeyboardEvent;
     expect(matchShortcut(e, "mod+k")).toBe(false);
   });
 
@@ -1025,22 +1221,46 @@ describe("keymap — matchShortcut", () => {
 
   it("key comparison is case-insensitive (event.key='K' matches 'mod+k')", () => {
     // IS_MAC=false → mod=ctrlKey
-    const e = { ctrlKey: true, metaKey: false, shiftKey: false, altKey: false, key: "K" } as unknown as KeyboardEvent;
+    const e = {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "K",
+    } as unknown as KeyboardEvent;
     expect(matchShortcut(e, "mod+k")).toBe(true);
   });
 
   it("SHIFTED_TO_BASE: key='}' matches shortcut 'mod+shift+]'", () => {
-    const e = { ctrlKey: true, metaKey: false, shiftKey: true, altKey: false, key: "}" } as unknown as KeyboardEvent;
+    const e = {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      key: "}",
+    } as unknown as KeyboardEvent;
     expect(matchShortcut(e, "mod+shift+]")).toBe(true);
   });
 
   it("SHIFTED_TO_BASE: key='{' matches shortcut 'mod+shift+['", () => {
-    const e = { ctrlKey: true, metaKey: false, shiftKey: true, altKey: false, key: "{" } as unknown as KeyboardEvent;
+    const e = {
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+      key: "{",
+    } as unknown as KeyboardEvent;
     expect(matchShortcut(e, "mod+shift+[")).toBe(true);
   });
 
   it("returns false for a completely unrelated event", () => {
-    const e = { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, key: "a" } as unknown as KeyboardEvent;
+    const e = {
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: "a",
+    } as unknown as KeyboardEvent;
     expect(matchShortcut(e, "mod+k")).toBe(false);
   });
 });

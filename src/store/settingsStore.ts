@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ExportTemplate, ExportProfileId } from "../lib/exportTemplates";
-import { newTemplateId, NO_TEMPLATE_ID, ALL_PROFILE_IDS } from "../lib/exportTemplates";
+import type { ExportProfileId, ExportTemplate } from "../lib/exportTemplates";
+import { ALL_PROFILE_IDS, NO_TEMPLATE_ID, newTemplateId } from "../lib/exportTemplates";
 import type { LintRuleConfig } from "../lib/mdlint";
 import type { UserSnippet } from "../lib/snippets";
 
@@ -117,7 +117,10 @@ interface SettingsState {
   addUserTemplate: (partial: Omit<ExportTemplate, "id" | "builtin">) => string;
 
   /** Update an existing user template by id (no-op if id not found). */
-  updateUserTemplate: (id: string, patch: Partial<Omit<ExportTemplate, "id" | "builtin">>) => void;
+  updateUserTemplate: (
+    id: string,
+    patch: Partial<Omit<ExportTemplate, "id" | "builtin">>,
+  ) => void;
 
   /** Remove a user template by id (no-op if id not found or is a built-in). */
   removeUserTemplate: (id: string) => void;
@@ -236,10 +239,7 @@ export const useSettingsStore = create<SettingsState>()(
       addUserTemplate: (partial) => {
         const id = newTemplateId();
         set((s) => ({
-          userTemplates: [
-            ...s.userTemplates,
-            { ...partial, id, builtin: false },
-          ],
+          userTemplates: [...s.userTemplates, { ...partial, id, builtin: false }],
         }));
         return id;
       },
@@ -278,8 +278,7 @@ export const useSettingsStore = create<SettingsState>()(
           return { disabledProfileIds: next };
         }),
 
-      isProfileEnabled: (profileId) =>
-        !get().disabledProfileIds.includes(profileId),
+      isProfileEnabled: (profileId) => !get().disabledProfileIds.includes(profileId),
 
       setDisabledProfileIds: (ids) => set({ disabledProfileIds: ids }),
 

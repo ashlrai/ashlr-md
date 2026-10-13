@@ -25,11 +25,11 @@ import {
   insertColumn,
   insertRow,
   isInsideTable,
+  type ParsedTable,
   parseTable,
   serializeTable,
-  setColumnAlignment,
   setCellContent,
-  type ParsedTable,
+  setColumnAlignment,
 } from "../../lib/tableEditor";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -653,7 +653,10 @@ describe("HTML export — table structure preserved in serialized Markdown", () 
     const table: ParsedTable = {
       headers: ["A", "B"],
       alignments: ["none", "none"],
-      rows: [["cell-a1", "cell-b1"], ["cell-a2", "cell-b2"]],
+      rows: [
+        ["cell-a1", "cell-b1"],
+        ["cell-a2", "cell-b2"],
+      ],
     };
     const md = serializeTable(table);
     expect(md).toContain("cell-a1");

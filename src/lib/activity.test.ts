@@ -22,20 +22,18 @@ vi.mock("@tauri-apps/api/core", () => ({
 // listenMock captures (eventName, handler) pairs; simulateEvent drives handlers.
 type Handler = (e: { payload: unknown }) => void;
 const registeredHandlers: Map<string, Handler[]> = new Map();
-const listenMock = vi.fn(
-  (eventName: string, handler: Handler): Promise<() => void> => {
-    if (!registeredHandlers.has(eventName)) {
-      registeredHandlers.set(eventName, []);
-    }
-    registeredHandlers.get(eventName)!.push(handler);
-    // Return an unlisten function that removes only this handler.
-    return Promise.resolve(() => {
-      const list = registeredHandlers.get(eventName) ?? [];
-      const idx = list.indexOf(handler);
-      if (idx !== -1) list.splice(idx, 1);
-    });
-  },
-);
+const listenMock = vi.fn((eventName: string, handler: Handler): Promise<() => void> => {
+  if (!registeredHandlers.has(eventName)) {
+    registeredHandlers.set(eventName, []);
+  }
+  registeredHandlers.get(eventName)!.push(handler);
+  // Return an unlisten function that removes only this handler.
+  return Promise.resolve(() => {
+    const list = registeredHandlers.get(eventName) ?? [];
+    const idx = list.indexOf(handler);
+    if (idx !== -1) list.splice(idx, 1);
+  });
+});
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (...args: Parameters<typeof listenMock>) => listenMock(...args),
@@ -47,6 +45,7 @@ function simulateEvent(eventName: string, payload: unknown): void {
   for (const h of handlers) h({ payload });
 }
 
+import type { ActivityEvent, MdFileInfo } from "./activity";
 // Import module under test AFTER mocks are registered.
 import {
   ACTIVITY_EVENT,
@@ -55,14 +54,10 @@ import {
   unwatchDirectory,
   watchDirectory,
 } from "./activity";
-import type { ActivityEvent, MdFileInfo } from "./activity";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeFile(
-  name: string,
-  overrides: Partial<MdFileInfo> = {},
-): MdFileInfo {
+function makeFile(name: string, overrides: Partial<MdFileInfo> = {}): MdFileInfo {
   return {
     path: `/vault/${name}`,
     name,
@@ -136,9 +131,7 @@ describe("watchDirectory", () => {
 
   it("propagates rejection from invoke to the caller", async () => {
     invokeMock.mockRejectedValue(new Error("permission denied"));
-    await expect(watchDirectory("/protected")).rejects.toThrow(
-      "permission denied",
-    );
+    await expect(watchDirectory("/protected")).rejects.toThrow("permission denied");
   });
 
   it("each call uses the latest path (replaces prior watch on the backend)", async () => {
@@ -251,11 +244,7 @@ describe("listMarkdownFiles", () => {
     ];
     invokeMock.mockResolvedValue(files);
     const result = await listMarkdownFiles("/vault");
-    expect(result.map((f) => f.name)).toEqual([
-      "newest.md",
-      "middle.md",
-      "oldest.md",
-    ]);
+    expect(result.map((f) => f.name)).toEqual(["newest.md", "middle.md", "oldest.md"]);
   });
 
   it("path and dir fields are absolute strings", async () => {
@@ -454,9 +443,7 @@ describe("error handling — deleted or inaccessible directory", () => {
     const first = await listMarkdownFiles("/vault");
     expect(first).toHaveLength(1);
 
-    await expect(listMarkdownFiles("/vault")).rejects.toThrow(
-      "directory was removed",
-    );
+    await expect(listMarkdownFiles("/vault")).rejects.toThrow("directory was removed");
   });
 
   it("listMarkdownFiles rejects when the path becomes inaccessible (EPERM)", async () => {
@@ -488,9 +475,7 @@ describe("error handling — deleted or inaccessible directory", () => {
 
   it("listMarkdownFiles rejects when the backend returns an I/O error string", async () => {
     invokeMock.mockRejectedValue("IO error: broken pipe");
-    await expect(listMarkdownFiles("/vault")).rejects.toBe(
-      "IO error: broken pipe",
-    );
+    await expect(listMarkdownFiles("/vault")).rejects.toBe("IO error: broken pipe");
   });
 
   it("watchDirectory called after an error can succeed on retry", async () => {

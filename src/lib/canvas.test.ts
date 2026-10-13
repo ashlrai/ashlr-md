@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode, CanvasNodeBase } from "./canvas";
 import {
-  CANVAS_PRESET_COLORS,
   applyCanvasOp,
   buildCanvasEditor,
+  CANVAS_PRESET_COLORS,
   canvasBounds,
   canvasEditorToCanvas,
   fitTransform,
@@ -599,7 +599,17 @@ describe("buildCanvasEditor", () => {
   it("produces independent copies — mutations don't alias source", () => {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "original" }],
+        nodes: [
+          {
+            id: "a",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            text: "original",
+          },
+        ],
         edges: [],
       }),
     );
@@ -628,7 +638,9 @@ describe("applyCanvasOp / move_node", () => {
   function makeState() {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "A" }],
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "A" },
+        ],
         edges: [],
       }),
     );
@@ -667,7 +679,12 @@ describe("applyCanvasOp / move_node", () => {
 
   it("returns error for non-finite x", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "move_node", id: "n1", x: Number.NaN, y: 0 });
+    const r = applyCanvasOp(state, {
+      type: "move_node",
+      id: "n1",
+      x: Number.NaN,
+      y: 0,
+    });
     expect(r.ok).toBe(false);
   });
 
@@ -698,7 +715,9 @@ describe("applyCanvasOp / resize_node", () => {
   function makeState() {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "" }],
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "" },
+        ],
         edges: [],
       }),
     );
@@ -708,7 +727,12 @@ describe("applyCanvasOp / resize_node", () => {
 
   it("updates width and height", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "resize_node", id: "n1", width: 300, height: 200 });
+    const r = applyCanvasOp(state, {
+      type: "resize_node",
+      id: "n1",
+      width: 300,
+      height: 200,
+    });
     expect(r.ok).toBe(true);
     expect(state.nodes[0].width).toBe(300);
     expect(state.nodes[0].height).toBe(200);
@@ -716,13 +740,23 @@ describe("applyCanvasOp / resize_node", () => {
 
   it("rejects zero width", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "resize_node", id: "n1", width: 0, height: 100 });
+    const r = applyCanvasOp(state, {
+      type: "resize_node",
+      id: "n1",
+      width: 0,
+      height: 100,
+    });
     expect(r.ok).toBe(false);
   });
 
   it("rejects negative height", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "resize_node", id: "n1", width: 100, height: -1 });
+    const r = applyCanvasOp(state, {
+      type: "resize_node",
+      id: "n1",
+      width: 100,
+      height: -1,
+    });
     expect(r.ok).toBe(false);
   });
 });
@@ -736,8 +770,24 @@ describe("applyCanvasOp / edit_text", () => {
     const src = parseCanvas(
       JSON.stringify({
         nodes: [
-          { id: "t1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "original" },
-          { id: "l1", type: "link", x: 0, y: 100, width: 100, height: 50, url: "https://a.com" },
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            text: "original",
+          },
+          {
+            id: "l1",
+            type: "link",
+            x: 0,
+            y: 100,
+            width: 100,
+            height: 50,
+            url: "https://a.com",
+          },
         ],
         edges: [],
       }),
@@ -783,7 +833,15 @@ describe("applyCanvasOp / edit_link", () => {
     const src = parseCanvas(
       JSON.stringify({
         nodes: [
-          { id: "l1", type: "link", x: 0, y: 0, width: 100, height: 50, url: "https://old.com" },
+          {
+            id: "l1",
+            type: "link",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            url: "https://old.com",
+          },
           { id: "t1", type: "text", x: 0, y: 100, width: 100, height: 50, text: "hi" },
         ],
         edges: [],
@@ -807,7 +865,11 @@ describe("applyCanvasOp / edit_link", () => {
 
   it("rejects edit_link on a text node", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "edit_link", id: "t1", url: "https://x.com" });
+    const r = applyCanvasOp(state, {
+      type: "edit_link",
+      id: "t1",
+      url: "https://x.com",
+    });
     expect(r.ok).toBe(false);
   });
 });
@@ -821,7 +883,15 @@ describe("applyCanvasOp / edit_group_label", () => {
     const src = parseCanvas(
       JSON.stringify({
         nodes: [
-          { id: "g1", type: "group", x: 0, y: 0, width: 300, height: 200, label: "Old" },
+          {
+            id: "g1",
+            type: "group",
+            x: 0,
+            y: 0,
+            width: 300,
+            height: 200,
+            label: "Old",
+          },
           { id: "t1", type: "text", x: 10, y: 10, width: 100, height: 50, text: "hi" },
         ],
         edges: [],
@@ -833,7 +903,11 @@ describe("applyCanvasOp / edit_group_label", () => {
 
   it("updates group label", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "edit_group_label", id: "g1", label: "New Label" });
+    const r = applyCanvasOp(state, {
+      type: "edit_group_label",
+      id: "g1",
+      label: "New Label",
+    });
     expect(r.ok).toBe(true);
     const node = state.nodes.find((n) => n.id === "g1");
     if (node?.type === "group") expect(node.label).toBe("New Label");
@@ -882,14 +956,22 @@ describe("applyCanvasOp / set_node_color", () => {
 
   it("sets a hex color", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "set_node_color", id: "n1", color: "#aabbcc" });
+    const r = applyCanvasOp(state, {
+      type: "set_node_color",
+      id: "n1",
+      color: "#aabbcc",
+    });
     expect(r.ok).toBe(true);
     expect(state.nodes[0].color).toBe("#aabbcc");
   });
 
   it("clears color when undefined", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "set_node_color", id: "n1", color: undefined });
+    const r = applyCanvasOp(state, {
+      type: "set_node_color",
+      id: "n1",
+      color: undefined,
+    });
     expect(r.ok).toBe(true);
     expect(state.nodes[0].color).toBeUndefined();
   });
@@ -1120,7 +1202,9 @@ describe("undoCanvasOp / redoCanvasOp", () => {
   function makeState() {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "v0" }],
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "v0" },
+        ],
         edges: [],
       }),
     );
@@ -1219,7 +1303,17 @@ describe("canvasEditorToCanvas", () => {
   it("extracts a plain Canvas that round-trips cleanly", () => {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 5, y: 10, width: 200, height: 80, text: "hello" }],
+        nodes: [
+          {
+            id: "n1",
+            type: "text",
+            x: 5,
+            y: 10,
+            width: 200,
+            height: 80,
+            text: "hello",
+          },
+        ],
         edges: [],
       }),
     );
@@ -1281,7 +1375,12 @@ describe("applyCanvasOp / resize_node (extended)", () => {
 
   it("rejects non-finite width (NaN)", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "resize_node", id: "n1", width: NaN, height: 50 });
+    const r = applyCanvasOp(state, {
+      type: "resize_node",
+      id: "n1",
+      width: NaN,
+      height: 50,
+    });
     expect(r.ok).toBe(false);
   });
 
@@ -1351,7 +1450,15 @@ describe("applyCanvasOp / set_node_color (extended)", () => {
       JSON.stringify({
         nodes: [
           { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "" },
-          { id: "b", type: "link", x: 200, y: 0, width: 100, height: 50, url: "https://x.com" },
+          {
+            id: "b",
+            type: "link",
+            x: 200,
+            y: 0,
+            width: 100,
+            height: 50,
+            url: "https://x.com",
+          },
         ],
         edges: [],
       }),
@@ -1389,7 +1496,11 @@ describe("applyCanvasOp / set_node_color (extended)", () => {
   it("can set all 6 preset colors", () => {
     for (let i = 1; i <= 6; i++) {
       const state = makeState();
-      const r = applyCanvasOp(state, { type: "set_node_color", id: "a", color: String(i) });
+      const r = applyCanvasOp(state, {
+        type: "set_node_color",
+        id: "a",
+        color: String(i),
+      });
       expect(r.ok).toBe(true);
       expect(state.nodes[0].color).toBe(String(i));
     }
@@ -1397,7 +1508,11 @@ describe("applyCanvasOp / set_node_color (extended)", () => {
 
   it("can set color on link node", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "set_node_color", id: "b", color: "#ff0000" });
+    const r = applyCanvasOp(state, {
+      type: "set_node_color",
+      id: "b",
+      color: "#ff0000",
+    });
     expect(r.ok).toBe(true);
     const node = state.nodes.find((n) => n.id === "b");
     expect(node?.color).toBe("#ff0000");
@@ -1441,7 +1556,11 @@ describe("applyCanvasOp / edit_edge_label (extended)", () => {
 
   it("sets label on edge with no prior label", () => {
     const state = makeState();
-    const r = applyCanvasOp(state, { type: "edit_edge_label", id: "e1", label: "new label" });
+    const r = applyCanvasOp(state, {
+      type: "edit_edge_label",
+      id: "e1",
+      label: "new label",
+    });
     expect(r.ok).toBe(true);
     expect(state.edges[0].label).toBe("new label");
   });
@@ -1492,7 +1611,15 @@ describe("applyCanvasOp / add_node (extended types)", () => {
     const state = makeState();
     const r = applyCanvasOp(state, {
       type: "add_node",
-      node: { id: "f1", type: "file", x: 0, y: 0, width: 200, height: 100, file: "doc.md" },
+      node: {
+        id: "f1",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        file: "doc.md",
+      },
     });
     expect(r.ok).toBe(true);
     expect(state.nodes).toHaveLength(1);
@@ -1826,7 +1953,15 @@ describe("undoCanvasOp / redoCanvasOp (state machine)", () => {
       JSON.stringify({
         nodes: [
           { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "start" },
-          { id: "n2", type: "text", x: 200, y: 0, width: 100, height: 50, text: "other" },
+          {
+            id: "n2",
+            type: "text",
+            x: 200,
+            y: 0,
+            width: 100,
+            height: 50,
+            text: "other",
+          },
         ],
         edges: [{ id: "e1", fromNode: "n1", toNode: "n2" }],
       }),
@@ -1955,7 +2090,9 @@ describe("buildCanvasEditor (extended)", () => {
   it("node list is a shallow copy — push doesn't affect source canvas", () => {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hi" }],
+        nodes: [
+          { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hi" },
+        ],
         edges: [],
       }),
     );
@@ -2006,7 +2143,9 @@ describe("canvasEditorToCanvas (extended)", () => {
   it("snapshot taken mid-session reflects current edit state, not original", () => {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "v0" }],
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "v0" },
+        ],
         edges: [],
       }),
     );
@@ -2022,7 +2161,9 @@ describe("canvasEditorToCanvas (extended)", () => {
   it("mutating returned canvas does not affect editor state", () => {
     const src = parseCanvas(
       JSON.stringify({
-        nodes: [{ id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hello" }],
+        nodes: [
+          { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hello" },
+        ],
         edges: [],
       }),
     );
@@ -2105,8 +2246,24 @@ describe("serializeCanvas (extended)", () => {
   it("serializes edge with all optional fields", () => {
     const canvas = {
       nodes: [
-        { id: "a", type: "text" as const, x: 0, y: 0, width: 100, height: 50, text: "" },
-        { id: "b", type: "text" as const, x: 200, y: 0, width: 100, height: 50, text: "" },
+        {
+          id: "a",
+          type: "text" as const,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 50,
+          text: "",
+        },
+        {
+          id: "b",
+          type: "text" as const,
+          x: 200,
+          y: 0,
+          width: 100,
+          height: 50,
+          text: "",
+        },
       ],
       edges: [
         {
@@ -2163,7 +2320,9 @@ describe("parseCanvas (additional edge cases)", () => {
 
   it("parses negative x/y coordinates on nodes", () => {
     const input = JSON.stringify({
-      nodes: [{ id: "n1", type: "text", x: -100, y: -200, width: 100, height: 50, text: "" }],
+      nodes: [
+        { id: "n1", type: "text", x: -100, y: -200, width: 100, height: 50, text: "" },
+      ],
       edges: [],
     });
     const result = parseCanvas(input);
@@ -2249,8 +2408,24 @@ describe("canvasBounds (extended)", () => {
 
   it("correctly calculates bounds with negative offsets", () => {
     const nodes = [
-      { id: "a", type: "text" as const, x: -100, y: -50, width: 50, height: 30, text: "" },
-      { id: "b", type: "text" as const, x: 200, y: 100, width: 100, height: 80, text: "" },
+      {
+        id: "a",
+        type: "text" as const,
+        x: -100,
+        y: -50,
+        width: 50,
+        height: 30,
+        text: "",
+      },
+      {
+        id: "b",
+        type: "text" as const,
+        x: 200,
+        y: 100,
+        width: 100,
+        height: 80,
+        text: "",
+      },
     ];
     const b = canvasBounds(nodes);
     expect(b.minX).toBe(-100);
@@ -2360,7 +2535,9 @@ describe("multi-op batch transaction semantics", () => {
 describe("round-trip: edit → serialize → parse → verify", () => {
   it("node move persists across serialize/parse", () => {
     const initial = JSON.stringify({
-      nodes: [{ id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hi" }],
+      nodes: [
+        { id: "a", type: "text", x: 0, y: 0, width: 100, height: 50, text: "hi" },
+      ],
       edges: [],
     });
     const parsed = parseCanvas(initial);
@@ -2377,7 +2554,9 @@ describe("round-trip: edit → serialize → parse → verify", () => {
 
   it("text edit persists across serialize/parse", () => {
     const initial = JSON.stringify({
-      nodes: [{ id: "t", type: "text", x: 0, y: 0, width: 100, height: 50, text: "old" }],
+      nodes: [
+        { id: "t", type: "text", x: 0, y: 0, width: 100, height: 50, text: "old" },
+      ],
       edges: [],
     });
     const parsed = parseCanvas(initial);
@@ -2405,7 +2584,15 @@ describe("round-trip: edit → serialize → parse → verify", () => {
     applyCanvasOp(state, { type: "delete_node", id: "b" });
     applyCanvasOp(state, {
       type: "add_node",
-      node: { id: "c", type: "link", x: 400, y: 0, width: 150, height: 80, url: "https://c.com" },
+      node: {
+        id: "c",
+        type: "link",
+        x: 400,
+        y: 0,
+        width: 150,
+        height: 80,
+        url: "https://c.com",
+      },
     });
     const reparsed = parseCanvas(serializeCanvas(canvasEditorToCanvas(state)));
     expect(reparsed.ok).toBe(true);

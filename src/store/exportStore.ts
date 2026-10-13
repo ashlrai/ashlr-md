@@ -135,7 +135,9 @@ export const useBatchExportStore = create<ExportState>((set) => ({
   markInFlight: (key) =>
     set((s) => {
       const entries = s.entries.map((e) =>
-        e.key === key ? { ...e, status: "in-flight" as DocExportStatus, startedAt: Date.now() } : e,
+        e.key === key
+          ? { ...e, status: "in-flight" as DocExportStatus, startedAt: Date.now() }
+          : e,
       );
       return { entries, inFlight: s.inFlight + 1 };
     }),
@@ -144,10 +146,19 @@ export const useBatchExportStore = create<ExportState>((set) => ({
     set((s) => {
       const entries = s.entries.map((e) =>
         e.key === key
-          ? { ...e, status: "done" as DocExportStatus, outputPath, finishedAt: Date.now() }
+          ? {
+              ...e,
+              status: "done" as DocExportStatus,
+              outputPath,
+              finishedAt: Date.now(),
+            }
           : e,
       );
-      return { entries, succeeded: s.succeeded + 1, inFlight: Math.max(0, s.inFlight - 1) };
+      return {
+        entries,
+        succeeded: s.succeeded + 1,
+        inFlight: Math.max(0, s.inFlight - 1),
+      };
     }),
 
   markFailed: (key, error) =>
@@ -164,11 +175,7 @@ export const useBatchExportStore = create<ExportState>((set) => ({
 
   finishBatch: (outputPath) =>
     set((s) => ({
-      status: s.cancelRequested
-        ? "cancelled"
-        : s.failed > 0
-          ? "error"
-          : "completed",
+      status: s.cancelRequested ? "cancelled" : s.failed > 0 ? "error" : "completed",
       // Store the zip output path by re-using the first entry's outputPath slot
       // or a dedicated field. We attach it as a synthetic entry so the modal can
       // surface it in the success state without adding a separate field.
@@ -212,9 +219,7 @@ export function selectRealEntries(entries: DocExportProgress[]): DocExportProgre
 }
 
 /** Per-format throughput: completed docs per second for each format. */
-export function selectThroughput(
-  entries: DocExportProgress[],
-): Record<string, number> {
+export function selectThroughput(entries: DocExportProgress[]): Record<string, number> {
   const real = selectRealEntries(entries);
   const byFormat: Record<string, { count: number; totalMs: number }> = {};
   for (const e of real) {

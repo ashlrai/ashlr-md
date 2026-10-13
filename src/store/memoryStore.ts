@@ -192,9 +192,7 @@ export const useConversationStore = create<ConversationSessionState>()(
       getContext: (n = 20) => {
         const { currentSessionId, messages } = get();
         if (!currentSessionId) return [];
-        const session = messages.filter(
-          (m) => m.sessionId === currentSessionId,
-        );
+        const session = messages.filter((m) => m.sessionId === currentSessionId);
         return session.slice(Math.max(0, session.length - n));
       },
 
@@ -266,8 +264,7 @@ export const useOtLogStore = create<OtLogState>()(
         });
       },
 
-      getForDoc: (docPath) =>
-        get().entries.filter((e) => e.docPath === docPath),
+      getForDoc: (docPath) => get().entries.filter((e) => e.docPath === docPath),
 
       clearDoc: (docPath) =>
         set((s) => ({ entries: s.entries.filter((e) => e.docPath !== docPath) })),

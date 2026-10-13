@@ -105,10 +105,7 @@ pub fn detect_vault_root(start: String) -> Option<String> {
         if dir.join(".obsidian").is_dir() {
             return canonical_string(dir);
         }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => return None,
-        }
+        dir = dir.parent()?;
     }
 }
 

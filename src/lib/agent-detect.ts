@@ -308,7 +308,10 @@ export function detectDocKind(content: string): DocInfo {
   }
 
   // ── 5. spec: structural heading signal ───────────────────────────────────
-  if (hasSpecHeadingStructure(content) || (SPEC_HEADINGS_RE.test(content) && CRITERIA_HEADING_RE.test(content))) {
+  if (
+    hasSpecHeadingStructure(content) ||
+    (SPEC_HEADINGS_RE.test(content) && CRITERIA_HEADING_RE.test(content))
+  ) {
     const criteria = extractAcceptanceCriteria(content);
     return {
       kind: "spec",
@@ -320,7 +323,10 @@ export function detectDocKind(content: string): DocInfo {
   }
 
   // ── 6. review: structural heading signal ─────────────────────────────────
-  if (hasReviewHeadingStructure(content) || (REVIEW_HEADINGS_RE.test(content) && countFileHeadings(content) >= 1)) {
+  if (
+    hasReviewHeadingStructure(content) ||
+    (REVIEW_HEADINGS_RE.test(content) && countFileHeadings(content) >= 1)
+  ) {
     return { kind: "review", taskTotal, taskDone, hunkTotal: 0 };
   }
 

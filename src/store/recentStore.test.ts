@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getStoredState } from "../test-setup";
-import { useRecentStore, type RecentFile } from "./recentStore";
+import { type RecentFile, useRecentStore } from "./recentStore";
 
 const STORE_KEY = "mdopener-recents";
 
@@ -158,9 +158,7 @@ describe("recentStore", () => {
     // Write a snapshot directly as if it was left by a previous session.
     const snapshot = {
       state: {
-        recents: [
-          { path: "/legacy.md", fileName: "legacy.md", openedAt: 99999 },
-        ],
+        recents: [{ path: "/legacy.md", fileName: "legacy.md", openedAt: 99999 }],
       },
       version: 0,
     };

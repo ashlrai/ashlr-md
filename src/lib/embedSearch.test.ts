@@ -20,13 +20,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 // Import module under test AFTER mocks are established.
 import {
+  type EmbedStatus,
   embedAvailable,
   embedIndex,
   embedSearch,
   embedStatus,
-  invalidateEmbedAvailable,
-  type EmbedStatus,
   type IndexResult,
+  invalidateEmbedAvailable,
   type SemanticMatch,
 } from "./embedSearch";
 
@@ -226,7 +226,7 @@ describe("embedSearch — semantic search", () => {
     const matches: SemanticMatch[] = [
       makeMatch("/a.md", "a.md", "snippet", 0.95),
       makeMatch("/b.md", "b.md", "snippet", 0.35),
-      makeMatch("/c.md", "c.md", "snippet", 0.60),
+      makeMatch("/c.md", "c.md", "snippet", 0.6),
     ];
     invokeMock.mockResolvedValue(matches);
     const result = await embedSearch("query");

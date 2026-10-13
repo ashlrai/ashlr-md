@@ -19,35 +19,28 @@
  *   - cursor / scroll state round-trips
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  hashPath,
-  sessionStorageKey,
-  saveSnapshot,
-  loadSnapshot,
-  clearSnapshot,
-  clearAllSnapshots,
-  saveSnapshotDebounced,
-  cacheDocument,
-  loadCachedDocument,
-  removeCachedDocument,
-  clearDocumentCache,
-  getCacheSizeBytes,
-  listCachedPaths,
-  recoverSession,
-  syncDocToSession,
-  isOffline,
   broadcastSnapshot,
+  cacheDocument,
+  clearAllSnapshots,
+  clearDocumentCache,
+  clearSnapshot,
+  getCacheSizeBytes,
+  hashPath,
+  isOffline,
+  listCachedPaths,
+  loadCachedDocument,
+  loadSnapshot,
   onCrossTabSnapshot,
+  recoverSession,
+  removeCachedDocument,
   type SessionSnapshot,
+  saveSnapshot,
+  saveSnapshotDebounced,
+  sessionStorageKey,
+  syncDocToSession,
 } from "./sessionPersistenceStore";
 
 // ── sessionStorage mock (mirrors test-setup.ts pattern for localStorage) ─────
@@ -215,9 +208,7 @@ class MockIDBOpenDBRequest extends EventTarget {
 // Global IDB data store (persists within a describe block, reset in afterEach).
 let _idbData: Map<string, IdbRecord>;
 
-function setupIdbMock(
-  opts: { failOpen?: boolean } = {},
-): void {
+function setupIdbMock(opts: { failOpen?: boolean } = {}): void {
   _idbData = new Map();
 
   const mockIndexedDB = {
@@ -225,10 +216,7 @@ function setupIdbMock(
       const req = new MockIDBOpenDBRequest();
       if (opts.failOpen) {
         setTimeout(
-          () =>
-            req._fail(
-              new DOMException("IDB open failed (mock)", "UnknownError"),
-            ),
+          () => req._fail(new DOMException("IDB open failed (mock)", "UnknownError")),
           0,
         );
       } else {
@@ -354,12 +342,7 @@ describe("saveSnapshot / loadSnapshot", () => {
   });
 
   it("preserves all viewMode variants", () => {
-    const modes: SessionSnapshot["viewMode"][] = [
-      "read",
-      "edit",
-      "source",
-      "split",
-    ];
+    const modes: SessionSnapshot["viewMode"][] = ["read", "edit", "source", "split"];
     for (const mode of modes) {
       saveSnapshot(makeSnapshot(`/${mode}.md`, { viewMode: mode }));
       expect(loadSnapshot(`/${mode}.md`)!.viewMode).toBe(mode);
@@ -715,10 +698,7 @@ describe("recoverSession", () => {
 
   it("handles corrupt snapshot in sessionStorage gracefully", async () => {
     await cacheDocument("/corrupt-snap.md", "content");
-    sessionStorage.setItem(
-      sessionStorageKey("/corrupt-snap.md"),
-      "{{broken json",
-    );
+    sessionStorage.setItem(sessionStorageKey("/corrupt-snap.md"), "{{broken json");
     const result = await recoverSession("/corrupt-snap.md");
     expect(result.content).toBe("content");
     expect(result.snapshot).toBeNull();
@@ -738,9 +718,7 @@ describe("syncDocToSession", () => {
 
   it("resolves without throwing on IDB failure", async () => {
     setupIdbMock({ failOpen: true });
-    await expect(
-      syncDocToSession("/bad-idb.md", "content"),
-    ).resolves.toBeUndefined();
+    await expect(syncDocToSession("/bad-idb.md", "content")).resolves.toBeUndefined();
   });
 
   it("updates existing cache entry when called multiple times", async () => {
@@ -786,9 +764,7 @@ describe("broadcastSnapshot", () => {
     const snap = makeSnapshot("/broadcast.md");
     broadcastSnapshot(snap);
     expect(loadSnapshot("/broadcast.md")).not.toBeNull();
-    expect(loadSnapshot("/broadcast.md")!.cursorOffset).toBe(
-      snap.cursorOffset,
-    );
+    expect(loadSnapshot("/broadcast.md")!.cursorOffset).toBe(snap.cursorOffset);
   });
 });
 

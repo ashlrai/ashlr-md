@@ -51,11 +51,9 @@ describe("parseRunbook — prerequisites", () => {
   });
 
   it("extracts ordered-list prerequisites as not-done", () => {
-    const doc = [
-      "## Prerequisites",
-      "1. Install bun",
-      "2. Configure secrets",
-    ].join("\n");
+    const doc = ["## Prerequisites", "1. Install bun", "2. Configure secrets"].join(
+      "\n",
+    );
     const r = parseRunbook(doc);
     expect(r.prerequisites).toHaveLength(2);
     expect(r.prerequisites[0].text).toBe("Install bun");
@@ -63,11 +61,9 @@ describe("parseRunbook — prerequisites", () => {
   });
 
   it("recognises 'Before You Begin' alias", () => {
-    const doc = [
-      "## Before You Begin",
-      "- Have coffee",
-      "- Check the calendar",
-    ].join("\n");
+    const doc = ["## Before You Begin", "- Have coffee", "- Check the calendar"].join(
+      "\n",
+    );
     const r = parseRunbook(doc);
     expect(r.prerequisites).toHaveLength(2);
   });
@@ -297,14 +293,9 @@ describe("parseRunbook — frontmatter", () => {
   });
 
   it("skips frontmatter closed by ...", () => {
-    const doc = [
-      "---",
-      "kind: runbook",
-      "...",
-      "# Title",
-      "## Steps",
-      "1. Go",
-    ].join("\n");
+    const doc = ["---", "kind: runbook", "...", "# Title", "## Steps", "1. Go"].join(
+      "\n",
+    );
     const r = parseRunbook(doc);
     expect(r.title).toBe("Title");
     expect(r.stepCount).toBe(1);
@@ -343,12 +334,7 @@ describe("parseRunbook — missing sections and empty input", () => {
 
 describe("parseRunbook — malformed input", () => {
   it("handles broken frontmatter (unclosed ---) without throwing", () => {
-    const doc = [
-      "---",
-      "kind: runbook",
-      "## Steps",
-      "1. Release",
-    ].join("\n");
+    const doc = ["---", "kind: runbook", "## Steps", "1. Release"].join("\n");
     expect(() => parseRunbook(doc)).not.toThrow();
     // Everything consumed as frontmatter — no steps.
     const r = parseRunbook(doc);
@@ -371,12 +357,9 @@ describe("parseRunbook — malformed input", () => {
   });
 
   it("handles steps followed directly by auxiliary section", () => {
-    const doc = [
-      "## Steps",
-      "1. Deploy",
-      "## Verification",
-      "Check health.",
-    ].join("\n");
+    const doc = ["## Steps", "1. Deploy", "## Verification", "Check health."].join(
+      "\n",
+    );
     const r = parseRunbook(doc);
     expect(r.stepCount).toBe(1);
     expect(r.verification).toContain("Check health.");
