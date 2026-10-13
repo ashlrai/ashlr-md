@@ -122,8 +122,8 @@ pub fn apply_atomic_batch(
             }
             Err(e) => {
                 // Clean up remaining temp files.
-                for j in (i + 1)..tmp_paths.len() {
-                    let _ = std::fs::remove_file(&tmp_paths[j]);
+                for leftover in tmp_paths.iter().skip(i + 1) {
+                    let _ = std::fs::remove_file(leftover);
                 }
                 // Roll back already-renamed files.
                 for &j in renamed.iter().rev() {
@@ -135,9 +135,9 @@ pub fn apply_atomic_batch(
                 // Also remove the failing temp file (best-effort).
                 let _ = std::fs::remove_file(tmp);
                 // Mark remaining entries as not attempted.
-                for j in (i + 1)..results.len() {
-                    results[j].ok = false;
-                    results[j].error = Some("Not attempted — earlier file in batch failed".into());
+                for later in results.iter_mut().skip(i + 1) {
+                    later.ok = false;
+                    later.error = Some("Not attempted — earlier file in batch failed".into());
                 }
                 return Ok(results);
             }
