@@ -12,6 +12,7 @@ import {
   runSelectionAction,
 } from "../../ai/registry";
 import type { AIProvider } from "../../ai/types";
+import type { DocType } from "../../lib/docClassifier";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
 import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
 import type { ChatMessage } from "../../store/aiStore";
@@ -19,7 +20,6 @@ import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { memoryBlock } from "../../store/memoryStore";
 import { useUiStore } from "../../store/uiStore";
-import type { DocType } from "../../lib/docClassifier";
 import { RelatedNotes } from "./RelatedNotes";
 
 // ---------------------------------------------------------------------------
@@ -29,17 +29,19 @@ import { RelatedNotes } from "./RelatedNotes";
 /** Per-DocType prompt suggestion shown in the empty-state of the sidebar. */
 const DOC_TYPE_HINTS: Record<DocType, string | null> = {
   PLAN: "This looks like a project plan — I can help you refine goals, check task completeness, or identify missing milestones.",
-  REVIEW: "This looks like a review document — I can help you structure feedback, identify blocking vs. non-blocking issues, or draft a summary.",
+  REVIEW:
+    "This looks like a review document — I can help you structure feedback, identify blocking vs. non-blocking issues, or draft a summary.",
   SPEC: "This looks like a specification — I can help you check requirement completeness, clarify acceptance criteria, or suggest edge cases.",
-  RUNBOOK: "This looks like a runbook — I can help you verify step completeness, add rollback steps, or improve troubleshooting coverage.",
+  RUNBOOK:
+    "This looks like a runbook — I can help you verify step completeness, add rollback steps, or improve troubleshooting coverage.",
   GENERIC: null,
 };
 
 /** Renderer hint label shown alongside the doc-type badge in the sidebar. */
 const DOC_TYPE_RENDERER_HINT: Record<DocType, string | null> = {
-  PLAN:    "Tip: switch to the Plan renderer for an interactive task view.",
-  REVIEW:  "Tip: switch to the Review renderer for a structured findings view.",
-  SPEC:    "Tip: switch to the Spec renderer for a criteria-tracking view.",
+  PLAN: "Tip: switch to the Plan renderer for an interactive task view.",
+  REVIEW: "Tip: switch to the Review renderer for a structured findings view.",
+  SPEC: "Tip: switch to the Spec renderer for a criteria-tracking view.",
   RUNBOOK: "Tip: switch to the Runbook renderer for a step-by-step execution view.",
   GENERIC: null,
 };
@@ -52,9 +54,7 @@ function DocTypeHint({ docType }: { docType: DocType }) {
     <div className="ai-doc-type-hint" data-doc-type={docType} aria-live="polite">
       <div className="ai-doc-type-hint__badge">{docType}</div>
       <p className="ai-doc-type-hint__text">{hint}</p>
-      {rendererHint && (
-        <p className="ai-doc-type-hint__renderer-tip">{rendererHint}</p>
-      )}
+      {rendererHint && <p className="ai-doc-type-hint__renderer-tip">{rendererHint}</p>}
     </div>
   );
 }
@@ -378,7 +378,11 @@ export function AISidebar() {
           updateLast(`\n\n*Sources: ${citations.map((c) => c.fileName).join(" · ")}*`);
         }
         // Record success telemetry.
-        recordSuccess(resolvedProvider.id, resolvedProvider.capabilities.tier, Date.now() - startMs);
+        recordSuccess(
+          resolvedProvider.id,
+          resolvedProvider.capabilities.tier,
+          Date.now() - startMs,
+        );
         return true;
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);

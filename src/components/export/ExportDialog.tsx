@@ -94,7 +94,12 @@ function EpubIcon() {
         strokeWidth="1.4"
         strokeLinejoin="round"
       />
-      <path d="M10 5v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M10 5v10"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -115,8 +120,21 @@ function CloseIcon() {
 function NotionIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="3" y="2" width="14" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M6 6h8M6 10h8M6 14h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <rect
+        x="3"
+        y="2"
+        width="14"
+        height="16"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M6 6h8M6 10h8M6 14h5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -135,8 +153,22 @@ function SlackIcon() {
 function EmailIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M2 7l8 5 8-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <rect
+        x="2"
+        y="4"
+        width="16"
+        height="12"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M2 7l8 5 8-5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -341,7 +373,8 @@ export function ExportDialog() {
               <span className="export-format-text">
                 <span className="export-format-name">EPUB</span>
                 <span className="export-format-desc">
-                  Reflowable eBook split into chapters by heading — for e-readers and Apple Books
+                  Reflowable eBook split into chapters by heading — for e-readers and
+                  Apple Books
                 </span>
               </span>
             </button>
@@ -352,7 +385,9 @@ export function ExportDialog() {
             className="export-format-btn"
             data-format="notion-html"
             disabled={busy}
-            onClick={() => run("Notion HTML", () => exportWithProfile("notion-html", title))}
+            onClick={() =>
+              run("Notion HTML", () => exportWithProfile("notion-html", title))
+            }
           >
             <span className="export-format-icon">
               <NotionIcon />
@@ -360,7 +395,8 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">Notion</span>
               <span className="export-format-desc">
-                Optimised HTML for pasting into Notion — clean semantic markup, simplified tables
+                Optimised HTML for pasting into Notion — clean semantic markup,
+                simplified tables
               </span>
             </span>
           </button>
@@ -370,7 +406,9 @@ export function ExportDialog() {
             className="export-format-btn"
             data-format="slack-html"
             disabled={busy}
-            onClick={() => run("Slack (.txt)", () => exportWithProfile("slack-html", title))}
+            onClick={() =>
+              run("Slack (.txt)", () => exportWithProfile("slack-html", title))
+            }
           >
             <span className="export-format-icon">
               <SlackIcon />
@@ -388,7 +426,9 @@ export function ExportDialog() {
             className="export-format-btn"
             data-format="email-html"
             disabled={busy}
-            onClick={() => run("Email HTML", () => exportWithProfile("email-html", title))}
+            onClick={() =>
+              run("Email HTML", () => exportWithProfile("email-html", title))
+            }
           >
             <span className="export-format-icon">
               <EmailIcon />
@@ -396,7 +436,8 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">Email HTML</span>
               <span className="export-format-desc">
-                Fully inlined HTML for email clients — responsive, dark-mode, embedded images
+                Fully inlined HTML for email clients — responsive, dark-mode, embedded
+                images
               </span>
             </span>
           </button>

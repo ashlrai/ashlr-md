@@ -22,12 +22,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
+
 import {
+  type ActionId,
   AI_ACTIONS,
+  type AIAction,
   DOC_ACTIONS,
   getAction,
-  type AIAction,
-  type ActionId,
 } from "./actions";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +70,10 @@ describe("AI_ACTIONS catalogue", () => {
 
   it("every action has a non-empty label", () => {
     for (const action of AI_ACTIONS) {
-      expect(action.label.length, `action '${action.id}' has empty label`).toBeGreaterThan(0);
+      expect(
+        action.label.length,
+        `action '${action.id}' has empty label`,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -84,15 +88,19 @@ describe("AI_ACTIONS catalogue", () => {
 
   it("every action has a non-empty icon", () => {
     for (const action of AI_ACTIONS) {
-      expect(action.icon.length, `action '${action.id}' has empty icon`).toBeGreaterThan(0);
+      expect(
+        action.icon.length,
+        `action '${action.id}' has empty icon`,
+      ).toBeGreaterThan(0);
     }
   });
 
   it("every action has a buildMessages function", () => {
     for (const action of AI_ACTIONS) {
-      expect(typeof action.buildMessages, `action '${action.id}' missing buildMessages`).toBe(
-        "function",
-      );
+      expect(
+        typeof action.buildMessages,
+        `action '${action.id}' missing buildMessages`,
+      ).toBe("function");
     }
   });
 
@@ -102,12 +110,20 @@ describe("AI_ACTIONS catalogue", () => {
     const sampleText = "Hello world test content";
     for (const action of AI_ACTIONS) {
       const messages = action.buildMessages(sampleText);
-      expect(messages, `action '${action.id}' should return array`).toBeInstanceOf(Array);
-      expect(messages, `action '${action.id}' should return 2 messages`).toHaveLength(2);
-      expect(messages[0].role, `action '${action.id}' first message must be system`).toBe(
-        "system",
+      expect(messages, `action '${action.id}' should return array`).toBeInstanceOf(
+        Array,
       );
-      expect(messages[1].role, `action '${action.id}' second message must be user`).toBe("user");
+      expect(messages, `action '${action.id}' should return 2 messages`).toHaveLength(
+        2,
+      );
+      expect(
+        messages[0].role,
+        `action '${action.id}' first message must be system`,
+      ).toBe("system");
+      expect(
+        messages[1].role,
+        `action '${action.id}' second message must be user`,
+      ).toBe("user");
     }
   });
 
@@ -167,7 +183,9 @@ describe("AI_ACTIONS catalogue", () => {
   });
 
   it("translate defaults to Spanish when no arg provided", () => {
-    const messages = AI_ACTIONS.find((a) => a.id === "translate")!.buildMessages("hello");
+    const messages = AI_ACTIONS.find((a) => a.id === "translate")!.buildMessages(
+      "hello",
+    );
     // Default arg is "Spanish" — both system and user prompt should mention it
     expect(messages[0].content).toContain("Spanish");
     expect(messages[1].content).toContain("Spanish");
@@ -183,7 +201,9 @@ describe("AI_ACTIONS catalogue", () => {
   });
 
   it("tldr produces a concise response prompt", () => {
-    const messages = AI_ACTIONS.find((a) => a.id === "tldr")!.buildMessages("long content");
+    const messages = AI_ACTIONS.find((a) => a.id === "tldr")!.buildMessages(
+      "long content",
+    );
     // The system prompt should mention brevity
     expect(messages[0].content.toLowerCase()).toMatch(/tl;dr|sentence|concise|distill/);
   });
@@ -210,13 +230,19 @@ describe("DOC_ACTIONS catalogue", () => {
 
   it("every doc action has a non-empty label", () => {
     for (const action of DOC_ACTIONS) {
-      expect(action.label.length, `doc action '${action.id}' has empty label`).toBeGreaterThan(0);
+      expect(
+        action.label.length,
+        `doc action '${action.id}' has empty label`,
+      ).toBeGreaterThan(0);
     }
   });
 
   it("every doc action has a non-empty icon", () => {
     for (const action of DOC_ACTIONS) {
-      expect(action.icon.length, `doc action '${action.id}' has empty icon`).toBeGreaterThan(0);
+      expect(
+        action.icon.length,
+        `doc action '${action.id}' has empty icon`,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -303,7 +329,7 @@ describe("getAction()", () => {
 
 import { NoProviderError, runInlineTransform } from "./inline";
 import { detectProvider, NOOP_PROVIDER_ID } from "./registry";
-import type { AIProvider, AICapabilities, AIMessage } from "./types";
+import type { AICapabilities, AIMessage, AIProvider } from "./types";
 
 // ---------------------------------------------------------------------------
 // Mock provider helpers
@@ -311,7 +337,10 @@ import type { AIProvider, AICapabilities, AIMessage } from "./types";
 
 function makeProvider(
   id: string,
-  generate: (messages: AIMessage[], opts: { signal?: AbortSignal }) => AsyncGenerator<string>,
+  generate: (
+    messages: AIMessage[],
+    opts: { signal?: AbortSignal },
+  ) => AsyncGenerator<string>,
 ): AIProvider {
   return {
     id,
@@ -340,15 +369,17 @@ async function* tokenGenerator(
 
 /** A generator that throws immediately with the given error. */
 async function* failingGenerator(err: Error): AsyncGenerator<string> {
-  throw err;
-  // unreachable — needed for TypeScript generator return type
+  // The (never-taken) yield keeps this an AsyncGenerator<string> for TS.
+  if (err) throw err;
   yield "";
 }
 
 /** A generator that never yields (simulates a hanging/slow provider). */
 async function* hangingGenerator(signal?: AbortSignal): AsyncGenerator<string> {
   await new Promise<void>((_, reject) => {
-    signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    signal?.addEventListener("abort", () =>
+      reject(new DOMException("Aborted", "AbortError")),
+    );
   });
   yield "";
 }
@@ -436,7 +467,9 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
     const controller = new AbortController();
 
     mockedDetectProvider.mockResolvedValue(
-      makeProvider("mock", (_msgs, opts) => tokenGenerator(["hello ", "world"], opts.signal)),
+      makeProvider("mock", (_msgs, opts) =>
+        tokenGenerator(["hello ", "world"], opts.signal),
+      ),
     );
 
     const result = await runInlineTransform({
@@ -487,9 +520,9 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
       makeProvider("mock", () => failingGenerator(new Error("Network timeout"))),
     );
 
-    await expect(
-      runInlineTransform({ text: "x", actionId: "tldr" }),
-    ).rejects.toThrow("Network timeout");
+    await expect(runInlineTransform({ text: "x", actionId: "tldr" })).rejects.toThrow(
+      "Network timeout",
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -518,9 +551,17 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
   it("7. throws NoProviderError when provider id is noop", async () => {
     mockedDetectProvider.mockResolvedValue({
       id: NOOP_PROVIDER_ID,
-      capabilities: { tier: 1, modelName: "None", isLocal: true, isFree: true, streaming: false },
+      capabilities: {
+        tier: 1,
+        modelName: "None",
+        isLocal: true,
+        isFree: true,
+        streaming: false,
+      },
       isAvailable: async () => true,
-      async *generate() { yield "noop"; },
+      async *generate() {
+        yield "noop";
+      },
     });
 
     await expect(
@@ -566,7 +607,11 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
       }),
     );
 
-    await runInlineTransform({ text: "x", actionId: "explain", signal: controller.signal });
+    await runInlineTransform({
+      text: "x",
+      actionId: "explain",
+      signal: controller.signal,
+    });
     expect(receivedSignal).toBe(controller.signal);
   });
 
@@ -609,9 +654,9 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
       makeProvider("mock", () => tokenGenerator(["done"])),
     );
 
-    await expect(
-      runInlineTransform({ text: "x", actionId: "tldr" }),
-    ).resolves.toBe("done");
+    await expect(runInlineTransform({ text: "x", actionId: "tldr" })).resolves.toBe(
+      "done",
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -677,7 +722,9 @@ describe("AbortSignal cancellation — runInlineTransform", () => {
       actionId: "rewrite",
       signal: controller.signal,
     })
-      .then(() => { resolved = true; })
+      .then(() => {
+        resolved = true;
+      })
       .catch(() => {});
 
     expect(resolved).toBe(false);

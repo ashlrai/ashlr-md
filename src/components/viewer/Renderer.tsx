@@ -1,6 +1,5 @@
 import { createElement, isValidElement, memo, type ReactNode, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { useUiStore } from "../../store/uiStore";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -8,26 +7,27 @@ import rehypeSlug from "rehype-slug";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { useUiStore } from "../../store/uiStore";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
-import { type OtOperation } from "../../lib/ot";
-import { useDocumentStore } from "../../store/documentStore";
+import type { OtOperation } from "../../lib/ot";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
 import { remarkWikilinks } from "../../lib/remark-wikilinks";
 import { detectReviewDoc } from "../../lib/reviewDoc";
 import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
+import { useDocumentStore } from "../../store/documentStore";
 import "../../styles/callouts.css";
 import "../../styles/reading.css";
 import "../../styles/review-doc.css";
 import "../../styles/wikilinks.css";
+import { LinkPreviewPopover } from "../LinkPreviewPopover";
 import { Callout } from "./Callout";
 import { CodeBlock } from "./CodeBlock";
 import { DiffBlock } from "./DiffBlock";
 import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
-import { LinkPreviewPopover } from "../LinkPreviewPopover";
 import { MermaidBlock } from "./MermaidBlock";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
 import { TaskCheckbox } from "./TaskCheckbox";
@@ -56,7 +56,13 @@ function LinkPreviewAnchor({
   return (
     <LinkPreviewPopover href={href ?? ""} currentPath={currentPath}>
       {(handlers) => (
-        <a href={href} target="_blank" rel="noreferrer noopener" {...handlers} {...rest}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer noopener"
+          {...handlers}
+          {...rest}
+        >
           {children}
         </a>
       )}
@@ -264,9 +270,7 @@ function OtChangeBadge({ op }: { op: OtOperation }) {
   const s = op.summary;
   if (!s) return null;
 
-  const label = op.agentId.length > 12
-    ? `${op.agentId.slice(0, 10)}…`
-    : op.agentId;
+  const label = op.agentId.length > 12 ? `${op.agentId.slice(0, 10)}…` : op.agentId;
 
   return (
     <div
@@ -297,7 +301,11 @@ function OtChangeBadge({ op }: { op: OtOperation }) {
 function OtChangeBadgeLayer({ ops }: { ops: OtOperation[] }) {
   if (ops.length === 0) return null;
   return (
-    <div className="ot-change-badge-layer" aria-live="polite" aria-label="Incoming remote edits">
+    <div
+      className="ot-change-badge-layer"
+      aria-live="polite"
+      aria-label="Incoming remote edits"
+    >
       {ops.map((op) => (
         <OtChangeBadge key={op.id} op={op} />
       ))}

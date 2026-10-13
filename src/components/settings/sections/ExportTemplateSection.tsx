@@ -13,11 +13,11 @@ import {
   ALL_PROFILE_IDS,
   BUILTIN_TEMPLATES,
   EXPORT_PROFILES,
-  NO_TEMPLATE_ID,
-  validateTemplateCss,
   type ExportProfile,
   type ExportProfileId,
   type ExportTemplate,
+  NO_TEMPLATE_ID,
+  validateTemplateCss,
 } from "../../../lib/exportTemplates";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { CheckIcon, CopyIcon, MinusIcon, PlusIcon } from "../icons";
@@ -79,6 +79,7 @@ function TemplateItem({
     <div
       className={`export-tpl-item${isActive ? " active" : ""}`}
       role="option"
+      tabIndex={-1}
       aria-selected={isActive}
     >
       <button
@@ -93,9 +94,7 @@ function TemplateItem({
           </span>
         )}
         <span>{template.name}</span>
-        {template.builtin && (
-          <span className="export-tpl-badge">built-in</span>
-        )}
+        {template.builtin && <span className="export-tpl-badge">built-in</span>}
       </button>
 
       <div className="export-tpl-actions">
@@ -117,7 +116,13 @@ function TemplateItem({
             aria-label={`Edit ${template.name}`}
           >
             {/* Pencil icon */}
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" width="14" height="14">
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              width="14"
+              height="14"
+            >
               <path
                 d="M11.5 2.5a1.5 1.5 0 0 1 2 2L5 13l-3 1 1-3L11.5 2.5Z"
                 stroke="currentColor"
@@ -219,19 +224,24 @@ function CssEditor({ template, onSave, onCancel }: CssEditorProps) {
         {/* CSS textarea */}
         <div className="export-tpl-css-pane">
           <p className="export-tpl-css-hint">
-            CSS is injected after theme tokens, markdown typography, and KaTeX —
-            so your rules cascade on top of all base styles.
+            CSS is injected after theme tokens, markdown typography, and KaTeX — so your
+            rules cascade on top of all base styles.
           </p>
           <textarea
             className="export-tpl-css-textarea"
             value={css}
-            onChange={(e) => { setCss(e.target.value); setError(null); }}
+            onChange={(e) => {
+              setCss(e.target.value);
+              setError(null);
+            }}
             spellCheck={false}
             aria-label="Template CSS"
             rows={16}
           />
           {error && (
-            <p className="export-tpl-error" role="alert">{error}</p>
+            <p className="export-tpl-error" role="alert">
+              {error}
+            </p>
           )}
         </div>
 
@@ -294,15 +304,10 @@ export function ExportTemplateSection() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const allTemplates: ExportTemplate[] = [
-    ...BUILTIN_TEMPLATES,
-    ...userTemplates,
-  ];
+  const allTemplates: ExportTemplate[] = [...BUILTIN_TEMPLATES, ...userTemplates];
 
   const editingTemplate =
-    editingId !== null
-      ? userTemplates.find((t) => t.id === editingId) ?? null
-      : null;
+    editingId !== null ? (userTemplates.find((t) => t.id === editingId) ?? null) : null;
 
   function handleDuplicate(tpl: ExportTemplate) {
     const newId = addUserTemplate({
@@ -344,15 +349,16 @@ export function ExportTemplateSection() {
   return (
     <div className="export-tpl-section">
       <p className="settings-description">
-        Choose a named template for HTML and DOCX exports. Template CSS layers
-        on top of theme tokens and markdown styles, letting you ship
-        professional documents without editing HTML.
+        Choose a named template for HTML and DOCX exports. Template CSS layers on top of
+        theme tokens and markdown styles, letting you ship professional documents
+        without editing HTML.
       </p>
 
       {/* "None" option */}
       <div
         className={`export-tpl-item${activeTemplateId === NO_TEMPLATE_ID ? " active" : ""}`}
         role="option"
+        tabIndex={-1}
         aria-selected={activeTemplateId === NO_TEMPLATE_ID}
       >
         <button
@@ -371,11 +377,7 @@ export function ExportTemplateSection() {
       </div>
 
       {/* Template list */}
-      <div
-        className="export-tpl-list"
-        role="listbox"
-        aria-label="Export templates"
-      >
+      <div className="export-tpl-list" role="listbox" aria-label="Export templates">
         {allTemplates.map((tpl) => (
           <TemplateItem
             key={tpl.id}
@@ -404,9 +406,8 @@ export function ExportTemplateSection() {
       <div className="export-profile-toggles-section">
         <h3 className="export-profile-toggles-heading">Export profiles</h3>
         <p className="export-profile-toggles-desc">
-          Choose which export profiles are available when exporting documents.
-          Disabled profiles are hidden from the export dialog and excluded from
-          batch exports.
+          Choose which export profiles are available when exporting documents. Disabled
+          profiles are hidden from the export dialog and excluded from batch exports.
         </p>
         <div
           className="export-profile-toggles-list"

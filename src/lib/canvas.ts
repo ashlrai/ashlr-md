@@ -398,9 +398,7 @@ function pushHistory(state: CanvasEditorState): void {
 // applyCanvasOp — apply a single edit operation (mutates state in place)
 // ---------------------------------------------------------------------------
 
-export type CanvasOpResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type CanvasOpResult = { ok: true } | { ok: false; error: string };
 
 export function applyCanvasOp(
   state: CanvasEditorState,

@@ -230,8 +230,16 @@ function _composeComponents(a: OtComponent[], b: OtComponent[]): OtComponent[] {
   function peekA(): OtComponent | null {
     while (ai < a.length) {
       const c = a[ai];
-      if (c.type === "insert" && aOff >= c.text.length) { ai++; aOff = 0; continue; }
-      if (c.type !== "insert" && aOff >= c.count) { ai++; aOff = 0; continue; }
+      if (c.type === "insert" && aOff >= c.text.length) {
+        ai++;
+        aOff = 0;
+        continue;
+      }
+      if (c.type !== "insert" && aOff >= c.count) {
+        ai++;
+        aOff = 0;
+        continue;
+      }
       return c;
     }
     return null;
@@ -241,8 +249,16 @@ function _composeComponents(a: OtComponent[], b: OtComponent[]): OtComponent[] {
   function peekB(): OtComponent | null {
     while (bi < b.length) {
       const c = b[bi];
-      if (c.type === "insert" && bOff >= c.text.length) { bi++; bOff = 0; continue; }
-      if (c.type !== "insert" && bOff >= c.count) { bi++; bOff = 0; continue; }
+      if (c.type === "insert" && bOff >= c.text.length) {
+        bi++;
+        bOff = 0;
+        continue;
+      }
+      if (c.type !== "insert" && bOff >= c.count) {
+        bi++;
+        bOff = 0;
+        continue;
+      }
       return c;
     }
     return null;
@@ -393,8 +409,8 @@ function _transformComponents(
 
     if (!ac || !bc) break;
 
-    const acLen = (ac.type === "retain" || ac.type === "delete") ? ac.count - aRem : 0;
-    const bcLen = (bc.type === "retain" || bc.type === "delete") ? bc.count - bRem : 0;
+    const acLen = ac.type === "retain" || ac.type === "delete" ? ac.count - aRem : 0;
+    const bcLen = bc.type === "retain" || bc.type === "delete" ? bc.count - bRem : 0;
     const take = Math.min(acLen, bcLen);
 
     if (ac.type === "retain" && bc.type === "retain") {
@@ -606,7 +622,10 @@ export interface CursorPosition {
 /**
  * Convert a character offset in `doc` to a `{ line, col }` pair (both 0-based).
  */
-export function offsetToLineCol(doc: string, offset: number): { line: number; col: number } {
+export function offsetToLineCol(
+  doc: string,
+  offset: number,
+): { line: number; col: number } {
   const clamped = Math.max(0, Math.min(offset, doc.length));
   const before = doc.slice(0, clamped);
   const lines = before.split("\n");

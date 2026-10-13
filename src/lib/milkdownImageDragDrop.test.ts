@@ -169,8 +169,8 @@ describe("makeDragDropPlugin — DOM event wiring", () => {
     const editorView = makeEditorView();
 
     // Call view() from the plugin spec to register event listeners.
-    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } }).spec
-      .view;
+    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } })
+      .spec.view;
     viewFn(editorView);
 
     // Create two img elements with data-image-index attributes.
@@ -201,8 +201,8 @@ describe("makeDragDropPlugin — DOM event wiring", () => {
     const plugin = makeDragDropPlugin({ onReorder });
     const editorView = makeEditorView();
 
-    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } }).spec
-      .view;
+    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } })
+      .spec.view;
     viewFn(editorView);
 
     const imgA = document.createElement("img");
@@ -228,8 +228,8 @@ describe("makeDragDropPlugin — DOM event wiring", () => {
     const plugin = makeDragDropPlugin({ onReorder });
     const editorView = makeEditorView();
 
-    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } }).spec
-      .view;
+    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } })
+      .spec.view;
     viewFn(editorView);
 
     const img = document.createElement("img");
@@ -252,8 +252,8 @@ describe("makeDragDropPlugin — DOM event wiring", () => {
     const plugin = makeDragDropPlugin({ onReorder });
     const editorView = makeEditorView();
 
-    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } }).spec
-      .view;
+    const viewFn = (plugin as unknown as { spec: { view: (v: unknown) => unknown } })
+      .spec.view;
     const handle = viewFn(editorView) as { destroy: () => void };
 
     const imgA = document.createElement("img");

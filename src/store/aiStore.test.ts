@@ -91,7 +91,9 @@ describe("aiStore", () => {
   });
 
   it("updateLastAssistantMessage appends delta to streaming message", () => {
-    useAIStore.getState().pushMessage({ role: "assistant", content: "Hi", streaming: true });
+    useAIStore
+      .getState()
+      .pushMessage({ role: "assistant", content: "Hi", streaming: true });
     useAIStore.getState().updateLastAssistantMessage(" there");
     const msgs = useAIStore.getState().messages;
     expect(msgs[0].content).toBe("Hi there");
@@ -99,7 +101,9 @@ describe("aiStore", () => {
   });
 
   it("finalizeLastAssistantMessage clears streaming flag", () => {
-    useAIStore.getState().pushMessage({ role: "assistant", content: "done", streaming: true });
+    useAIStore
+      .getState()
+      .pushMessage({ role: "assistant", content: "done", streaming: true });
     useAIStore.getState().finalizeLastAssistantMessage();
     expect(useAIStore.getState().messages[0].streaming).toBe(false);
   });

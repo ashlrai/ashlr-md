@@ -19,7 +19,9 @@ vi.mock("react", async (importOriginal) => {
   const real = await importOriginal<typeof import("react")>();
   return {
     ...real,
-    useEffect: (fn: () => (() => void) | void, _deps?: unknown[]) => { fn(); },
+    useEffect: (fn: () => (() => void) | void, _deps?: unknown[]) => {
+      fn();
+    },
     useRef: (init: unknown) => ({ current: init }),
   };
 });
@@ -142,14 +144,15 @@ vi.mock("../components/viewer/DiffBlock", () => ({
 
 // ─── Import bridge after mocks ────────────────────────────────────────────────
 
-import { useMcpBridge } from "./bridge";
 import { useDocumentStore } from "../store/documentStore";
-import { useUiStore } from "../store/uiStore";
 import { useReviewStore } from "../store/reviewStore";
+import { useUiStore } from "../store/uiStore";
+import { useMcpBridge } from "./bridge";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mountBridge(): void {
+  // biome-ignore lint/correctness/useHookAtTopLevel: test harness mounts the hook against a mocked React whose useEffect runs synchronously.
   useMcpBridge();
 }
 
@@ -172,9 +175,9 @@ function resetStores(): void {
     pendingOps: [],
   });
   useUiStore.setState({ exportOpen: false, exportFormat: null, zenMode: false });
-  useReviewStore.setState(
-    { pending: null, draftComment: "" } as unknown as Parameters<typeof useReviewStore.setState>[0],
-  );
+  useReviewStore.setState({ pending: null, draftComment: "" } as unknown as Parameters<
+    typeof useReviewStore.setState
+  >[0]);
 }
 
 beforeEach(() => {
@@ -183,7 +186,12 @@ beforeEach(() => {
   unlistenMock.mockClear();
   invokeMock.mockImplementation((cmd: string) => {
     if (cmd === "read_markdown_file") {
-      return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      return Promise.resolve({
+        path: "/opened.md",
+        file_name: "opened.md",
+        content: "# Opened",
+        size: 8,
+      });
     }
     return Promise.resolve(undefined);
   });
@@ -349,7 +357,9 @@ async function fireEvent(eventName: string, payload: Payload): Promise<void> {
 describe("handlers integration — smoke tests per module", () => {
   // export module
   it("export handler: opens dialog for pdf format", async () => {
-    useDocumentStore.setState({ path: "/doc.md" } as Parameters<typeof useDocumentStore.setState>[0]);
+    useDocumentStore.setState({ path: "/doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
     mountBridge();
     await fireEvent("mcp://export", { format: "pdf" });
     expect(useUiStore.getState().exportOpen).toBe(true);
@@ -357,11 +367,17 @@ describe("handlers integration — smoke tests per module", () => {
 
   // edit module
   it("edit handler: applies find/replace to live document", async () => {
-    useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<typeof useDocumentStore.setState>[0]);
+    useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation(() => Promise.resolve(undefined));
-    await fireEvent("mcp://edit", { editId: "e1", find: "hello world", replace: "hi earth" });
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello world",
+      replace: "hi earth",
+    });
     expect(useDocumentStore.getState().content).toBe("hi earth");
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_result");
     expect(result![1]).toMatchObject({ ok: true });
@@ -387,7 +403,12 @@ describe("handlers integration — smoke tests per module", () => {
   // review module
   it("review handler: registers review in store", async () => {
     mountBridge();
-    await fireEvent("mcp://review", { reviewId: "rev1", path: "/plan.md", content: null, timeoutMs: 30000 });
+    await fireEvent("mcp://review", {
+      reviewId: "rev1",
+      path: "/plan.md",
+      content: null,
+      timeoutMs: 30000,
+    });
     expect(useReviewStore.getState().pending?.reviewId).toBe("rev1");
   });
 
@@ -396,7 +417,11 @@ describe("handlers integration — smoke tests per module", () => {
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation(() => Promise.reject(new Error("not found")));
-    await fireEvent("mcp://edit-canvas", { editId: "c1", path: "/missing.canvas", ops: [{ type: "add-node" }] });
+    await fireEvent("mcp://edit-canvas", {
+      editId: "c1",
+      path: "/missing.canvas",
+      ops: [{ type: "add-node" }],
+    });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
     expect(result).toBeDefined();
     expect(result![1].ok).toBe(false);
@@ -407,7 +432,13 @@ describe("handlers integration — smoke tests per module", () => {
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/new.md", file_name: "new.md", content: "hi", size: 2 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/new.md",
+          file_name: "new.md",
+          content: "hi",
+          size: 2,
+        });
       return Promise.resolve(undefined);
     });
     await fireEvent("mcp://open", { path: "/new.md" });
@@ -416,7 +447,9 @@ describe("handlers integration — smoke tests per module", () => {
   });
 
   it("conversation handler: mcp://present enters zen mode when doc is open", async () => {
-    useDocumentStore.setState({ path: "/doc.md" } as Parameters<typeof useDocumentStore.setState>[0]);
+    useDocumentStore.setState({ path: "/doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
     mountBridge();
     await fireEvent("mcp://present", { path: null });
     expect(useUiStore.getState().zenMode).toBe(true);

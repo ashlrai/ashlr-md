@@ -69,11 +69,7 @@ const FILES_SECTION_TITLES = new Set([
   "changed files",
 ]);
 
-const SUMMARY_SECTION_TITLES = new Set([
-  "summary",
-  "overview",
-  "review summary",
-]);
+const SUMMARY_SECTION_TITLES = new Set(["summary", "overview", "review summary"]);
 
 const FEEDBACK_SECTION_TITLES = new Set([
   "feedback",
@@ -139,7 +135,9 @@ export function parseReview(content: string): ParsedReview {
           const text = itemMatch[1].trim();
           const pathMatch = FILE_PATH_RE.exec(text);
           const path = pathMatch ? pathMatch[1] : text;
-          const description = pathMatch ? text.slice(pathMatch.index + pathMatch[0].length).trim() : "";
+          const description = pathMatch
+            ? text.slice(pathMatch.index + pathMatch[0].length).trim()
+            : "";
           files.push({
             path,
             description: description.replace(/^[-–—:]\s*/, ""),

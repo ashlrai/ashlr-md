@@ -7,15 +7,15 @@
  *  3. isUrl / normaliseUrl / extractLinkTitle / buildLinkMarkdown — paste URL detection
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  detectListContext,
-  continueList,
+  buildLinkMarkdown,
   buildTableMarkdown,
+  continueList,
+  detectListContext,
+  extractLinkTitle,
   isUrl,
   normaliseUrl,
-  extractLinkTitle,
-  buildLinkMarkdown,
 } from "./editorShortcuts";
 
 // ── 1. List continuation ──────────────────────────────────────────────────────

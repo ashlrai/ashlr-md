@@ -25,8 +25,9 @@ function fm(key: string, value: string, extra = ""): string {
 }
 
 function tasks(n: number, done = 0): string {
-  return Array.from({ length: n }, (_, i) =>
-    `- [${i < done ? "x" : " "}] Task ${i + 1}`,
+  return Array.from(
+    { length: n },
+    (_, i) => `- [${i < done ? "x" : " "}] Task ${i + 1}`,
   ).join("\n");
 }
 
@@ -49,7 +50,8 @@ describe("classify — edge cases", () => {
   });
 
   it("returns GENERIC for plain prose with no signals", () => {
-    const doc = "# Meeting Notes\n\nWe discussed various topics today.\n\nNext meeting is Tuesday.";
+    const doc =
+      "# Meeting Notes\n\nWe discussed various topics today.\n\nNext meeting is Tuesday.";
     expect(classify(doc)).toBe("GENERIC");
   });
 
@@ -59,7 +61,8 @@ describe("classify — edge cases", () => {
 
   it("returns GENERIC for a document with minimal mixed signals (no task items)", () => {
     // Inline code + one review word + one design word — nothing dominant, no tasks
-    const doc = "# Notes\n\n`someCode()`\n\nSome feedback here about the overall design.";
+    const doc =
+      "# Notes\n\n`someCode()`\n\nSome feedback here about the overall design.";
     // No single-type signals dominate — should remain GENERIC
     expect(classify(doc)).toBe("GENERIC");
   });
@@ -511,7 +514,8 @@ ${codeBlock("bash", 8)}
 
 describe("classify — GENERIC fallback", () => {
   it("returns GENERIC for a personal journal entry", () => {
-    const doc = "# Today\n\nHad a great morning. Coffee was good. Need to buy groceries.\n";
+    const doc =
+      "# Today\n\nHad a great morning. Coffee was good. Need to buy groceries.\n";
     expect(classify(doc)).toBe("GENERIC");
   });
 

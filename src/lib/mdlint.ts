@@ -118,7 +118,8 @@ function range(doc: string, from: number, to: number): LintRange {
 export const ruleFrontmatterRequired: LintRule = {
   id: "frontmatter-required",
   label: "Frontmatter required",
-  description: "Every document should have a YAML frontmatter block (--- ... ---) at the top.",
+  description:
+    "Every document should have a YAML frontmatter block (--- ... ---) at the top.",
   severity: "warning",
   check({ doc }): LintViolation[] {
     const FM_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -161,10 +162,7 @@ export const ruleMaxHeadingDepth: LintRule = {
           range: range(doc, from, to),
           fix: (d) => {
             // Replace the first occurrence of this exact heading line
-            return d.replace(
-              new RegExp(`^${m[1]}(\\s)`, "m"),
-              `###$1`,
-            );
+            return d.replace(new RegExp(`^${m[1]}(\\s)`, "m"), `###$1`);
           },
         });
       }
@@ -197,9 +195,8 @@ export const ruleNoBareUrls: LintRule = {
 
     // Match bare URLs: starts with http:// or https://, not preceded by ( or <
     // and not followed by ) (which would mean it's already in a link)
-    const URL_RE = /(?<![(<\[])(https?:\/\/[^\s<>)"'\]]+)/g;
-    let m: RegExpExecArray | null;
-    while ((m = URL_RE.exec(stripped)) !== null) {
+    const URL_RE = /(?<![(<[])(https?:\/\/[^\s<>)"'\]]+)/g;
+    for (const m of stripped.matchAll(URL_RE)) {
       const url = m[1];
       const from = m.index;
       const to = from + url.length;
@@ -232,8 +229,7 @@ export const ruleWikilinkTargetsExist: LintRule = {
     if (!knownTargets) return []; // vault not indexed — skip
     const violations: LintViolation[] = [];
     const WIKI_RE = /\[\[([^\]|#\n]+?)(?:[|#][^\]]*?)?\]\]/g;
-    let m: RegExpExecArray | null;
-    while ((m = WIKI_RE.exec(doc)) !== null) {
+    for (const m of doc.matchAll(WIKI_RE)) {
       const target = m[1].trim();
       if (!knownTargets.has(target) && !knownTargets.has(`${target}.md`)) {
         const from = m.index;
@@ -309,7 +305,9 @@ export const ruleNoTrailingSpaces: LintRule = {
           severity: "info",
           range: range(doc, trailStart, trailEnd),
           fix: (d) => {
-            const cleaned = d.slice(lineStart, lineEnd).replace(/ +$/, (s) => s.length === 2 ? s : "");
+            const cleaned = d
+              .slice(lineStart, lineEnd)
+              .replace(/ +$/, (s) => (s.length === 2 ? s : ""));
             return d.slice(0, lineStart) + cleaned + d.slice(lineEnd);
           },
         });
@@ -442,14 +440,14 @@ export const ruleOrphanedHeading: LintRule = {
 export const ruleInvalidLinkTarget: LintRule = {
   id: "invalid-link-target",
   label: "No invalid link targets",
-  description: "Markdown link hrefs must not be empty or contain only whitespace/punctuation.",
+  description:
+    "Markdown link hrefs must not be empty or contain only whitespace/punctuation.",
   severity: "warning",
   check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
     // Match [text](href) — capture the full match so we can compute offset
     const LINK_RE = /\[([^\]]*?)\]\(([^)]*)\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = LINK_RE.exec(doc)) !== null) {
+    for (const m of doc.matchAll(LINK_RE)) {
       const href = m[2];
       // Consider invalid: empty, whitespace-only, lone "#", lone "?"
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
@@ -487,8 +485,7 @@ export const ruleMissingAltText: LintRule = {
     const violations: LintViolation[] = [];
     // Match ![alt](src) — alt may be empty
     const IMG_RE = /!\[([^\]]*?)\]\([^)]+\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = IMG_RE.exec(doc)) !== null) {
+    for (const m of doc.matchAll(IMG_RE)) {
       const alt = m[1];
       if (/^\s*$/.test(alt)) {
         const from = m.index;

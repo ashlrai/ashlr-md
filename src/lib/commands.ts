@@ -20,11 +20,11 @@ import { THEMES, type ThemeId, useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
-import { copyDocumentAsRichText, copyAsRichText } from "./copyRichText";
+import { copyAsRichText, copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
-import { buildEmptyTable } from "./tableEditor";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
+import { buildEmptyTable } from "./tableEditor";
 import { waitForElement } from "./waitForElement";
 
 /**
@@ -86,7 +86,14 @@ export interface Command {
 }
 
 /** Section labels — exported so the palette can order groups deterministically. */
-export const COMMAND_GROUPS = ["File", "View", "Edit", "AI", "Appearance", "App"] as const;
+export const COMMAND_GROUPS = [
+  "File",
+  "View",
+  "Edit",
+  "AI",
+  "Appearance",
+  "App",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -402,7 +409,9 @@ export function getCommands(): Command[] {
         const focused = document.activeElement;
         const hunk = focused?.closest<HTMLElement>(".diff-hunk");
         if (hunk) {
-          const btn = hunk.querySelector<HTMLButtonElement>(".diff-apply-btn:not(:disabled)");
+          const btn = hunk.querySelector<HTMLButtonElement>(
+            ".diff-apply-btn:not(:disabled)",
+          );
           btn?.click();
         }
       },

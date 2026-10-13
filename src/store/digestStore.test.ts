@@ -30,8 +30,8 @@ vi.mock("./activityStore", () => ({
   },
 }));
 
-import { useDigestStore } from "./digestStore";
 import type { MdFileInfo } from "../lib/activity";
+import { useDigestStore } from "./digestStore";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -231,7 +231,9 @@ describe("digestStore", () => {
     // The barrier is placed inside the AI generator (after listMarkdownFiles resolves
     // and generate() has already set status=computing and captured genId).
     let resolveGen!: () => void;
-    const genBarrier = new Promise<void>((res) => { resolveGen = res; });
+    const genBarrier = new Promise<void>((res) => {
+      resolveGen = res;
+    });
     detectProviderMock.mockResolvedValue({
       id: "ollama",
       generate: vi.fn(async function* () {

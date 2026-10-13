@@ -10,10 +10,10 @@ import {
   averageLatencyMs,
   clearMetrics,
   loadMetrics,
-  sortedMetricEntries,
-  successRate,
   type ProviderMetricEntry,
   type ProviderMetrics,
+  sortedMetricEntries,
+  successRate,
 } from "../../../lib/telemetry";
 
 // ---------------------------------------------------------------------------
@@ -33,11 +33,16 @@ function providerColor(id: string): string {
 
 function tierLabel(tier: number): string {
   switch (tier) {
-    case 0: return "Tier 0 · On-device";
-    case 1: return "Tier 1 · Local";
-    case 2: return "Tier 2 · Cloud (BYO key)";
-    case 3: return "Tier 3 · Hosted";
-    default: return `Tier ${tier}`;
+    case 0:
+      return "Tier 0 · On-device";
+    case 1:
+      return "Tier 1 · Local";
+    case 2:
+      return "Tier 2 · Cloud (BYO key)";
+    case 3:
+      return "Tier 3 · Hosted";
+    default:
+      return `Tier ${tier}`;
   }
 }
 
@@ -92,8 +97,21 @@ function PieChart({ slices }: { slices: PieSlice[] }) {
   if (slices.length === 0) {
     return (
       <svg width="80" height="80" viewBox="0 0 80 80" aria-label="No data">
-        <circle cx="40" cy="40" r="35" fill="none" stroke="var(--color-border)" strokeWidth="1.5" />
-        <text x="40" y="44" textAnchor="middle" fontSize="9" fill="var(--color-text-muted)">
+        <circle
+          cx="40"
+          cy="40"
+          r="35"
+          fill="none"
+          stroke="var(--color-border)"
+          strokeWidth="1.5"
+        />
+        <text
+          x="40"
+          y="44"
+          textAnchor="middle"
+          fontSize="9"
+          fill="var(--color-text-muted)"
+        >
           No data
         </text>
       </svg>
@@ -128,19 +146,16 @@ function PieChart({ slices }: { slices: PieSlice[] }) {
 // Mini bar chart for latency
 // ---------------------------------------------------------------------------
 
-function LatencyBar({
-  entry,
-  maxMs,
-}: {
-  entry: ProviderMetricEntry;
-  maxMs: number;
-}) {
+function LatencyBar({ entry, maxMs }: { entry: ProviderMetricEntry; maxMs: number }) {
   const avg = averageLatencyMs(entry);
   const widthPct = maxMs > 0 ? (avg / maxMs) * 100 : 0;
   const color = providerColor(entry.providerId);
 
   return (
-    <div className="ai-metrics-bar-row" aria-label={`${entry.providerId} avg latency ${fmtMs(avg)}`}>
+    <div
+      className="ai-metrics-bar-row"
+      aria-label={`${entry.providerId} avg latency ${fmtMs(avg)}`}
+    >
       <span className="ai-metrics-bar-label">{entry.providerId}</span>
       <div className="ai-metrics-bar-track">
         <div
@@ -206,7 +221,9 @@ export function AiMetricsSection() {
                     />
                     <div className="ai-metrics-legend-text">
                       <span className="ai-metrics-legend-name">{e.providerId}</span>
-                      <span className="ai-metrics-legend-tier">{tierLabel(e.tier)}</span>
+                      <span className="ai-metrics-legend-tier">
+                        {tierLabel(e.tier)}
+                      </span>
                     </div>
                     <span className="ai-metrics-legend-count">{total} calls</span>
                   </div>

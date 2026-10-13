@@ -9,7 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { searchFiles } from "../../lib/crossSearch";
-import { embedSearch, embedAvailable } from "../../lib/embedSearch";
+import { embedAvailable, embedSearch } from "../../lib/embedSearch";
 import { useActivityStore } from "../../store/activityStore";
 import type {
   BatchReadFileResult,
@@ -24,21 +24,28 @@ export function handleBatchRead(): Promise<UnlistenFn> {
   return listen<BatchReadPayload>("mcp://batch-read", async (e) => {
     const { batchId, paths } = e.payload;
     try {
-      const results = await invoke<BatchReadFileResult[]>("read_batch_files", { paths });
+      const results = await invoke<BatchReadFileResult[]>("read_batch_files", {
+        paths,
+      });
       await invoke("mcp_batch_read_result", {
         batchId,
         ok: true,
         results,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await invoke("mcp_batch_read_result", {
         batchId,
         ok: false,
         results: [],
         error: errStr,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }
@@ -77,10 +84,14 @@ export function handleSemanticSearch(): Promise<UnlistenFn> {
           const keywordHits = await searchFiles(vaultPaths, query, k * 2);
 
           const semanticRank = new Map<string, number>();
-          results.forEach((r, i) => semanticRank.set(r.path, i + 1));
+          results.forEach((r, i) => {
+            semanticRank.set(r.path, i + 1);
+          });
 
           const keywordRank = new Map<string, number>();
-          keywordHits.forEach((r, i) => keywordRank.set(r.path, i + 1));
+          keywordHits.forEach((r, i) => {
+            keywordRank.set(r.path, i + 1);
+          });
 
           const RRF_K = 60;
           const rrfScore = (path: string): number => {
@@ -122,16 +133,21 @@ export function handleSemanticSearch(): Promise<UnlistenFn> {
         results: trimmed,
         usedEmbeddings: !!modelAvailable,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await invoke("mcp_semantic_search_result", {
         searchId,
         ok: false,
         results: [],
         usedEmbeddings: false,
         error: errStr,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }
@@ -164,9 +180,12 @@ export function handleDiffDocs(): Promise<UnlistenFn> {
         pathA: result.path_a,
         pathB: result.path_b,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await invoke("mcp_diff_docs_result", {
         diffId,
         ok: false,
@@ -177,7 +196,9 @@ export function handleDiffDocs(): Promise<UnlistenFn> {
         pathA,
         pathB,
         error: errStr,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }

@@ -30,15 +30,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ParsedHunk, parseDiffHunks } from "../../lib/diff";
-import { highlightCode } from "../../lib/shiki";
 import {
-  type OtOperation,
-  type VectorClock,
   del,
   insert,
   normalise,
+  type OtOperation,
   retain,
+  type VectorClock,
 } from "../../lib/ot";
+import { highlightCode } from "../../lib/shiki";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
 import { CodeBlock } from "./CodeBlock";
@@ -256,7 +256,14 @@ function DiffHunkActions({
     try {
       const store = useDocumentStore.getState();
       const content = store.content;
-      const op = buildInverseHunkOp(content, hunk.find, hunk.replace, "diff-hunk-undo", {}, nextSeq());
+      const op = buildInverseHunkOp(
+        content,
+        hunk.find,
+        hunk.replace,
+        "diff-hunk-undo",
+        {},
+        nextSeq(),
+      );
       if (!op) {
         toast.error("Undo failed — could not locate the applied text in the document.");
         return;
@@ -426,7 +433,9 @@ function SingleHunk({
       if (e.key === "y" || e.key === "Y") {
         e.preventDefault();
         // Trigger the apply button click to go through confirmation flow.
-        const applyBtn = el.querySelector<HTMLButtonElement>(".diff-apply-btn:not(:disabled)");
+        const applyBtn = el.querySelector<HTMLButtonElement>(
+          ".diff-apply-btn:not(:disabled)",
+        );
         applyBtn?.click();
       } else if (e.key === "n" || e.key === "N") {
         e.preventDefault();

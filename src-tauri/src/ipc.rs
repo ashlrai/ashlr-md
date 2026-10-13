@@ -269,6 +269,7 @@ pub fn mcp_edit_result(
 /// Called by the frontend after computing a `mcp://stream-edit` diff preview.
 /// Forwards the outcome to the IPC worker thread parked in `handle_stream_edit`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri command args map 1:1 to the frontend IPC payload.
 pub fn mcp_stream_edit_preview(
     edit_id: String,
     ok: bool,

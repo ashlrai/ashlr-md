@@ -33,7 +33,11 @@
  */
 
 import { beforeEach } from "vitest";
-import { createMockLocalStorage, createMockSessionStorage, createMockIDB } from "./lib/test-utils";
+import {
+  createMockIDB,
+  createMockLocalStorage,
+  createMockSessionStorage,
+} from "./lib/test-utils";
 
 // ---------------------------------------------------------------------------
 // DOMException polyfill
@@ -116,7 +120,8 @@ if (typeof globalThis.navigator === "undefined") {
 }
 
 if (
-  typeof (globalThis.navigator as Navigator & { clipboard?: unknown }).clipboard === "undefined"
+  typeof (globalThis.navigator as Navigator & { clipboard?: unknown }).clipboard ===
+  "undefined"
 ) {
   Object.defineProperty(globalThis.navigator, "clipboard", {
     value: {

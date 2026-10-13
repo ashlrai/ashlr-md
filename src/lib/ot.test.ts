@@ -23,12 +23,12 @@ import {
   makeDelete,
   makeInsert,
   normalise,
+  type OtComponent,
+  type OtOperation,
   retain,
   summarise,
   tickClock,
   transform,
-  type OtComponent,
-  type OtOperation,
   type VectorClock,
 } from "./ot";
 
@@ -107,8 +107,7 @@ describe("normalise", () => {
 // ── apply ─────────────────────────────────────────────────────────────────────
 
 describe("apply", () => {
-  const mkOp = (components: OtComponent[]) =>
-    op("x", "a", 0, {}, components);
+  const mkOp = (components: OtComponent[]) => op("x", "a", 0, {}, components);
 
   it("identity op (all retain) returns the same string", () => {
     const doc = "hello";
@@ -413,7 +412,14 @@ describe("agent-to-agent handoff scenario", () => {
 
     // Agent A inserts a spec.
     const clockA0: VectorClock = {};
-    const opA1 = makeInsert(0, 0, "# Spec\n\n- Item 1\n- Item 2\n", "agentA", clockA0, 1);
+    const opA1 = makeInsert(
+      0,
+      0,
+      "# Spec\n\n- Item 1\n- Item 2\n",
+      "agentA",
+      clockA0,
+      1,
+    );
     const afterA1 = apply(initial, opA1);
 
     // Agent B starts from the same initial state (concurrent with A).
@@ -553,7 +559,12 @@ describe("summarise", () => {
 
 // ── classifySection ───────────────────────────────────────────────────────────
 
-import { classifySection, offsetToLineCol, resolveConflict, transformCursor } from "./ot";
+import {
+  classifySection,
+  offsetToLineCol,
+  resolveConflict,
+  transformCursor,
+} from "./ot";
 
 describe("classifySection", () => {
   it("classifies prose when there is no frontmatter or code fence", () => {
@@ -750,7 +761,14 @@ describe("OtLogEntry shape", () => {
     doc = apply(doc, op1);
     entries.push({ docPath: "/x.md", op: op1, appliedAt: Date.now(), source: "agent" });
 
-    const op2 = makeInsert(doc.length, doc.length, "\nBody text.", "human", { agentA: 1 }, 1);
+    const op2 = makeInsert(
+      doc.length,
+      doc.length,
+      "\nBody text.",
+      "human",
+      { agentA: 1 },
+      1,
+    );
     doc = apply(doc, op2);
     entries.push({ docPath: "/x.md", op: op2, appliedAt: Date.now(), source: "human" });
 

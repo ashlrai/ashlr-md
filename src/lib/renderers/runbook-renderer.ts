@@ -74,11 +74,27 @@ export interface ParsedRunbook {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PREREQ_TITLES = new Set(["prerequisites", "prerequisite", "requirements", "before you begin"]);
+const PREREQ_TITLES = new Set([
+  "prerequisites",
+  "prerequisite",
+  "requirements",
+  "before you begin",
+]);
 const STEPS_TITLES = new Set(["steps", "step", "procedure", "instructions", "how to"]);
 const ROLLBACK_TITLES = new Set(["rollback", "undo", "revert", "recovery"]);
-const TROUBLESHOOTING_TITLES = new Set(["troubleshooting", "debugging", "known issues", "faq"]);
-const VERIFICATION_TITLES = new Set(["verification", "verify", "testing", "validation", "smoke test"]);
+const TROUBLESHOOTING_TITLES = new Set([
+  "troubleshooting",
+  "debugging",
+  "known issues",
+  "faq",
+]);
+const VERIFICATION_TITLES = new Set([
+  "verification",
+  "verify",
+  "testing",
+  "validation",
+  "smoke test",
+]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,7 +123,10 @@ function extractCommands(body: string): string[] {
     const fenceMatch = FENCE_OPEN_RE.exec(bl);
     if (fenceMarker) {
       // Check for closing fence.
-      if (bl.trim().startsWith(fenceMarker[0]) && bl.trim().length >= fenceMarker.length) {
+      if (
+        bl.trim().startsWith(fenceMarker[0]) &&
+        bl.trim().length >= fenceMarker.length
+      ) {
         const code = buffer.join("\n").trim();
         if (code) commands.push(code);
         buffer = [];
@@ -151,7 +170,13 @@ export function parseRunbook(content: string): ParsedRunbook {
   let troubleshooting = "";
   let verification = "";
 
-  type SectionKind = "prereq" | "steps" | "rollback" | "troubleshooting" | "verification" | null;
+  type SectionKind =
+    | "prereq"
+    | "steps"
+    | "rollback"
+    | "troubleshooting"
+    | "verification"
+    | null;
   let currentSection: SectionKind = null;
   let sectionLines: string[] = [];
   let sectionStartLine = 0;

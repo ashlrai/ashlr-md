@@ -112,7 +112,11 @@ function ensureEntry(
  * @param tier        0-3
  * @param latencyMs   Wall-clock time from first-token to last-token (ms)
  */
-export function recordSuccess(providerId: string, tier: number, latencyMs: number): void {
+export function recordSuccess(
+  providerId: string,
+  tier: number,
+  latencyMs: number,
+): void {
   const metrics = loadMetrics();
   const entry = ensureEntry(metrics, providerId, tier);
   entry.successCount += 1;

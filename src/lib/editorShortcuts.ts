@@ -118,7 +118,10 @@ export function buildTableMarkdown(rows: number, cols: number): string {
   const sepRow = `| ${sepCells.join(" | ")} |`;
 
   const dataRows = Array.from({ length: r }, (_, rowIdx) => {
-    const cells = Array.from({ length: c }, (_, colIdx) => `Cell ${rowIdx + 1},${colIdx + 1}`);
+    const cells = Array.from(
+      { length: c },
+      (_, colIdx) => `Cell ${rowIdx + 1},${colIdx + 1}`,
+    );
     return `| ${cells.join(" | ")} |`;
   });
 
@@ -166,7 +169,9 @@ export function normaliseUrl(url: string): string {
  */
 export async function extractLinkTitle(
   url: string,
-  invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null,
+  invoke:
+    | ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>)
+    | null = null,
 ): Promise<string | null> {
   // Resolve the real Tauri invoke lazily so the module can be imported in a
   // plain Node / vitest environment without crashing.
@@ -207,7 +212,9 @@ export async function extractLinkTitle(
  */
 export async function buildLinkMarkdown(
   url: string,
-  invoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null,
+  invoke:
+    | ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>)
+    | null = null,
 ): Promise<string> {
   const normUrl = normaliseUrl(url.trim());
   const title = await extractLinkTitle(url, invoke);

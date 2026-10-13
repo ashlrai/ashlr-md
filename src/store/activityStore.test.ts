@@ -37,8 +37,8 @@ vi.mock("./uiStore", () => ({
   useUiStore: { getState: () => ({ activityOpen: false, openActivity: vi.fn() }) },
 }));
 
-import { listMarkdownFiles } from "../lib/activity";
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
+import { listMarkdownFiles } from "../lib/activity";
 import { useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
@@ -133,9 +133,7 @@ describe("activityStore", () => {
   });
 
   it("applyEvent caps the file list at MAX_FILES (200)", () => {
-    const existing = Array.from({ length: 200 }, (_, i) =>
-      makeFile(`file-${i}.md`, i),
-    );
+    const existing = Array.from({ length: 200 }, (_, i) => makeFile(`file-${i}.md`, i));
     useActivityStore.setState({ files: existing });
     useActivityStore.getState().applyEvent(makeEvent("new.md", "created"));
     expect(useActivityStore.getState().files).toHaveLength(200);

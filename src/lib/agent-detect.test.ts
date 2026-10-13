@@ -13,10 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  detectDocKind,
-  parseFrontmatterKind,
-} from "./agent-detect";
+import { detectDocKind, parseFrontmatterKind } from "./agent-detect";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,7 +47,9 @@ describe("parseFrontmatterKind", () => {
   });
 
   it("returns null when frontmatter has no kind key", () => {
-    expect(parseFrontmatterKind("---\ntitle: My Doc\nauthor: Alice\n---\n# Body")).toBeNull();
+    expect(
+      parseFrontmatterKind("---\ntitle: My Doc\nauthor: Alice\n---\n# Body"),
+    ).toBeNull();
   });
 
   it("returns null for empty content", () => {
@@ -63,7 +62,8 @@ describe("parseFrontmatterKind", () => {
   });
 
   it("handles frontmatter with extra fields", () => {
-    const doc = "---\ntitle: My Spec\nauthor: Bob\nkind: spec\ndate: 2025-01-01\n---\n# Body";
+    const doc =
+      "---\ntitle: My Spec\nauthor: Bob\nkind: spec\ndate: 2025-01-01\n---\n# Body";
     expect(parseFrontmatterKind(doc)).toBe("spec");
   });
 
@@ -133,14 +133,12 @@ describe("detectDocKind — plan", () => {
 
 describe("detectDocKind — diff", () => {
   it("detects diff: contains a ```diff block", () => {
-    const doc =
-      "# Changes\n\n```diff\n-old line\n+new line\n```\n";
+    const doc = "# Changes\n\n```diff\n-old line\n+new line\n```\n";
     expect(detectDocKind(doc).kind).toBe("diff");
   });
 
   it("diff counts hunk total", () => {
-    const doc =
-      "```diff\n@@ -1,3 +1,3 @@\n-a\n+b\n@@ -10,2 +10,2 @@\n-c\n+d\n```\n";
+    const doc = "```diff\n@@ -1,3 +1,3 @@\n-a\n+b\n@@ -10,2 +10,2 @@\n-c\n+d\n```\n";
     const info = detectDocKind(doc);
     expect(info.kind).toBe("diff");
     expect(info.hunkTotal).toBe(2);
@@ -164,7 +162,8 @@ describe("detectDocKind — multi-file", () => {
   });
 
   it("does NOT detect multi-file with only 2 file-path headings", () => {
-    const doc = "## src/foo.ts\n\n```ts\nconst a = 1;\n```\n\n## src/bar.ts\n\n```ts\nconst b = 2;\n```\n";
+    const doc =
+      "## src/foo.ts\n\n```ts\nconst a = 1;\n```\n\n## src/bar.ts\n\n```ts\nconst b = 2;\n```\n";
     // Should fall through to another kind or null
     const info = detectDocKind(doc);
     expect(info.kind).not.toBe("multi-file");
@@ -183,8 +182,7 @@ describe("detectDocKind — spec (frontmatter)", () => {
   });
 
   it("spec: extracts acceptance criteria when present", () => {
-    const doc =
-      `${fm("spec")}# Spec\n\n## Requirements\n\nFoo.\n\n## Acceptance Criteria\n\n- [x] Item A passes\n- [ ] Item B passes\n`;
+    const doc = `${fm("spec")}# Spec\n\n## Requirements\n\nFoo.\n\n## Acceptance Criteria\n\n- [x] Item A passes\n- [ ] Item B passes\n`;
     const info = detectDocKind(doc);
     expect(info.kind).toBe("spec");
     expect(info.acceptanceCriteria).toHaveLength(2);
@@ -216,12 +214,14 @@ describe("detectDocKind — spec (frontmatter)", () => {
 
 describe("detectDocKind — spec (structural headings)", () => {
   it("detects spec with ## Requirements + ## Design headings", () => {
-    const doc = "# My Feature\n\n## Requirements\n\nMust do X.\n\n## Design\n\nArchitecture notes.\n";
+    const doc =
+      "# My Feature\n\n## Requirements\n\nMust do X.\n\n## Design\n\nArchitecture notes.\n";
     expect(detectDocKind(doc).kind).toBe("spec");
   });
 
   it("detects spec with ## Design + ## Implementation headings", () => {
-    const doc = "# Feature\n\n## Design\n\nNotes.\n\n## Implementation\n\nCode notes.\n";
+    const doc =
+      "# Feature\n\n## Design\n\nNotes.\n\n## Implementation\n\nCode notes.\n";
     expect(detectDocKind(doc).kind).toBe("spec");
   });
 
@@ -258,8 +258,7 @@ describe("detectDocKind — review (frontmatter)", () => {
   });
 
   it("review frontmatter takes priority over runbook structure", () => {
-    const doc =
-      `${fm("review")}# Review\n\n## Prerequisites\n\nSetup.\n\n## Steps\n\nDo.\n\n\`\`\`bash\necho hi\n\`\`\`\n\n## Rollback\n\nUndo.\n`;
+    const doc = `${fm("review")}# Review\n\n## Prerequisites\n\nSetup.\n\n## Steps\n\nDo.\n\n\`\`\`bash\necho hi\n\`\`\`\n\n## Rollback\n\nUndo.\n`;
     expect(detectDocKind(doc).kind).toBe("review");
   });
 
@@ -275,17 +274,20 @@ describe("detectDocKind — review (frontmatter)", () => {
 
 describe("detectDocKind — review (structural headings)", () => {
   it("detects review with ## Files Changed + ## Summary", () => {
-    const doc = "# PR Review\n\n## Files Changed\n\n- foo.ts\n\n## Summary\n\nLooks good.\n";
+    const doc =
+      "# PR Review\n\n## Files Changed\n\n- foo.ts\n\n## Summary\n\nLooks good.\n";
     expect(detectDocKind(doc).kind).toBe("review");
   });
 
   it("detects review with ## Summary + ## Feedback", () => {
-    const doc = "# Review\n\n## Summary\n\nOverall fine.\n\n## Feedback\n\nSome notes.\n";
+    const doc =
+      "# Review\n\n## Summary\n\nOverall fine.\n\n## Feedback\n\nSome notes.\n";
     expect(detectDocKind(doc).kind).toBe("review");
   });
 
   it("detects review with ## Files Changed + ## Feedback", () => {
-    const doc = "# Review\n\n## Files Changed\n\n- bar.ts\n\n## Feedback\n\nGood work.\n";
+    const doc =
+      "# Review\n\n## Files Changed\n\n- bar.ts\n\n## Feedback\n\nGood work.\n";
     expect(detectDocKind(doc).kind).toBe("review");
   });
 
@@ -301,23 +303,20 @@ describe("detectDocKind — review (structural headings)", () => {
 
 describe("detectDocKind — runbook (frontmatter)", () => {
   it("detects runbook via frontmatter kind: runbook", () => {
-    const doc =
-      `${fm("runbook")}# Deploy Runbook\n\n## Prerequisites\n\n- Node.js\n\n## Steps\n\n1. Run deploy\n`;
+    const doc = `${fm("runbook")}# Deploy Runbook\n\n## Prerequisites\n\n- Node.js\n\n## Steps\n\n1. Run deploy\n`;
     const info = detectDocKind(doc);
     expect(info.kind).toBe("runbook");
   });
 
   it("runbook frontmatter: stepCount is populated", () => {
-    const doc =
-      `${fm("runbook")}# Runbook\n\n## Steps\n\n1. First step\n2. Second step\n3. Third step\n`;
+    const doc = `${fm("runbook")}# Runbook\n\n## Steps\n\n1. First step\n2. Second step\n3. Third step\n`;
     const info = detectDocKind(doc);
     expect(info.kind).toBe("runbook");
     expect(info.stepCount).toBeGreaterThan(0);
   });
 
   it("runbook frontmatter takes priority over spec structure", () => {
-    const doc =
-      `${fm("runbook")}# Doc\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n`;
+    const doc = `${fm("runbook")}# Doc\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n`;
     expect(detectDocKind(doc).kind).toBe("runbook");
   });
 });
@@ -398,8 +397,7 @@ describe("detectDocKind — mixed documents", () => {
 
   it("frontmatter kind overrides all structural signals", () => {
     // Structural signals strongly suggest runbook, but frontmatter says spec
-    const doc =
-      `${fm("spec")}# Doc\n\n## Prerequisites\n\n- Docker\n\n## Steps\n\n1. Deploy\n\n\`\`\`bash\nsh run.sh\n\`\`\`\n\n## Rollback\n\nUndo.\n`;
+    const doc = `${fm("spec")}# Doc\n\n## Prerequisites\n\n- Docker\n\n## Steps\n\n1. Deploy\n\n\`\`\`bash\nsh run.sh\n\`\`\`\n\n## Rollback\n\nUndo.\n`;
     expect(detectDocKind(doc).kind).toBe("spec");
   });
 
@@ -424,7 +422,8 @@ describe("detectDocKind — mixed documents", () => {
 
 describe("detectDocKind — frontmatter edge cases", () => {
   it("ignores frontmatter with invalid YAML-like content (no kind key)", () => {
-    const doc = "---\nthis is not: valid yaml at all!!!\n---\n# Body\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n";
+    const doc =
+      "---\nthis is not: valid yaml at all!!!\n---\n# Body\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n";
     // No kind extracted — falls through to structural detection
     const info = detectDocKind(doc);
     expect(info.kind).toBe("spec"); // structural detection kicks in
@@ -452,7 +451,8 @@ describe("detectDocKind — frontmatter edge cases", () => {
   });
 
   it("handles missing closing --- in frontmatter — no kind extracted", () => {
-    const doc = "---\nkind: spec\ntitle: Unclosed\n# Body\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n";
+    const doc =
+      "---\nkind: spec\ntitle: Unclosed\n# Body\n\n## Requirements\n\nFoo.\n\n## Design\n\nBar.\n";
     expect(parseFrontmatterKind(doc)).toBeNull();
   });
 });

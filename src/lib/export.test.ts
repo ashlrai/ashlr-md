@@ -52,6 +52,7 @@ vi.mock("../store/toastStore", () => ({
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
+import { toast } from "../store/toastStore";
 import {
   buildStandaloneHtml,
   buildStandaloneHtmlWithActiveTemplate,
@@ -60,7 +61,6 @@ import {
   exportHtml,
   exportPdf,
 } from "./export";
-import { toast } from "../store/toastStore";
 
 // ─── DOM fixture helpers ──────────────────────────────────────────────────────
 
@@ -169,9 +169,7 @@ describe("buildStandaloneHtml", () => {
 
   it("sets the document title with HTML-entity escaping", () => {
     const html = buildStandaloneHtml('Doc <Title> & "Test"');
-    expect(html).toContain(
-      "<title>Doc &lt;Title&gt; &amp; &quot;Test&quot;</title>",
-    );
+    expect(html).toContain("<title>Doc &lt;Title&gt; &amp; &quot;Test&quot;</title>");
   });
 
   it("inlines all three CSS bundles (themes, markdown, KaTeX)", () => {
@@ -534,7 +532,9 @@ describe("exportPdf", () => {
     let capturedWrite: string | undefined;
     const mockDoc = {
       open: vi.fn(),
-      write: vi.fn((html: string) => { capturedWrite = html; }),
+      write: vi.fn((html: string) => {
+        capturedWrite = html;
+      }),
       close: vi.fn(),
     };
     const printFn = vi.fn();
@@ -544,12 +544,20 @@ describe("exportPdf", () => {
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag !== "iframe") return origCreate(tag);
       const iframe = origCreate("iframe") as HTMLIFrameElement;
-      Object.defineProperty(iframe, "contentDocument", { get: () => mockDoc, configurable: true });
-      Object.defineProperty(iframe, "contentWindow", { get: () => mockWin, configurable: true });
+      Object.defineProperty(iframe, "contentDocument", {
+        get: () => mockDoc,
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get: () => mockWin,
+        configurable: true,
+      });
       const origAppend = document.body.appendChild.bind(document.body);
       vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
         const r = origAppend(node);
-        setTimeout(() => { if (typeof iframe.onload === "function") (iframe.onload as any)(); }, 0);
+        setTimeout(() => {
+          if (typeof iframe.onload === "function") (iframe.onload as any)();
+        }, 0);
         return r;
       });
       return iframe;
@@ -585,8 +593,14 @@ describe("exportPdf", () => {
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag !== "iframe") return origCreate(tag);
       const iframe = origCreate("iframe") as HTMLIFrameElement;
-      Object.defineProperty(iframe, "contentDocument", { get: () => null, configurable: true });
-      Object.defineProperty(iframe, "contentWindow", { get: () => null, configurable: true });
+      Object.defineProperty(iframe, "contentDocument", {
+        get: () => null,
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get: () => null,
+        configurable: true,
+      });
       const origAppend = document.body.appendChild.bind(document.body);
       vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
         return origAppend(node);
@@ -606,15 +620,25 @@ describe("exportPdf", () => {
       const iframe = origCreate("iframe") as HTMLIFrameElement;
       const mockDoc = {
         open: vi.fn(),
-        write: vi.fn((h: string) => { capturedWrite = h; }),
+        write: vi.fn((h: string) => {
+          capturedWrite = h;
+        }),
         close: vi.fn(),
       };
-      Object.defineProperty(iframe, "contentDocument", { get: () => mockDoc, configurable: true });
-      Object.defineProperty(iframe, "contentWindow", { get: () => ({ print: vi.fn() }), configurable: true });
+      Object.defineProperty(iframe, "contentDocument", {
+        get: () => mockDoc,
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get: () => ({ print: vi.fn() }),
+        configurable: true,
+      });
       const origAppend = document.body.appendChild.bind(document.body);
       vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
         const r = origAppend(node);
-        setTimeout(() => { if (typeof iframe.onload === "function") (iframe.onload as any)(); }, 0);
+        setTimeout(() => {
+          if (typeof iframe.onload === "function") (iframe.onload as any)();
+        }, 0);
         return r;
       });
       return iframe;
@@ -634,15 +658,25 @@ describe("exportPdf", () => {
       const iframe = origCreate("iframe") as HTMLIFrameElement;
       const mockDoc = {
         open: vi.fn(),
-        write: vi.fn((h: string) => { capturedWrite = h; }),
+        write: vi.fn((h: string) => {
+          capturedWrite = h;
+        }),
         close: vi.fn(),
       };
-      Object.defineProperty(iframe, "contentDocument", { get: () => mockDoc, configurable: true });
-      Object.defineProperty(iframe, "contentWindow", { get: () => ({ print: vi.fn() }), configurable: true });
+      Object.defineProperty(iframe, "contentDocument", {
+        get: () => mockDoc,
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get: () => ({ print: vi.fn() }),
+        configurable: true,
+      });
       const origAppend = document.body.appendChild.bind(document.body);
       vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
         const r = origAppend(node);
-        setTimeout(() => { if (typeof iframe.onload === "function") (iframe.onload as any)(); }, 0);
+        setTimeout(() => {
+          if (typeof iframe.onload === "function") (iframe.onload as any)();
+        }, 0);
         return r;
       });
       return iframe;
@@ -739,7 +773,7 @@ describe("buildStandaloneHtml with template", () => {
     const tpl = {
       id: "special",
       name: "Special",
-      css: ':root { --color: color-mix(in srgb, #ff0000 50%, #0000ff); }',
+      css: ":root { --color: color-mix(in srgb, #ff0000 50%, #0000ff); }",
     };
     const html = buildStandaloneHtml("Special CSS", tpl);
     expect(html).toContain("color-mix(in srgb");
@@ -757,7 +791,7 @@ describe("buildStandaloneHtml with template", () => {
   it("HTML-escapes template name in comment to prevent injection", () => {
     const tpl = {
       id: "xss",
-      name: 'Evil <script>alert(1)</script>',
+      name: "Evil <script>alert(1)</script>",
       css: "body{}",
     };
     const html = buildStandaloneHtml("XSS Test", tpl);
@@ -814,7 +848,12 @@ describe("buildStandaloneHtmlWithActiveTemplate", () => {
     mockGetState.mockReturnValue({
       activeTemplateId: "user-custom",
       userTemplates: [
-        { id: "user-custom", name: "Custom", css: "body{font-size:20px}", builtin: false },
+        {
+          id: "user-custom",
+          name: "Custom",
+          css: "body{font-size:20px}",
+          builtin: false,
+        },
       ],
     });
     const html = buildStandaloneHtmlWithActiveTemplate("User Active");
@@ -898,21 +937,25 @@ describe("export template variable substitution and scope isolation", () => {
 
 // ─── Import built-in templates for cross-suite use ───────────────────────────
 
-import { ALL_PROFILE_IDS, BUILTIN_TEMPLATES, type ExportProfileId } from "./exportTemplates";
+import {
+  ALL_PROFILE_IDS,
+  BUILTIN_TEMPLATES,
+  type ExportProfileId,
+} from "./exportTemplates";
 
 // ─── Import new export utilities under test ───────────────────────────────────
 
 import {
-  buildMarkdownArchive,
   buildCanvasGraph,
-  exportMarkdownArchive,
+  buildMarkdownArchive,
   exportCanvasGraph,
+  exportMarkdownArchive,
   exportOutline,
-  type VaultDocDescriptor,
   type OutlineNode,
+  type VaultDocDescriptor,
 } from "./export";
 
-import { buildOutlineTree, buildOpml } from "./exportOutline";
+import { buildOpml, buildOutlineTree } from "./exportOutline";
 
 // ─── Mock documentStore for exportMarkdownArchive ────────────────────────────
 
@@ -999,9 +1042,21 @@ describe("buildMarkdownArchive", () => {
 
 describe("buildCanvasGraph", () => {
   const sampleDocs: VaultDocDescriptor[] = [
-    { path: "/vault/a.md", title: "Alpha", tags: ["tag1"], wordCount: 120, linksTo: ["/vault/b.md"] },
-    { path: "/vault/b.md", title: "Beta",  tags: [],       wordCount: 80,  linksTo: [] },
-    { path: "/vault/c.md", title: "Gamma", tags: ["tag2"], wordCount: 200, linksTo: ["/vault/a.md"] },
+    {
+      path: "/vault/a.md",
+      title: "Alpha",
+      tags: ["tag1"],
+      wordCount: 120,
+      linksTo: ["/vault/b.md"],
+    },
+    { path: "/vault/b.md", title: "Beta", tags: [], wordCount: 80, linksTo: [] },
+    {
+      path: "/vault/c.md",
+      title: "Gamma",
+      tags: ["tag2"],
+      wordCount: 200,
+      linksTo: ["/vault/a.md"],
+    },
   ];
 
   it("produces a node for every document", () => {
@@ -1158,12 +1213,19 @@ describe("exportMarkdownArchive", () => {
       fileName: "my-doc.md",
       content: "# Hello\n\nWorld.",
     });
-    invokeMock.mockResolvedValue({ path: "/vault/my-doc.tar.gz", files: ["my-doc.md"], size: 512 });
+    invokeMock.mockResolvedValue({
+      path: "/vault/my-doc.tar.gz",
+      files: ["my-doc.md"],
+      size: 512,
+    });
     saveMock.mockResolvedValue("/vault/my-doc.tar.gz");
   });
 
   it("calls export_markdown_archive invoke with outputPath and includeAssets", async () => {
-    await exportMarkdownArchive({ outputPath: "/out/archive.tar.gz", includeAssets: true });
+    await exportMarkdownArchive({
+      outputPath: "/out/archive.tar.gz",
+      includeAssets: true,
+    });
     expect(invokeMock).toHaveBeenCalledWith("export_markdown_archive", {
       outputPath: "/out/archive.tar.gz",
       includeAssets: true,
@@ -1210,7 +1272,9 @@ describe("exportMarkdownArchive", () => {
 
   it("shows an error toast and re-throws when invoke fails", async () => {
     invokeMock.mockRejectedValue(new Error("disk error"));
-    await expect(exportMarkdownArchive({ outputPath: "/out/x.tar.gz" })).rejects.toBeDefined();
+    await expect(
+      exportMarkdownArchive({ outputPath: "/out/x.tar.gz" }),
+    ).rejects.toBeDefined();
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
       expect.stringContaining("disk error"),
     );
@@ -1222,7 +1286,10 @@ describe("exportMarkdownArchive", () => {
   });
 
   it("passes includeAssets=false to the invoke call", async () => {
-    await exportMarkdownArchive({ outputPath: "/out/slim.tar.gz", includeAssets: false });
+    await exportMarkdownArchive({
+      outputPath: "/out/slim.tar.gz",
+      includeAssets: false,
+    });
     expect(invokeMock).toHaveBeenCalledWith("export_markdown_archive", {
       outputPath: "/out/slim.tar.gz",
       includeAssets: false,
@@ -1240,7 +1307,11 @@ describe("exportCanvasGraph", () => {
     saveMock.mockReset();
     vi.mocked(toast.success).mockReset();
     vi.mocked(toast.error).mockReset();
-    invokeMock.mockResolvedValue({ path: "/vault/vault-graph.canvas", nodeCount: 5, edgeCount: 3 });
+    invokeMock.mockResolvedValue({
+      path: "/vault/vault-graph.canvas",
+      nodeCount: 5,
+      edgeCount: 3,
+    });
     saveMock.mockResolvedValue("/vault/vault-graph.canvas");
   });
 
@@ -1292,14 +1363,19 @@ describe("exportCanvasGraph", () => {
 
   it("shows an error toast and re-throws when invoke fails", async () => {
     invokeMock.mockRejectedValue(new Error("write failed"));
-    await expect(exportCanvasGraph({ outputPath: "/out/g.canvas" })).rejects.toBeDefined();
+    await expect(
+      exportCanvasGraph({ outputPath: "/out/g.canvas" }),
+    ).rejects.toBeDefined();
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
       expect.stringContaining("write failed"),
     );
   });
 
   it("passes includeIsolated=false to the invoke call", async () => {
-    await exportCanvasGraph({ outputPath: "/out/connected.canvas", includeIsolated: false });
+    await exportCanvasGraph({
+      outputPath: "/out/connected.canvas",
+      includeIsolated: false,
+    });
     expect(invokeMock).toHaveBeenCalledWith("export_canvas_graph", {
       outputPath: "/out/connected.canvas",
       includeIsolated: false,
@@ -1391,9 +1467,7 @@ describe("buildOutlineTree", () => {
   });
 
   it("metadata.startLine matches source line number", () => {
-    const tree = buildOutlineTree([
-      { depth: 1, text: "T", slug: "t", line: 7 },
-    ]);
+    const tree = buildOutlineTree([{ depth: 1, text: "T", slug: "t", line: 7 }]);
     expect(tree[0].metadata.startLine).toBe(7);
   });
 
@@ -1602,7 +1676,8 @@ describe("exportOutline", () => {
     mockDocGetState.mockReturnValue({
       path: "/vault/my-doc.md",
       fileName: "my-doc.md",
-      content: "# Introduction\n\n## Background\n\n## Methods\n\n### Data Collection\n\n# Conclusion\n",
+      content:
+        "# Introduction\n\n## Background\n\n## Methods\n\n### Data Collection\n\n# Conclusion\n",
     });
   });
 
@@ -1784,7 +1859,7 @@ describe("exportOutline", () => {
 
 // ─── Import new profile exports ───────────────────────────────────────────────
 
-import { buildExportHtml, buildBatchExportProfiles, exportWithProfile } from "./export";
+import { buildBatchExportProfiles, buildExportHtml, exportWithProfile } from "./export";
 
 // ════════════════════════════════════════════════════════════════════════════
 // buildExportHtml — profile-specific HTML generation
@@ -1815,7 +1890,9 @@ describe("buildExportHtml — notion-html profile", () => {
     div.innerHTML = PROFILE_FIXTURE_HTML;
     document.body.appendChild(div);
   });
-  afterEach(() => { document.body.innerHTML = ""; });
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
 
   it("produces a valid HTML5 document", () => {
     const html = buildExportHtml("notion-html");
@@ -1911,7 +1988,9 @@ describe("buildExportHtml — notion-html profile", () => {
 
   it("throws for an unknown profile id", () => {
     // biome-ignore lint/suspicious/noExplicitAny: testing bad input
-    expect(() => buildExportHtml("bad-profile" as any)).toThrow(/Unknown export profile/);
+    expect(() => buildExportHtml("bad-profile" as any)).toThrow(
+      /Unknown export profile/,
+    );
   });
 });
 
@@ -1922,7 +2001,9 @@ describe("buildExportHtml — slack-html profile", () => {
     div.innerHTML = PROFILE_FIXTURE_HTML;
     document.body.appendChild(div);
   });
-  afterEach(() => { document.body.innerHTML = ""; });
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
 
   it("produces a valid HTML5 document", () => {
     const html = buildExportHtml("slack-html");
@@ -2001,7 +2082,9 @@ describe("buildExportHtml — email-html profile", () => {
     div.innerHTML = PROFILE_FIXTURE_HTML;
     document.body.appendChild(div);
   });
-  afterEach(() => { document.body.innerHTML = ""; });
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
 
   it("produces a valid HTML5 document", () => {
     const html = buildExportHtml("email-html");
@@ -2144,7 +2227,9 @@ describe("exportWithProfile", () => {
     vi.mocked(toast.success).mockReset();
     vi.mocked(toast.error).mockReset();
   });
-  afterEach(() => { document.body.innerHTML = ""; });
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
 
   it("saves notion-html as .html with correct filter", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
@@ -2268,8 +2353,8 @@ describe("exportWithProfile", () => {
 import {
   buildEpubChapters,
   buildEpubThemeCss,
-  exportEpub,
   type EpubChapter,
+  exportEpub,
 } from "./export";
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2511,7 +2596,9 @@ describe("exportEpub", () => {
   });
 
   it("throws when epub-gen-memory is not installed", async () => {
-    vi.doMock("epub-gen-memory", () => { throw new Error("module not found"); });
+    vi.doMock("epub-gen-memory", () => {
+      throw new Error("module not found");
+    });
     const { exportEpub: fresh } = await import("./export");
     await expect(fresh("Missing")).rejects.toMatch("epub-gen-memory is not installed");
     vi.resetModules();
@@ -2519,7 +2606,9 @@ describe("exportEpub", () => {
 
   it("does nothing when user cancels the save dialog", async () => {
     const fakeBlob = new Blob(["EPUB"], { type: "application/epub+zip" });
-    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    vi.doMock("epub-gen-memory", () => ({
+      default: vi.fn().mockResolvedValue(fakeBlob),
+    }));
     saveMock.mockResolvedValue(null);
 
     const { exportEpub: fresh } = await import("./export");
@@ -2530,7 +2619,9 @@ describe("exportEpub", () => {
 
   it("writes EPUB bytes via write_file_bytes and shows a success toast", async () => {
     const fakeBlob = new Blob(["EPUB content"], { type: "application/epub+zip" });
-    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    vi.doMock("epub-gen-memory", () => ({
+      default: vi.fn().mockResolvedValue(fakeBlob),
+    }));
 
     const { exportEpub: fresh } = await import("./export");
     await fresh("My Book");
@@ -2558,7 +2649,9 @@ describe("exportEpub", () => {
 
   it("requests a .epub file filter in the save dialog", async () => {
     const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
-    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    vi.doMock("epub-gen-memory", () => ({
+      default: vi.fn().mockResolvedValue(fakeBlob),
+    }));
 
     const { exportEpub: fresh } = await import("./export");
     await fresh("Filter Test");
@@ -2574,7 +2667,9 @@ describe("exportEpub", () => {
 
   it("sanitises the title to a safe filename for the save dialog default path", async () => {
     const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
-    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    vi.doMock("epub-gen-memory", () => ({
+      default: vi.fn().mockResolvedValue(fakeBlob),
+    }));
 
     const { exportEpub: fresh } = await import("./export");
     await fresh("Hello World: <Test>/File");
@@ -2588,7 +2683,9 @@ describe("exportEpub", () => {
 
   it("shows an error toast and re-throws when write_file_bytes fails", async () => {
     const fakeBlob = new Blob(["x"], { type: "application/epub+zip" });
-    vi.doMock("epub-gen-memory", () => ({ default: vi.fn().mockResolvedValue(fakeBlob) }));
+    vi.doMock("epub-gen-memory", () => ({
+      default: vi.fn().mockResolvedValue(fakeBlob),
+    }));
     invokeMock.mockRejectedValue(new Error("write failed"));
 
     const { exportEpub: fresh } = await import("./export");
@@ -2774,7 +2871,9 @@ describe("buildExportHtml — github-markdown profile", () => {
   });
 
   it("throws for an unknown profileId", () => {
-    expect(() => buildExportHtml("nonexistent-profile" as ExportProfileId, SAMPLE_BODY)).toThrow();
+    expect(() =>
+      buildExportHtml("nonexistent-profile" as ExportProfileId, SAMPLE_BODY),
+    ).toThrow();
   });
 });
 
@@ -2952,16 +3051,15 @@ describe("buildBatchExportProfiles", () => {
   });
 
   it("slack-rich-markdown result contains 600px layout constraint", async () => {
-    const results = await buildBatchExportProfiles(["slack-rich-markdown"], SAMPLE_BODY);
+    const results = await buildBatchExportProfiles(
+      ["slack-rich-markdown"],
+      SAMPLE_BODY,
+    );
     expect(results[0].html).toContain("600px");
   });
 
   it("partial failure: one bad profile id does not prevent others from succeeding", async () => {
-    const ids = [
-      "github-markdown",
-      "bad-id",
-      "confluence-wiki",
-    ] as ExportProfileId[];
+    const ids = ["github-markdown", "bad-id", "confluence-wiki"] as ExportProfileId[];
     const results = await buildBatchExportProfiles(ids, SAMPLE_BODY);
     expect(results).toHaveLength(3);
     expect(results[0].ok).toBe(true);

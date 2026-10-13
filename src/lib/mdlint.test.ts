@@ -17,19 +17,19 @@ import {
   applyAllFixes,
   applyFix,
   BUILTIN_RULES,
-  lintDocument,
-  LintRange,
-  LintViolation,
-  positionFromOffset,
   BUILTIN_RULES as builtins,
-  ruleNoTrailingSpaces,
-  ruleSingleH1,
+  type LintRange,
+  type LintViolation,
+  lintDocument,
+  positionFromOffset,
   ruleFrontmatterRequired,
   ruleMaxHeadingDepth,
   ruleNoBareUrls,
-  ruleWikilinkTargetsExist,
-  ruleNoEmptyHeadings,
   ruleNoConsecutiveBlankLines,
+  ruleNoEmptyHeadings,
+  ruleNoTrailingSpaces,
+  ruleSingleH1,
+  ruleWikilinkTargetsExist,
 } from "./mdlint";
 
 // ─── 1. LintViolation interface & LintRange encoding ─────────────────────────
@@ -315,7 +315,7 @@ describe("rule:no-bare-urls", () => {
     const violations = lintDocument(doc, { rules: [ruleNoBareUrls] });
     const fixed = applyFix(doc, violations[0]);
     expect(fixed).toContain(`[${url}](${url})`);
-    expect(fixed).not.toMatch(/Visit https?:\/\/[^\[]/);
+    expect(fixed).not.toMatch(/Visit https?:\/\/[^[]/);
   });
 
   it("flags multiple bare URLs in one document", () => {
@@ -476,9 +476,7 @@ describe("rule:no-empty-headings", () => {
 describe("rule:no-consecutive-blank-lines", () => {
   it("passes with single blank lines between sections", () => {
     const doc = "# Title\n\nParagraph one.\n\nParagraph two.\n";
-    expect(
-      lintDocument(doc, { rules: [ruleNoConsecutiveBlankLines] }),
-    ).toHaveLength(0);
+    expect(lintDocument(doc, { rules: [ruleNoConsecutiveBlankLines] })).toHaveLength(0);
   });
 
   it("flags two consecutive blank lines", () => {
@@ -572,7 +570,7 @@ describe("lintDocument", () => {
       "",
       "#### Too deep",
       "",
-      "## Section   ",  // 3 trailing spaces → triggers no-trailing-spaces
+      "## Section   ", // 3 trailing spaces → triggers no-trailing-spaces
       "",
       "[[BrokenLink]]",
       "",

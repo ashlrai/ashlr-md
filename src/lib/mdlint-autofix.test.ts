@@ -15,22 +15,22 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  applyAllFixes,
-  applyFix,
-  BUILTIN_RULES,
-  lintDocument,
-  LINTER_DEFAULT_ENABLED_RULES,
-  ruleInvalidLinkTarget,
-  ruleMissingAltText,
-  ruleNoTrailingSpaces,
-  ruleOrphanedHeading,
-} from "./mdlint";
-import {
   clearLintHistory,
   getLintHistory,
   type LintHistoryEntry,
 } from "../components/LinterToast";
 import { useSettingsStore } from "../store/settingsStore";
+import {
+  applyAllFixes,
+  applyFix,
+  BUILTIN_RULES,
+  LINTER_DEFAULT_ENABLED_RULES,
+  lintDocument,
+  ruleInvalidLinkTarget,
+  ruleMissingAltText,
+  ruleNoTrailingSpaces,
+  ruleOrphanedHeading,
+} from "./mdlint";
 
 // ─── 1. Rule: orphaned-heading ────────────────────────────────────────────────
 
@@ -66,7 +66,9 @@ describe("rule:orphaned-heading", () => {
     const violations = lintDocument(doc, { rules: [ruleOrphanedHeading] });
     // A → B orphaned, B → C orphaned, C has body
     expect(violations).toHaveLength(2);
-    expect(violations.map((v) => v.ruleId).every((id) => id === "orphaned-heading")).toBe(true);
+    expect(
+      violations.map((v) => v.ruleId).every((id) => id === "orphaned-heading"),
+    ).toBe(true);
   });
 
   it("has no autofix (user must add content or remove heading)", () => {
@@ -225,22 +227,28 @@ describe("chained violations and multi-line fixes", () => {
   });
 
   it("fixes all four default-enabled rule violations in one pass", () => {
-    const doc = [
-      "# Section A   ",  // trailing spaces (3 = not hard-break)
-      "",
-      "## Section B", // orphaned heading (no body before ## C)
-      "",
-      "## Section C",
-      "",
-      "Body text.",
-      "",
-      "See ![](chart.png) for data.",
-      "",
-      "Contact [us]() for more.",
-    ].join("\n") + "\n";
+    const doc =
+      [
+        "# Section A   ", // trailing spaces (3 = not hard-break)
+        "",
+        "## Section B", // orphaned heading (no body before ## C)
+        "",
+        "## Section C",
+        "",
+        "Body text.",
+        "",
+        "See ![](chart.png) for data.",
+        "",
+        "Contact [us]() for more.",
+      ].join("\n") + "\n";
 
     const violations = lintDocument(doc, {
-      rules: [ruleNoTrailingSpaces, ruleOrphanedHeading, ruleMissingAltText, ruleInvalidLinkTarget],
+      rules: [
+        ruleNoTrailingSpaces,
+        ruleOrphanedHeading,
+        ruleMissingAltText,
+        ruleInvalidLinkTarget,
+      ],
     });
 
     // trailing-space on line 1, orphaned-heading on Section A (→ Section B), missing-alt, invalid-link
@@ -248,7 +256,7 @@ describe("chained violations and multi-line fixes", () => {
 
     const fixed = applyAllFixes(doc, violations);
     // Trailing spaces removed
-    expect(fixed).not.toMatch(/Section A   \n/);
+    expect(fixed).not.toMatch(/Section A {3}\n/);
     // Missing alt text fixed
     expect(fixed).toContain("![TODO: describe image](chart.png)");
     // Invalid link fixed
@@ -349,7 +357,9 @@ describe("settingsStore — linterConfig", () => {
   });
 
   it("toggleLinterRule re-enables a disabled rule", () => {
-    useSettingsStore.setState({ linterConfig: { disabledRules: ["no-trailing-spaces"] } });
+    useSettingsStore.setState({
+      linterConfig: { disabledRules: ["no-trailing-spaces"] },
+    });
     useSettingsStore.getState().toggleLinterRule("no-trailing-spaces");
     const { linterConfig } = useSettingsStore.getState();
     expect(linterConfig.disabledRules).not.toContain("no-trailing-spaces");
@@ -455,22 +465,28 @@ describe("edge cases", () => {
   });
 
   it("all four default rules can run together on a messy document", () => {
-    const doc = [
-      "# Heading A   ",       // trailing spaces
-      "",
-      "## Heading B",          // orphaned heading (followed by Heading C)
-      "",
-      "## Heading C",
-      "",
-      "Body paragraph.",
-      "",
-      "Visit ![](chart.png).", // missing alt
-      "",
-      "Contact [us]().",       // invalid link target
-    ].join("\n") + "\n";
+    const doc =
+      [
+        "# Heading A   ", // trailing spaces
+        "",
+        "## Heading B", // orphaned heading (followed by Heading C)
+        "",
+        "## Heading C",
+        "",
+        "Body paragraph.",
+        "",
+        "Visit ![](chart.png).", // missing alt
+        "",
+        "Contact [us]().", // invalid link target
+      ].join("\n") + "\n";
 
     const violations = lintDocument(doc, {
-      rules: [ruleNoTrailingSpaces, ruleOrphanedHeading, ruleMissingAltText, ruleInvalidLinkTarget],
+      rules: [
+        ruleNoTrailingSpaces,
+        ruleOrphanedHeading,
+        ruleMissingAltText,
+        ruleInvalidLinkTarget,
+      ],
     });
 
     const ids = new Set(violations.map((v) => v.ruleId));

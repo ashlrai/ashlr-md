@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { memoryBlock, useMemoryStore, useConversationStore } from "./memoryStore";
+import { memoryBlock, useConversationStore, useMemoryStore } from "./memoryStore";
 
 beforeEach(() => {
   useMemoryStore.setState({ items: [] });
@@ -91,11 +91,9 @@ describe("useConversationStore — session lifecycle", () => {
 
   it("appendMessage records citedDocs", () => {
     useConversationStore.getState().startSession("s3");
-    const msg = useConversationStore.getState().appendMessage(
-      "agent",
-      "Rewrote intro",
-      ["/docs/intro.md"],
-    );
+    const msg = useConversationStore
+      .getState()
+      .appendMessage("agent", "Rewrote intro", ["/docs/intro.md"]);
     expect(msg!.citedDocs).toEqual(["/docs/intro.md"]);
   });
 
@@ -189,7 +187,10 @@ describe("useConversationStore — session lifecycle", () => {
         timestampMs: Date.now() - 1000,
       },
     ];
-    useConversationStore.setState({ messages: priorMessages, currentSessionId: "extend-me" });
+    useConversationStore.setState({
+      messages: priorMessages,
+      currentSessionId: "extend-me",
+    });
 
     useConversationStore.getState().appendMessage("agent", "new step");
     const ctx = useConversationStore.getState().getContext(10);

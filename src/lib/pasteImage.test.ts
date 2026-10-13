@@ -40,7 +40,10 @@ import { clipboardHasImage, handleImagePaste } from "./pasteImage";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Build a minimal DataTransferItem for a given MIME kind. */
-function makeItem(mimeType: string, kind: "file" | "string" = "file"): DataTransferItem {
+function makeItem(
+  mimeType: string,
+  kind: "file" | "string" = "file",
+): DataTransferItem {
   return {
     kind,
     type: mimeType,
@@ -115,15 +118,21 @@ describe("clipboardHasImage", () => {
   });
 
   it("returns false for text/plain", () => {
-    expect(clipboardHasImage(makeDataTransfer(makeItem("text/plain", "string")))).toBe(false);
+    expect(clipboardHasImage(makeDataTransfer(makeItem("text/plain", "string")))).toBe(
+      false,
+    );
   });
 
   it("returns false for application/pdf", () => {
-    expect(clipboardHasImage(makeDataTransfer(makeItem("application/pdf")))).toBe(false);
+    expect(clipboardHasImage(makeDataTransfer(makeItem("application/pdf")))).toBe(
+      false,
+    );
   });
 
   it("returns false for text/html", () => {
-    expect(clipboardHasImage(makeDataTransfer(makeItem("text/html", "string")))).toBe(false);
+    expect(clipboardHasImage(makeDataTransfer(makeItem("text/html", "string")))).toBe(
+      false,
+    );
   });
 
   it("returns false for unknown image/* subtype (image/bmp not in allowlist)", () => {
@@ -337,7 +346,9 @@ describe("handleImagePaste", () => {
     const dt = makeDataTransfer(makeItem("image/png"));
     const result = await handleImagePaste(dt);
     expect(result).toBeNull();
-    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("write failed"));
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("write failed"),
+    );
   });
 
   it("does not throw to the caller when the Rust command fails", async () => {
@@ -419,7 +430,9 @@ describe("handleImagePasteWithSettings — doc-relative mode", () => {
     const dt = makeDataTransfer(makeItem("image/png"));
     const result = await handleImagePasteWithSettings(dt, "doc-relative");
     expect(result).toBeNull();
-    expect(toastInfoMock).toHaveBeenCalledWith(expect.stringContaining("Save the document"));
+    expect(toastInfoMock).toHaveBeenCalledWith(
+      expect.stringContaining("Save the document"),
+    );
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
@@ -432,7 +445,9 @@ describe("handleImagePasteWithSettings — doc-relative mode", () => {
     const dt = makeDataTransfer(makeItem("image/png"));
     const result = await handleImagePasteWithSettings(dt, "doc-relative");
     expect(result).toBeNull();
-    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("no space left"));
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("no space left"),
+    );
   });
 });
 
@@ -452,7 +467,10 @@ describe("handleImagePasteWithSettings — downloads mode", () => {
       "save_pasted_image_to_downloads",
       expect.any(Object),
     );
-    expect(invokeMock).not.toHaveBeenCalledWith("save_pasted_image", expect.any(Object));
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "save_pasted_image",
+      expect.any(Object),
+    );
   });
 
   it("does NOT require a saved document in downloads mode", async () => {
@@ -516,7 +534,11 @@ describe("expectedSavePath", () => {
   });
 
   it("doc-relative path with nested doc directory", () => {
-    const p = expectedSavePath("/vault/projects/2024/notes.md", "shot.webp", "doc-relative");
+    const p = expectedSavePath(
+      "/vault/projects/2024/notes.md",
+      "shot.webp",
+      "doc-relative",
+    );
     expect(p).toBe("/vault/projects/2024/assets/shot.webp");
   });
 

@@ -19,8 +19,8 @@ import {
   applyFix,
   BUILTIN_RULES,
   LINTER_DEFAULT_ENABLED_RULES,
-  lintDocument,
   type LintViolation,
+  lintDocument,
 } from "../lib/mdlint";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -79,7 +79,10 @@ function ChevronIcon({ open }: { open: boolean }) {
       aria-hidden="true"
       width="12"
       height="12"
-      style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+      style={{
+        transform: open ? "rotate(180deg)" : "rotate(0deg)",
+        transition: "transform 0.15s",
+      }}
     >
       <path
         d="M2.5 4.5l3.5 3 3.5-3"
@@ -225,7 +228,8 @@ export function LinterToast({
           <WrenchIcon />
         </span>
         <span className="linter-toast__title">
-          {violations.length} linter {violations.length === 1 ? "suggestion" : "suggestions"}
+          {violations.length} linter{" "}
+          {violations.length === 1 ? "suggestion" : "suggestions"}
         </span>
         {fixableCount > 1 && (
           <button
@@ -241,7 +245,9 @@ export function LinterToast({
           type="button"
           className="linter-toast__toggle"
           aria-expanded={expanded}
-          aria-label={expanded ? "Collapse linter suggestions" : "Expand linter suggestions"}
+          aria-label={
+            expanded ? "Collapse linter suggestions" : "Expand linter suggestions"
+          }
           onClick={() => setExpanded((e) => !e)}
         >
           <ChevronIcon open={expanded} />
@@ -258,18 +264,19 @@ export function LinterToast({
 
       {/* Violation list */}
       {expanded && (
-        <ul className="linter-toast__list" role="list">
-          {visible.map((v, i) => (
-            <li key={`${v.ruleId}-${i}`} className="linter-toast__item">
+        <ul className="linter-toast__list">
+          {visible.map((v) => (
+            <li
+              key={`${v.ruleId}-${v.range?.from.offset ?? "doc"}-${v.message}`}
+              className="linter-toast__item"
+            >
               <span
                 className="linter-toast__severity"
                 style={{ color: severityColor(v.severity) }}
                 aria-label={v.severity}
               />
               <span className="linter-toast__message">
-                {v.range
-                  ? `Line ${v.range.from.line}: ${v.message}`
-                  : v.message}
+                {v.range ? `Line ${v.range.from.line}: ${v.message}` : v.message}
               </span>
               {v.fix && (
                 <button
