@@ -5,14 +5,24 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs for the same PR; never cancel main.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
-  # macOS check: JS quality gates + Rust workspace check.
-  # This is the primary check job and runs the full suite.
+  # Linux: the fast gate. All OS-agnostic JS quality gates (typecheck, Biome,
+  # unit tests, frontend build), dependency audits, and a Linux Rust check.
+  # Moved here from macOS: identical coverage on a runner ~10x cheaper, and
+  # lint/type errors now fail in ~2 min without waiting on a Mac.
   # ---------------------------------------------------------------------------
-  check-macos:
-    name: Check (macOS)
-    runs-on: macos-14
+  check-linux:
+    name: Check (Linux)
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -21,16 +31,12 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
+      - name: Cache Bun install
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-r2-${{ hashFiles('src-tauri/Cargo.lock') }}
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'bun.lockb') }}
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
@@ -44,8 +50,7 @@ jobs:
       - name: Unit tests
         run: bun run test
 
-      # Surface known-vulnerable JS dependencies. Soft-gated (continue-on-error)
-      # so an upstream advisory annotates the run without blocking unrelated PRs.
+      # Soft-gated so an upstream advisory annotates without blocking.
       - name: Audit JS dependencies
         run: bun audit
         continue-on-error: true
@@ -53,52 +58,14 @@ jobs:
       - name: Frontend build
         run: bunx vite build
 
-      # tauri-build validates that bundle.resources paths exist at compile
-      # time. The check job only type-checks Rust (it doesn't bundle), so
-      # create empty stand-ins for the sidecars the macOS config references.
-      - name: Stub sidecar binaries (resource existence check)
-        run: |
-          mkdir -p src-tauri/target/release
-          touch src-tauri/target/release/mdopen \
-                src-tauri/target/release/mdopener-mcp \
-                src-tauri/target/release/mdopener-afm \
-                src-tauri/target/release/mdopener-setdefault
-
-      - name: Rust check (workspace)
-        run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
-
-      - name: Rust clippy (workspace)
-        run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
-      # Audit Rust dependencies for known CVEs. Soft-gated like the JS audit.
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-        continue-on-error: true
-
-      - name: Audit Rust dependencies
-        run: cargo audit --file src-tauri/Cargo.lock
-        continue-on-error: true
-
-  # ---------------------------------------------------------------------------
-  # Linux check: catches cross-platform Rust compile breakage on PRs cheaply.
-  # Runs only `cargo check` (no JS/Swift) against the Linux target.
-  # ---------------------------------------------------------------------------
-  check-linux:
-    name: Check (Linux)
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      # Caches ~/.cargo AND src-tauri/target (previously only the registry was
+      # cached, so every run recompiled the whole Tauri tree).
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-r2-${{ hashFiles('src-tauri/Cargo.lock') }}
+          workspaces: src-tauri
 
       # Tauri 2 Linux prerequisites — required for tauri-build to compile.
       - name: Install Linux system dependencies
@@ -116,9 +83,6 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      # tauri-build validates bundle.resources existence at compile time; the
-      # Linux config references only the two Rust sidecars. Stub them so the
-      # type-check proceeds without a full sidecar build.
       - name: Stub sidecar binaries (resource existence check)
         run: |
           mkdir -p src-tauri/target/release
@@ -127,3 +91,52 @@ jobs:
 
       - name: Rust check (workspace)
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
+
+      # Cargo.lock is platform-independent, so the CVE audit runs once here
+      # (prebuilt binary, seconds) instead of `cargo install` on macOS.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+        continue-on-error: true
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file src-tauri/Cargo.lock
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # macOS: only what needs macOS — the macOS-target Rust check and clippy
+  # (Swift/AFM sidecars, macOS-only cfg code). JS gates run on Linux above.
+  # ---------------------------------------------------------------------------
+  check-macos:
+    name: Check (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # tauri-build validates bundle.resources paths exist at compile time.
+      - name: Stub sidecar binaries (resource existence check)
+        run: |
+          mkdir -p src-tauri/target/release
+          touch src-tauri/target/release/mdopen \
+                src-tauri/target/release/mdopener-mcp \
+                src-tauri/target/release/mdopener-afm \
+                src-tauri/target/release/mdopener-setdefault
+          # The frontend is built on Linux; give tauri's context codegen a
+          # placeholder frontendDist so the macOS Rust check stays standalone.
+          mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
+
+      - name: Rust check (workspace)
+        run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
+
+      - name: Rust clippy (workspace)
+        run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
