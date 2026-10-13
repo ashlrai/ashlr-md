@@ -2,14 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import {
   apply,
-  classifySection,
-  offsetToLineCol,
-  resolveConflict,
-  transformCursor,
   type CursorPosition,
+  classifySection,
   type EditSource,
   type OtLogEntry,
   type OtOperation,
+  offsetToLineCol,
+  resolveConflict,
+  transformCursor,
 } from "../lib/ot";
 import { useOtLogStore } from "./memoryStore";
 import { useRecentStore } from "./recentStore";
@@ -334,7 +334,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // Determine the section at the operation's first non-retain position.
       let editOffset = 0;
       for (const c of op.components) {
-        if (c.type === "retain") { editOffset += c.count; continue; }
+        if (c.type === "retain") {
+          editOffset += c.count;
+          continue;
+        }
         break;
       }
       const section = classifySection(s.content, editOffset);
@@ -400,7 +403,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setRemoteCursor: (agentId, offset) => {
     const s = get();
     const { line, col } = offsetToLineCol(s.content, offset);
-    const cursor: CursorPosition = { agentId, offset, line, col, updatedAt: Date.now() };
+    const cursor: CursorPosition = {
+      agentId,
+      offset,
+      line,
+      col,
+      updatedAt: Date.now(),
+    };
     set((cur) => ({ remoteCursors: { ...cur.remoteCursors, [agentId]: cursor } }));
   },
 

@@ -9,7 +9,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useDocumentStore } from "../../store/documentStore";
-import { applyUniqueEdit, computeStreamEditDiff, applyEditAtOccurrence } from "../applyEdit";
+import {
+  applyEditAtOccurrence,
+  applyUniqueEdit,
+  computeStreamEditDiff,
+} from "../applyEdit";
 import type {
   AtomicEditFileResult,
   AtomicEditsPayload,
@@ -112,7 +116,8 @@ export function handleBatchEdit(syncNow: () => void): Promise<UnlistenFn> {
         });
         opResults.push(...diskResults);
       } catch (err) {
-        const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        const errStr =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         for (const op of diskOps) {
           opResults.push({ path: op.path, ok: false, replaced: 0, error: errStr });
         }
@@ -125,7 +130,9 @@ export function handleBatchEdit(syncNow: () => void): Promise<UnlistenFn> {
       ok: allOk,
       results: opResults,
       error: allOk ? null : "One or more edits failed — see per-file results.",
-    }).catch(() => {/* non-fatal */});
+    }).catch(() => {
+      /* non-fatal */
+    });
   });
 }
 
@@ -145,7 +152,9 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
         ok,
         results,
         error,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     };
 
     if (!entries || entries.length === 0) {
@@ -206,7 +215,12 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
     if (order.length !== entries.length) {
       await reply(
         false,
-        entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: "Dependency cycle detected" })),
+        entries.map((en) => ({
+          path: en.path,
+          ok: false,
+          replaced: 0,
+          error: "Dependency cycle detected",
+        })),
         "Dependency cycle in metadata.dependsOn — cannot determine apply order",
       );
       return;
@@ -227,12 +241,14 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
 
     if (diskPaths.length > 0) {
       try {
-        const diskResults = await invoke<Array<{
-          path: string;
-          ok: boolean;
-          content?: string;
-          error?: string;
-        }>>("read_batch_files", { paths: diskPaths });
+        const diskResults = await invoke<
+          Array<{
+            path: string;
+            ok: boolean;
+            content?: string;
+            error?: string;
+          }>
+        >("read_batch_files", { paths: diskPaths });
         for (const r of diskResults) {
           if (r.ok && r.content !== undefined) {
             contentMap.set(r.path, r.content);
@@ -243,7 +259,10 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
                 path: en.path,
                 ok: false,
                 replaced: 0,
-                error: en.path === r.path ? (r.error ?? "Could not read file") : "Aborted — another file in batch could not be read",
+                error:
+                  en.path === r.path
+                    ? (r.error ?? "Could not read file")
+                    : "Aborted — another file in batch could not be read",
               })),
               `Could not read file ${r.path}: ${r.error ?? "unknown error"}`,
             );
@@ -251,10 +270,16 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
           }
         }
       } catch (err) {
-        const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        const errStr =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         await reply(
           false,
-          entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: errStr })),
+          entries.map((en) => ({
+            path: en.path,
+            ok: false,
+            replaced: 0,
+            error: errStr,
+          })),
           `Batch file read failed: ${errStr}`,
         );
         return;
@@ -294,7 +319,11 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
           };
         }
       }
-      await reply(false, editResults, "One or more edits failed — transaction rolled back, no files written");
+      await reply(
+        false,
+        editResults,
+        "One or more edits failed — transaction rolled back, no files written",
+      );
       return;
     }
 
@@ -308,11 +337,13 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
 
     if (batchEntries.length > 0) {
       try {
-        const writeResults = await invoke<Array<{
-          path: string;
-          ok: boolean;
-          error?: string | null;
-        }>>("apply_atomic_batch", { entries: batchEntries });
+        const writeResults = await invoke<
+          Array<{
+            path: string;
+            ok: boolean;
+            error?: string | null;
+          }>
+        >("apply_atomic_batch", { entries: batchEntries });
 
         for (const wr of writeResults) {
           if (!wr.ok) {
@@ -322,9 +353,10 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
                 path: en.path,
                 ok: false,
                 replaced: 0,
-                error: en.path === wr.path
-                  ? (wr.error ?? "Write failed")
-                  : "Rolled back — another file in batch failed to write",
+                error:
+                  en.path === wr.path
+                    ? (wr.error ?? "Write failed")
+                    : "Rolled back — another file in batch failed to write",
               })),
               `Atomic write failed for ${wr.path}: ${wr.error ?? "unknown error"}`,
             );
@@ -332,10 +364,16 @@ export function handleAtomicEdits(syncNow: () => void): Promise<UnlistenFn> {
           }
         }
       } catch (err) {
-        const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        const errStr =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         await reply(
           false,
-          entries.map((en) => ({ path: en.path, ok: false, replaced: 0, error: errStr })),
+          entries.map((en) => ({
+            path: en.path,
+            ok: false,
+            replaced: 0,
+            error: errStr,
+          })),
           `Atomic batch write failed: ${errStr}`,
         );
         return;
@@ -379,7 +417,9 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
           matchCount: 0,
           previewLines,
           error: `Path mismatch: '${assertPath}' is not the currently open document.`,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
         return;
       }
     }
@@ -400,22 +440,29 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         matchCount: outcome.ok ? 1 : 0,
         previewLines,
         error: outcome.error ?? null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
       return;
     }
 
     const label = useDocumentStore.getState().path ?? "document";
-    const result = computeStreamEditDiff(liveContent, find, replace, previewLines, label);
+    const result = computeStreamEditDiff(
+      liveContent,
+      find,
+      replace,
+      previewLines,
+      label,
+    );
 
-    const candidates: StreamEditCandidateResult[] | null =
-      result.candidates
-        ? result.candidates.map((c) => ({
-            matchIndex: c.matchIndex,
-            startLine: c.startLine,
-            diff: c.diff,
-            rank: c.rank,
-          }))
-        : null;
+    const candidates: StreamEditCandidateResult[] | null = result.candidates
+      ? result.candidates.map((c) => ({
+          matchIndex: c.matchIndex,
+          startLine: c.startLine,
+          diff: c.diff,
+          rank: c.rank,
+        }))
+      : null;
 
     await invoke("mcp_stream_edit_preview", {
       editId,
@@ -425,7 +472,9 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
       matchCount: result.matchCount,
       previewLines,
       error: result.error ?? null,
-    }).catch(() => {/* non-fatal */});
+    }).catch(() => {
+      /* non-fatal */
+    });
   });
 }
 
@@ -444,7 +493,9 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
           replaced: 0,
           matchIndex,
           error: `Path mismatch: '${assertPath}' is not the currently open document.`,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
         return;
       }
     }
@@ -463,7 +514,9 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         replaced: 0,
         matchIndex,
         error: "`find` is required in stream-edit-apply payload.",
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
       return;
     }
 
@@ -484,7 +537,9 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         replaced: outcome.replaced,
         matchIndex,
         error: outcome.error ?? null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
       await invoke("mcp_stream_edit_apply_result", {
         editId,
@@ -492,7 +547,9 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         replaced: 0,
         matchIndex,
         error: `stream-edit-apply failed: ${String(err)}`,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }

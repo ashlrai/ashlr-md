@@ -87,13 +87,22 @@ async function applyHunk(
     if (!op) {
       const occurrences = content.split(hunk.find).length - 1;
       if (occurrences === 0) {
-        return { ok: false, message: "Patch not found — the document may have already changed." };
+        return {
+          ok: false,
+          message: "Patch not found — the document may have already changed.",
+        };
       }
-      return { ok: false, message: "Patch anchor is ambiguous — include more context lines." };
+      return {
+        ok: false,
+        message: "Patch anchor is ambiguous — include more context lines.",
+      };
     }
     const applied = store.applyOp(op);
     if (!applied) {
-      return { ok: false, message: "Apply failed — OT op was inconsistent with document state." };
+      return {
+        ok: false,
+        message: "Apply failed — OT op was inconsistent with document state.",
+      };
     }
     await store.save();
     return { ok: true, message: "Hunk applied" };
@@ -101,7 +110,10 @@ async function applyHunk(
 
   // File-patch path
   if (!store.path) {
-    return { ok: false, message: "Open a document first so the patch target can be located." };
+    return {
+      ok: false,
+      message: "Open a document first so the patch target can be located.",
+    };
   }
   const sep = store.path.includes("\\") ? "\\" : "/";
   const baseDir = store.path.slice(0, store.path.lastIndexOf(sep)) || sep;
@@ -318,7 +330,7 @@ describe("buildCopyText (hunk copy content)", () => {
     const text = buildCopyText(hunk);
     expect(text).toContain("-const x = 1;");
     expect(text).toContain("+const x = 2;");
-    const rawLines = text.split("\n").filter((l) => !l.match(/^[@\s+\-]/));
+    const rawLines = text.split("\n").filter((l) => !l.match(/^[@\s+-]/));
     expect(rawLines.filter((l) => l.length > 0)).toHaveLength(0);
   });
 
@@ -330,11 +342,14 @@ describe("buildCopyText (hunk copy content)", () => {
   });
 
   it("copy text for 5-hunk diff has correct header for each hunk", () => {
-    const chunks = Array.from({ length: 5 }, (_, i) => `@@ -${i * 10 + 1},3 +${i * 10 + 1},3 @@
+    const chunks = Array.from(
+      { length: 5 },
+      (_, i) => `@@ -${i * 10 + 1},3 +${i * 10 + 1},3 @@
  ctx
 -old${i}
 +new${i}
- ctx`).join("\n");
+ ctx`,
+    ).join("\n");
     const diff = `--- a/many.ts\n+++ b/many.ts\n${chunks}\n`;
     const hunks = parseDiffHunks(diff);
     expect(hunks).toHaveLength(5);
@@ -530,7 +545,8 @@ describe("applyHunk — path confinement invariants", () => {
 
 describe("multi-hunk sequence application", () => {
   it("each hunk in a 3-hunk diff produces an independent OT op", () => {
-    const threeHunks = `--- a/f.ts\n+++ b/f.ts\n` +
+    const threeHunks =
+      `--- a/f.ts\n+++ b/f.ts\n` +
       `@@ -1,3 +1,3 @@\n ctx\n-a1\n+A1\n ctx\n` +
       `@@ -10,3 +10,3 @@\n ctx\n-b2\n+B2\n ctx\n` +
       `@@ -20,3 +20,3 @@\n ctx\n-c3\n+C3\n ctx\n`;

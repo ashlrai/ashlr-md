@@ -18,17 +18,18 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { useDocumentStore } from "../store/documentStore";
 // Vite ?raw imports — each resolves to the full CSS text at build time.
 import katexCss from "katex/dist/katex.min.css?raw";
+import { useDocumentStore } from "../store/documentStore";
+import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { findTemplate, findProfile, ALL_PROFILE_IDS } from "./exportTemplates";
-import type { ExportTemplate, ExportProfileId } from "./exportTemplates";
-import { useSettingsStore } from "../store/settingsStore";
+import { buildOpml, buildOutlineTree } from "./exportOutline";
+import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
+import { ALL_PROFILE_IDS, findProfile, findTemplate } from "./exportTemplates";
 import { parseHeadings } from "./outline";
-import { buildOutlineTree, buildOpml } from "./exportOutline";
+
 export type { OutlineNode } from "./exportOutline";
 
 // ─── EPUB theme CSS ──────────────────────────────────────────────────────────
@@ -41,7 +42,10 @@ export type { OutlineNode } from "./exportOutline";
  * so the document looks intentional regardless of reading app defaults.
  */
 export function buildEpubThemeCss(theme: string): string {
-  const themeVars: Record<string, { bg: string; text: string; code: string; border: string }> = {
+  const themeVars: Record<
+    string,
+    { bg: string; text: string; code: string; border: string }
+  > = {
     paper: {
       bg: "#ffffff",
       text: "#1a1a1a",
@@ -617,10 +621,9 @@ export async function exportEpub(title: string): Promise<void> {
  * Internally delegates to the Rust `export_markdown_archive` command which
  * reads the vault state and packs assets.
  */
-export async function exportMarkdownArchive(options: {
-  outputPath?: string;
-  includeAssets?: boolean;
-} = {}): Promise<string> {
+export async function exportMarkdownArchive(
+  options: { outputPath?: string; includeAssets?: boolean } = {},
+): Promise<string> {
   const { outputPath, includeAssets = true } = options;
 
   let dest = outputPath;
@@ -666,10 +669,9 @@ export async function exportMarkdownArchive(options: {
  * Agents can use the canvas to visualise vault topology and re-import it into
  * graph-based note-taking tools.
  */
-export async function exportCanvasGraph(options: {
-  outputPath?: string;
-  includeIsolated?: boolean;
-} = {}): Promise<string> {
+export async function exportCanvasGraph(
+  options: { outputPath?: string; includeIsolated?: boolean } = {},
+): Promise<string> {
   const { outputPath, includeIsolated = true } = options;
 
   let dest = outputPath;
@@ -912,7 +914,8 @@ export async function exportOutline(options: {
   // Build the outline from the Markdown source.
   const headings = parseHeadings(content);
   const tree = buildOutlineTree(headings);
-  const title = (fileName ?? "outline").replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "outline";
+  const title =
+    (fileName ?? "outline").replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "outline";
 
   // Serialise to the requested format.
   let text: string;
@@ -930,9 +933,10 @@ export async function exportOutline(options: {
   if (!dest) {
     const chosen = await save({
       defaultPath: `${sanitizeFileName(title)}-outline.${ext}`,
-      filters: format === "opml"
-        ? [{ name: "OPML Outline", extensions: ["opml"] }]
-        : [{ name: "JSON Outline", extensions: ["json"] }],
+      filters:
+        format === "opml"
+          ? [{ name: "OPML Outline", extensions: ["opml"] }]
+          : [{ name: "JSON Outline", extensions: ["json"] }],
     });
     if (!chosen) return ""; // user cancelled — no toast
     dest = chosen;
@@ -984,9 +988,7 @@ export function buildExportHtml(profileId: ExportProfileId, content?: string): s
   // block (many email clients strip <style>).  We do a best-effort inline pass
   // for the most impactful properties.
   const processedBody =
-    profileId === "email-html"
-      ? inlineEmailStyles(bodyHtml)
-      : bodyHtml;
+    profileId === "email-html" ? inlineEmailStyles(bodyHtml) : bodyHtml;
 
   return `<!doctype html>
 <html lang="en" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
@@ -1038,28 +1040,66 @@ ${processedBody}
 function inlineEmailStyles(html: string): string {
   // Replace the body fragment via regex-based inline style injection.
   // Order: most specific patterns first.
-  return html
-    // Tables: add class for the email profile table rules + cellpadding/spacing reset
-    .replace(/<table(?![^>]*class="content-table")/gi, '<table class="content-table" cellpadding="0" cellspacing="0"')
-    // Headings
-    .replace(/<h1(\s|>)/gi, '<h1 style="font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;"$1')
-    .replace(/<h2(\s|>)/gi, '<h2 style="font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;"$1')
-    .replace(/<h3(\s|>)/gi, '<h3 style="font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;"$1')
-    .replace(/<h4(\s|>)/gi, '<h4 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
-    .replace(/<h5(\s|>)/gi, '<h5 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
-    .replace(/<h6(\s|>)/gi, '<h6 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1')
-    // Paragraphs
-    .replace(/<p(\s|>)/gi, '<p style="margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;"$1')
-    // Links
-    .replace(/<a(\s)/gi, '<a style="color:#0066cc;text-decoration:underline;"$1')
-    // Inline code (not inside pre)
-    .replace(/<code(\s|>)/gi, '<code style="font-family:\'Courier New\',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;"$1')
-    // Pre blocks (reset code inside pre)
-    .replace(/<pre(\s|>)/gi, '<pre style="background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:\'Courier New\',Courier,monospace;font-size:13px;line-height:1.5;"$1')
-    // Blockquotes
-    .replace(/<blockquote(\s|>)/gi, '<blockquote style="border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;"$1')
-    // Images — preserve data URIs, add responsive max-width
-    .replace(/<img(\s)/gi, '<img style="max-width:100%;height:auto;display:block;margin:0 0 16px;"$1');
+  return (
+    html
+      // Tables: add class for the email profile table rules + cellpadding/spacing reset
+      .replace(
+        /<table(?![^>]*class="content-table")/gi,
+        '<table class="content-table" cellpadding="0" cellspacing="0"',
+      )
+      // Headings
+      .replace(
+        /<h1(\s|>)/gi,
+        '<h1 style="font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;"$1',
+      )
+      .replace(
+        /<h2(\s|>)/gi,
+        '<h2 style="font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;"$1',
+      )
+      .replace(
+        /<h3(\s|>)/gi,
+        '<h3 style="font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;"$1',
+      )
+      .replace(
+        /<h4(\s|>)/gi,
+        '<h4 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
+      )
+      .replace(
+        /<h5(\s|>)/gi,
+        '<h5 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
+      )
+      .replace(
+        /<h6(\s|>)/gi,
+        '<h6 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
+      )
+      // Paragraphs
+      .replace(
+        /<p(\s|>)/gi,
+        '<p style="margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;"$1',
+      )
+      // Links
+      .replace(/<a(\s)/gi, '<a style="color:#0066cc;text-decoration:underline;"$1')
+      // Inline code (not inside pre)
+      .replace(
+        /<code(\s|>)/gi,
+        "<code style=\"font-family:'Courier New',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;\"$1",
+      )
+      // Pre blocks (reset code inside pre)
+      .replace(
+        /<pre(\s|>)/gi,
+        "<pre style=\"background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.5;\"$1",
+      )
+      // Blockquotes
+      .replace(
+        /<blockquote(\s|>)/gi,
+        '<blockquote style="border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;"$1',
+      )
+      // Images — preserve data URIs, add responsive max-width
+      .replace(
+        /<img(\s)/gi,
+        '<img style="max-width:100%;height:auto;display:block;margin:0 0 16px;"$1',
+      )
+  );
 }
 
 /**
@@ -1082,8 +1122,7 @@ export async function exportWithProfile(
   const html = buildExportHtml(profileId); // throws if not in Read view
 
   const ext = profile.extension;
-  const filterName =
-    ext === "txt" ? "Text / Markdown" : "HTML Document";
+  const filterName = ext === "txt" ? "Text / Markdown" : "HTML Document";
 
   const path = await save({
     defaultPath: `${sanitizeFileName(title)}.${ext}`,

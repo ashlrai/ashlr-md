@@ -46,7 +46,10 @@ describe("loadMetrics()", () => {
   });
 
   it("returns an empty scaffold when version is not 1", () => {
-    localStorage.setItem(METRICS_STORAGE_KEY, JSON.stringify({ version: 2, providers: {} }));
+    localStorage.setItem(
+      METRICS_STORAGE_KEY,
+      JSON.stringify({ version: 2, providers: {} }),
+    );
     const m = loadMetrics();
     expect(m.providers).toEqual({});
   });
@@ -282,8 +285,8 @@ describe("sortedMetricEntries()", () => {
     const m = loadMetrics();
     const entries = sortedMetricEntries(m);
     expect(entries[0].providerId).toBe("anthropic"); // lastUsedAt=3000
-    expect(entries[1].providerId).toBe("hosted");    // lastUsedAt=2000
-    expect(entries[2].providerId).toBe("ollama");    // lastUsedAt=1000
+    expect(entries[1].providerId).toBe("hosted"); // lastUsedAt=2000
+    expect(entries[2].providerId).toBe("ollama"); // lastUsedAt=1000
   });
 
   it("returns all providers", () => {

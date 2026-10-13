@@ -3,8 +3,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useAIStore } from "../store/aiStore";
 import { recordAbort, recordFailure, recordSuccess } from "../lib/telemetry";
+import { useAIStore } from "../store/aiStore";
 import type { AIMessage } from "./types";
 
 // ---------------------------------------------------------------------------

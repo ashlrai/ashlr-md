@@ -20,11 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 // Imports AFTER mocks.
-import {
-  searchFiles,
-  type FileSearchResult,
-  type SearchMatch,
-} from "./crossSearch";
+import { type FileSearchResult, type SearchMatch, searchFiles } from "./crossSearch";
 import {
   embedAvailable,
   embedSearch,
@@ -205,7 +201,11 @@ describe("searchFiles — result ranking by relevance", () => {
 
   it("match count per file is accessible via result.matches.length", async () => {
     const results = [
-      makeFileResult("/a.md", "a.md", [makeMatch(1, "x"), makeMatch(2, "x"), makeMatch(3, "x")]),
+      makeFileResult("/a.md", "a.md", [
+        makeMatch(1, "x"),
+        makeMatch(2, "x"),
+        makeMatch(3, "x"),
+      ]),
       makeFileResult("/b.md", "b.md", [makeMatch(1, "x")]),
     ];
     invokeMock.mockResolvedValue(results);
@@ -341,7 +341,8 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
     // Second call: embed_search → hits
     invokeMock
       .mockResolvedValueOnce("nomic-embed-text") // embedAvailable
-      .mockResolvedValueOnce([                    // embedSearch
+      .mockResolvedValueOnce([
+        // embedSearch
         { path: "/a.md", fileName: "a.md", snippet: "semantic hit", score: 0.92 },
         { path: "/b.md", fileName: "b.md", snippet: "another hit", score: 0.75 },
       ]);
@@ -357,8 +358,9 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
   it("falls back to keyword search when embedAvailable returns null", async () => {
     // embed_available → null (no model)
     invokeMock
-      .mockResolvedValueOnce(null)         // embedAvailable
-      .mockResolvedValueOnce([             // searchFiles (keyword fallback)
+      .mockResolvedValueOnce(null) // embedAvailable
+      .mockResolvedValueOnce([
+        // searchFiles (keyword fallback)
         makeFileResult("/kw.md", "kw.md", [makeMatch(4, "keyword match")]),
       ]);
 
@@ -375,10 +377,12 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
     // Only 1 hit above SEMANTIC_MIN_SCORE: insufficient → keyword fallback
     invokeMock
       .mockResolvedValueOnce("nomic-embed-text") // embedAvailable
-      .mockResolvedValueOnce([                    // embedSearch: 1 hit (below threshold for RAG)
-        { path: "/a.md", fileName: "a.md", snippet: "weak hit", score: 0.40 },
+      .mockResolvedValueOnce([
+        // embedSearch: 1 hit (below threshold for RAG)
+        { path: "/a.md", fileName: "a.md", snippet: "weak hit", score: 0.4 },
       ])
-      .mockResolvedValueOnce([                    // searchFiles: keyword fallback
+      .mockResolvedValueOnce([
+        // searchFiles: keyword fallback
         makeFileResult("/a.md", "a.md", [makeMatch(1, "keyword match")]),
         makeFileResult("/b.md", "b.md", [makeMatch(2, "another match")]),
       ]);
@@ -428,8 +432,9 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
   it("handles embed search timeout by returning empty and allowing keyword fallback", async () => {
     invokeMock
       .mockResolvedValueOnce("nomic-embed-text") // embedAvailable
-      .mockRejectedValueOnce(new Error("timeout"))  // embedSearch times out → []
-      .mockResolvedValueOnce([                       // keyword fallback
+      .mockRejectedValueOnce(new Error("timeout")) // embedSearch times out → []
+      .mockResolvedValueOnce([
+        // keyword fallback
         makeFileResult("/fallback.md", "fallback.md", [makeMatch(1, "found it")]),
       ]);
 
@@ -446,8 +451,8 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
   it("semantic hits with scores below SEMANTIC_MIN_SCORE (0.35) are filtered out by callers", () => {
     const SEMANTIC_MIN_SCORE = 0.35;
     const hits: SemanticMatch[] = [
-      { path: "/a.md", fileName: "a.md", snippet: "weak", score: 0.20 },
-      { path: "/b.md", fileName: "b.md", snippet: "strong", score: 0.80 },
+      { path: "/a.md", fileName: "a.md", snippet: "weak", score: 0.2 },
+      { path: "/b.md", fileName: "b.md", snippet: "strong", score: 0.8 },
       { path: "/c.md", fileName: "c.md", snippet: "border", score: 0.35 },
     ];
     const filtered = hits.filter((h) => h.score >= SEMANTIC_MIN_SCORE);
@@ -481,9 +486,7 @@ describe("combined embedSearch + crossSearch — semantic-first pipeline", () =>
     ]);
 
     const terms = ["rust", "async", "tokio"];
-    const results = await Promise.all(
-      terms.map((t) => searchFiles(["/multi.md"], t)),
-    );
+    const results = await Promise.all(terms.map((t) => searchFiles(["/multi.md"], t)));
 
     expect(results).toHaveLength(3);
     for (const r of results) {

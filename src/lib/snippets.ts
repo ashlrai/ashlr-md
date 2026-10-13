@@ -23,7 +23,7 @@
 import {
   autocompletion,
   type Completion,
-  CompletionContext,
+  type CompletionContext,
   type CompletionResult,
   completionKeymap,
   nextSnippetField,
@@ -31,7 +31,7 @@ import {
   snippetCompletion,
 } from "@codemirror/autocomplete";
 import { type Extension, StateEffect } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { type EditorView, keymap } from "@codemirror/view";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,8 +121,7 @@ export function isOnTableRow(doc: string, pos: number): boolean {
 export function isAtEndOfTableRow(doc: string, pos: number): boolean {
   const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;
   const lineEnd = doc.indexOf("\n", pos);
-  const line =
-    lineEnd === -1 ? doc.slice(lineStart) : doc.slice(lineStart, lineEnd);
+  const line = lineEnd === -1 ? doc.slice(lineStart) : doc.slice(lineStart, lineEnd);
   const trimmed = line.trimStart();
   if (!trimmed.startsWith("|")) return false;
   // cursor must be at the very end of the line
@@ -219,8 +218,7 @@ export const BUILTIN_SNIPPETS: readonly RawSnippet[] = [
   {
     label: "| table |",
     detail: "Markdown table",
-    template:
-      "| $1 | $2 |\n| --- | --- |\n| $3 | $4 |\n$0",
+    template: "| $1 | $2 |\n| --- | --- |\n| $3 | $4 |\n$0",
     section: "Tables",
     boost: 7,
   },

@@ -175,9 +175,7 @@ export function buildUnifiedDiff(
 ): string {
   const lines = content.split("\n");
   const afterContent =
-    content.slice(0, matchOffset) +
-    replace +
-    content.slice(matchOffset + find.length);
+    content.slice(0, matchOffset) + replace + content.slice(matchOffset + find.length);
   const afterLines = afterContent.split("\n");
 
   // Determine the line range affected by the change.
@@ -198,7 +196,10 @@ export function buildUnifiedDiff(
   const aLines = lines.slice(ctxStart, ctxEnd);
   // Build hunk lines for "after" (b) side
   const bStart = ctxStart;
-  const bEnd = Math.min(afterLines.length, ctxStart + contextLines + addedLineCount + contextLines);
+  const bEnd = Math.min(
+    afterLines.length,
+    ctxStart + contextLines + addedLineCount + contextLines,
+  );
 
   // Hunk header numbers
   const aHunkStart = ctxStart + 1;
@@ -209,11 +210,7 @@ export function buildUnifiedDiff(
   const hunkHeader = `@@ -${aHunkStart},${aHunkLen} +${bHunkStart},${bHunkLen} @@`;
 
   // Produce diff lines by walking both sides
-  const diffLines: string[] = [
-    `--- a/${label}`,
-    `+++ b/${label}`,
-    hunkHeader,
-  ];
+  const diffLines: string[] = [`--- a/${label}`, `+++ b/${label}`, hunkHeader];
 
   // Context before change
   const ctxBefore = startLine - 1 - ctxStart;
@@ -272,7 +269,14 @@ export function computeStreamEditDiff(
   }
 
   if (offsets.length === 1) {
-    const diff = buildUnifiedDiff(content, find, replace, offsets[0], contextLines, label);
+    const diff = buildUnifiedDiff(
+      content,
+      find,
+      replace,
+      offsets[0],
+      contextLines,
+      label,
+    );
     return { ok: true, diff, matchCount: 1 };
   }
 
@@ -331,7 +335,6 @@ export function applyEditAtOccurrence(
   }
 
   const offset = offsets[matchIndex];
-  const next =
-    content.slice(0, offset) + replace + content.slice(offset + find.length);
+  const next = content.slice(0, offset) + replace + content.slice(offset + find.length);
   return { ok: true, replaced: 1, content: next };
 }

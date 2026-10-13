@@ -245,11 +245,14 @@ export const useAIStore = create<AIState>()(
         set({ hostedToken: token });
         // Persist to / remove from the OS keychain (same pattern as apiKey).
         if (token) {
-          void invoke("set_ai_key", { account: HOSTED_TOKEN_ACCOUNT, key: token }).catch(
+          void invoke("set_ai_key", {
+            account: HOSTED_TOKEN_ACCOUNT,
+            key: token,
+          }).catch(() => {});
+        } else {
+          void invoke("delete_ai_key", { account: HOSTED_TOKEN_ACCOUNT }).catch(
             () => {},
           );
-        } else {
-          void invoke("delete_ai_key", { account: HOSTED_TOKEN_ACCOUNT }).catch(() => {});
         }
       },
 

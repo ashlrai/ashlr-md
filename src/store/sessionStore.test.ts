@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getStoredState } from "../test-setup";
-import { useSessionStore, type SavedTab } from "./sessionStore";
+import { type SavedTab, useSessionStore } from "./sessionStore";
 
 const STORE_KEY = "mdopener-session";
 
@@ -99,7 +99,9 @@ describe("sessionStore", () => {
 
   it("save() writes state to localStorage", () => {
     useSessionStore.getState().save([TAB_A], TAB_A.path);
-    const blob = getStoredState<{ savedTabs: SavedTab[]; activePath: string | null }>(STORE_KEY);
+    const blob = getStoredState<{ savedTabs: SavedTab[]; activePath: string | null }>(
+      STORE_KEY,
+    );
     expect(blob).not.toBeNull();
     expect(blob!.state.savedTabs).toHaveLength(1);
     expect(blob!.state.activePath).toBe(TAB_A.path);
@@ -108,7 +110,9 @@ describe("sessionStore", () => {
   it("clear() writes empty session to localStorage", () => {
     useSessionStore.getState().save([TAB_A], TAB_A.path);
     useSessionStore.getState().clear();
-    const blob = getStoredState<{ savedTabs: SavedTab[]; activePath: unknown }>(STORE_KEY);
+    const blob = getStoredState<{ savedTabs: SavedTab[]; activePath: unknown }>(
+      STORE_KEY,
+    );
     if (blob) {
       expect(blob.state.savedTabs).toHaveLength(0);
       expect(blob.state.activePath).toBeNull();

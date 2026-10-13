@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
 import { getShortcutCommands } from "./lib/commands";
+import { classify } from "./lib/docClassifier";
 import { matchShortcut } from "./lib/keymap";
 import { restoreSession } from "./lib/session";
 import { checkForUpdates } from "./lib/updater";
@@ -17,7 +18,6 @@ import { useSessionStore } from "./store/sessionStore";
 import { useSettingsStore } from "./store/settingsStore";
 import { toast } from "./store/toastStore";
 import { useUiStore } from "./store/uiStore";
-import { classify } from "./lib/docClassifier";
 import "./styles/themes.css";
 import "./styles/global.css";
 import "./styles/markdown.css";
@@ -205,7 +205,9 @@ export default function App() {
       useUiStore.getState().setCurrentDocType(docType);
     });
     // Classify on mount in case a document is already open.
-    useUiStore.getState().setCurrentDocType(classify(useDocumentStore.getState().content));
+    useUiStore
+      .getState()
+      .setCurrentDocType(classify(useDocumentStore.getState().content));
     return unsub;
   }, []);
 

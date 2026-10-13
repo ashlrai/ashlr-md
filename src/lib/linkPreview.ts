@@ -20,8 +20,8 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { resolveWikilink } from "./wikilink";
 import { splitFragment } from "./transclude";
+import { resolveWikilink } from "./wikilink";
 
 // ---------------------------------------------------------------------------
 // Types

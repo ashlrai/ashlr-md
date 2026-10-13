@@ -19,13 +19,7 @@
  *   </LinkPreviewPopover>
  */
 
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -61,7 +55,10 @@ interface CardPos {
 function computePosition(rect: DOMRect): CardPos {
   const CARD_WIDTH = 300;
   const MARGIN = 8;
-  const left = Math.max(MARGIN, Math.min(rect.left, window.innerWidth - CARD_WIDTH - MARGIN));
+  const left = Math.max(
+    MARGIN,
+    Math.min(rect.left, window.innerWidth - CARD_WIDTH - MARGIN),
+  );
   // Prefer below the link; flip above if not enough space.
   const spaceBelow = window.innerHeight - rect.bottom;
   const top = spaceBelow >= 212 ? rect.bottom + 6 : rect.top - 210;
@@ -121,11 +118,10 @@ export function LinkPreviewPopover({
   return (
     <>
       {children(handlers)}
-      {visible && preview && pos &&
-        createPortal(
-          <LinkPreviewCard preview={preview} pos={pos} />,
-          document.body,
-        )}
+      {visible &&
+        preview &&
+        pos &&
+        createPortal(<LinkPreviewCard preview={preview} pos={pos} />, document.body)}
     </>
   );
 }
@@ -161,9 +157,7 @@ function LinkPreviewCard({ preview, pos }: LinkPreviewCardProps) {
         <p className="link-preview-card__external">{preview.snippet}</p>
       ) : (
         <div className="link-preview-card__internal">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {preview.snippet}
-          </ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.snippet}</ReactMarkdown>
         </div>
       )}
     </div>

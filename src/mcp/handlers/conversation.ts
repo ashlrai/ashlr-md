@@ -8,15 +8,15 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../../lib/mdlint";
-import { copyAsRichText } from "../../lib/copyRichText";
-import { summarise, type OtOperation } from "../../lib/ot";
-import { parseDiffHunks } from "../../lib/diff";
 import { buildHunkOp } from "../../components/viewer/DiffBlock";
+import { copyAsRichText } from "../../lib/copyRichText";
+import { parseDiffHunks } from "../../lib/diff";
+import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../../lib/mdlint";
+import { type OtOperation, summarise } from "../../lib/ot";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { useUiStore } from "../../store/uiStore";
 import { toast } from "../../store/toastStore";
+import { useUiStore } from "../../store/uiStore";
 import type {
   ApplyDiffHunkPayload,
   CopyRichTextPayload,
@@ -110,13 +110,18 @@ export function handleCopyRichText(): Promise<UnlistenFn> {
       await invoke("mcp_copy_rich_text_result", {
         ok: true,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await invoke("mcp_copy_rich_text_result", {
         ok: false,
         error: errStr,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }
@@ -165,16 +170,21 @@ export function handleLintDocument(syncNow: () => void): Promise<UnlistenFn> {
           violations: serialisable,
           content: autoFix ? resultContent : null,
           error: null,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
       } catch (err) {
-        const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+        const errStr =
+          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         await invoke("mcp_lint_document_result", {
           lintId,
           ok: false,
           violations: [],
           content: null,
           error: errStr,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
       }
     },
   );
@@ -193,23 +203,35 @@ export function handleApplyDiffHunk(syncNow: () => void): Promise<UnlistenFn> {
           ok: false,
           hunkIndex,
           error: `hunkIndex ${hunkIndex} out of bounds — diff has ${hunks.length} hunk(s)`,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
         return;
       }
       const hunk = hunks[hunkIndex];
       const liveContent = useDocumentStore.getState().content;
-      const op = buildHunkOp(liveContent, hunk.find, hunk.replace, "mcp-agent", {}, Date.now());
+      const op = buildHunkOp(
+        liveContent,
+        hunk.find,
+        hunk.replace,
+        "mcp-agent",
+        {},
+        Date.now(),
+      );
       if (!op) {
         const occurrences = liveContent.split(hunk.find).length - 1;
-        const errMsg = occurrences === 0
-          ? "Patch anchor not found in document"
-          : "Patch anchor is ambiguous — include more context lines";
+        const errMsg =
+          occurrences === 0
+            ? "Patch anchor not found in document"
+            : "Patch anchor is ambiguous — include more context lines";
         await invoke("mcp_apply_diff_hunk_result", {
           diffId,
           ok: false,
           hunkIndex,
           error: errMsg,
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
         return;
       }
       const applied = useDocumentStore.getState().applyOp(op);
@@ -219,7 +241,9 @@ export function handleApplyDiffHunk(syncNow: () => void): Promise<UnlistenFn> {
           ok: false,
           hunkIndex,
           error: "OT op inconsistent with current document state",
-        }).catch(() => {/* non-fatal */});
+        }).catch(() => {
+          /* non-fatal */
+        });
         return;
       }
       if (save) {
@@ -231,15 +255,20 @@ export function handleApplyDiffHunk(syncNow: () => void): Promise<UnlistenFn> {
         ok: true,
         hunkIndex,
         error: null,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     } catch (err) {
-      const errStr = typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
+      const errStr =
+        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
       await invoke("mcp_apply_diff_hunk_result", {
         diffId,
         ok: false,
         hunkIndex,
         error: errStr,
-      }).catch(() => {/* non-fatal */});
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
   });
 }

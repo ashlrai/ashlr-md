@@ -6,10 +6,7 @@
  * highlighted as "Default". All other built-in rules are listed below them.
  */
 
-import {
-  BUILTIN_RULES,
-  LINTER_DEFAULT_ENABLED_RULES,
-} from "../../../lib/mdlint";
+import { BUILTIN_RULES, LINTER_DEFAULT_ENABLED_RULES } from "../../../lib/mdlint";
 import { useSettingsStore } from "../../../store/settingsStore";
 
 function severityLabel(severity: string): string {
@@ -54,9 +51,7 @@ export function LinterRulesSection() {
             aria-label={`${enabled ? "Disable" : "Enable"} rule: ${rule.label}`}
           />
           <span className="linter-rule__name">{rule.label}</span>
-          {highlight && (
-            <span className="linter-rule__badge">Default</span>
-          )}
+          {highlight && <span className="linter-rule__badge">Default</span>}
           <span className={`linter-rule__severity ${severityClass(rule.severity)}`}>
             {severityLabel(rule.severity)}
           </span>
@@ -69,8 +64,8 @@ export function LinterRulesSection() {
   return (
     <div className="linter-rules-section">
       <p className="settings-description">
-        Rules marked <strong>Default</strong> show fix suggestions in the reading
-        view. All enabled rules produce inline editor squiggles.
+        Rules marked <strong>Default</strong> show fix suggestions in the reading view.
+        All enabled rules produce inline editor squiggles.
       </p>
 
       {defaultRules.length > 0 && (

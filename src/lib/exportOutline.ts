@@ -205,9 +205,7 @@ export function buildOpml(nodes: OutlineNode[], title: string): string {
       ` _note="#${escapeXml(node.id)}"` +
       ` level="${node.level}"` +
       ` startLine="${node.metadata.startLine}"` +
-      (node.metadata.endLine != null
-        ? ` endLine="${node.metadata.endLine}"`
-        : "");
+      (node.metadata.endLine != null ? ` endLine="${node.metadata.endLine}"` : "");
 
     if (node.children.length === 0) {
       lines.push(`${pad}<outline ${attrs}/>`);

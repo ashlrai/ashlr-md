@@ -40,10 +40,7 @@ function estimateTokens(text: string): number {
 /** Build a minimal SSE ReadableStream from an array of text deltas. */
 function makeSSEStream(deltas: string[]): Response {
   const lines = deltas
-    .map(
-      (d) =>
-        `data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`,
-    )
+    .map((d) => `data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`)
     .concat(["data: [DONE]\n\n"]);
 
   const body = new ReadableStream<Uint8Array>({
@@ -181,9 +178,7 @@ describe("runInlineTransform — streaming delta updates", () => {
   });
 
   it("resolves with the final trimmed text", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      makeSSEStream(["  result  "]),
-    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(makeSSEStream(["  result  "]));
 
     const result = await runInlineTransform({ text: "x", actionId: "rewrite" });
     expect(result).toBe("result");
@@ -434,6 +429,8 @@ describe("integration: error UI → retry → success", () => {
     }
     // Final output matches expected accumulation.
     expect(acc).toBe("Word by word streaming");
-    expect(snapshots[snapshots.length - 1].tokens).toBe(estimateTokens("Word by word streaming"));
+    expect(snapshots[snapshots.length - 1].tokens).toBe(
+      estimateTokens("Word by word streaming"),
+    );
   });
 });

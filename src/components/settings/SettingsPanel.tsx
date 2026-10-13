@@ -14,11 +14,9 @@ import {
   TerminalIcon,
   VaultIcon,
 } from "./icons";
-import { AiProviderSection } from "./sections/AiProviderSection";
-import { AiMetricsSection } from "./sections/AiMetricsSection";
-import { LinterRulesSection } from "./sections/LinterRulesSection";
-import { ExportTemplateSection } from "./sections/ExportTemplateSection";
 import { SectionHeader } from "./SectionHeader";
+import { AiMetricsSection } from "./sections/AiMetricsSection";
+import { AiProviderSection } from "./sections/AiProviderSection";
 import {
   ContentWidthStepper,
   FontSizeStepper,
@@ -28,6 +26,8 @@ import {
 import { CliSection } from "./sections/CliSection";
 import { DefaultHandlerSection } from "./sections/DefaultHandlerSection";
 import { EmbedSection } from "./sections/EmbedSection";
+import { ExportTemplateSection } from "./sections/ExportTemplateSection";
+import { LinterRulesSection } from "./sections/LinterRulesSection";
 import { McpSection } from "./sections/McpSection";
 import { MemorySection } from "./sections/MemorySection";
 import { VaultSection } from "./sections/VaultSection";

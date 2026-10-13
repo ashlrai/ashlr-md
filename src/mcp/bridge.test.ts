@@ -80,7 +80,8 @@ vi.mock("../lib/export", () => ({
   exportHtml: (...args: unknown[]) => exportHtmlMock(...args),
   exportMarkdownArchive: (...args: unknown[]) => exportMarkdownArchiveMock(...args),
   exportCanvasGraph: (...args: unknown[]) => exportCanvasGraphMock(...args),
-  buildBatchExportProfiles: (...args: unknown[]) => buildBatchExportProfilesMock(...args),
+  buildBatchExportProfiles: (...args: unknown[]) =>
+    buildBatchExportProfilesMock(...args),
   // Re-export anything else export.ts might expose so other imports don't break.
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
@@ -160,15 +161,18 @@ vi.mock("../store/toastStore", () => ({
 // ─── Imports after mocks ──────────────────────────────────────────────────────
 
 import { useDocumentStore } from "../store/documentStore";
-import { useUiStore } from "../store/uiStore";
 import { useReviewStore } from "../store/reviewStore";
+import { useUiStore } from "../store/uiStore";
 import { useMcpBridge } from "./bridge";
 
 // ─── Fire a fake Tauri event ──────────────────────────────────────────────────
 
 async function fireEvent(eventName: string, payload: Payload): Promise<void> {
   const handler = listenHandlers.get(eventName);
-  if (!handler) throw new Error(`No listener registered for "${eventName}". Registered: [${[...listenHandlers.keys()].join(", ")}]`);
+  if (!handler)
+    throw new Error(
+      `No listener registered for "${eventName}". Registered: [${[...listenHandlers.keys()].join(", ")}]`,
+    );
   await handler({ payload });
   // Flush microtask queue so async handler chains (Promises) settle.
   await Promise.resolve();
@@ -182,6 +186,7 @@ function mountBridge(): void {
   // useMcpBridge() calls useEffect(fn, []).  Because of our react mock,
   // the effect callback fires synchronously here and registers all listeners
   // via listen() (which immediately sets entries in listenHandlers).
+  // biome-ignore lint/correctness/useHookAtTopLevel: test harness mounts the hook against a mocked React whose useEffect runs synchronously.
   useMcpBridge();
 }
 
@@ -239,12 +244,12 @@ beforeEach(() => {
   exportCanvasGraphMock.mockResolvedValue("/out/vault.canvas");
   // Default: batch-export-profiles returns 6 successful results.
   buildBatchExportProfilesMock.mockResolvedValue([
-    { profileId: "notion-html",        ok: true, html: "<html>notion</html>" },
-    { profileId: "slack-html",         ok: true, html: "<html>slack</html>" },
-    { profileId: "email-html",         ok: true, html: "<html>email</html>" },
-    { profileId: "github-markdown",    ok: true, html: "<html>github</html>" },
-    { profileId: "confluence-wiki",    ok: true, html: "<html>confluence</html>" },
-    { profileId: "slack-rich-markdown",ok: true, html: "<html>slack-rich</html>" },
+    { profileId: "notion-html", ok: true, html: "<html>notion</html>" },
+    { profileId: "slack-html", ok: true, html: "<html>slack</html>" },
+    { profileId: "email-html", ok: true, html: "<html>email</html>" },
+    { profileId: "github-markdown", ok: true, html: "<html>github</html>" },
+    { profileId: "confluence-wiki", ok: true, html: "<html>confluence</html>" },
+    { profileId: "slack-rich-markdown", ok: true, html: "<html>slack-rich</html>" },
   ]);
   // Default: no embedding model, no keyword hits.
   searchFilesMock.mockResolvedValue([]);
@@ -253,9 +258,9 @@ beforeEach(() => {
 
   resetDocumentStore();
   useUiStore.setState({ exportOpen: false, exportFormat: null, zenMode: false });
-  useReviewStore.setState(
-    { pending: null, draftComment: "" } as unknown as Parameters<typeof useReviewStore.setState>[0]
-  );
+  useReviewStore.setState({ pending: null, draftComment: "" } as unknown as Parameters<
+    typeof useReviewStore.setState
+  >[0]);
 
   invokeMock.mockImplementation((cmd: string) => {
     if (cmd === "read_markdown_file") {
@@ -659,7 +664,10 @@ describe("mcp://ot-op event", () => {
       seq: 1,
       clock: {},
       // insert "!" at position 11 (end of "hello world")
-      components: [{ type: "retain", count: 11 }, { type: "insert", text: "!" }],
+      components: [
+        { type: "retain", count: 11 },
+        { type: "insert", text: "!" },
+      ],
     });
     expect(useDocumentStore.getState().content).toBe("hello world!");
   });
@@ -673,7 +681,10 @@ describe("mcp://ot-op event", () => {
       agentId: "agentA",
       seq: 1,
       clock: {},
-      components: [{ type: "retain", count: 5 }, { type: "insert", text: " world" }],
+      components: [
+        { type: "retain", count: 5 },
+        { type: "insert", text: " world" },
+      ],
     });
     const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_ot_result");
     expect(resultCall).toBeDefined();
@@ -719,7 +730,10 @@ describe("mcp://ot-op event", () => {
       agentId: "agentB",
       seq: 1,
       clock: { agentB: 0 },
-      components: [{ type: "insert", text: "X" }, { type: "retain", count: 3 }],
+      components: [
+        { type: "insert", text: "X" },
+        { type: "retain", count: 3 },
+      ],
     });
     const { pendingOps } = useDocumentStore.getState();
     expect(pendingOps.length).toBeGreaterThan(0);
@@ -735,7 +749,10 @@ describe("mcp://ot-op event", () => {
       seq: 1,
       clock: {},
       // delete " world" (6 chars starting at position 5)
-      components: [{ type: "retain", count: 5 }, { type: "delete", count: 6 }],
+      components: [
+        { type: "retain", count: 5 },
+        { type: "delete", count: 6 },
+      ],
     });
     expect(useDocumentStore.getState().content).toBe("hello");
   });
@@ -764,7 +781,10 @@ describe("mcp://ot-op event", () => {
       agentId: "agentA",
       seq: 1,
       clock: {},
-      components: [{ type: "retain", count: 4 }, { type: "insert", text: "!" }],
+      components: [
+        { type: "retain", count: 4 },
+        { type: "insert", text: "!" },
+      ],
     });
     const syncCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_state");
     expect(syncCall).toBeDefined();
@@ -998,9 +1018,7 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
     mountBridge();
     await fireEvent("mcp://export", { format: "pdf", outputPath: "/tmp/out.pdf" });
-    expect(toastErrorMock).toHaveBeenCalledWith(
-      expect.stringMatching(/print failed/i),
-    );
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/print failed/i));
   });
 
   it("always calls mcp_export_result even on export error (prevents Rust timeout)", async () => {
@@ -1228,7 +1246,13 @@ describe("mcp://batch-read event", () => {
   it("invokes read_batch_files with the provided paths", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.resolve([]);
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "# Opened",
+          size: 8,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -1248,12 +1272,30 @@ describe("mcp://batch-read event", () => {
 
   it("calls mcp_batch_read_result with ok=true on success", async () => {
     const fakeResults = [
-      { path: "/vault/a.md", ok: true, content: "# A", headers: {}, metadata: { sizeBytes: 3, mtimeMs: 1000 } },
-      { path: "/vault/b.md", ok: true, content: "# B", headers: {}, metadata: { sizeBytes: 3, mtimeMs: 2000 } },
+      {
+        path: "/vault/a.md",
+        ok: true,
+        content: "# A",
+        headers: {},
+        metadata: { sizeBytes: 3, mtimeMs: 1000 },
+      },
+      {
+        path: "/vault/b.md",
+        ok: true,
+        content: "# B",
+        headers: {},
+        metadata: { sizeBytes: 3, mtimeMs: 2000 },
+      },
     ];
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "# Opened",
+          size: 8,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -1262,8 +1304,13 @@ describe("mcp://batch-read event", () => {
       if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
       return Promise.resolve(undefined);
     });
-    await fireEvent("mcp://batch-read", { batchId: "br-002", paths: ["/vault/a.md", "/vault/b.md"] });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    await fireEvent("mcp://batch-read", {
+      batchId: "br-002",
+      paths: ["/vault/a.md", "/vault/b.md"],
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_read_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ batchId: "br-002", ok: true });
     expect(resultCall![1].results).toHaveLength(2);
@@ -1281,7 +1328,13 @@ describe("mcp://batch-read event", () => {
     ];
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "# Opened",
+          size: 8,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -1290,8 +1343,13 @@ describe("mcp://batch-read event", () => {
       if (cmd === "read_batch_files") return Promise.resolve(fakeResults);
       return Promise.resolve(undefined);
     });
-    await fireEvent("mcp://batch-read", { batchId: "br-003", paths: ["/vault/notes.md"] });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    await fireEvent("mcp://batch-read", {
+      batchId: "br-003",
+      paths: ["/vault/notes.md"],
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_read_result",
+    );
     expect(resultCall).toBeDefined();
     const file = resultCall![1].results[0];
     expect(file.content).toBe("---\ntitle: Notes\n---\n# Notes");
@@ -1301,18 +1359,31 @@ describe("mcp://batch-read event", () => {
 
   it("calls mcp_batch_read_result with ok=false when read_batch_files throws", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.reject(new Error("permission denied"));
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+      if (cmd === "read_batch_files")
+        return Promise.reject(new Error("permission denied"));
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "# Opened",
+          size: 8,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.reject(new Error("permission denied"));
+      if (cmd === "read_batch_files")
+        return Promise.reject(new Error("permission denied"));
       return Promise.resolve(undefined);
     });
-    await fireEvent("mcp://batch-read", { batchId: "br-004", paths: ["/vault/secret.md"] });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    await fireEvent("mcp://batch-read", {
+      batchId: "br-004",
+      paths: ["/vault/secret.md"],
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_read_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ batchId: "br-004", ok: false });
     expect(resultCall![1].results).toHaveLength(0);
@@ -1322,7 +1393,13 @@ describe("mcp://batch-read event", () => {
   it("always calls mcp_batch_read_result even on error (prevents Rust timeout)", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.reject("IPC error");
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "#",
+          size: 1,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -1332,7 +1409,9 @@ describe("mcp://batch-read event", () => {
       return Promise.resolve(undefined);
     });
     await fireEvent("mcp://batch-read", { batchId: "br-005", paths: [] });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_read_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_read_result",
+    );
     expect(resultCall).toBeDefined();
   });
 });
@@ -1364,13 +1443,15 @@ describe("mcp://batch-edit event", () => {
   it("forwards non-open file ops to apply_batch_edit", async () => {
     resetDocumentStore({ path: "/vault/open.md", content: "current doc" });
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      if (cmd === "apply_batch_edit")
+        return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
       return Promise.resolve(undefined);
     });
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      if (cmd === "apply_batch_edit")
+        return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
       return Promise.resolve(undefined);
     });
     await fireEvent("mcp://batch-edit", {
@@ -1391,7 +1472,9 @@ describe("mcp://batch-edit event", () => {
       batchId: "be-003",
       ops: [{ path: "/vault/open.md", find: "unique phrase", replace: "replaced" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_edit_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ batchId: "be-003", ok: true });
   });
@@ -1405,10 +1488,14 @@ describe("mcp://batch-edit event", () => {
       batchId: "be-004",
       ops: [{ path: "/vault/open.md", find: "not present", replace: "x" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_edit_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
-    const failedOp = resultCall![1].results.find((r: { path: string }) => r.path === "/vault/open.md");
+    const failedOp = resultCall![1].results.find(
+      (r: { path: string }) => r.path === "/vault/open.md",
+    );
     expect(failedOp.ok).toBe(false);
     expect(typeof failedOp.error).toBe("string");
   });
@@ -1418,7 +1505,8 @@ describe("mcp://batch-edit event", () => {
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "apply_batch_edit") return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
+      if (cmd === "apply_batch_edit")
+        return Promise.resolve([{ path: "/vault/other.md", ok: true, replaced: 1 }]);
       return Promise.resolve(undefined);
     });
     await fireEvent("mcp://batch-edit", {
@@ -1428,7 +1516,9 @@ describe("mcp://batch-edit event", () => {
         { path: "/vault/other.md", find: "anything", replace: "y" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_edit_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect(resultCall![1].results).toHaveLength(2);
@@ -1450,7 +1540,9 @@ describe("mcp://batch-edit event", () => {
       batchId: "be-006",
       ops: [{ path: "/vault/locked.md", find: "a", replace: "b" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_edit_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_edit_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
   });
@@ -1481,16 +1573,29 @@ describe("mcp://semantic-search event", () => {
   it("falls back to keyword search when no embedding model is available", async () => {
     embedAvailableMock.mockResolvedValue(null);
     searchFilesMock.mockResolvedValue([
-      { path: "/vault/a.md", fileName: "a.md", matches: [{ lineNo: 1, snippet: "result line" }] },
+      {
+        path: "/vault/a.md",
+        fileName: "a.md",
+        matches: [{ lineNo: 1, snippet: "result line" }],
+      },
     ]);
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-001", query: "test query" });
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-001",
+      query: "test query",
+    });
     expect(searchFilesMock).toHaveBeenCalled();
     expect(embedSearchMock).not.toHaveBeenCalled();
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ searchId: "ss-001", ok: true, usedEmbeddings: false });
+    expect(resultCall![1]).toMatchObject({
+      searchId: "ss-001",
+      ok: true,
+      usedEmbeddings: false,
+    });
     expect(resultCall![1].results.length).toBeGreaterThan(0);
   });
 
@@ -1501,11 +1606,21 @@ describe("mcp://semantic-search event", () => {
     ]);
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-002", query: "semantic query", rerank: false });
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-002",
+      query: "semantic query",
+      rerank: false,
+    });
     expect(embedSearchMock).toHaveBeenCalled();
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ searchId: "ss-002", ok: true, usedEmbeddings: true });
+    expect(resultCall![1]).toMatchObject({
+      searchId: "ss-002",
+      ok: true,
+      usedEmbeddings: true,
+    });
   });
 
   it("applies RRF reranking when rerank=true and embedding model is available", async () => {
@@ -1515,15 +1630,29 @@ describe("mcp://semantic-search event", () => {
       { path: "/vault/b.md", fileName: "b.md", snippet: "semantic B", score: 0.7 },
     ]);
     searchFilesMock.mockResolvedValue([
-      { path: "/vault/b.md", fileName: "b.md", matches: [{ lineNo: 1, snippet: "keyword B" }] },
-      { path: "/vault/c.md", fileName: "c.md", matches: [{ lineNo: 2, snippet: "keyword C" }] },
+      {
+        path: "/vault/b.md",
+        fileName: "b.md",
+        matches: [{ lineNo: 1, snippet: "keyword B" }],
+      },
+      {
+        path: "/vault/c.md",
+        fileName: "c.md",
+        matches: [{ lineNo: 2, snippet: "keyword C" }],
+      },
     ]);
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-003", query: "reranked", rerank: true });
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-003",
+      query: "reranked",
+      rerank: true,
+    });
     expect(embedSearchMock).toHaveBeenCalled();
     expect(searchFilesMock).toHaveBeenCalled();
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     // /vault/b.md appears in both lists — should rank higher after RRF fusion.
@@ -1544,8 +1673,14 @@ describe("mcp://semantic-search event", () => {
     );
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-004", query: "many results", k: 5 });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-004",
+      query: "many results",
+      k: 5,
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].results).toHaveLength(5);
   });
@@ -1555,8 +1690,13 @@ describe("mcp://semantic-search event", () => {
     embedSearchMock.mockRejectedValue(new Error("embed model crashed"));
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-005", query: "crash test" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-005",
+      query: "crash test",
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ searchId: "ss-005", ok: false });
     expect(typeof resultCall![1].error).toBe("string");
@@ -1566,8 +1706,13 @@ describe("mcp://semantic-search event", () => {
     embedAvailableMock.mockRejectedValue(new Error("availability check failed"));
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-006", query: "timeout test" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-006",
+      query: "timeout test",
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
   });
 
@@ -1578,9 +1723,15 @@ describe("mcp://semantic-search event", () => {
     ]);
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-007", query: "no rerank", rerank: false });
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-007",
+      query: "no rerank",
+      rerank: false,
+    });
     expect(searchFilesMock).not.toHaveBeenCalled();
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
   });
@@ -1590,8 +1741,13 @@ describe("mcp://semantic-search event", () => {
     searchFilesMock.mockResolvedValue([]);
     mountBridge();
     invokeMock.mockClear();
-    await fireEvent("mcp://semantic-search", { searchId: "ss-008", query: "empty vault" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_semantic_search_result");
+    await fireEvent("mcp://semantic-search", {
+      searchId: "ss-008",
+      query: "empty vault",
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_semantic_search_result",
+    );
     expect(resultCall).toBeDefined();
     expect(Array.isArray(resultCall![1].results)).toBe(true);
     expect(resultCall![1].results).toHaveLength(0);
@@ -1620,7 +1776,9 @@ describe("mcp://batch-export event", () => {
         { path: "/vault/b.md", format: "html" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ batchId: "be-001", ok: true });
     expect(resultCall![1].results).toHaveLength(2);
@@ -1651,7 +1809,9 @@ describe("mcp://batch-export event", () => {
       batchId: "be-003",
       exports: [{ path: "/vault/notes.md", format: "pdf", outputDir: "/out" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_result",
+    );
     expect(resultCall).toBeDefined();
     const file = resultCall![1].results[0];
     expect(file.ok).toBe(true);
@@ -1671,16 +1831,18 @@ describe("mcp://batch-export event", () => {
         { path: "/vault/ok.md", format: "html" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     const failedFile = resultCall![1].results.find(
-      (r: { path: string }) => r.path === "/vault/fail.md"
+      (r: { path: string }) => r.path === "/vault/fail.md",
     );
     expect(failedFile.ok).toBe(false);
     expect(typeof failedFile.error).toBe("string");
     const okFile = resultCall![1].results.find(
-      (r: { path: string }) => r.path === "/vault/ok.md"
+      (r: { path: string }) => r.path === "/vault/ok.md",
     );
     expect(okFile.ok).toBe(true);
   });
@@ -1698,7 +1860,9 @@ describe("mcp://batch-export event", () => {
         { path: "/vault/b.md", format: "docx" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_result",
+    );
     expect(resultCall).toBeDefined();
   });
 
@@ -1710,7 +1874,9 @@ describe("mcp://batch-export event", () => {
       batchId: "be-006",
       exports: [],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_batch_export_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_batch_export_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ batchId: "be-006", ok: false });
     expect(typeof resultCall![1].error).toBe("string");
@@ -1818,7 +1984,9 @@ describe("mcp://diff-docs event", () => {
       pathA: "/vault/a.md",
       pathB: "/vault/b.md",
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_diff_docs_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({
       diffId: "dd-002",
@@ -1833,7 +2001,14 @@ describe("mcp://diff-docs event", () => {
   it("defaults contextLines to 3 when omitted from payload", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_diff_docs") {
-        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+        return Promise.resolve({
+          diff: "",
+          hunks: 0,
+          added: 0,
+          removed: 0,
+          path_a: "/a.md",
+          path_b: "/b.md",
+        });
       }
       return Promise.resolve(undefined);
     });
@@ -1841,7 +2016,14 @@ describe("mcp://diff-docs event", () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_diff_docs") {
-        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+        return Promise.resolve({
+          diff: "",
+          hunks: 0,
+          added: 0,
+          removed: 0,
+          path_a: "/a.md",
+          path_b: "/b.md",
+        });
       }
       return Promise.resolve(undefined);
     });
@@ -1875,7 +2057,9 @@ describe("mcp://diff-docs event", () => {
       pathA: "/vault/missing.md",
       pathB: "/vault/b.md",
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_diff_docs_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ diffId: "dd-004", ok: false });
     expect(typeof resultCall![1].error).toBe("string");
@@ -1898,14 +2082,23 @@ describe("mcp://diff-docs event", () => {
       pathA: "/vault/a.md",
       pathB: "/vault/b.md",
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_diff_docs_result",
+    );
     expect(resultCall).toBeDefined();
   });
 
   it("returns empty diff string (not undefined) when documents are identical", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_diff_docs") {
-        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+        return Promise.resolve({
+          diff: "",
+          hunks: 0,
+          added: 0,
+          removed: 0,
+          path_a: "/a.md",
+          path_b: "/b.md",
+        });
       }
       return Promise.resolve(undefined);
     });
@@ -1913,7 +2106,14 @@ describe("mcp://diff-docs event", () => {
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "mcp_diff_docs") {
-        return Promise.resolve({ diff: "", hunks: 0, added: 0, removed: 0, path_a: "/a.md", path_b: "/b.md" });
+        return Promise.resolve({
+          diff: "",
+          hunks: 0,
+          added: 0,
+          removed: 0,
+          path_a: "/a.md",
+          path_b: "/b.md",
+        });
       }
       return Promise.resolve(undefined);
     });
@@ -1922,7 +2122,9 @@ describe("mcp://diff-docs event", () => {
       pathA: "/vault/a.md",
       pathB: "/vault/a.md",
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_diff_docs_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_diff_docs_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     expect(resultCall![1].diff).toBe("");
@@ -1957,13 +2159,20 @@ describe("mcp://apply-diff-hunk event", () => {
 
   it("calls mcp_apply_diff_hunk_result with ok=true when op is applied", async () => {
     // Spy on applyOp to avoid needing a perfectly-covering OT op fixture.
-    const applyOpSpy = vi.spyOn(useDocumentStore.getState(), "applyOp").mockReturnValue(true);
+    const applyOpSpy = vi
+      .spyOn(useDocumentStore.getState(), "applyOp")
+      .mockReturnValue(true);
     const fakeOp = {
       id: "mcp-agent:1",
       agentId: "mcp-agent",
       seq: 1,
       clock: {},
-      components: [{ type: "retain", count: 4 }, { type: "delete", count: 8 }, { type: "insert", text: "new line" }, { type: "retain", count: 4 }],
+      components: [
+        { type: "retain", count: 4 },
+        { type: "delete", count: 8 },
+        { type: "insert", text: "new line" },
+        { type: "retain", count: 4 },
+      ],
     };
     buildHunkOpMock.mockReturnValue(fakeOp);
     resetDocumentStore({ content: "ctx\nold line\nctx", path: "/doc.md" });
@@ -1974,9 +2183,16 @@ describe("mcp://apply-diff-hunk event", () => {
       diffText: SIMPLE_DIFF,
       hunkIndex: 0,
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_apply_diff_hunk_result",
+    );
     expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ diffId: "dh-001", ok: true, hunkIndex: 0, error: null });
+    expect(resultCall![1]).toMatchObject({
+      diffId: "dh-001",
+      ok: true,
+      hunkIndex: 0,
+      error: null,
+    });
     applyOpSpy.mockRestore();
   });
 
@@ -1988,11 +2204,17 @@ describe("mcp://apply-diff-hunk event", () => {
       diffText: SIMPLE_DIFF,
       hunkIndex: 99,
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_apply_diff_hunk_result",
+    );
     expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ diffId: "dh-002", ok: false, hunkIndex: 99 });
+    expect(resultCall![1]).toMatchObject({
+      diffId: "dh-002",
+      ok: false,
+      hunkIndex: 99,
+    });
     expect(typeof resultCall![1].error).toBe("string");
-    expect((resultCall![1].error as string)).toMatch(/out of bounds/i);
+    expect(resultCall![1].error as string).toMatch(/out of bounds/i);
   });
 
   it("calls mcp_apply_diff_hunk_result with ok=false when buildHunkOp returns null (anchor not found)", async () => {
@@ -2005,7 +2227,9 @@ describe("mcp://apply-diff-hunk event", () => {
       diffText: SIMPLE_DIFF,
       hunkIndex: 0,
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_apply_diff_hunk_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ diffId: "dh-003", ok: false });
     expect(typeof resultCall![1].error).toBe("string");
@@ -2019,7 +2243,9 @@ describe("mcp://apply-diff-hunk event", () => {
       diffText: "not a diff at all",
       hunkIndex: 0,
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_apply_diff_hunk_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
   });
@@ -2027,7 +2253,9 @@ describe("mcp://apply-diff-hunk event", () => {
   it("calls syncNow (mcp_sync_state) after a successful apply", async () => {
     // Spy on the real store's applyOp so we can force it to return true without
     // needing a perfectly-covering OT op in the test fixture.
-    const applyOpSpy = vi.spyOn(useDocumentStore.getState(), "applyOp").mockReturnValue(true);
+    const applyOpSpy = vi
+      .spyOn(useDocumentStore.getState(), "applyOp")
+      .mockReturnValue(true);
     const content = "ctx\nold line\nctx";
     // Build a fake op whose retain + delete covers content.length exactly.
     const fakeOp = {
@@ -2064,10 +2292,12 @@ describe("mcp://apply-diff-hunk event", () => {
       diffText: SIMPLE_DIFF,
       hunkIndex: -1,
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_apply_diff_hunk_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_apply_diff_hunk_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
-    expect((resultCall![1].error as string)).toMatch(/out of bounds/i);
+    expect(resultCall![1].error as string).toMatch(/out of bounds/i);
   });
 });
 
@@ -2094,7 +2324,8 @@ describe("mcp://atomic-edits event", () => {
         );
       }
       if (cmd === "apply_atomic_batch") {
-        const entries = (args?.entries as Array<{ path: string; content: string }>) ?? [];
+        const entries =
+          (args?.entries as Array<{ path: string; content: string }>) ?? [];
         return Promise.resolve(
           entries.map((e) => ({
             path: e.path,
@@ -2104,7 +2335,12 @@ describe("mcp://atomic-edits event", () => {
         );
       }
       if (cmd === "read_markdown_file") {
-        return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "# Opened", size: 8 });
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "# Opened",
+          size: 8,
+        });
       }
       return Promise.resolve(undefined);
     });
@@ -2144,7 +2380,9 @@ describe("mcp://atomic-edits event", () => {
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeDefined();
     expect(batchCall![1].entries).toHaveLength(2);
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1]).toMatchObject({ atomicId: "ae-001", ok: true });
   });
@@ -2158,9 +2396,15 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-002",
       entries: [{ path: "/vault/a.md", find: "unique text here", replace: "replaced" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
-    expect(resultCall![1].results[0]).toMatchObject({ path: "/vault/a.md", ok: true, replaced: 1 });
+    expect(resultCall![1].results[0]).toMatchObject({
+      path: "/vault/a.md",
+      ok: true,
+      replaced: 1,
+    });
   });
 
   it("passes the correct new content to apply_atomic_batch", async () => {
@@ -2170,11 +2414,15 @@ describe("mcp://atomic-edits event", () => {
     setupAtomicInvoke({ "/vault/a.md": "original content" });
     await fireEvent("mcp://atomic-edits", {
       atomicId: "ae-003",
-      entries: [{ path: "/vault/a.md", find: "original content", replace: "updated content" }],
+      entries: [
+        { path: "/vault/a.md", find: "original content", replace: "updated content" },
+      ],
     });
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeDefined();
-    const entry = batchCall![1].entries.find((e: { path: string }) => e.path === "/vault/a.md");
+    const entry = batchCall![1].entries.find(
+      (e: { path: string }) => e.path === "/vault/a.md",
+    );
     expect(entry?.content).toBe("updated content");
   });
 
@@ -2188,10 +2436,14 @@ describe("mcp://atomic-edits event", () => {
     setupAtomicInvoke({});
     await fireEvent("mcp://atomic-edits", {
       atomicId: "ae-004",
-      entries: [{ path: "/vault/open.md", find: "live content here", replace: "updated live" }],
+      entries: [
+        { path: "/vault/open.md", find: "live content here", replace: "updated live" },
+      ],
     });
     expect(useDocumentStore.getState().content).toBe("updated live");
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     // apply_atomic_batch should NOT be called for the live doc (no disk entries).
@@ -2200,14 +2452,19 @@ describe("mcp://atomic-edits event", () => {
   });
 
   it("updates live document content after successful edit", async () => {
-    resetDocumentStore({ path: "/vault/open.md", content: "# Title\n\nOld paragraph." });
+    resetDocumentStore({
+      path: "/vault/open.md",
+      content: "# Title\n\nOld paragraph.",
+    });
     setupAtomicInvoke({});
     mountBridge();
     invokeMock.mockClear();
     setupAtomicInvoke({});
     await fireEvent("mcp://atomic-edits", {
       atomicId: "ae-005",
-      entries: [{ path: "/vault/open.md", find: "Old paragraph.", replace: "New paragraph." }],
+      entries: [
+        { path: "/vault/open.md", find: "Old paragraph.", replace: "New paragraph." },
+      ],
     });
     expect(useDocumentStore.getState().content).toBe("# Title\n\nNew paragraph.");
   });
@@ -2228,8 +2485,13 @@ describe("mcp://atomic-edits event", () => {
     expect(useDocumentStore.getState().content).toBe("live updated");
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeDefined();
-    expect(batchCall![1].entries[0]).toMatchObject({ path: "/vault/disk.md", content: "disk updated" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    expect(batchCall![1].entries[0]).toMatchObject({
+      path: "/vault/disk.md",
+      content: "disk updated",
+    });
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall![1].ok).toBe(true);
   });
 
@@ -2261,11 +2523,15 @@ describe("mcp://atomic-edits event", () => {
         { path: "/vault/a.md", find: "content", replace: "text" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect(typeof resultCall![1].error).toBe("string");
-    expect((resultCall![1].error as string).toLowerCase()).toMatch(/conflict|duplicate/);
+    expect((resultCall![1].error as string).toLowerCase()).toMatch(
+      /conflict|duplicate/,
+    );
   });
 
   it("does not invoke apply_atomic_batch when duplicate paths are detected", async () => {
@@ -2297,9 +2563,15 @@ describe("mcp://atomic-edits event", () => {
         { path: "/vault/b.md", find: "bbb", replace: "z" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
-    const results = resultCall![1].results as Array<{ path: string; ok: boolean; error?: string }>;
+    const results = resultCall![1].results as Array<{
+      path: string;
+      ok: boolean;
+      error?: string;
+    }>;
     const dupResults = results.filter((r) => r.path === "/vault/a.md");
     expect(dupResults.every((r) => !r.ok)).toBe(true);
   });
@@ -2320,7 +2592,9 @@ describe("mcp://atomic-edits event", () => {
     });
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeUndefined();
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
   });
@@ -2354,10 +2628,16 @@ describe("mcp://atomic-edits event", () => {
         { path: "/vault/b.md", find: "bbb", replace: "y" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
-    const results = resultCall![1].results as Array<{ path: string; ok: boolean; error?: string }>;
+    const results = resultCall![1].results as Array<{
+      path: string;
+      ok: boolean;
+      error?: string;
+    }>;
     const failedA = results.find((r) => r.path === "/vault/a.md");
     expect(failedA?.ok).toBe(false);
     expect(typeof failedA?.error).toBe("string");
@@ -2372,7 +2652,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-roll-004",
       entries: [{ path: "/vault/a.md", find: "the", replace: "a" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
@@ -2390,7 +2672,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-write-001",
       entries: [{ path: "/vault/a.md", find: "content a", replace: "updated a" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect(typeof resultCall![1].error).toBe("string");
@@ -2412,21 +2696,31 @@ describe("mcp://atomic-edits event", () => {
     });
     // Live doc should NOT be updated because disk write failed.
     expect(useDocumentStore.getState().content).toBe("live text");
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall![1].ok).toBe(false);
   });
 
   it("returns ok=false when apply_atomic_batch invocation throws", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
+      if (cmd === "read_batch_files")
+        return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
       if (cmd === "apply_atomic_batch") return Promise.reject(new Error("IPC crashed"));
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "#",
+          size: 1,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
+      if (cmd === "read_batch_files")
+        return Promise.resolve([{ path: "/vault/a.md", ok: true, content: "aaa" }]);
       if (cmd === "apply_atomic_batch") return Promise.reject(new Error("IPC crashed"));
       return Promise.resolve(undefined);
     });
@@ -2434,7 +2728,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-write-003",
       entries: [{ path: "/vault/a.md", find: "aaa", replace: "bbb" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect(resultCall![1].error).toContain("IPC crashed");
@@ -2472,7 +2768,9 @@ describe("mcp://atomic-edits event", () => {
         },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     // Both edits should have succeeded.
@@ -2502,7 +2800,9 @@ describe("mcp://atomic-edits event", () => {
         },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect((resultCall![1].error as string).toLowerCase()).toMatch(/cycle/);
@@ -2526,12 +2826,24 @@ describe("mcp://atomic-edits event", () => {
     await fireEvent("mcp://atomic-edits", {
       atomicId: "ae-dag-chain",
       entries: [
-        { path: "/vault/c.md", find: "cccc", replace: "C", metadata: { dependsOn: ["/vault/b.md"] } },
-        { path: "/vault/b.md", find: "bbbb", replace: "B", metadata: { dependsOn: ["/vault/a.md"] } },
+        {
+          path: "/vault/c.md",
+          find: "cccc",
+          replace: "C",
+          metadata: { dependsOn: ["/vault/b.md"] },
+        },
+        {
+          path: "/vault/b.md",
+          find: "bbbb",
+          replace: "B",
+          metadata: { dependsOn: ["/vault/a.md"] },
+        },
         { path: "/vault/a.md", find: "aaaa", replace: "A" },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     expect(resultCall![1].results).toHaveLength(3);
@@ -2546,7 +2858,9 @@ describe("mcp://atomic-edits event", () => {
     invokeMock.mockClear();
     setupAtomicInvoke({});
     await fireEvent("mcp://atomic-edits", { atomicId: "ae-empty", entries: [] });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     expect(typeof resultCall![1].error).toBe("string");
@@ -2556,16 +2870,26 @@ describe("mcp://atomic-edits event", () => {
   it("returns ok=false when disk file read fails", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") {
-        return Promise.resolve([{ path: "/vault/missing.md", ok: false, error: "File not found" }]);
+        return Promise.resolve([
+          { path: "/vault/missing.md", ok: false, error: "File not found" },
+        ]);
       }
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "#",
+          size: 1,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") {
-        return Promise.resolve([{ path: "/vault/missing.md", ok: false, error: "File not found" }]);
+        return Promise.resolve([
+          { path: "/vault/missing.md", ok: false, error: "File not found" },
+        ]);
       }
       return Promise.resolve(undefined);
     });
@@ -2573,7 +2897,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-nofile",
       entries: [{ path: "/vault/missing.md", find: "anything", replace: "x" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
@@ -2583,7 +2909,13 @@ describe("mcp://atomic-edits event", () => {
   it("returns ok=false when read_batch_files invocation throws", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.reject(new Error("IPC error"));
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "#",
+          size: 1,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -2596,7 +2928,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-readfail",
       entries: [{ path: "/vault/a.md", find: "x", replace: "y" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
   });
@@ -2605,7 +2939,13 @@ describe("mcp://atomic-edits event", () => {
     // Even on a catastrophic error (read rejects), the result must fire.
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "read_batch_files") return Promise.reject("boom");
-      if (cmd === "read_markdown_file") return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      if (cmd === "read_markdown_file")
+        return Promise.resolve({
+          path: "/opened.md",
+          file_name: "opened.md",
+          content: "#",
+          size: 1,
+        });
       return Promise.resolve(undefined);
     });
     mountBridge();
@@ -2618,7 +2958,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-timeout",
       entries: [{ path: "/vault/a.md", find: "x", replace: "y" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
   });
 
@@ -2631,12 +2973,17 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-single",
       entries: [{ path: "/vault/solo.md", find: "solo content", replace: "new solo" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeDefined();
-    expect(batchCall![1].entries[0]).toMatchObject({ path: "/vault/solo.md", content: "new solo" });
+    expect(batchCall![1].entries[0]).toMatchObject({
+      path: "/vault/solo.md",
+      content: "new solo",
+    });
   });
 
   it("empty find string returns ok=false (propagates applyUniqueEdit error)", async () => {
@@ -2648,7 +2995,9 @@ describe("mcp://atomic-edits event", () => {
       atomicId: "ae-emptyfind",
       entries: [{ path: "/vault/a.md", find: "", replace: "x" }],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(false);
   });
@@ -2677,7 +3026,9 @@ describe("mcp://atomic-edits event", () => {
     const batchCall = invokeMock.mock.calls.find((c) => c[0] === "apply_atomic_batch");
     expect(batchCall).toBeDefined();
     expect(batchCall![1].entries).toHaveLength(3);
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall![1].ok).toBe(true);
     expect(resultCall![1].results).toHaveLength(3);
   });
@@ -2698,7 +3049,9 @@ describe("mcp://atomic-edits event", () => {
         },
       ],
     });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_atomic_edits_result");
+    const resultCall = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_atomic_edits_result",
+    );
     expect(resultCall).toBeDefined();
     expect(resultCall![1].ok).toBe(true);
   });
@@ -2709,10 +3062,9 @@ describe("mcp://atomic-edits event", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Helper: build a minimal valid .canvas JSON string
-function makeCanvasJson(overrides: {
-  nodes?: unknown[];
-  edges?: unknown[];
-} = {}): string {
+function makeCanvasJson(
+  overrides: { nodes?: unknown[]; edges?: unknown[] } = {},
+): string {
   return JSON.stringify({
     nodes: overrides.nodes ?? [
       { id: "n1", type: "text", x: 0, y: 0, width: 100, height: 50, text: "Hello" },
@@ -2731,7 +3083,12 @@ function setupCanvasInvoke(canvasContent: string, writeOk = true): void {
       return Promise.reject(new Error("disk write failed"));
     }
     if (cmd === "read_markdown_file") {
-      return Promise.resolve({ path: "/opened.md", file_name: "opened.md", content: "#", size: 1 });
+      return Promise.resolve({
+        path: "/opened.md",
+        file_name: "opened.md",
+        content: "#",
+        size: 1,
+      });
     }
     return Promise.resolve(undefined);
   });
@@ -2797,7 +3154,15 @@ describe("mcp://edit-canvas event", () => {
       ops: [
         {
           type: "add_node",
-          node: { id: "n3", type: "text", x: 400, y: 0, width: 100, height: 50, text: "New" },
+          node: {
+            id: "n3",
+            type: "text",
+            x: 400,
+            y: 0,
+            width: 100,
+            height: 50,
+            text: "New",
+          },
         },
       ],
     });
@@ -2826,7 +3191,12 @@ describe("mcp://edit-canvas event", () => {
     await fireEvent("mcp://edit-canvas", {
       editId: "ec-004",
       path: "/vault/graph.canvas",
-      ops: [{ type: "add_edge", edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" } }],
+      ops: [
+        {
+          type: "add_edge",
+          edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" },
+        },
+      ],
     });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
     expect(result![1].ok).toBe(true);
@@ -2846,7 +3216,7 @@ describe("mcp://edit-canvas event", () => {
       editId: "ec-005",
       path: "/vault/board.canvas",
       ops: [
-        { type: "move_node", id: "n1", x: 100, y: 100 },    // valid
+        { type: "move_node", id: "n1", x: 100, y: 100 }, // valid
         { type: "move_node", id: "no-such-node", x: 0, y: 0 }, // invalid → abort
         { type: "edit_text", id: "n2", text: "should not run" },
       ],
@@ -2869,8 +3239,8 @@ describe("mcp://edit-canvas event", () => {
       editId: "ec-006",
       path: "/vault/board.canvas",
       ops: [
-        { type: "edit_text", id: "n1", text: "ok" },     // [0] succeeds
-        { type: "edit_text", id: "e1", text: "bad" },    // [1] fails: e1 is an edge not a node
+        { type: "edit_text", id: "n1", text: "ok" }, // [0] succeeds
+        { type: "edit_text", id: "e1", text: "bad" }, // [1] fails: e1 is an edge not a node
       ],
     });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
@@ -2942,13 +3312,15 @@ describe("mcp://edit-canvas event", () => {
 
   it("returns ok=false when read_canvas_file throws", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_canvas_file") return Promise.reject(new Error("file not found"));
+      if (cmd === "read_canvas_file")
+        return Promise.reject(new Error("file not found"));
       return Promise.resolve(undefined);
     });
     mountBridge();
     invokeMock.mockClear();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_canvas_file") return Promise.reject(new Error("file not found"));
+      if (cmd === "read_canvas_file")
+        return Promise.reject(new Error("file not found"));
       return Promise.resolve(undefined);
     });
     await fireEvent("mcp://edit-canvas", {
@@ -3012,7 +3384,7 @@ describe("mcp://edit-canvas event", () => {
       editId: "ec-013",
       path: "/vault/board.canvas",
       ops: [{ type: "move_node", id: "n1", x: 500, y: 500 }],
-      undo: 1,    // undo the move_node → canvas back to original
+      undo: 1, // undo the move_node → canvas back to original
       save: false,
     });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
@@ -3065,7 +3437,10 @@ describe("mcp://edit-canvas event", () => {
         { type: "move_node", id: "a", x: 10, y: 10 },
         { type: "edit_text", id: "a", text: "A updated" },
         { type: "set_node_color", id: "b", color: "3" },
-        { type: "add_edge", edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" } },
+        {
+          type: "add_edge",
+          edge: { id: "e1", fromNode: "a", toNode: "b", toEnd: "arrow" },
+        },
       ],
     });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
@@ -3112,7 +3487,9 @@ describe("mcp://edit-canvas event", () => {
     });
     const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
     expect(result![1].ok).toBe(true);
-    const node = JSON.parse(result![1].content).nodes.find((n: { id: string }) => n.id === "n1");
+    const node = JSON.parse(result![1].content).nodes.find(
+      (n: { id: string }) => n.id === "n1",
+    );
     expect(node.width).toBe(300);
     expect(node.height).toBe(200);
   });
@@ -3120,7 +3497,15 @@ describe("mcp://edit-canvas event", () => {
   it("edit_group_label op updates label in serialised output", async () => {
     const canvas = makeCanvasJson({
       nodes: [
-        { id: "g1", type: "group", x: 0, y: 0, width: 400, height: 300, label: "Old Label" },
+        {
+          id: "g1",
+          type: "group",
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 300,
+          label: "Old Label",
+        },
       ],
       edges: [],
     });
@@ -3263,12 +3648,17 @@ describe("mcp://batch-export-profiles event", () => {
 
   it("reports ok=false when all profiles fail and includes error messages", async () => {
     buildBatchExportProfilesMock.mockResolvedValue([
-      { profileId: "notion-html",        ok: false, html: null, error: "DOM not ready" },
-      { profileId: "slack-html",         ok: false, html: null, error: "DOM not ready" },
-      { profileId: "email-html",         ok: false, html: null, error: "DOM not ready" },
-      { profileId: "github-markdown",    ok: false, html: null, error: "DOM not ready" },
-      { profileId: "confluence-wiki",    ok: false, html: null, error: "DOM not ready" },
-      { profileId: "slack-rich-markdown",ok: false, html: null, error: "DOM not ready" },
+      { profileId: "notion-html", ok: false, html: null, error: "DOM not ready" },
+      { profileId: "slack-html", ok: false, html: null, error: "DOM not ready" },
+      { profileId: "email-html", ok: false, html: null, error: "DOM not ready" },
+      { profileId: "github-markdown", ok: false, html: null, error: "DOM not ready" },
+      { profileId: "confluence-wiki", ok: false, html: null, error: "DOM not ready" },
+      {
+        profileId: "slack-rich-markdown",
+        ok: false,
+        html: null,
+        error: "DOM not ready",
+      },
     ]);
     mountBridge();
     invokeMock.mockClear();
@@ -3307,12 +3697,12 @@ describe("mcp://batch-export-profiles event", () => {
 
   it("partial failure: ok=false when any profile fails, but all results are returned", async () => {
     buildBatchExportProfilesMock.mockResolvedValue([
-      { profileId: "notion-html",        ok: true,  html: "<html>notion</html>" },
-      { profileId: "slack-html",         ok: false, html: null, error: "slack failed" },
-      { profileId: "email-html",         ok: true,  html: "<html>email</html>" },
-      { profileId: "github-markdown",    ok: true,  html: "<html>github</html>" },
-      { profileId: "confluence-wiki",    ok: true,  html: "<html>confluence</html>" },
-      { profileId: "slack-rich-markdown",ok: true,  html: "<html>slack-rich</html>" },
+      { profileId: "notion-html", ok: true, html: "<html>notion</html>" },
+      { profileId: "slack-html", ok: false, html: null, error: "slack failed" },
+      { profileId: "email-html", ok: true, html: "<html>email</html>" },
+      { profileId: "github-markdown", ok: true, html: "<html>github</html>" },
+      { profileId: "confluence-wiki", ok: true, html: "<html>confluence</html>" },
+      { profileId: "slack-rich-markdown", ok: true, html: "<html>slack-rich</html>" },
     ]);
     mountBridge();
     invokeMock.mockClear();
@@ -3530,7 +3920,10 @@ describe("mcp://stream-edit event — preview phase", () => {
       preview: true,
     });
     const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
-    const candidates = call![1].candidates as Array<{ rank: number; matchIndex: number }>;
+    const candidates = call![1].candidates as Array<{
+      rank: number;
+      matchIndex: number;
+    }>;
     expect(candidates[0].rank).toBe(1);
     expect(candidates[0].matchIndex).toBe(0);
     expect(candidates[1].rank).toBe(2);
@@ -3549,7 +3942,9 @@ describe("mcp://stream-edit event — preview phase", () => {
     });
     const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
     const candidates = call![1].candidates as Array<{ diff: string }>;
-    expect(candidates.every((c) => typeof c.diff === "string" && c.diff.length > 0)).toBe(true);
+    expect(
+      candidates.every((c) => typeof c.diff === "string" && c.diff.length > 0),
+    ).toBe(true);
   });
 
   it("previewLines controls context in the diff (larger value = more context lines)", async () => {
@@ -3567,7 +3962,9 @@ describe("mcp://stream-edit event — preview phase", () => {
       previewLines: 2,
     });
     const call2 = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
-    const diff2Lines = (call2![1].diff as string).split("\n").filter((l: string) => l.startsWith(" ")).length;
+    const diff2Lines = (call2![1].diff as string)
+      .split("\n")
+      .filter((l: string) => l.startsWith(" ")).length;
 
     invokeMock.mockClear();
 
@@ -3580,7 +3977,9 @@ describe("mcp://stream-edit event — preview phase", () => {
       previewLines: 5,
     });
     const call5 = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
-    const diff5Lines = (call5![1].diff as string).split("\n").filter((l: string) => l.startsWith(" ")).length;
+    const diff5Lines = (call5![1].diff as string)
+      .split("\n")
+      .filter((l: string) => l.startsWith(" ")).length;
 
     expect(diff5Lines).toBeGreaterThanOrEqual(diff2Lines);
   });
@@ -3739,7 +4138,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       find: "hello world",
       replace: "hi there",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call).toBeDefined();
     expect(call![1]).toMatchObject({ editId: "sa-002", ok: true, replaced: 1 });
   });
@@ -3757,7 +4158,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
     const content = useDocumentStore.getState().content;
     // Only the second occurrence should be replaced
     expect(content).toBe("foo 1\nbar 2\nfoo 3\n");
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].matchIndex).toBe(1);
   });
 
@@ -3770,7 +4173,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       find: "not here",
       replace: "x",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].ok).toBe(false);
     expect(typeof call![1].error).toBe("string");
   });
@@ -3785,7 +4190,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       replace: "baz",
       matchIndex: 99,
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].ok).toBe(false);
     expect(call![1].error).toMatch(/out of bounds/i);
   });
@@ -3799,7 +4206,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       find: "",
       replace: "x",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].ok).toBe(false);
     expect(call![1].error).toBeTruthy();
   });
@@ -3838,7 +4247,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       find: "xyz not present",
       replace: "x",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call).toBeDefined();
   });
 
@@ -3852,7 +4263,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       replace: "x",
       path: "/other.md",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].ok).toBe(false);
     expect(call![1].error).toMatch(/mismatch/i);
   });
@@ -3866,7 +4279,9 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
       find: "find this exactly once",
       replace: "done",
     });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result");
+    const call = invokeMock.mock.calls.find(
+      (c) => c[0] === "mcp_stream_edit_apply_result",
+    );
     expect(call![1].replaced).toBe(1);
   });
 

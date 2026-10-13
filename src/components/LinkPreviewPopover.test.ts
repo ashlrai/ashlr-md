@@ -385,7 +385,9 @@ describe("resolveLinkPreview — wikilink-style targets", () => {
 
   it("handles wikilinks with fragment sections", async () => {
     resolveWikilinkMock.mockResolvedValueOnce("/vault/note.md");
-    invokeMock.mockResolvedValueOnce({ content: "# Note\n\n## Section\n\nSection body." });
+    invokeMock.mockResolvedValueOnce({
+      content: "# Note\n\n## Section\n\nSection body.",
+    });
 
     const result = await resolveLinkPreview("note#Section", "/vault/current.md");
 
@@ -522,7 +524,9 @@ describe("resolveLinkPreview — malformed and edge-case links", () => {
 
   it("handles file content that is only frontmatter", async () => {
     resolveWikilinkMock.mockResolvedValueOnce("/vault/fm-only.md");
-    invokeMock.mockResolvedValueOnce({ content: "---\ntitle: Only FM\ntags: []\n---\n" });
+    invokeMock.mockResolvedValueOnce({
+      content: "---\ntitle: Only FM\ntags: []\n---\n",
+    });
 
     const result = await resolveLinkPreview("fm-only.md", "/vault/current.md");
     expect(result).not.toBeNull();

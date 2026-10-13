@@ -57,7 +57,8 @@ export function AiProviderSection() {
     <div className="settings-ai-provider">
       <p className="settings-description">
         Add an Ashlr MD Cloud token to enable the hosted AI tier. The token is stored
-        securely in your OS keychain and used as a fallback when Anthropic key is absent.
+        securely in your OS keychain and used as a fallback when Anthropic key is
+        absent.
       </p>
 
       {hostedToken ? (
@@ -65,7 +66,8 @@ export function AiProviderSection() {
           <span className="settings-label" style={{ flex: 1 }}>
             Token:{" "}
             <code style={{ opacity: 0.7 }}>
-              {hostedToken.slice(0, 6)}{"•".repeat(Math.min(hostedToken.length - 6, 24))}
+              {hostedToken.slice(0, 6)}
+              {"•".repeat(Math.min(hostedToken.length - 6, 24))}
             </code>
           </span>
           <button

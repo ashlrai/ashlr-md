@@ -43,60 +43,59 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
 import { useActivityStore } from "../store/activityStore";
-import { useConversationStore } from "../store/memoryStore";
 import { useDocumentStore } from "../store/documentStore";
+import { useConversationStore } from "../store/memoryStore";
 import { useRecentStore } from "../store/recentStore";
 import { syncDocToSession } from "../store/sessionPersistenceStore";
-
-// ── Handler modules ───────────────────────────────────────────────────────────
+import { handleEditCanvas } from "./handlers/canvas";
 import {
-  handleExportPayload,
-  handleMarkdownArchive,
-  handleCanvasGraphExport,
-  handleOutlineExport,
-  handleBatchExport,
-  handleBatchExportProfiles,
-} from "./handlers/export";
+  handleApplyDiffHunk,
+  handleCopyRichText,
+  handleLintDocument,
+  handleOpen,
+  handleOtOp,
+  handlePresent,
+} from "./handlers/conversation";
 import {
-  handleSetContent,
   handleAtomicEdit,
-  handleBatchEdit,
   handleAtomicEdits,
+  handleBatchEdit,
+  handleSetContent,
   handleStreamEdit,
   handleStreamEditApply,
 } from "./handlers/edit";
+// ── Handler modules ───────────────────────────────────────────────────────────
+import {
+  handleBatchExport,
+  handleBatchExportProfiles,
+  handleCanvasGraphExport,
+  handleExportPayload,
+  handleMarkdownArchive,
+  handleOutlineExport,
+} from "./handlers/export";
+import { handleRequestReview } from "./handlers/review";
 import {
   handleBatchRead,
-  handleSemanticSearch,
   handleDiffDocs,
+  handleSemanticSearch,
 } from "./handlers/search";
-import { handleRequestReview } from "./handlers/review";
-import { handleEditCanvas } from "./handlers/canvas";
-import {
-  handleOpen,
-  handlePresent,
-  handleOtOp,
-  handleCopyRichText,
-  handleLintDocument,
-  handleApplyDiffHunk,
-} from "./handlers/conversation";
 
 // ── Re-exports (public API surface unchanged) ─────────────────────────────────
 
 export type {
   AtomicEditEntry,
   AtomicEditFileResult,
+  BatchEditOpResult,
   BatchExportEntry,
   BatchExportFileResult,
   BatchExportProfileResult,
   BatchReadFileResult,
-  BatchEditOpResult,
-  StreamEditPayload,
   StreamEditApplyPayload,
   StreamEditCandidateResult,
+  StreamEditPayload,
 } from "./handlers/types";
 
 // ── Session persistence helpers (exported for use in MCP tools / tests) ────────
@@ -127,14 +126,16 @@ export async function persistSession(sessionId: string): Promise<void> {
  */
 export async function loadSession(sessionId: string): Promise<number> {
   try {
-    const messages = await invoke<Array<{
-      id: string;
-      sessionId: string;
-      role: "agent" | "human" | "system";
-      content: string;
-      citedDocs: string[];
-      timestampMs: number;
-    }>>("mcp_load_session", { sessionId });
+    const messages = await invoke<
+      Array<{
+        id: string;
+        sessionId: string;
+        role: "agent" | "human" | "system";
+        content: string;
+        citedDocs: string[];
+        timestampMs: number;
+      }>
+    >("mcp_load_session", { sessionId });
 
     if (!messages || messages.length === 0) return 0;
 

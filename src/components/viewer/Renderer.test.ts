@@ -12,9 +12,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { parseSpec } from "../../lib/renderers/spec-renderer";
 import { parseReview } from "../../lib/renderers/review-renderer";
 import { parseRunbook } from "../../lib/renderers/runbook-renderer";
+import { parseSpec } from "../../lib/renderers/spec-renderer";
 
 // ===========================================================================
 // Fixtures
@@ -208,10 +208,13 @@ describe("parseSpec — mounts and renders correctly", () => {
   });
 
   it("handles document with frontmatter correctly (skips it)", () => {
-    const withFm = "---\nkind: spec\ntitle: My Spec\n---\n# Title\n\n## Requirements\n\nFoo.\n";
+    const withFm =
+      "---\nkind: spec\ntitle: My Spec\n---\n# Title\n\n## Requirements\n\nFoo.\n";
     const result = parseSpec(withFm);
     expect(result.title).toBe("Title");
-    expect(result.sections.some((s) => s.title.toLowerCase() === "requirements")).toBe(true);
+    expect(result.sections.some((s) => s.title.toLowerCase() === "requirements")).toBe(
+      true,
+    );
   });
 
   it("handles empty document without throwing", () => {

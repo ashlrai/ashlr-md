@@ -32,14 +32,14 @@
  */
 
 import DOMPurify from "dompurify";
-import { useDocumentStore } from "../store/documentStore";
-import { toast } from "../store/toastStore";
-import { buildStandaloneHtml, cloneWithoutInjectedChrome } from "./export";
-import { waitForElement } from "./waitForElement";
 // Vite ?raw imports for theme-aware HTML generation (mirrors export.ts).
 import katexCss from "katex/dist/katex.min.css?raw";
+import { useDocumentStore } from "../store/documentStore";
+import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
+import { buildStandaloneHtml, cloneWithoutInjectedChrome } from "./export";
+import { waitForElement } from "./waitForElement";
 
 /**
  * A tiny set of inline styles applied to the wrapping <div>. Kept intentionally

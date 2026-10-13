@@ -254,7 +254,13 @@ function frontmatterDocType(content: string): DocType | null {
   const m = FM_TYPE_RE.exec(blockMatch[1]);
   if (!m) return null;
   const raw = m[1].replace(/^["']|["']$/g, "").toUpperCase();
-  if (raw === "PLAN" || raw === "REVIEW" || raw === "SPEC" || raw === "RUNBOOK" || raw === "GENERIC") {
+  if (
+    raw === "PLAN" ||
+    raw === "REVIEW" ||
+    raw === "SPEC" ||
+    raw === "RUNBOOK" ||
+    raw === "GENERIC"
+  ) {
     return raw as DocType;
   }
   // Also accept lowercase synonyms used in agent-detect frontmatter
@@ -288,14 +294,20 @@ function scoreContent(content: string): TypeScore[] {
   };
 
   // ── 1. Heading patterns ──────────────────────────────────────────────────
-  for (const [type, patterns] of Object.entries(HEADING_PATTERNS) as [Exclude<DocType, "GENERIC">, RegExp[]][]) {
+  for (const [type, patterns] of Object.entries(HEADING_PATTERNS) as [
+    Exclude<DocType, "GENERIC">,
+    RegExp[],
+  ][]) {
     for (const re of patterns) {
       if (re.test(content)) scores[type] += HEADING_HIT_WEIGHT;
     }
   }
 
   // ── 2. Word frequency ────────────────────────────────────────────────────
-  for (const [type, terms] of Object.entries(WORD_TERMS) as [Exclude<DocType, "GENERIC">, RegExp[]][]) {
+  for (const [type, terms] of Object.entries(WORD_TERMS) as [
+    Exclude<DocType, "GENERIC">,
+    RegExp[],
+  ][]) {
     for (const re of terms) {
       // Reset lastIndex for global regexes before each test
       re.lastIndex = 0;

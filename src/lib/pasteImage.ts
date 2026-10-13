@@ -150,6 +150,7 @@ export function expectedSavePath(
  * when `token` is supplied, which is useful in tests.
  */
 export function pasteImageFilename(ext: string, token?: string): string {
-  const t = token ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const t =
+    token ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
   return `image-${t}.${ext}`;
 }

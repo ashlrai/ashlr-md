@@ -10,12 +10,12 @@ import {
   ALL_PROFILE_IDS,
   BUILTIN_TEMPLATES,
   EXPORT_PROFILES,
-  NO_TEMPLATE_ID,
+  type ExportTemplate,
   findProfile,
   findTemplate,
+  NO_TEMPLATE_ID,
   newTemplateId,
   validateTemplateCss,
-  type ExportTemplate,
 } from "./exportTemplates";
 
 // ─── BUILTIN_TEMPLATES ────────────────────────────────────────────────────────
@@ -201,7 +201,9 @@ describe("validateTemplateCss", () => {
   });
 
   it("rejects @import url(https://…)", () => {
-    const result = validateTemplateCss('@import url("https://fonts.googleapis.com/css");');
+    const result = validateTemplateCss(
+      '@import url("https://fonts.googleapis.com/css");',
+    );
     expect(result).not.toBeNull();
   });
 
@@ -216,11 +218,15 @@ describe("validateTemplateCss", () => {
   });
 
   it("allows media queries", () => {
-    expect(validateTemplateCss("@media print { body { font-size: 11pt; } }")).toBeNull();
+    expect(
+      validateTemplateCss("@media print { body { font-size: 11pt; } }"),
+    ).toBeNull();
   });
 
   it("allows CSS variables referencing theme tokens", () => {
-    expect(validateTemplateCss("body { color: var(--text); background: var(--bg); }")).toBeNull();
+    expect(
+      validateTemplateCss("body { color: var(--text); background: var(--bg); }"),
+    ).toBeNull();
   });
 });
 
