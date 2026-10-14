@@ -53,6 +53,8 @@ Cursor (`~/.cursor/mcp.json`):
 ```
 
 Windows path: `%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe`. More in [docs/AGENTS.md](./docs/AGENTS.md).
+The Settings copy command targets a Unix shell on macOS/Linux and PowerShell on
+Windows; its quoting is not intended for Windows Command Prompt (`cmd.exe`).
 
 
 ## Why
@@ -198,6 +200,11 @@ CLI, and wires up Claude Code:
 bash scripts/install.sh
 ```
 
+The full macOS source installer builds the Swift sidecars declared in the app's
+bundle configuration. It needs Xcode 26 / Swift 6.2+ with the macOS 26 SDK for
+`mdopener-afm`; a missing sidecar stops packaging with its build instructions.
+For the Rust CLI and MCP server only, use `SKIP_APP_BUILD=1 bash scripts/install.sh`.
+
 ## Develop
 
 Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh).
@@ -220,6 +227,9 @@ bunx biome check src     # lint + format
 bun run test             # Vitest unit tests
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 ```
+
+Source-only MCP setup checks (Python 3, Rust, and Bash; no installer or agent
+CLI execution): `python3 scripts/test-mcp-setup.py`.
 
 The on-device AI sidecar (optional, macOS 26+) builds separately:
 

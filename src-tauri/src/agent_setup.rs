@@ -18,6 +18,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::Manager;
 
+#[path = "mcp_command.rs"]
+mod mcp_command;
+
 // ── Binary path resolution ────────────────────────────────────────────────────
 
 /// Resolve the absolute path to the `mdopener-mcp` sidecar binary.
@@ -445,8 +448,8 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
 
 // ── Copy-button helper ────────────────────────────────────────────────────────
 
-/// Return the exact shell command a user can paste into any terminal to
-/// register Ashlr MD with Claude Code — used by the "Copy" button in Settings.
+/// Return the command a user can paste into a Unix shell, or PowerShell on
+/// Windows, to register Ashlr MD with Claude Code — used by Settings' Copy button.
 ///
 /// Falls back to a placeholder path if the binary cannot be resolved (e.g. in
 /// a renderer-only preview context where `AppHandle` is unavailable at
@@ -455,5 +458,5 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
 pub fn mcp_command_string(app: tauri::AppHandle) -> String {
     let path = resolve_mcp_binary_path(&app)
         .unwrap_or_else(|_| "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp".to_string());
-    format!("claude mcp add --scope user ashlr-md {path}")
+    mcp_command::mcp_command(&path)
 }
