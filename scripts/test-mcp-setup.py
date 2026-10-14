@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Source-only MCP setup checks; never run the installer or agent CLIs.
 
-Compiles only the dependency-free command formatter. Installer branch fixtures
-evaluate only its sidecar-build section, with all build commands mocked and an
+Compiles only the dependency-free command formatter and sidecar path lookup.
+Installer branch fixtures evaluate only its sidecar-build section, with all build commands mocked and an
 isolated, empty PATH. No app, Swift build, or MCP registration is executed.
 """
 
@@ -58,6 +58,25 @@ class CommandTests(unittest.TestCase):
         path = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
         expected = f"claude mcp add --scope user ashlr-md '{path}'"
         self.assertIn(expected, (ROOT / "src/components/settings/sections/McpSection.tsx").read_text())
+
+
+class SidecarPathTests(unittest.TestCase):
+    def test_resolver_unit_tests_cover_declared_windows_resource_names(self):
+        # Pure std-only module: fixture files live in a temporary directory and
+        # are never executed. Its tests also read the tauri.*.conf.json overlays.
+        # Tauri-only entry points are unused in this standalone test binary.
+        module = ROOT / "src-tauri/src/sidecar_path.rs"
+        with tempfile.TemporaryDirectory(prefix="md-sidecar-path-") as directory:
+            unit = Path(directory) / "sidecar-path-tests"
+            subprocess.run(["rustc", "--edition", "2021", "-A", "dead_code", "--test", str(module), "-o", str(unit)], check=True)
+            subprocess.run([str(unit)], check=True)
+
+    def test_agent_setup_resolves_through_suffix_aware_module(self):
+        agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
+        self.assertIn("sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())", agent)
+        self.assertIn("sidecar_path::unresolved_mcp_placeholder()", agent)
+        self.assertNotIn('exe_dir.join(bin)', agent)
+        self.assertNotIn('resource_dir.join(bin)', agent)
 
 
 class InstallerTests(unittest.TestCase):
