@@ -75,7 +75,7 @@ already exists is treated as success.
 
 ```bash
 # macOS
-claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
 # Windows — verify path; shown here for a typical per-user install
 claude mcp add --scope user ashlr-md "%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe"
@@ -97,7 +97,7 @@ claude mcp add --scope user ashlr-md <resolved-mdopener-mcp-path>
 
 ```bash
 claude mcp list
-# macOS:   ashlr-md  /Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp
+# macOS:   ashlr-md  /Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp
 # Windows: ashlr-md  C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe
 # Linux:   ashlr-md  "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
@@ -136,7 +136,7 @@ for agent control.
 
 ```bash
 # macOS
-codex mcp add --transport stdio ashlr-md -- "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+codex mcp add --transport stdio ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
 # Windows (adjust to your install dir)
 codex mcp add --transport stdio ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe"
@@ -154,11 +154,11 @@ the equivalent of this to **`~/.codex/config.toml`** (global) or a project-level
 ```toml
 [mcp_servers.ashlr-md]
 # macOS:
-command = "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+command = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 # Windows (adjust to your install dir):
 # command = "C:\\Users\\<you>\\AppData\\Local\\Ashlr MD\\mdopener-mcp.exe"
 # Linux (.deb):
-# command = ""/usr/lib/Ashlr MD/mdopener-mcp""
+# command = "/usr/lib/Ashlr MD/mdopener-mcp"
 args = []
 ```
 
@@ -183,7 +183,7 @@ Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
 {
   "mcpServers": {
     "ashlr-md": {
-      "command": "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp",
+      "command": "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp",
       "args": []
     }
   }
@@ -205,7 +205,9 @@ Cursor). You should then see `ashlr-md` listed with a green status indicator.
 
 ## MCP tool reference
 
-The `mdopener-mcp` server exposes **eleven** tools over stdio JSON-RPC 2.0.
+The released v0.4.0 `mdopener-mcp` server exposes the **eleven** tools below over
+stdio JSON-RPC 2.0. A build from `main` lists more (23 today, not yet released or
+documented here); run `tools/list` against your binary for its exact catalog.
 Every tool returns its payload inside the standard MCP `content` envelope
 (`{ "content": [{ "type": "text", "text": "…" }], "isError": false }`); the
 "Returns" column below describes the JSON carried inside that text.
@@ -515,8 +517,9 @@ claude mcp add --scope user ashlr-md \
 **"binary not found" after connecting**
 The MCP binary must exist before the agent can launch it. Either:
 - Install the full app from a release DMG or `scripts/install.sh`, or
-- Run `cargo build --release -p mdopener-mcp` and register the
-  `target/release/mdopener-mcp` path manually.
+- Run `cargo build --release --manifest-path src-tauri/Cargo.toml -p mdopener-mcp`
+  from the repo root and register the `src-tauri/target/release/mdopener-mcp`
+  path manually.
 
 **Tools return "Ashlr MD does not appear to be running"**
 The app must be open for everything except `open_file`. Launch Ashlr MD (or call

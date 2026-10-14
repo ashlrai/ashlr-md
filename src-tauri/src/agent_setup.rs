@@ -454,6 +454,6 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn mcp_command_string(app: tauri::AppHandle) -> String {
     let path = resolve_mcp_binary_path(&app)
-        .unwrap_or_else(|_| "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp".to_string());
+        .unwrap_or_else(|_| "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp".to_string());
     format!("claude mcp add --scope user ashlr-md {path}")
 }
