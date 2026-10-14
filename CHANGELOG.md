@@ -40,11 +40,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   sidecar lookup behind Settings' connect actions and manual copy command
   searched for `mdopener-mcp` without the `.exe` suffix, so a Windows install
   reported it as not found even though the bundle declares `mdopener-mcp.exe`.
-  The lookup now uses the platform's executable suffix (also for the `mdopen`
-  auto-open hook), and when nothing is found the copy command shows that
-  platform's typical install path instead of the macOS one. The Claude Code and
-  Codex buttons still depend on CLI detection via `which`, which Windows does
-  not provide by default. Not yet verified on an installed Windows build.
+  The lookup now uses the platform's executable suffix, and when nothing is
+  found the copy command shows that platform's typical install path instead of
+  the macOS one. The Claude Code and Codex buttons still depend on CLI
+  detection via `which`, which Windows does not provide by default, and the
+  auto-open hook still writes its `mdopen` path unquoted, which breaks under
+  the space in "Ashlr MD" on every platform. Not yet verified on an installed
+  Windows build.
 - **Agent edits apply to the live document, not a stale snapshot.** An MCP
   `edit_document`/`replace_document` that arrived within ~200 ms of you typing
   used to run against a debounced mirror — it could miss just-typed text or

@@ -19,9 +19,10 @@ fn file_name_for(bin: &str, exe_suffix: &str) -> String {
 /// `mdopener-mcp`, `mdopen`), adding the host's executable suffix.
 ///
 /// Search order:
-///   1. Next to the running executable (Windows and Linux installs, where the
-///      `"./"` resource target lands beside the app binary, and dev builds).
-///   2. The Tauri resource directory (`Contents/Resources` in the macOS app).
+///   1. Next to the running executable (Windows installs, where the `"./"`
+///      resource target lands beside the app binary, and dev builds).
+///   2. The Tauri resource directory (`Contents/Resources` in the macOS app,
+///      `/usr/lib/Ashlr MD` for the Linux `.deb`).
 ///   3. `target/release/` in an ancestor of the executable (local
 ///      `cargo build --release` without `tauri build`).
 pub(crate) fn resolve(
