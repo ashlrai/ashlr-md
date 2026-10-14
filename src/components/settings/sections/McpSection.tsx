@@ -165,7 +165,7 @@ export function McpSection() {
         className="settings-description settings-description-muted"
         style={{ marginTop: "14px" }}
       >
-        For Codex or manual setup — run once in your terminal:
+        For manual Claude Code setup — run once in your terminal:
       </p>
       <div className="settings-mcp-command-row">
         <code className="settings-mcp-command">{mcpCmd}</code>
