@@ -16,13 +16,12 @@
 
 use mdopener_mcp::{
     dispatch, handle_initialize, tool_list, tool_registry, ai_actions_registry,
-    ALL_TOOL_NAMES, ToolTier,
+    ALL_TOOL_NAMES, UNAVAILABLE_TOOLS, ToolTier,
     tool_open_file, tool_get_content, tool_set_content, tool_list_recent,
     tool_export, tool_request_review, tool_get_annotations,
     tool_edit_document, tool_replace_document, tool_search_vault,
     tool_present_document, tool_list_ai_actions,
     tool_get_conversation_context, tool_save_conversation_message,
-    tool_export_markdown_archive, tool_export_canvas_graph,
     store_append_message, store_get_context,
     session_file_path, load_session_from_disk,
     IpcClient, Request, tool_open_file_with,
@@ -185,8 +184,7 @@ fn tools_list_contains_all_16_tools() {
         "export", "request_review", "get_user_annotations", "edit_document",
         "replace_document", "search_vault", "present_document", "list_ai_actions",
         "get_conversation_context", "save_conversation_message",
-        "export_markdown_archive", "export_canvas_graph",
-        "batch_export_format", "diff_documents", "edit_canvas",
+        "diff_documents", "edit_canvas",
         "stream_edit", "stream_edit_apply",
         "export_text", "export_metadata",
     ];
@@ -1710,184 +1708,49 @@ fn export_tool_format_always_in_ipc_body() {
     }
 }
 
-// ── export:current resource ───────────────────────────────────────────────────
+// ── export:current resource (not served by the app) ──────────────────────────
+//
+// The app has no `/export/preview` IPC route, so the resource is not listed
+// and reading it fails fast with a clear error instead of an HTTP 404.
 
-#[test]
-fn resources_list_includes_export_current() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
-    let resp = handle_resources_list(id(70), &ipc);
-    assert!(resp.error.is_none());
-    let result = resp.result.as_ref().unwrap();
-    let resources = result["resources"].as_array().expect("resources must be array");
-    let uris: Vec<&str> = resources.iter()
-        .filter_map(|r| r["uri"].as_str())
-        .collect();
-    assert!(uris.contains(&"export:current"),
-        "resources/list must include export:current, got: {:?}", uris);
-}
-
-#[test]
-fn resources_list_export_current_has_correct_mime_type() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
-    let resp = handle_resources_list(id(71), &ipc);
-    let result = resp.result.as_ref().unwrap();
-    let resources = result["resources"].as_array().unwrap();
-    let export_res = resources.iter()
-        .find(|r| r["uri"].as_str() == Some("export:current"))
-        .expect("export:current resource not found");
-    assert_eq!(export_res["mimeType"].as_str(), Some("text/html"),
-        "export:current must have mimeType text/html");
-}
-
-#[test]
-fn resources_list_export_current_has_description() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
-    let resp = handle_resources_list(id(72), &ipc);
-    let result = resp.result.as_ref().unwrap();
-    let resources = result["resources"].as_array().unwrap();
-    let export_res = resources.iter()
-        .find(|r| r["uri"].as_str() == Some("export:current"))
-        .unwrap();
-    let desc = export_res["description"].as_str().unwrap_or("");
-    assert!(!desc.is_empty(), "export:current must have a non-empty description");
-    // Description must convey the read-only, live-preview nature.
-    assert!(desc.contains("live") || desc.contains("preview") || desc.contains("read"),
-        "description should mention live preview: {desc}");
-}
-
-#[test]
-fn resource_read_export_current_success_returns_html() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({
-            "html": "<h1>Hello</h1><p>World</p>",
-            "title": "My Doc",
-            "theme": "paper"
-        })));
-    let resp = handle_resource_read(id(80), "export:current", &ipc);
-    assert!(resp.error.is_none(), "should not have error: {:?}", resp.error);
-    let result = resp.result.as_ref().unwrap();
-    let contents = result["contents"].as_array().expect("contents must be array");
-    assert_eq!(contents.len(), 1);
-    let item = &contents[0];
-    assert_eq!(item["uri"].as_str(), Some("export:current"));
-    assert_eq!(item["mimeType"].as_str(), Some("text/html"));
-    let text = item["text"].as_str().expect("text must be present");
-    assert!(text.contains("<h1>Hello</h1>"), "HTML content must be present");
-    assert!(text.contains("<p>World</p>"));
-}
-
-#[test]
-fn resource_read_export_current_includes_metadata_comment() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({
-            "html": "<p>doc</p>",
-            "title": "Test Title",
-            "theme": "sepia"
-        })));
-    let resp = handle_resource_read(id(81), "export:current", &ipc);
-    let result = resp.result.as_ref().unwrap();
-    let text = result["contents"][0]["text"].as_str().unwrap();
-    // Metadata comment should appear at the top for agents to parse cheaply.
-    assert!(text.starts_with("<!-- export:current"),
-        "response should start with metadata comment, got: {text}");
-    assert!(text.contains("sepia"), "comment should include theme");
-}
-
-#[test]
-fn resource_read_export_current_theme_midnight_in_comment() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({
-            "html": "<h2>Content</h2>",
-            "title": "Night Doc",
-            "theme": "midnight"
-        })));
-    let resp = handle_resource_read(id(82), "export:current", &ipc);
-    let result = resp.result.as_ref().unwrap();
-    let text = result["contents"][0]["text"].as_str().unwrap();
-    assert!(text.contains("midnight"), "midnight theme should appear in metadata comment");
-}
-
-#[test]
-fn resource_read_export_current_ipc_failure_returns_error() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Err("ipc-port not found".into()));
-    let resp = handle_resource_read(id(83), "export:current", &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
-}
-
-#[test]
-fn resource_read_export_current_app_not_running_descriptive_error() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Err("ipc-port not found — is Ashlr MD running?".into()));
-    let resp = handle_resource_read(id(84), "export:current", &ipc);
-    let err = resp.error.expect("should have error");
-    assert_eq!(err.code, -32000);
-    assert!(err.message.contains("Ashlr MD"),
-        "error should mention app name, got: {}", err.message);
-}
-
-#[test]
-fn resource_read_export_current_empty_html_handled_gracefully() {
-    // App returns empty HTML (no document open).
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({ "html": "", "title": "", "theme": "paper" })));
-    let resp = handle_resource_read(id(85), "export:current", &ipc);
-    assert!(resp.error.is_none());
-    let result = resp.result.as_ref().unwrap();
-    let text = result["contents"][0]["text"].as_str().unwrap();
-    // Should still have the metadata comment even for empty content.
-    assert!(text.starts_with("<!-- export:current"),
-        "metadata comment must appear even for empty content");
-}
-
-// ── resources/read dispatch — export:current routes through dispatch() ────────
-
-#[test]
-fn dispatch_resource_read_export_current_routes_to_handler() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({
-            "html": "<h1>Dispatch test</h1>",
-            "title": "Dispatch",
-            "theme": "paper"
-        })));
-    let req = Request {
+fn dispatch_req(method: &str, params: Value) -> Request {
+    Request {
         jsonrpc: "2.0".into(),
         id: Some(json!(99)),
-        method: "resources/read".into(),
-        params: Some(json!({ "uri": "export:current" })),
-    };
-    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
-    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
-    let result = resp.result.as_ref().unwrap();
-    let text = result["contents"][0]["text"].as_str().unwrap();
-    assert!(text.contains("<h1>Dispatch test</h1>"));
+        method: method.into(),
+        params: Some(params),
+    }
 }
 
-// ── resources/list dispatch — export:current appears via dispatch() ───────────
-
 #[test]
-fn dispatch_resources_list_includes_export_current() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
-    let req = Request {
-        jsonrpc: "2.0".into(),
-        id: Some(json!(100)),
-        method: "resources/list".into(),
-        params: None,
-    };
-    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
-    assert!(resp.error.is_none());
-    let result = resp.result.as_ref().unwrap();
-    let uris: Vec<&str> = result["resources"].as_array().unwrap()
+fn resources_list_omits_export_current() {
+    let ipc = MockIpc::new();
+    let resp = dispatch(dispatch_req("resources/list", json!({})), &ipc).unwrap();
+    let uris: Vec<&str> = resp.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
         .iter()
         .filter_map(|r| r["uri"].as_str())
         .collect();
-    assert!(uris.contains(&"export:current"),
-        "dispatch resources/list must include export:current, got: {:?}", uris);
+    assert!(!uris.contains(&"export:current"), "export:current must not be listed: {uris:?}");
+    assert!(uris.contains(&"mdopener://current"));
+}
+
+#[test]
+fn resource_read_export_current_fails_fast_without_ipc() {
+    let ipc = MockIpc::new()
+        .on_get("/export/preview", Ok(json!({ "html": "<h1>stale</h1>" })));
+    let resp = dispatch(
+        dispatch_req("resources/read", json!({ "uri": "export:current" })),
+        &ipc,
+    )
+    .unwrap();
+    let err = resp.error.expect("export:current must return an error");
+    assert_eq!(err.code, -32002);
+    assert!(err.message.contains("not available"), "got: {}", err.message);
+    assert!(err.message.contains("mdopener://current"), "must name an alternative: {}", err.message);
+    assert!(!err.message.contains("404"));
+    assert!(ipc.calls().is_empty(), "must not call the IPC server: {:?}", ipc.calls());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2950,358 +2813,56 @@ fn session_file_path_alphanumeric_preserved() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Tool: export_markdown_archive
+// Unavailable tools: export_markdown_archive, export_canvas_graph,
+// batch_export_format. The app has no IPC route behind them.
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn export_markdown_archive_no_output_path_posts_to_ipc() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({
-            "ok": true,
-            "path": "/tmp/doc.tar.gz",
-            "files": ["doc.md"],
-            "size": 1024
-        })));
-    let resp = tool_export_markdown_archive(id(1), &json!({}), &ipc);
-    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
-    assert!(!is_error(&resp));
-    let calls = ipc.calls();
-    assert!(
-        calls.iter().any(|(m, p, _)| m == "POST" && p == "/export/markdown-archive"),
-        "must POST to /export/markdown-archive"
-    );
+fn unavailable_tools_are_not_listed() {
+    let names: Vec<&str> = tool_registry().iter().map(|t| t.name).collect();
+    for name in UNAVAILABLE_TOOLS {
+        assert!(!names.contains(name), "{name} must not be in tool_registry()");
+        assert!(!ALL_TOOL_NAMES.contains(name), "{name} must not be in ALL_TOOL_NAMES");
+    }
+    assert_eq!(UNAVAILABLE_TOOLS.len(), 3);
 }
 
 #[test]
-fn export_markdown_archive_output_path_forwarded() {
+fn unavailable_tools_fail_fast_with_clear_error_and_no_ipc_call() {
     let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({ "ok": true, "path": "/out/arch.tar.gz" })));
-    tool_export_markdown_archive(
-        id(2),
-        &json!({ "output_path": "/out/arch.tar.gz" }),
+        .on_post("/export", Ok(json!({ "ok": true })));
+    for name in UNAVAILABLE_TOOLS {
+        let args = json!({
+            "output_path": "/tmp/out",
+            "exports": [{ "path": "/tmp/a.md", "format": "pdf" }]
+        });
+        let resp = dispatch(
+            dispatch_req("tools/call", json!({ "name": name, "arguments": args })),
+            &ipc,
+        )
+        .unwrap();
+        assert!(resp.error.is_none(), "{name}: must be an isError result, not a JSON-RPC error");
+        let result = resp.result.as_ref().unwrap();
+        assert_eq!(result["isError"], json!(true), "{name}: isError");
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains(name), "{name}: message must name the tool: {text}");
+        assert!(text.contains("not available"), "{name}: {text}");
+        assert!(text.contains("`export`"), "{name}: must point at export: {text}");
+        assert!(!text.contains("404"), "{name}: {text}");
+    }
+    assert!(ipc.calls().is_empty(), "no IPC call expected: {:?}", ipc.calls());
+}
+
+#[test]
+fn truly_unknown_tool_still_reports_unknown() {
+    let ipc = MockIpc::new();
+    let resp = dispatch(
+        dispatch_req("tools/call", json!({ "name": "export_everything", "arguments": {} })),
         &ipc,
-    );
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
-        .expect("must POST /export/markdown-archive")
-        .2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], "/out/arch.tar.gz");
-}
-
-#[test]
-fn export_markdown_archive_include_assets_defaults_to_true() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
-    tool_export_markdown_archive(id(3), &json!({}), &ipc);
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["includeAssets"], json!(true),
-        "includeAssets must default to true");
-}
-
-#[test]
-fn export_markdown_archive_include_assets_false_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
-    tool_export_markdown_archive(
-        id(4),
-        &json!({ "include_assets": false }),
-        &ipc,
-    );
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["includeAssets"], json!(false));
-}
-
-#[test]
-fn export_markdown_archive_ipc_failure_returns_tool_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Err("ipc-port not found".into()));
-    let resp = tool_export_markdown_archive(id(5), &json!({}), &ipc);
-    tool_error_text(&resp);
-}
-
-#[test]
-fn export_markdown_archive_app_not_running_returns_descriptive_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Err("ipc-port not found — is Ashlr MD running?".into()));
-    let resp = tool_export_markdown_archive(id(6), &json!({}), &ipc);
-    let err = tool_error_text(&resp);
-    assert!(err.contains("Ashlr MD"),
-        "error should mention app name, got: {}", err);
-}
-
-#[test]
-fn export_markdown_archive_success_returns_path_and_files() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({
-            "ok": true,
-            "path": "/vault/archive.tar.gz",
-            "files": ["doc.md", "assets/fig1.svg"],
-            "size": 2048
-        })));
-    let resp = tool_export_markdown_archive(id(7), &json!({}), &ipc);
-    assert!(resp.error.is_none());
-    let text = content_text(&resp);
-    assert_eq!(text["ok"], json!(true));
-    assert_eq!(text["path"], "/vault/archive.tar.gz");
-    assert!(text["files"].is_array());
-}
-
-#[test]
-fn export_markdown_archive_no_output_path_null_in_body() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
-    tool_export_markdown_archive(id(8), &json!({}), &ipc);
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/markdown-archive")
-        .unwrap().2.as_ref().unwrap();
-    assert!(body["outputPath"].is_null(),
-        "absent output_path should be null in IPC body, got {:?}", body["outputPath"]);
-}
-
-#[test]
-fn export_markdown_archive_dispatch_routes_correctly() {
-    let ipc = MockIpc::new()
-        .on_post("/export/markdown-archive", Ok(json!({ "ok": true })));
-    let req = Request {
-        jsonrpc: "2.0".into(),
-        id: Some(json!(99)),
-        method: "tools/call".into(),
-        params: Some(json!({ "name": "export_markdown_archive", "arguments": {} })),
-    };
-    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
-    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Tool: export_canvas_graph
-// ════════════════════════════════════════════════════════════════════════════
-
-#[test]
-fn export_canvas_graph_posts_to_ipc() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({
-            "ok": true,
-            "path": "/vault/graph.canvas",
-            "nodeCount": 5,
-            "edgeCount": 3
-        })));
-    let resp = tool_export_canvas_graph(id(10), &json!({}), &ipc);
-    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
-    assert!(!is_error(&resp));
-    let calls = ipc.calls();
-    assert!(
-        calls.iter().any(|(m, p, _)| m == "POST" && p == "/export/canvas-graph"),
-        "must POST to /export/canvas-graph"
-    );
-}
-
-#[test]
-fn export_canvas_graph_output_path_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
-    tool_export_canvas_graph(
-        id(11),
-        &json!({ "output_path": "/out/vault.canvas" }),
-        &ipc,
-    );
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
-        .expect("must POST /export/canvas-graph")
-        .2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], "/out/vault.canvas");
-}
-
-#[test]
-fn export_canvas_graph_include_isolated_defaults_to_true() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
-    tool_export_canvas_graph(id(12), &json!({}), &ipc);
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["includeIsolated"], json!(true),
-        "includeIsolated must default to true");
-}
-
-#[test]
-fn export_canvas_graph_include_isolated_false_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
-    tool_export_canvas_graph(
-        id(13),
-        &json!({ "include_isolated": false }),
-        &ipc,
-    );
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["includeIsolated"], json!(false));
-}
-
-#[test]
-fn export_canvas_graph_ipc_failure_returns_tool_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Err("ipc-port not found".into()));
-    let resp = tool_export_canvas_graph(id(14), &json!({}), &ipc);
-    tool_error_text(&resp);
-}
-
-#[test]
-fn export_canvas_graph_app_not_running_returns_descriptive_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Err("ipc-port not found — is Ashlr MD running?".into()));
-    let resp = tool_export_canvas_graph(id(15), &json!({}), &ipc);
-    let err = tool_error_text(&resp);
-    assert!(err.contains("Ashlr MD"),
-        "error should mention app name, got: {}", err);
-}
-
-#[test]
-fn export_canvas_graph_success_returns_node_and_edge_counts() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({
-            "ok": true,
-            "path": "/vault/graph.canvas",
-            "nodeCount": 12,
-            "edgeCount": 7
-        })));
-    let resp = tool_export_canvas_graph(id(16), &json!({}), &ipc);
-    assert!(resp.error.is_none());
-    let text = content_text(&resp);
-    assert_eq!(text["ok"], json!(true));
-    assert_eq!(text["nodeCount"], json!(12));
-    assert_eq!(text["edgeCount"], json!(7));
-}
-
-#[test]
-fn export_canvas_graph_no_output_path_null_in_body() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
-    tool_export_canvas_graph(id(17), &json!({}), &ipc);
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export/canvas-graph")
-        .unwrap().2.as_ref().unwrap();
-    assert!(body["outputPath"].is_null(),
-        "absent output_path should be null in IPC body, got {:?}", body["outputPath"]);
-}
-
-#[test]
-fn export_canvas_graph_dispatch_routes_correctly() {
-    let ipc = MockIpc::new()
-        .on_post("/export/canvas-graph", Ok(json!({ "ok": true })));
-    let req = Request {
-        jsonrpc: "2.0".into(),
-        id: Some(json!(99)),
-        method: "tools/call".into(),
-        params: Some(json!({ "name": "export_canvas_graph", "arguments": {} })),
-    };
-    let resp = dispatch(req, &ipc).expect("dispatch must return a response");
-    assert!(resp.error.is_none(), "dispatch should succeed: {:?}", resp.error);
-}
-
-// ── Registry coverage for new tools ──────────────────────────────────────────
-
-#[test]
-fn export_markdown_archive_in_all_tool_names() {
-    assert!(ALL_TOOL_NAMES.contains(&"export_markdown_archive"),
-        "export_markdown_archive must be in ALL_TOOL_NAMES");
-}
-
-#[test]
-fn export_canvas_graph_in_all_tool_names() {
-    assert!(ALL_TOOL_NAMES.contains(&"export_canvas_graph"),
-        "export_canvas_graph must be in ALL_TOOL_NAMES");
-}
-
-#[test]
-fn export_markdown_archive_in_tool_list() {
-    let list = tool_list();
-    let tools = list.as_array().unwrap();
-    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    assert!(names.contains(&"export_markdown_archive"),
-        "tool_list must include export_markdown_archive");
-}
-
-#[test]
-fn export_canvas_graph_in_tool_list() {
-    let list = tool_list();
-    let tools = list.as_array().unwrap();
-    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    assert!(names.contains(&"export_canvas_graph"),
-        "tool_list must include export_canvas_graph");
-}
-
-#[test]
-fn export_markdown_archive_tool_tier_is_modifier() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_markdown_archive")
-        .expect("export_markdown_archive must be in registry");
-    assert_eq!(def.tier, ToolTier::Modifier);
-}
-
-#[test]
-fn export_canvas_graph_tool_tier_is_modifier() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_canvas_graph")
-        .expect("export_canvas_graph must be in registry");
-    assert_eq!(def.tier, ToolTier::Modifier);
-}
-
-#[test]
-fn export_markdown_archive_has_valid_input_schema() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_markdown_archive").unwrap();
-    let schema = &def.input_schema;
-    assert_eq!(schema["type"].as_str(), Some("object"));
-    assert!(schema["properties"].is_object());
-    // output_path and include_assets must be in properties
-    assert!(schema["properties"]["output_path"].is_object(),
-        "output_path must be in properties");
-    assert!(schema["properties"]["include_assets"].is_object(),
-        "include_assets must be in properties");
-}
-
-#[test]
-fn export_canvas_graph_has_valid_input_schema() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_canvas_graph").unwrap();
-    let schema = &def.input_schema;
-    assert_eq!(schema["type"].as_str(), Some("object"));
-    assert!(schema["properties"].is_object());
-    assert!(schema["properties"]["output_path"].is_object(),
-        "output_path must be in properties");
-    assert!(schema["properties"]["include_isolated"].is_object(),
-        "include_isolated must be in properties");
-}
-
-#[test]
-fn export_markdown_archive_has_non_destructive_annotation() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_markdown_archive").unwrap();
-    let ann = def.annotations.as_ref().expect("must have annotations");
-    assert_ne!(ann["destructiveHint"].as_bool(), Some(true),
-        "export_markdown_archive must not be destructive");
-}
-
-#[test]
-fn export_canvas_graph_has_non_destructive_annotation() {
-    let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_canvas_graph").unwrap();
-    let ann = def.annotations.as_ref().expect("must have annotations");
-    assert_ne!(ann["destructiveHint"].as_bool(), Some(true),
-        "export_canvas_graph must not be destructive");
+    )
+    .unwrap();
+    let err = resp.error.expect("unknown tool is a JSON-RPC error");
+    assert!(err.message.contains("Unknown tool"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

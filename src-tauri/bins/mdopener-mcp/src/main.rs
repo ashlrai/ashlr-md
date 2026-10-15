@@ -20,17 +20,21 @@
 //!   prompts/list, prompts/get   (summarize, review_plan, improve_writing)
 //!
 //! ## Tools
-//! The authoritative catalog is `tool_registry()` in `lib.rs` (23 tools):
+//! The authoritative catalog is `tool_registry()` in `lib.rs` (20 tools):
 //! open_file, get_current_content, set_content, list_recent, export,
 //! request_review, get_user_annotations, edit_document, replace_document,
 //! search_vault, present_document, list_ai_actions, get_conversation_context,
-//! save_conversation_message, export_markdown_archive, export_canvas_graph,
-//! batch_export_format, diff_documents, edit_canvas, stream_edit,
+//! save_conversation_message, diff_documents, edit_canvas, stream_edit,
 //! stream_edit_apply, export_text, export_metadata.
 //!
+//! `export_markdown_archive`, `export_canvas_graph` and `batch_export_format`
+//! are no longer listed: the app never implemented them. Calling one returns
+//! an `isError` result saying so (`UNAVAILABLE_TOOLS` in `lib.rs`).
+//!
 //! ## Resources
-//!   mdopener://current, export:current, text://vault-search?q=…,
-//!   mdopener://recent-documents, and file://<path> for each vault file.
+//!   mdopener://current, text://vault-search?q=…, mdopener://recent-documents,
+//!   and file://<path> for each vault file. `export:current` is not served;
+//!   reading it returns a -32002 error.
 
 use std::io::{self, BufRead, Write as _};
 

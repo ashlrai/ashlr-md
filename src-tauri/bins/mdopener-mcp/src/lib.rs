@@ -675,94 +675,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
             tier: ToolTier::Modifier,
         },
         ToolDef {
-            name: "export_markdown_archive",
-            description: "Export the source Markdown file, its YAML front-matter, and all embedded assets (images, Mermaid diagrams rendered as .svg) as a tar.gz archive. The archive is useful for agents that need to re-import or redistribute the document with all its resources intact. Triggers the export on the currently open document. Returns the absolute path of the written archive.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "output_path": {
-                        "type": "string",
-                        "description": "Absolute path for the output .tar.gz archive. When omitted the app shows a save-file dialog."
-                    },
-                    "include_assets": {
-                        "type": "boolean",
-                        "description": "Whether to bundle embedded image assets and Mermaid SVG files. Defaults to true."
-                    }
-                }
-            }),
-            annotations: Some(json!({
-                "title": "Export Markdown Archive",
-                "readOnlyHint": false,
-                "destructiveHint": false,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Modifier,
-        },
-        ToolDef {
-            name: "export_canvas_graph",
-            description: "Export the current vault's file graph and per-document metadata (title, tags, word count, wikilinks) as a JSON Canvas (.canvas) file compatible with Obsidian and other canvas tools. The canvas positions each document as a card, with edges representing wikilink connections. Useful for visual browsing and re-import into graph-based note tools. Returns the absolute path of the written .canvas file.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "output_path": {
-                        "type": "string",
-                        "description": "Absolute path for the output .canvas file. When omitted the app shows a save-file dialog."
-                    },
-                    "include_isolated": {
-                        "type": "boolean",
-                        "description": "Whether to include documents that have no wikilink connections. Defaults to true."
-                    }
-                }
-            }),
-            annotations: Some(json!({
-                "title": "Export Canvas Graph",
-                "readOnlyHint": false,
-                "destructiveHint": false,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Modifier,
-        },
-        ToolDef {
-            name: "batch_export_format",
-            description: "Export multiple documents to a target format in one call, writing all outputs to a shared directory. Accepts an array of { path, format, output_dir? } entries; each is exported concurrently and results include per-file ok/error status and the written output path. Useful for agents exporting an entire multi-file plan as PDFs or HTML pages in one round-trip.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "exports": {
-                        "type": "array",
-                        "description": "List of export requests.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path": { "type": "string", "description": "Absolute path to the Markdown file to export." },
-                                "format": {
-                                    "type": "string",
-                                    "enum": ["pdf", "docx", "html"],
-                                    "description": "Output format."
-                                },
-                                "output_dir": {
-                                    "type": "string",
-                                    "description": "Optional output directory. Defaults to the same directory as the source file."
-                                }
-                            },
-                            "required": ["path", "format"]
-                        }
-                    }
-                },
-                "required": ["exports"]
-            }),
-            annotations: Some(json!({
-                "title": "Batch Export Format",
-                "readOnlyHint": false,
-                "destructiveHint": false,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Modifier,
-        },
-        ToolDef {
             name: "diff_documents",
             description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }.",
             input_schema: json!({
@@ -1016,9 +928,6 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "list_ai_actions",
     "get_conversation_context",
     "save_conversation_message",
-    "export_markdown_archive",
-    "export_canvas_graph",
-    "batch_export_format",
     "diff_documents",
     "edit_canvas",
     "stream_edit",
@@ -1026,6 +935,41 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "export_text",
     "export_metadata",
 ];
+
+/// Tools that earlier builds advertised but the app never implemented: the
+/// running app has no IPC route behind them (`/export/markdown-archive`,
+/// `/export/canvas-graph`, `/export/batch`), so every call failed with an
+/// opaque HTTP 404. They are no longer listed; a client that still calls one
+/// by a cached name gets [`unavailable_tool_error`] instead of a 404.
+pub const UNAVAILABLE_TOOLS: &[&str] = &[
+    "export_markdown_archive",
+    "export_canvas_graph",
+    "batch_export_format",
+];
+
+/// The `isError` result returned for a name in [`UNAVAILABLE_TOOLS`]. It names
+/// what does work today so the agent can recover without guessing.
+pub fn unavailable_tool_error(id: Value, name: &str) -> Response {
+    tool_error(
+        id,
+        format!(
+            "`{name}` is not available: this version of Ashlr MD does not implement it. \
+             Use `export` (pdf/docx/html/epub of the open document), `export_text`, or \
+             `export_metadata` instead."
+        ),
+    )
+}
+
+/// Resource URI that earlier builds listed but the app never served.
+pub const EXPORT_CURRENT_URI: &str = "export:current";
+
+fn unavailable_resource_msg(uri: &str) -> String {
+    format!(
+        "Resource `{uri}` is not available: this version of Ashlr MD does not serve a live \
+         HTML preview. Read `mdopener://current` for the Markdown, or call the `export` tool \
+         with format `html` and an `output_path`."
+    )
+}
 
 /// Build the `tools/list` response payload from the data-driven registry.
 pub fn tool_list() -> Value {
@@ -1051,9 +995,7 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "list_ai_actions" => tool_list_ai_actions(id, &args),
         "get_conversation_context" => tool_get_conversation_context(id, &args),
         "save_conversation_message" => tool_save_conversation_message(id, &args),
-        "export_markdown_archive" => tool_export_markdown_archive(id, &args, ipc),
-        "export_canvas_graph" => tool_export_canvas_graph(id, &args, ipc),
-        "batch_export_format" => tool_batch_export_format(id, &args, ipc),
+        n if UNAVAILABLE_TOOLS.contains(&n) => unavailable_tool_error(id, n),
         "diff_documents" => tool_diff_documents(id, &args),
         "edit_canvas" => tool_edit_canvas(id, &args),
         "stream_edit" => tool_stream_edit(id, &args, ipc),
@@ -1636,12 +1578,6 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
             "description": "The document currently open in Ashlr MD.",
             "mimeType": "text/markdown"
         }),
-        json!({
-            "uri": "export:current",
-            "name": "Live HTML export",
-            "description": "Read-only live HTML export of the current document. Auto-updates when the document is edited. Agents can poll this to preview rendered output without writing any files.",
-            "mimeType": "text/html"
-        }),
     ];
 
     // Advertise the semantic-search resource template so MCP clients can
@@ -1693,31 +1629,11 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
     }
 
-    // export:current — live HTML export of the current document.
-    // The app renders the document to HTML and returns it via /export/preview.
-    // This endpoint is read-only and returns the latest rendered state each time
-    // it is polled, so agents always see up-to-date output without file I/O.
-    if uri == "export:current" {
-        return match ipc.get("/export/preview") {
-            Ok(v) => {
-                let html = v["html"].as_str().unwrap_or("").to_string();
-                let title = v["title"].as_str().unwrap_or("").to_string();
-                let theme = v["theme"].as_str().unwrap_or("paper").to_string();
-                // Include metadata as a comment so agents can inspect it without
-                // parsing the full HTML document.
-                let annotated = format!(
-                    "<!-- export:current title={title:?} theme={theme:?} -->\n{html}"
-                );
-                Response::ok(id, json!({
-                    "contents": [{
-                        "uri": uri,
-                        "mimeType": "text/html",
-                        "text": annotated
-                    }]
-                }))
-            }
-            Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
-        };
+    // export:current was advertised by earlier builds as a live HTML preview
+    // served from `/export/preview`, but the app has no such route. It is no
+    // longer listed; reading it fails fast instead of surfacing an HTTP 404.
+    if uri == EXPORT_CURRENT_URI {
+        return Response::err(id, -32002, unavailable_resource_msg(uri));
     }
 
     // text://vault-search?q={query} — on-demand semantic/grep search resource.
@@ -2235,50 +2151,6 @@ pub fn tool_error(id: Value, message: String) -> Response {
     )
 }
 
-// ── export_markdown_archive tool ─────────────────────────────────────────────
-
-/// Trigger a Markdown + assets archive export via the app IPC.
-/// Posts `{ outputPath, includeAssets }` to `/export/markdown-archive`.
-/// The app packs the current document's .md source, its YAML front-matter,
-/// and any embedded images / Mermaid SVGs into a tar.gz at `outputPath`.
-pub fn tool_export_markdown_archive(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let output_path = args["output_path"].as_str().map(str::to_string);
-    let include_assets = args["include_assets"].as_bool().unwrap_or(true);
-
-    match ipc.post(
-        "/export/markdown-archive",
-        json!({
-            "outputPath": output_path,
-            "includeAssets": include_assets
-        }),
-    ) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
-    }
-}
-
-// ── export_canvas_graph tool ──────────────────────────────────────────────────
-
-/// Trigger a JSON Canvas (.canvas) export of the vault file graph via the app IPC.
-/// Posts `{ outputPath, includeIsolated }` to `/export/canvas-graph`.
-/// The app builds a canvas with one card per document and edges for wikilinks,
-/// writing the result to `outputPath` (or opening a save dialog if omitted).
-pub fn tool_export_canvas_graph(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let output_path = args["output_path"].as_str().map(str::to_string);
-    let include_isolated = args["include_isolated"].as_bool().unwrap_or(true);
-
-    match ipc.post(
-        "/export/canvas-graph",
-        json!({
-            "outputPath": output_path,
-            "includeIsolated": include_isolated
-        }),
-    ) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
-    }
-}
-
 pub fn app_not_running_msg(err: &str) -> String {
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
         format!(
@@ -2369,58 +2241,6 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
             "text": payload.to_string()
         }]
     }))
-}
-
-// ── batch_export_format tool ──────────────────────────────────────────────────
-
-/// Export an array of documents to their requested formats via the app IPC.
-///
-/// Each entry in `exports` is forwarded to the app as a separate `/export`
-/// POST, keyed by `{ path, format, outputDir }`.  The app handles the actual
-/// rendering; we collect per-file results and return them all in one response.
-///
-/// The IPC call used is `mcp_batch_export` — the frontend bridge listens for
-/// this and fans out to the per-format export functions, then replies with an
-/// array of `{ path, format, ok, outputPath, error }` results.
-pub fn tool_batch_export_format(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let exports = match args["exports"].as_array() {
-        Some(arr) if !arr.is_empty() => arr.clone(),
-        Some(_) => return Response::err(id, -32602, "`exports` array must not be empty"),
-        None => return Response::err(id, -32602, "`exports` is required"),
-    };
-
-    // Validate each entry has required fields before sending to the app.
-    for (i, entry) in exports.iter().enumerate() {
-        if entry["path"].as_str().is_none() {
-            return Response::err(
-                id,
-                -32602,
-                format!("exports[{i}].path is required"),
-            );
-        }
-        match entry["format"].as_str() {
-            Some("pdf") | Some("docx") | Some("html") => {}
-            Some(other) => {
-                return Response::err(
-                    id,
-                    -32602,
-                    format!("exports[{i}].format must be pdf/docx/html, got '{other}'"),
-                )
-            }
-            None => {
-                return Response::err(
-                    id,
-                    -32602,
-                    format!("exports[{i}].format is required"),
-                )
-            }
-        }
-    }
-
-    match ipc.post("/export/batch", json!({ "exports": exports })) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
-    }
 }
 
 // ── diff_documents tool ───────────────────────────────────────────────────────
