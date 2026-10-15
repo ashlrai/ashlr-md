@@ -3584,9 +3584,11 @@ fn prompt_get_without_the_app_is_an_error_not_an_empty_document() {
 
 #[test]
 fn prompt_get_with_no_open_document_is_an_error() {
-    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": null })));
-    let resp = handle_prompt_get(id(1), "summarize", &ipc);
-    assert!(resp.error.unwrap().message.contains("No document is open"));
+    for empty in [json!({ "path": null, "content": null }), json!({ "path": null, "content": "" })] {
+        let ipc = MockIpc::new().on_get("/content", Ok(empty));
+        let resp = handle_prompt_get(id(1), "summarize", &ipc);
+        assert!(resp.error.unwrap().message.contains("No document is open"));
+    }
 }
 
 // ── open_file hands the app absolute paths ───────────────────────────────────

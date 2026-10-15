@@ -1846,9 +1846,10 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
     // Without the live document the prompt would ask the model to work on an
     // empty string, so a missing app or document is an error, not "".
     let content = match ipc.get("/content") {
+        // The app answers `{ "path": null, "content": "" }` when nothing is open.
         Ok(v) => match v["content"].as_str() {
-            Some(c) => c.to_string(),
-            None => {
+            Some(c) if !(c.is_empty() && v["path"].is_null()) => c.to_string(),
+            _ => {
                 return Response::err(
                     id,
                     -32002,
