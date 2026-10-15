@@ -44,9 +44,16 @@ success on a headless machine, where `mdopen` exits `1`.
 Speaks MCP over stdio. `initialize` echoes `2024-11-05`, `2025-03-26` and
 `2025-06-18`, and answers any other requested version with `2025-06-18`.
 When the app is not running, `open_file` falls back to the URL scheme through
-the same launchers as `mdopen` (bounded at 10 seconds) and returns a JSON-RPC
-error that names the launcher outcome when nothing could open it, for example
-on a headless Linux box. `mode` must be `read` or `edit`.
+the same launchers as `mdopen` (bounded at 10 seconds). When nothing could
+open it, for example on a headless Linux box, the call returns a tool result
+with `isError: true` whose text names the launcher outcome. `mode` must be
+`read` or `edit`.
+
+Tool failures (app not reachable, a file that cannot be read or written, an
+operation the app rejects) come back as a successful `tools/call` result with
+`isError: true` and the reason as text, per the MCP spec, so the agent can
+read it and act. JSON-RPC errors are kept for protocol problems: an unknown
+tool or method, or invalid arguments (`-32602`).
 
 ## Detection paths
 

@@ -1,6 +1,7 @@
 //! End-to-end stdio handshake against the real `mdopener-mcp` binary, the way
 //! an MCP client such as Claude Code drives it: initialize, the initialized
-//! notification, tools/list, and a tools/call that needs no running app.
+//! notification, tools/list, a tools/call that needs no running app, and a
+//! tools/call that fails because the app is not running (an `isError` result).
 //! HOME points at an empty temp dir so no real `~/.mdopener` is read.
 
 use serde_json::{json, Value};
@@ -27,6 +28,8 @@ fn session(protocol: &str) -> Vec<Value> {
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
             "name":"list_ai_actions","arguments":{"include_prompts": false}}}),
         json!({"jsonrpc":"2.0","id":4,"method":"ping"}),
+        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{
+            "name":"get_current_content","arguments":{}}}),
     ];
     {
         let stdin = child.stdin.as_mut().unwrap();
@@ -47,8 +50,8 @@ fn session(protocol: &str) -> Vec<Value> {
 fn handshake_with_current_client_protocol_versions() {
     for protocol in ["2025-06-18", "2025-03-26"] {
         let out = session(protocol);
-        // The notification gets no reply: 4 responses for 4 requests with ids.
-        assert_eq!(out.len(), 4, "{protocol}: {out:?}");
+        // The notification gets no reply: 5 responses for 5 requests with ids.
+        assert_eq!(out.len(), 5, "{protocol}: {out:?}");
         assert_eq!(out[0]["id"], 1);
         assert_eq!(out[0]["result"]["protocolVersion"], protocol);
         assert_eq!(out[0]["result"]["serverInfo"]["name"], "mdopener-mcp");
@@ -58,5 +61,12 @@ fn handshake_with_current_client_protocol_versions() {
         assert_eq!(out[2]["id"], 3);
         assert_eq!(out[2]["result"]["isError"], false, "{:?}", out[2]);
         assert_eq!(out[3], json!({"jsonrpc":"2.0","id":4,"result":{}}));
+        // No app is running under the empty HOME: the failure is a tool
+        // result with isError, not a JSON-RPC error.
+        assert_eq!(out[4]["id"], 5);
+        assert!(out[4].get("error").is_none(), "{:?}", out[4]);
+        assert_eq!(out[4]["result"]["isError"], true, "{:?}", out[4]);
+        let text = out[4]["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Ashlr MD"), "{text}");
     }
 }

@@ -97,6 +97,21 @@ fn content_text(resp: &mdopener_mcp::Response) -> Value {
     serde_json::from_str(text).unwrap_or(json!(text))
 }
 
+/// Assert the response is a tool execution error (a successful JSON-RPC
+/// result with `isError: true`, per the MCP spec) and return its text.
+fn tool_error_text(resp: &mdopener_mcp::Response) -> String {
+    assert!(
+        resp.error.is_none(),
+        "tool failure must not be a JSON-RPC error: {:?}",
+        resp.error
+    );
+    assert!(is_error(resp), "tool failure must set isError");
+    resp.result.as_ref().unwrap()["content"][0]["text"]
+        .as_str()
+        .expect("isError result must carry text")
+        .to_string()
+}
+
 /// Extract isError flag from the result envelope.
 fn is_error(resp: &mdopener_mcp::Response) -> bool {
     resp.result.as_ref()
@@ -483,11 +498,10 @@ fn open_file_headless_reports_no_launcher_honestly() {
     let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
         Launch::NoLauncher { tried: vec!["xdg-open".into(), "gio".into()] }
     });
-    let err = resp.error.expect("headless open must be an error");
-    assert_eq!(err.code, -32000);
-    assert!(err.message.contains("not running"), "{}", err.message);
-    assert!(err.message.contains("xdg-open, gio"), "{}", err.message);
-    assert!(err.message.contains("desktop session"), "{}", err.message);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("not running"), "{}", err);
+    assert!(err.contains("xdg-open, gio"), "{}", err);
+    assert!(err.contains("desktop session"), "{}", err);
 }
 
 #[test]
@@ -497,8 +511,8 @@ fn open_file_launcher_failure_is_an_error() {
     let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
         Launch::Failed { launcher: "xdg-open".into(), code: Some(4) }
     });
-    let err = resp.error.expect("failed launcher must be an error");
-    assert!(err.message.contains("status 4"), "{}", err.message);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("status 4"), "{}", err);
 }
 
 #[test]
@@ -552,12 +566,11 @@ fn get_current_content_no_doc_open_returns_null_path() {
 }
 
 #[test]
-fn get_current_content_ipc_unavailable_returns_rpc_error() {
+fn get_current_content_ipc_unavailable_returns_tool_error() {
     let ipc = MockIpc::new()
         .on_get("/content", Err("Could not connect to IPC server".into()));
     let resp = tool_get_content(id(1), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -565,8 +578,8 @@ fn get_current_content_stale_ipc_returns_error_with_hint() {
     let ipc = MockIpc::new()
         .on_get("/content", Err("ipc-port not found — is Ashlr MD running?".into()));
     let resp = tool_get_content(id(1), &ipc);
-    let err = resp.error.expect("should have error");
-    assert!(err.message.contains("Ashlr MD"), "error should mention app name");
+    let err = tool_error_text(&resp);
+    assert!(err.contains("Ashlr MD"), "error should mention app name");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -729,8 +742,7 @@ fn export_ipc_error_propagated() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("ipc-port not found".into()));
     let resp = tool_export(id(1), &json!({ "format": "pdf" }), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -809,8 +821,7 @@ fn edit_document_ipc_error_propagated() {
         &json!({ "find": "x", "replace": "y" }),
         &ipc,
     );
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -954,8 +965,7 @@ fn request_review_ipc_down_returns_error() {
         &json!({ "content": "# Plan", "blocking": false }),
         &ipc,
     );
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -1030,8 +1040,7 @@ fn present_document_ipc_error_propagated() {
     let ipc = MockIpc::new()
         .on_post("/present", Err("Could not connect to IPC server".into()));
     let resp = tool_present_document(id(1), &json!({}), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1086,8 +1095,7 @@ fn get_user_annotations_ipc_error_propagated() {
     let ipc = MockIpc::new()
         .on_get("/annotations", Err("ipc-port not found".into()));
     let resp = tool_get_annotations(id(1), &json!({ "path": "/x.md" }), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1144,6 +1152,41 @@ fn dispatch_tools_call_unknown_tool_returns_invalid_params() {
         params: Some(json!({ "name": "ghost_tool", "arguments": {} })),
     };
     let resp = dispatch(req, &ipc).unwrap();
+    assert_eq!(resp.error.as_ref().unwrap().code, -32602);
+}
+
+fn call(name: &str, arguments: Value, ipc: &MockIpc) -> mdopener_mcp::Response {
+    let req = Request {
+        jsonrpc: "2.0".into(),
+        id: Some(json!(7)),
+        method: "tools/call".into(),
+        params: Some(json!({ "name": name, "arguments": arguments })),
+    };
+    dispatch(req, ipc).unwrap()
+}
+
+#[test]
+fn dispatch_tools_call_failing_tool_returns_is_error_result() {
+    // App not reachable: an execution failure, not a protocol error.
+    let ipc = MockIpc::new()
+        .on_get("/content", Err("ipc-port not found".into()));
+    let resp = call("get_current_content", json!({}), &ipc);
+    assert_eq!(resp.id, json!(7));
+    let text = tool_error_text(&resp);
+    assert!(text.contains("Ashlr MD"), "{text}");
+
+    // A path that does not exist: also an execution failure the agent can fix.
+    let missing = "/definitely/not/here/ashlr-md-missing.md";
+    let resp = call("diff_documents", json!({ "path_a": missing, "path_b": missing }), &ipc);
+    let text = tool_error_text(&resp);
+    assert!(text.contains(missing), "{text}");
+}
+
+#[test]
+fn dispatch_tools_call_missing_required_arg_stays_invalid_params() {
+    let ipc = MockIpc::new();
+    let resp = call("open_file", json!({}), &ipc);
+    assert!(resp.result.is_none());
     assert_eq!(resp.error.as_ref().unwrap().code, -32602);
 }
 
@@ -1587,12 +1630,11 @@ fn export_tool_no_theme_sends_null() {
 // ── File-write error propagation ──────────────────────────────────────────────
 
 #[test]
-fn export_tool_file_write_error_becomes_rpc_error() {
+fn export_tool_file_write_error_becomes_tool_error() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("ipc-port not found".into()));
     let resp = tool_export(id(30), &json!({ "format": "pdf" }), &ipc);
-    assert!(resp.error.is_some(), "IPC failure must surface as RPC error");
-    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -1600,10 +1642,8 @@ fn export_tool_permission_denied_error_propagated() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("Permission denied: /root/secret.pdf".into()));
     let resp = tool_export(id(31), &json!({ "format": "pdf" }), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
     // The error message must surface enough detail for the agent to understand.
-    assert!(!resp.error.unwrap().message.is_empty());
+    assert!(!tool_error_text(&resp).is_empty());
 }
 
 #[test]
@@ -1611,8 +1651,7 @@ fn export_tool_disk_full_error_propagated() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("No space left on device".into()));
     let resp = tool_export(id(32), &json!({ "format": "pdf" }), &ipc);
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -1620,11 +1659,10 @@ fn export_tool_app_not_running_returns_descriptive_error() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("ipc-port not found — is Ashlr MD running?".into()));
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
-    let err = resp.error.expect("should have error");
-    assert_eq!(err.code, -32000);
+    let err = tool_error_text(&resp);
     // app_not_running_msg should enrich the message.
-    assert!(err.message.contains("Ashlr MD"),
-        "error should name the app, got: {}", err.message);
+    assert!(err.contains("Ashlr MD"),
+        "error should name the app, got: {}", err);
 }
 
 // ── Unsupported / unknown format ──────────────────────────────────────────────
@@ -1638,9 +1676,8 @@ fn export_tool_unknown_format_forwarded_to_app() {
     let ipc = MockIpc::new()
         .on_post("/export", Err("Unsupported export format: odt".into()));
     let resp = tool_export(id(40), &json!({ "format": "odt" }), &ipc);
-    // The IPC error becomes an RPC error — the agent sees a clear failure.
-    assert!(resp.error.is_some());
-    assert_eq!(resp.error.unwrap().code, -32000);
+    // The IPC error becomes an isError result, so the agent sees a clear failure.
+    tool_error_text(&resp);
 }
 
 // ── Missing required param ────────────────────────────────────────────────────
@@ -1778,8 +1815,8 @@ fn resource_read_export_current_ipc_failure_returns_error() {
     let ipc = MockIpc::new()
         .on_get("/export/preview", Err("ipc-port not found".into()));
     let resp = handle_resource_read(id(83), "export:current", &ipc);
-    assert!(resp.error.is_some(), "IPC failure must return RPC error");
-    assert_eq!(resp.error.as_ref().unwrap().code, -32000);
+    assert!(resp.error.is_some());
+    assert_eq!(resp.error.unwrap().code, -32000);
 }
 
 #[test]
@@ -2982,12 +3019,11 @@ fn export_markdown_archive_include_assets_false_forwarded() {
 }
 
 #[test]
-fn export_markdown_archive_ipc_failure_returns_rpc_error() {
+fn export_markdown_archive_ipc_failure_returns_tool_error() {
     let ipc = MockIpc::new()
         .on_post("/export/markdown-archive", Err("ipc-port not found".into()));
     let resp = tool_export_markdown_archive(id(5), &json!({}), &ipc);
-    assert!(resp.error.is_some(), "IPC failure must return RPC error");
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -2995,10 +3031,9 @@ fn export_markdown_archive_app_not_running_returns_descriptive_error() {
     let ipc = MockIpc::new()
         .on_post("/export/markdown-archive", Err("ipc-port not found — is Ashlr MD running?".into()));
     let resp = tool_export_markdown_archive(id(6), &json!({}), &ipc);
-    let err = resp.error.expect("should have error");
-    assert_eq!(err.code, -32000);
-    assert!(err.message.contains("Ashlr MD"),
-        "error should mention app name, got: {}", err.message);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("Ashlr MD"),
+        "error should mention app name, got: {}", err);
 }
 
 #[test]
@@ -3115,12 +3150,11 @@ fn export_canvas_graph_include_isolated_false_forwarded() {
 }
 
 #[test]
-fn export_canvas_graph_ipc_failure_returns_rpc_error() {
+fn export_canvas_graph_ipc_failure_returns_tool_error() {
     let ipc = MockIpc::new()
         .on_post("/export/canvas-graph", Err("ipc-port not found".into()));
     let resp = tool_export_canvas_graph(id(14), &json!({}), &ipc);
-    assert!(resp.error.is_some(), "IPC failure must return RPC error");
-    assert_eq!(resp.error.unwrap().code, -32000);
+    tool_error_text(&resp);
 }
 
 #[test]
@@ -3128,10 +3162,9 @@ fn export_canvas_graph_app_not_running_returns_descriptive_error() {
     let ipc = MockIpc::new()
         .on_post("/export/canvas-graph", Err("ipc-port not found — is Ashlr MD running?".into()));
     let resp = tool_export_canvas_graph(id(15), &json!({}), &ipc);
-    let err = resp.error.expect("should have error");
-    assert_eq!(err.code, -32000);
-    assert!(err.message.contains("Ashlr MD"),
-        "error should mention app name, got: {}", err.message);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("Ashlr MD"),
+        "error should mention app name, got: {}", err);
 }
 
 #[test]
