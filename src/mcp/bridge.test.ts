@@ -48,7 +48,8 @@ vi.mock("react", async (importOriginal) => {
 
 const invokeMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invokeMock(...args),
+  // Always return a promise: debounced timers from earlier tests can fire after a mock reset and call .catch on the result.
+  invoke: (...args: unknown[]) => Promise.resolve(invokeMock(...args)),
 }));
 
 // ─── Export function mocks ────────────────────────────────────────────────────
