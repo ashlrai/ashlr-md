@@ -439,7 +439,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Trigger an export of the currently open document. For HTML exports a theme override (paper/sepia/midnight) can be supplied; otherwise the app's current theme is used.",
+            description: "Trigger an export of the currently open document. Returns as soon as the app accepts the request, not when the file is written. A `theme` value is validated, but the app does not yet receive it, so exports always use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -455,7 +455,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "theme": {
                         "type": "string",
                         "enum": ["paper", "sepia", "midnight"],
-                        "description": "Optional theme override for HTML exports (paper/sepia/midnight). When omitted the app's current theme is used. Ignored for PDF and DOCX."
+                        "description": "Theme for HTML exports (paper/sepia/midnight). Validated here but not yet forwarded by the app, which uses its current theme."
                     }
                 },
                 "required": ["format"]
@@ -554,7 +554,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, with automatic grep fallback for offline use. Returns scored results sorted by relevance: [{ path, snippet, lineNumber, score }]. Accessible as MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, with automatic grep fallback for offline use. Returns { results, mode }. In mode 'semantic' or 'grep-local' (app not running) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -614,17 +614,17 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages from the current session's conversation memory store, plus any recently cited document paths. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list gracefully when no session has been started.",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "The session identifier returned by save_conversation_message. Required when retrieving context for a specific past session; omit to use the most-recently-written session."
+                        "description": "The session identifier previously passed to save_conversation_message. Required."
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of messages to return (most recent first). Defaults to 20, max 200."
+                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, max 200."
                     }
                 },
                 "required": ["session_id"]
@@ -676,7 +676,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export_markdown_archive",
-            description: "Export the source Markdown file, its YAML front-matter, and all embedded assets (images, Mermaid diagrams rendered as .svg) as a tar.gz archive. The archive is useful for agents that need to re-import or redistribute the document with all its resources intact. Triggers the export on the currently open document; optionally accepts an explicit vault path. Returns the absolute path of the written archive.",
+            description: "Export the source Markdown file, its YAML front-matter, and all embedded assets (images, Mermaid diagrams rendered as .svg) as a tar.gz archive. The archive is useful for agents that need to re-import or redistribute the document with all its resources intact. Triggers the export on the currently open document. Returns the absolute path of the written archive.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
