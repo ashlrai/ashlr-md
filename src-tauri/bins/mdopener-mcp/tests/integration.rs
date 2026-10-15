@@ -2689,6 +2689,34 @@ fn cold_start_loads_from_disk_via_get_context() {
     assert_eq!(ctx[0].role, "human");
 }
 
+#[test]
+fn cold_start_append_continues_the_persisted_log() {
+    // A restarted server (empty in-process store) must append to the session
+    // on disk, not overwrite it with just the new message.
+    use mdopener_mcp::{ConversationMessage, SessionLog};
+
+    let sess = unique_session();
+    let path = session_file_path(&sess).expect("must have session path");
+    std::fs::create_dir_all(path.parent().unwrap()).ok();
+    let earlier = SessionLog {
+        messages: vec![ConversationMessage {
+            id: "msg-from-an-earlier-process".into(),
+            session_id: sess.clone(),
+            role: "agent".into(),
+            content: "Drafted the plan.".into(),
+            cited_docs: vec![],
+            timestamp_ms: 1_700_000_000_000,
+        }],
+    };
+    std::fs::write(&path, serde_json::to_string(&earlier).unwrap()).unwrap();
+
+    store_append_message(&sess, "human", "Approved.", vec![]).unwrap();
+
+    let log = load_session_from_disk(&sess).expect("session must be on disk");
+    let contents: Vec<&str> = log.messages.iter().map(|m| m.content.as_str()).collect();
+    assert_eq!(contents, ["Drafted the plan.", "Approved."]);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Limit parameter
 // ════════════════════════════════════════════════════════════════════════════
@@ -3452,4 +3480,138 @@ fn export_metadata_is_readonly_tier() {
     let ann = def.annotations.as_ref().expect("export_metadata must have annotations");
     assert_eq!(ann["readOnlyHint"].as_bool(), Some(true));
     assert_ne!(ann["destructiveHint"].as_bool(), Some(true));
+}
+
+// ── diff_documents engine: bounded memory ────────────────────────────────────
+
+use mdopener_mcp::{compute_unified_diff, handle_prompt_get, lcs_diff, DiffOp, MAX_LCS_CELLS};
+
+/// Apply an edit script to A and check it reproduces B, and that every line of
+/// A and B is accounted for exactly once.
+fn assert_script_rebuilds(a: &[&str], b: &[&str]) {
+    let ops = lcs_diff(a, b);
+    let mut rebuilt = Vec::new();
+    let (mut seen_a, mut seen_b) = (0usize, 0usize);
+    for op in &ops {
+        match op {
+            DiffOp::Equal(i, j) => {
+                assert_eq!(a[*i], b[*j]);
+                assert_eq!((*i, *j), (seen_a, seen_b));
+                rebuilt.push(b[*j]);
+                seen_a += 1;
+                seen_b += 1;
+            }
+            DiffOp::Delete(i) => {
+                assert_eq!(*i, seen_a);
+                seen_a += 1;
+            }
+            DiffOp::Insert(j) => {
+                assert_eq!(*j, seen_b);
+                rebuilt.push(b[*j]);
+                seen_b += 1;
+            }
+        }
+    }
+    assert_eq!((seen_a, seen_b), (a.len(), b.len()));
+    assert_eq!(rebuilt, b);
+}
+
+#[test]
+fn lcs_diff_edit_scripts_rebuild_b() {
+    assert_script_rebuilds(&[], &[]);
+    assert_script_rebuilds(&["a"], &[]);
+    assert_script_rebuilds(&[], &["a"]);
+    assert_script_rebuilds(&["a", "b", "c"], &["a", "b", "c"]);
+    assert_script_rebuilds(&["a", "b", "c", "d"], &["a", "x", "c", "d"]);
+    assert_script_rebuilds(&["a", "b", "a", "b"], &["b", "a", "b", "a"]);
+    assert_script_rebuilds(&["x", "a", "b"], &["a", "b", "y"]);
+}
+
+#[test]
+fn small_edit_in_long_document_is_a_minimal_hunk() {
+    let a: Vec<String> = (0..5000).map(|i| format!("line {i}")).collect();
+    let mut b = a.clone();
+    b[2500] = "changed".into();
+    let (diff, hunks, added, removed) =
+        compute_unified_diff("a", "b", &a.join("\n"), &b.join("\n"), 3);
+    assert_eq!((hunks, added, removed), (1, 1, 1));
+    assert!(diff.contains("@@ -2498,7 +2498,7 @@"), "{diff}");
+    assert!(diff.contains("-line 2500\n+changed"));
+}
+
+#[test]
+fn huge_dissimilar_documents_diff_without_a_quadratic_table() {
+    // 6000 x 6000 lines would need a 36M-cell table (288 MiB); past the cap
+    // the middle is reported as a block replacement instead.
+    let n = 6000;
+    assert!((n + 1) * (n + 1) > MAX_LCS_CELLS);
+    let a: Vec<String> = (0..n).map(|i| format!("a {i}")).collect();
+    let mut b: Vec<String> = (0..n).map(|i| format!("b {i}")).collect();
+    b[0] = a[0].clone(); // common prefix and suffix are still kept as context
+    b[n - 1] = a[n - 1].clone();
+    let start = std::time::Instant::now();
+    let a_refs: Vec<&str> = a.iter().map(String::as_str).collect();
+    let b_refs: Vec<&str> = b.iter().map(String::as_str).collect();
+    assert_script_rebuilds(&a_refs, &b_refs);
+    let (_, hunks, added, removed) =
+        compute_unified_diff("a", "b", &a.join("\n"), &b.join("\n"), 3);
+    assert_eq!((hunks, added, removed), (1, n - 2, n - 2));
+    assert!(start.elapsed() < std::time::Duration::from_secs(20));
+}
+
+// ── prompts/get needs the live document ──────────────────────────────────────
+
+#[test]
+fn prompt_get_embeds_the_live_document() {
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": "/p.md", "content": "# Plan\n- step" })));
+    let resp = handle_prompt_get(id(1), "review_plan", &ipc);
+    let text = resp.result.unwrap()["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(text.ends_with("# Plan\n- step"), "{text}");
+}
+
+#[test]
+fn prompt_get_without_the_app_is_an_error_not_an_empty_document() {
+    let ipc = MockIpc::new().on_get("/content", Err("~/.mdopener/ipc-port not found".into()));
+    let resp = handle_prompt_get(id(1), "summarize", &ipc);
+    assert!(resp.result.is_none());
+    let err = resp.error.unwrap();
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("does not appear to be running"), "{}", err.message);
+}
+
+#[test]
+fn prompt_get_with_no_open_document_is_an_error() {
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": null })));
+    let resp = handle_prompt_get(id(1), "summarize", &ipc);
+    assert!(resp.error.unwrap().message.contains("No document is open"));
+}
+
+// ── open_file hands the app absolute paths ───────────────────────────────────
+
+#[test]
+fn open_file_makes_a_not_yet_existing_relative_path_absolute() {
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file(id(1), &json!({ "path": "drafts/new-plan.md" }), &ipc);
+    assert!(resp.error.is_none());
+    let expected = std::env::current_dir().unwrap().join("drafts/new-plan.md");
+    let calls = ipc.calls();
+    assert_eq!(
+        calls[0].2.as_ref().unwrap()["path"],
+        json!(expected.to_string_lossy())
+    );
+}
+
+#[test]
+fn hunks_carry_full_trailing_context_and_merge_when_close() {
+    let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20";
+    // Two changes 2 lines apart merge into one hunk; a far one stays separate.
+    let b = a.replace("\n5\n", "\nfive\n").replace("\n8\n", "\neight\n").replace("\n18\n", "\neighteen\n");
+    let (diff, hunks, added, removed) = compute_unified_diff("a", "b", a, &b, 3);
+    assert_eq!((hunks, added, removed), (2, 3, 3), "{diff}");
+    assert!(diff.contains("@@ -2,10 +2,10 @@"), "{diff}");
+    assert!(diff.contains(" 9\n 10\n 11\n@@ -15,6 +15,6 @@"), "{diff}");
+    assert!(diff.ends_with("+eighteen\n 19\n 20"), "{diff}");
 }
