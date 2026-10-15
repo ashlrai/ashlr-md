@@ -1139,9 +1139,8 @@ pub fn tool_open_file_with(
                 "note": outcome.describe(),
             }),
         ),
-        _ => Response::err(
+        _ => tool_error(
             id,
-            -32000,
             format!(
                 "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}.",
                 outcome.describe()
@@ -1153,7 +1152,7 @@ pub fn tool_open_file_with(
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1166,7 +1165,7 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 
     match ipc.post("/content", json!({ "content": content, "save": save })) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1174,7 +1173,7 @@ pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     let limit = args["limit"].as_u64().unwrap_or(10);
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1206,7 +1205,7 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
         json!({ "format": format, "outputPath": output_path, "theme": theme }),
     ) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1242,7 +1241,7 @@ pub fn tool_request_review(id: Value, args: &Value, ipc: &dyn IpcClient) -> Resp
         "timeoutMs": timeout_ms,
     });
     if let Err(e) = ipc.post("/review", post_body) {
-        return Response::err(id, -32000, app_not_running_msg(&e));
+        return tool_error(id, app_not_running_msg(&e));
     }
 
     if !blocking {
@@ -1263,7 +1262,7 @@ pub fn tool_request_review(id: Value, args: &Value, ipc: &dyn IpcClient) -> Resp
         }
         std::thread::sleep(poll.min(deadline - now));
         match ipc.get(&endpoint) {
-            Err(e) => return Response::err(id, -32000, format!("App unreachable during review: {e}")),
+            Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
                 "not_found" => return tool_result(id, json!({
@@ -1289,7 +1288,7 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     let encoded = urlencoding::encode(path);
     match ipc.get(&format!("/annotations?path={encoded}")) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1319,7 +1318,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
             }
             tool_result(id, v)
         }
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1331,7 +1330,7 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
     let save = args["save"].as_bool().unwrap_or(false);
     match ipc.post("/content", json!({ "content": content, "save": save })) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1378,7 +1377,7 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
                     "results": results,
                     "mode": "grep-local"
                 })),
-                Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+                Err(e) => tool_error(id, app_not_running_msg(&e)),
             }
         }
     }
@@ -1392,7 +1391,7 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
     });
     match ipc.post("/present", json!({ "path": path })) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -1435,7 +1434,7 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                 "recentDocs": cited_docs,
             }))
         }
-        Err(e) => Response::err(id, -32000, format!("Failed to read conversation context: {e}")),
+        Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
     }
 }
 
@@ -2221,7 +2220,11 @@ pub fn tool_result(id: Value, value: Value) -> Response {
     )
 }
 
-/// A tool-level error (the call reached the app but the operation was rejected).
+/// A tool execution error: the app is unreachable, a file cannot be read or
+/// written, or the operation was rejected. Per the MCP spec these come back as
+/// a successful `tools/call` result with `isError: true` so the agent sees the
+/// message and can act on it. JSON-RPC errors are reserved for protocol
+/// problems: an unknown tool or invalid arguments (`-32602`).
 pub fn tool_error(id: Value, message: String) -> Response {
     Response::ok(
         id,
@@ -2250,7 +2253,7 @@ pub fn tool_export_markdown_archive(id: Value, args: &Value, ipc: &dyn IpcClient
         }),
     ) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -2272,7 +2275,7 @@ pub fn tool_export_canvas_graph(id: Value, args: &Value, ipc: &dyn IpcClient) ->
         }),
     ) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -2416,7 +2419,7 @@ pub fn tool_batch_export_format(id: Value, args: &Value, ipc: &dyn IpcClient) ->
 
     match ipc.post("/export/batch", json!({ "exports": exports })) {
         Ok(v) => tool_result(id, v),
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -2450,11 +2453,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
 
     let content_a = match std::fs::read_to_string(&path_a) {
         Ok(c) => c,
-        Err(e) => return Response::err(id, -32002, format!("Cannot read path_a '{path_a}': {e}")),
+        Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
     let content_b = match std::fs::read_to_string(&path_b) {
         Ok(c) => c,
-        Err(e) => return Response::err(id, -32002, format!("Cannot read path_b '{path_b}': {e}")),
+        Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
 
     let (diff, hunks, added, removed) =
@@ -2728,13 +2731,13 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(e) => return Response::err(id, -32000, format!("Failed to read {path}: {e}")),
+        Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
 
     // ── Parse ────────────────────────────────────────────────────────────────
     let parsed = match parse_canvas_json(&raw_content) {
         Ok(c) => c,
-        Err(e) => return Response::err(id, -32602, format!("Canvas parse error: {e}")),
+        Err(e) => return tool_error(id, format!("Canvas parse error: {e}")),
     };
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
@@ -3032,14 +3035,14 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     let output = json!({ "nodes": nodes, "edges": edges });
     let serialised = match serde_json::to_string_pretty(&output) {
         Ok(s) => s,
-        Err(e) => return Response::err(id, -32000, format!("Serialisation error: {e}")),
+        Err(e) => return tool_error(id, format!("Serialisation error: {e}")),
     };
 
     // ── Write to disk ────────────────────────────────────────────────────────
     let save = args["save"].as_bool().unwrap_or(true);
     if save {
         if let Err(e) = std::fs::write(&path, &serialised) {
-            return Response::err(id, -32000, format!("Failed to write {path}: {e}"));
+            return tool_error(id, format!("Failed to write {path}: {e}"));
         }
     }
 
@@ -3157,7 +3160,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
             }
             tool_result(id, v)
         }
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -3200,7 +3203,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
             }
             tool_result(id, v)
         }
-        Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
 
@@ -3518,7 +3521,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
             let abs = canonicalize_path(raw);
             match std::fs::read_to_string(&abs) {
                 Ok(c) => (c, Some(abs)),
-                Err(e) => return Response::err(id, -32002, format!("Cannot read '{abs}': {e}")),
+                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
         }
         None => match ipc.get("/content") {
@@ -3527,7 +3530,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
                 let path = v["path"].as_str().map(str::to_string);
                 (content, path)
             }
-            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+            Err(e) => return tool_error(id, app_not_running_msg(&e)),
         },
     };
 
@@ -3741,7 +3744,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
             let abs = canonicalize_path(raw);
             match std::fs::read_to_string(&abs) {
                 Ok(c) => (c, Some(abs)),
-                Err(e) => return Response::err(id, -32002, format!("Cannot read '{abs}': {e}")),
+                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
         }
         None => match ipc.get("/content") {
@@ -3750,7 +3753,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
                 let path = v["path"].as_str().map(str::to_string);
                 (content, path)
             }
-            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+            Err(e) => return tool_error(id, app_not_running_msg(&e)),
         },
     };
 

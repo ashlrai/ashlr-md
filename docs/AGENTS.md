@@ -224,6 +224,13 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `search_vault` | `query: string`, `limit?: integer` | `{ query, results }` | Case-insensitive full-text search across the vault (watched folder) + recents. `limit` defaults to `50` (clamped 1–200). Results carry file paths, line numbers, and snippets. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. |
 
+When a tool fails while running (the app is not running, a file cannot be read
+or written, the app rejects the operation), the call still succeeds at the
+JSON-RPC level and returns `isError: true` with the reason as text, as the MCP
+spec asks, so the agent sees the message and can act on it. JSON-RPC errors
+are reserved for protocol problems: an unknown tool or invalid arguments
+(`-32602`).
+
 ### `edit_document` — exact, unique find/replace
 
 `edit_document` replaces an **exact substring** of the currently open document.
