@@ -21,6 +21,8 @@ use tauri_plugin_deep_link::DeepLinkExt as _;
 
 /// Register the deep-link `on_open_url` handler.  Call this inside `.setup()`.
 pub fn setup(app: &AppHandle) {
+    register_appimage_scheme(app);
+
     let handle = app.clone();
     app.deep_link().on_open_url(move |event| {
         for url in event.urls() {
@@ -35,6 +37,22 @@ pub fn setup(app: &AppHandle) {
             handle_url(app, url.as_str());
         }
     }
+}
+
+/// An AppImage has no installer, so nothing registers `mdopener://` with the
+/// desktop. When running as one (the AppImage runtime sets `$APPIMAGE`), write
+/// the user-level `x-scheme-handler/mdopener` entry pointing at the AppImage.
+/// .deb/.rpm installs register through their packaged desktop file and are
+/// left alone; Windows installers (NSIS/MSI) register the scheme themselves.
+fn register_appimage_scheme(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    if app.env().appimage.is_some() {
+        if let Err(e) = app.deep_link().register_all() {
+            eprintln!("[deep_link] AppImage scheme registration failed: {e}");
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
 }
 
 /// Parse and dispatch a single `mdopener://` URL.
