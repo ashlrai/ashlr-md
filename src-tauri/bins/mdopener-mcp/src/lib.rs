@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod launch;
+
 // ── JSON-RPC types ────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Debug)]
@@ -116,13 +118,15 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
 // ── initialize ────────────────────────────────────────────────────────────────
 
 /// Protocol revisions this server understands. We echo the client's requested
-/// version when it's one of these, else fall back to our baseline.
+/// version when it's one of these, else answer with the latest one we support
+/// (the MCP lifecycle spec: the server "SHOULD" offer its latest version and
+/// the client decides whether it can use it).
 pub const SUPPORTED_PROTOCOLS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-06-18"];
-pub const DEFAULT_PROTOCOL: &str = "2024-11-05";
+pub const DEFAULT_PROTOCOL: &str = "2025-06-18";
 
 pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
     // Negotiate: honor the client's requested protocolVersion if we support it,
-    // otherwise advertise our baseline (per the MCP lifecycle spec).
+    // otherwise advertise our latest (per the MCP lifecycle spec).
     let requested = params
         .as_ref()
         .and_then(|p| p["protocolVersion"].as_str());
@@ -1055,41 +1059,82 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
 pub fn tool_open_file(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    tool_open_file_with(id, args, ipc, &|url| {
+        launch::launch_url(url, URL_LAUNCH_DEADLINE, false)
+    })
+}
+
+/// How long `open_file` waits for the OS URL launcher when the app is not
+/// running. Bounded so a launcher that blocks (e.g. `xdg-open` falling back to
+/// a terminal browser) never wedges the MCP session.
+pub const URL_LAUNCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// [`tool_open_file`] with the URL launcher injected, so tests never start a
+/// real launcher or GUI.
+pub fn tool_open_file_with(
+    id: Value,
+    args: &Value,
+    ipc: &dyn IpcClient,
+    launcher: &dyn Fn(&str) -> launch::Launch,
+) -> Response {
     let raw_path = match args["path"].as_str() {
         Some(p) => p.to_string(),
         None => return Response::err(id, -32602, "`path` is required"),
+    };
+
+    let mode = match args["mode"].as_str() {
+        None => None,
+        Some(m @ ("read" | "edit")) => Some(m),
+        Some(other) => {
+            return Response::err(
+                id,
+                -32602,
+                format!("`mode` must be \"read\" or \"edit\", got {other:?}"),
+            )
+        }
     };
 
     let abs = std::fs::canonicalize(&raw_path)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(raw_path.clone());
 
-    let mode = args["mode"].as_str();
-
     // Try IPC first (app already running).
-    match ipc.post("/open", json!({ "path": abs, "mode": mode })) {
+    let ipc_error = match ipc.post("/open", json!({ "path": abs, "mode": mode })) {
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
-        Err(_) => {
-            // Fall back: launch / bring to front via URL scheme.
-        }
-    }
+        Err(e) => e,
+    };
 
+    // Fall back: launch / bring to front via the URL scheme, using the host
+    // OS launcher (`open` on macOS, `xdg-open`/`gio open` on Linux, `start` on
+    // Windows). Its stdout never reaches ours, which is the protocol channel.
     let encoded = urlencoding::encode(&abs);
     let mut url = format!("mdopener://open?path={encoded}");
     if let Some(m) = mode {
         url.push_str(&format!("&mode={m}"));
     }
 
-    match std::process::Command::new("open").arg(&url).status() {
-        Ok(s) if s.success() => {
+    let outcome = launcher(&url);
+    match &outcome {
+        launch::Launch::Opened { .. } => {
             tool_result(id, json!({ "opened": abs, "method": "url-scheme" }))
         }
-        Ok(s) => Response::err(
+        launch::Launch::Pending { .. } => tool_result(
+            id,
+            json!({
+                "opened": abs,
+                "method": "url-scheme",
+                "confirmed": false,
+                "note": outcome.describe(),
+            }),
+        ),
+        _ => Response::err(
             id,
             -32000,
-            format!("`open` exited with status {}", s.code().unwrap_or(-1)),
+            format!(
+                "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}.",
+                outcome.describe()
+            ),
         ),
-        Err(e) => Response::err(id, -32000, format!("Failed to run `open`: {e}")),
     }
 }
 
