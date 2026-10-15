@@ -26,6 +26,13 @@ pub struct PendingFiles(pub Mutex<Vec<String>>);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin. A second launch (file manager open,
+        // `xdg-open mdopener://…`) forwards its argv here and exits instead of
+        // starting a rival process that would take over ~/.mdopener/ipc-port.
+        // The `deep-link` feature routes mdopener:// URLs to `on_open_url`.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            file_handler::handle_second_instance(app, &argv, &cwd);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())

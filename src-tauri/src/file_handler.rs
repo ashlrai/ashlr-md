@@ -59,18 +59,54 @@ pub fn buffer_cli_args(app: &AppHandle) {
     buf.extend(args);
 }
 
+/// A second launch while the app is already running (Linux/Windows; wired via
+/// tauri-plugin-single-instance). The new process exits, and its argv + cwd
+/// land here: open the files it named in this instance and bring the window
+/// forward. `mdopener://` URLs in that argv are forwarded to the deep-link
+/// plugin's `on_open_url` by the single-instance plugin itself.
+pub fn handle_second_instance(app: &AppHandle, argv: &[String], cwd: &str) {
+    let cwd = std::path::Path::new(cwd);
+    let paths: Vec<String> = argv
+        .iter()
+        .skip(1)
+        .filter_map(|a| cli_arg_to_path_in(a, cwd))
+        .collect();
+
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+
+    if paths.is_empty() {
+        return;
+    }
+    {
+        let state = app.state::<PendingFiles>();
+        let mut buf = state.0.lock().unwrap();
+        buf.extend(paths.clone());
+    }
+    let _ = tauri::Emitter::emit(app, "file-opened", paths);
+}
+
 /// The file a launch argument names, as an absolute path. Accepts a plain path
 /// or a `file://` URI: the Linux desktop entry launches the app with `%u`, so
 /// file managers pass `file:///…` URIs. Flags, `mdopener://` deep links (the
 /// deep-link plugin handles those) and paths that do not resolve yield `None`.
 pub fn cli_arg_to_path(arg: &str) -> Option<String> {
+    cli_arg_to_path_in(arg, std::path::Path::new(""))
+}
+
+/// [`cli_arg_to_path`], resolving a relative path against `cwd` (the launching
+/// process's working directory, which differs from ours for a second instance).
+fn cli_arg_to_path_in(arg: &str, cwd: &std::path::Path) -> Option<String> {
     if arg.starts_with('-') {
         return None;
     }
     let path = if arg.starts_with("file://") {
         tauri::Url::parse(arg).ok()?.to_file_path().ok()?
     } else {
-        std::path::PathBuf::from(arg)
+        cwd.join(arg)
     };
     std::fs::canonicalize(path)
         .ok()
@@ -87,7 +123,7 @@ pub fn take_pending_files(state: tauri::State<PendingFiles>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::cli_arg_to_path;
+    use super::{cli_arg_to_path, cli_arg_to_path_in};
 
     #[test]
     fn launch_args_accept_paths_and_file_uris() {
@@ -103,11 +139,14 @@ mod tests {
         assert_eq!(cli_arg_to_path(file.to_str().unwrap()), Some(canonical.clone()));
         let uri = tauri::Url::from_file_path(&file).unwrap().to_string();
         assert!(uri.contains("a%20file%20%C3%A9.md"), "{uri}");
-        assert_eq!(cli_arg_to_path(&uri), Some(canonical));
+        assert_eq!(cli_arg_to_path(&uri), Some(canonical.clone()));
 
         assert_eq!(cli_arg_to_path("--flag"), None);
         assert_eq!(cli_arg_to_path("mdopener://open?path=%2Fx.md"), None);
         assert_eq!(cli_arg_to_path("file:///no/such/file.md"), None);
+        // A second instance's relative path resolves against ITS cwd.
+        assert_eq!(cli_arg_to_path_in("a file é.md", &dir), Some(canonical));
+        assert_eq!(cli_arg_to_path_in("mdopener://open?path=x", &dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
