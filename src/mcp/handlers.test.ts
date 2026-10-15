@@ -76,15 +76,11 @@ vi.mock("../lib/export", () => ({
   exportDocx: vi.fn().mockResolvedValue(undefined),
   exportHtml: vi.fn().mockResolvedValue(undefined),
   exportEpub: vi.fn().mockResolvedValue(undefined),
-  exportMarkdownArchive: vi.fn().mockResolvedValue("/out/archive.tar.gz"),
-  exportCanvasGraph: vi.fn().mockResolvedValue("/out/vault.canvas"),
   exportOutline: vi.fn().mockResolvedValue("/out/outline.json"),
   buildBatchExportProfiles: vi.fn().mockResolvedValue([]),
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
   cloneWithoutInjectedChrome: vi.fn((el: Element) => el),
-  buildMarkdownArchive: vi.fn(),
-  buildCanvasGraph: vi.fn(),
 }));
 
 vi.mock("../lib/exportTemplates", async (importOriginal) => {
@@ -233,8 +229,6 @@ describe("handlers integration — bridge wires all handler modules", () => {
       "mcp://diff-docs",
       // export
       "mcp://export",
-      "mcp://export-markdown-archive",
-      "mcp://export-canvas-graph",
       "mcp://export-outline",
       "mcp://batch-export",
       "mcp://batch-export-profiles",
@@ -254,12 +248,10 @@ describe("handlers integration — bridge wires all handler modules", () => {
     expect(listenHandlers.size).toBeGreaterThanOrEqual(19);
   });
 
-  it("export module registers 6 listeners", () => {
+  it("export module registers 4 listeners", () => {
     mountBridge();
     const exportEvents = [
       "mcp://export",
-      "mcp://export-markdown-archive",
-      "mcp://export-canvas-graph",
       "mcp://export-outline",
       "mcp://batch-export",
       "mcp://batch-export-profiles",

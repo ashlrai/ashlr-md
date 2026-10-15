@@ -60,8 +60,6 @@ vi.mock("@tauri-apps/api/core", () => ({
 const exportPdfMock = vi.fn().mockResolvedValue(undefined);
 const exportDocxMock = vi.fn().mockResolvedValue(undefined);
 const exportHtmlMock = vi.fn().mockResolvedValue(undefined);
-const exportMarkdownArchiveMock = vi.fn().mockResolvedValue("/out/archive.tar.gz");
-const exportCanvasGraphMock = vi.fn().mockResolvedValue("/out/vault.canvas");
 // ─── DiffBlock mock — buildHunkOp used by mcp://apply-diff-hunk ──────────────
 
 const buildHunkOpMock = vi.fn();
@@ -78,16 +76,12 @@ vi.mock("../lib/export", () => ({
   exportPdf: (...args: unknown[]) => exportPdfMock(...args),
   exportDocx: (...args: unknown[]) => exportDocxMock(...args),
   exportHtml: (...args: unknown[]) => exportHtmlMock(...args),
-  exportMarkdownArchive: (...args: unknown[]) => exportMarkdownArchiveMock(...args),
-  exportCanvasGraph: (...args: unknown[]) => exportCanvasGraphMock(...args),
   buildBatchExportProfiles: (...args: unknown[]) =>
     buildBatchExportProfilesMock(...args),
   // Re-export anything else export.ts might expose so other imports don't break.
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
   cloneWithoutInjectedChrome: vi.fn((el: Element) => el),
-  buildMarkdownArchive: vi.fn(),
-  buildCanvasGraph: vi.fn(),
 }));
 
 // ─── Tauri event listen ───────────────────────────────────────────────────────
@@ -229,8 +223,6 @@ beforeEach(() => {
   exportPdfMock.mockClear();
   exportDocxMock.mockClear();
   exportHtmlMock.mockClear();
-  exportMarkdownArchiveMock.mockClear();
-  exportCanvasGraphMock.mockClear();
   buildBatchExportProfilesMock.mockClear();
   buildHunkOpMock.mockClear();
   searchFilesMock.mockClear();
@@ -240,8 +232,6 @@ beforeEach(() => {
   exportPdfMock.mockResolvedValue(undefined);
   exportDocxMock.mockResolvedValue(undefined);
   exportHtmlMock.mockResolvedValue(undefined);
-  exportMarkdownArchiveMock.mockResolvedValue("/out/archive.tar.gz");
-  exportCanvasGraphMock.mockResolvedValue("/out/vault.canvas");
   // Default: batch-export-profiles returns 6 successful results.
   buildBatchExportProfilesMock.mockResolvedValue([
     { profileId: "notion-html", ok: true, html: "<html>notion</html>" },
@@ -284,7 +274,7 @@ afterEach(() => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("useMcpBridge — mount", () => {
-  it("registers listeners for all nineteen mcp:// events", () => {
+  it("registers listeners for the core mcp:// events", () => {
     mountBridge();
     const expected = [
       "mcp://open",
@@ -293,8 +283,6 @@ describe("useMcpBridge — mount", () => {
       "mcp://export",
       "mcp://review",
       "mcp://present",
-      "mcp://export-markdown-archive",
-      "mcp://export-canvas-graph",
       "mcp://batch-read",
       "mcp://batch-edit",
       "mcp://semantic-search",
@@ -1065,171 +1053,16 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// mcp://export-markdown-archive — archive export event
+// Removed archive / canvas-graph export events
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("mcp://export-markdown-archive event", () => {
-  it("registers listener for mcp://export-markdown-archive on mount", () => {
+describe("removed export events", () => {
+  it("does not listen for mcp://export-markdown-archive or mcp://export-canvas-graph", () => {
+    // Nothing emits these: the Tauri commands behind them were never
+    // implemented and the MCP tools were withdrawn.
     mountBridge();
-    expect(listenHandlers.has("mcp://export-markdown-archive")).toBe(true);
-  });
-
-  it("calls exportMarkdownArchive with outputPath and includeAssets", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-markdown-archive", {
-      outputPath: "/out/archive.tar.gz",
-      includeAssets: true,
-    });
-    expect(exportMarkdownArchiveMock).toHaveBeenCalledWith({
-      outputPath: "/out/archive.tar.gz",
-      includeAssets: true,
-    });
-  });
-
-  it("defaults includeAssets to true when omitted from payload", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-markdown-archive", {
-      outputPath: "/out/archive.tar.gz",
-    });
-    expect(exportMarkdownArchiveMock).toHaveBeenCalledWith(
-      expect.objectContaining({ includeAssets: true }),
-    );
-  });
-
-  it("calls mcp_archive_result with ok=true on success when outputPath is set", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-markdown-archive", {
-      outputPath: "/out/archive.tar.gz",
-      includeAssets: true,
-    });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_archive_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ ok: true });
-  });
-
-  it("does NOT call mcp_archive_result when no outputPath (dialog path)", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-markdown-archive", { outputPath: null });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_archive_result");
-    expect(resultCall).toBeUndefined();
-  });
-
-  it("calls mcp_archive_result with ok=false when exportMarkdownArchive throws", async () => {
-    exportMarkdownArchiveMock.mockRejectedValue(new Error("pack failed"));
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-markdown-archive", {
-      outputPath: "/out/archive.tar.gz",
-      includeAssets: false,
-    });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_archive_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ ok: false });
-    expect(typeof resultCall![1].error).toBe("string");
-  });
-
-  it("passes includeAssets=false through to exportMarkdownArchive", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-markdown-archive", {
-      outputPath: "/out/slim.tar.gz",
-      includeAssets: false,
-    });
-    expect(exportMarkdownArchiveMock).toHaveBeenCalledWith(
-      expect.objectContaining({ includeAssets: false }),
-    );
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════════
-// mcp://export-canvas-graph — canvas graph export event
-// ════════════════════════════════════════════════════════════════════════════
-
-describe("mcp://export-canvas-graph event", () => {
-  it("registers listener for mcp://export-canvas-graph on mount", () => {
-    mountBridge();
-    expect(listenHandlers.has("mcp://export-canvas-graph")).toBe(true);
-  });
-
-  it("calls exportCanvasGraph with outputPath and includeIsolated", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/vault.canvas",
-      includeIsolated: true,
-    });
-    expect(exportCanvasGraphMock).toHaveBeenCalledWith({
-      outputPath: "/out/vault.canvas",
-      includeIsolated: true,
-    });
-  });
-
-  it("defaults includeIsolated to true when omitted from payload", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/vault.canvas",
-    });
-    expect(exportCanvasGraphMock).toHaveBeenCalledWith(
-      expect.objectContaining({ includeIsolated: true }),
-    );
-  });
-
-  it("calls mcp_canvas_result with ok=true on success when outputPath is set", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/vault.canvas",
-      includeIsolated: true,
-    });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_canvas_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ ok: true });
-  });
-
-  it("does NOT call mcp_canvas_result when no outputPath (dialog path)", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-canvas-graph", { outputPath: null });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_canvas_result");
-    expect(resultCall).toBeUndefined();
-  });
-
-  it("calls mcp_canvas_result with ok=false when exportCanvasGraph throws", async () => {
-    exportCanvasGraphMock.mockRejectedValue(new Error("graph build failed"));
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/vault.canvas",
-      includeIsolated: false,
-    });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_canvas_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ ok: false });
-    expect(typeof resultCall![1].error).toBe("string");
-  });
-
-  it("passes includeIsolated=false through to exportCanvasGraph", async () => {
-    mountBridge();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/connected.canvas",
-      includeIsolated: false,
-    });
-    expect(exportCanvasGraphMock).toHaveBeenCalledWith(
-      expect.objectContaining({ includeIsolated: false }),
-    );
-  });
-
-  it("error message from thrown string is passed to mcp_canvas_result", async () => {
-    exportCanvasGraphMock.mockRejectedValue("vault is empty");
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export-canvas-graph", {
-      outputPath: "/out/vault.canvas",
-      includeIsolated: true,
-    });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_canvas_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1].error).toContain("vault is empty");
+    expect(listenHandlers.has("mcp://export-markdown-archive")).toBe(false);
+    expect(listenHandlers.has("mcp://export-canvas-graph")).toBe(false);
   });
 });
 

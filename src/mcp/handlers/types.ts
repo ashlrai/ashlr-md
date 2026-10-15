@@ -60,16 +60,6 @@ export interface ExportPayload {
   outputPath?: string | null;
 }
 
-export interface MarkdownArchivePayload {
-  outputPath?: string | null;
-  includeAssets?: boolean;
-}
-
-export interface CanvasGraphPayload {
-  outputPath?: string | null;
-  includeIsolated?: boolean;
-}
-
 export interface OutlineExportPayload {
   format: "json" | "opml";
   outputPath?: string | null;

@@ -1,6 +1,6 @@
 /**
- * MCP export handlers — PDF, DOCX, HTML, EPUB, archive, canvas-graph, outline,
- * batch-export, and batch-export-profiles.
+ * MCP export handlers — PDF, DOCX, HTML, EPUB, outline, batch-export, and
+ * batch-export-profiles.
  *
  * Each exported function registers a single `listen()` call and returns the
  * resulting Promise<UnlistenFn> so the bridge can collect them for cleanup.
@@ -11,11 +11,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   type BatchProfileResult,
   buildBatchExportProfiles,
-  exportCanvasGraph,
   exportDocx,
   exportEpub,
   exportHtml,
-  exportMarkdownArchive,
   exportOutline,
   exportPdf,
 } from "../../lib/export";
@@ -29,9 +27,7 @@ import type {
   BatchExportPayload,
   BatchExportProfileResult,
   BatchExportProfilesPayload,
-  CanvasGraphPayload,
   ExportPayload,
-  MarkdownArchivePayload,
   OutlineExportPayload,
 } from "./types";
 
@@ -94,76 +90,6 @@ export function handleExportPayload(): Promise<UnlistenFn> {
     } else {
       // Open the dialog with the format pre-selected.
       useUiStore.getState().openExport(format);
-    }
-  });
-}
-
-// ── mcp://export-markdown-archive ────────────────────────────────────────────
-
-export function handleMarkdownArchive(): Promise<UnlistenFn> {
-  return listen<MarkdownArchivePayload>("mcp://export-markdown-archive", async (e) => {
-    const { outputPath, includeAssets = true } = e.payload;
-    try {
-      const resultPath = await exportMarkdownArchive({
-        outputPath: outputPath ?? undefined,
-        includeAssets,
-      });
-      if (outputPath) {
-        await invoke("mcp_archive_result", {
-          ok: true,
-          path: resultPath || outputPath,
-          error: null,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    } catch (err) {
-      const errStr =
-        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-      if (outputPath) {
-        await invoke("mcp_archive_result", {
-          ok: false,
-          path: null,
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    }
-  });
-}
-
-// ── mcp://export-canvas-graph ─────────────────────────────────────────────────
-
-export function handleCanvasGraphExport(): Promise<UnlistenFn> {
-  return listen<CanvasGraphPayload>("mcp://export-canvas-graph", async (e) => {
-    const { outputPath, includeIsolated = true } = e.payload;
-    try {
-      const resultPath = await exportCanvasGraph({
-        outputPath: outputPath ?? undefined,
-        includeIsolated,
-      });
-      if (outputPath) {
-        await invoke("mcp_canvas_result", {
-          ok: true,
-          path: resultPath || outputPath,
-          error: null,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    } catch (err) {
-      const errStr =
-        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-      if (outputPath) {
-        await invoke("mcp_canvas_result", {
-          ok: false,
-          path: null,
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
     }
   });
 }
