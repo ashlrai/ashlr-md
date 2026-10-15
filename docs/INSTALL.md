@@ -79,9 +79,14 @@ sudo apt-get install -f
 ```
 
 The `.deb` installs:
-- Binary at `/usr/bin/ashlr-md` (or `/usr/bin/Ashlr MD`)
-- `.desktop` entry at `/usr/share/applications/app.mdopener.desktop.desktop`
+- App binary at `/usr/bin/md-opener`
+- `.desktop` entry at `/usr/share/applications/Ashlr MD.desktop`
+- The `mdopen` CLI and the `mdopener-mcp` MCP server in `/usr/lib/Ashlr MD/`
 - Icons under `/usr/share/icons/hicolor/`
+
+`mdopen` is not on your `PATH` after install. Use **Preferences → Command-line
+tool → Install mdopen**, or call it by its full path:
+`"/usr/lib/Ashlr MD/mdopen" notes.md`.
 
 After install, `.md` files will appear in **Open With → Ashlr MD** in Nautilus
 and other XDG-compliant file managers.

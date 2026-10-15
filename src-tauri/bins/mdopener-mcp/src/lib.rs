@@ -295,8 +295,12 @@ pub fn store_append_message(
         .unwrap_or_default()
         .as_millis() as u64;
 
+    // Millisecond timestamps repeat when an agent saves twice in quick
+    // succession, so a per-process sequence number keeps ids unique.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let msg = ConversationMessage {
-        id: format!("msg-{ts}-{:08x}", std::process::id()),
+        id: format!("msg-{ts}-{:08x}-{seq}", std::process::id()),
         session_id: session_id.to_string(),
         role: role.to_string(),
         content: content.trim().to_string(),
@@ -305,7 +309,11 @@ pub fn store_append_message(
     };
 
     let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
-    let log = store.entry(session_id.to_string()).or_default();
+    // A new server process (every agent restart) starts with an empty store:
+    // continue the persisted log instead of overwriting it with one message.
+    let log = store
+        .entry(session_id.to_string())
+        .or_insert_with(|| load_session_from_disk(session_id).unwrap_or_default());
     log.messages.push(msg.clone());
 
     // Bound the in-process store.
@@ -1094,7 +1102,11 @@ pub fn tool_open_file_with(
         }
     };
 
+    // A path that does not exist yet is allowed (the app opens it as a new
+    // document), but it is still made absolute against this server's working
+    // directory: the app resolves paths against its own, unrelated cwd.
     let abs = std::fs::canonicalize(&raw_path)
+        .or_else(|_| std::path::absolute(&raw_path))
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(raw_path.clone());
 
@@ -1831,11 +1843,22 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
         }
         other => return Response::err(id, -32602, format!("Unknown prompt: {other}")),
     };
-    let content = ipc
-        .get("/content")
-        .ok()
-        .and_then(|v| v["content"].as_str().map(str::to_string))
-        .unwrap_or_default();
+    // Without the live document the prompt would ask the model to work on an
+    // empty string, so a missing app or document is an error, not "".
+    let content = match ipc.get("/content") {
+        // The app answers `{ "path": null, "content": "" }` when nothing is open.
+        Ok(v) => match v["content"].as_str() {
+            Some(c) if !(c.is_empty() && v["path"].is_null()) => c.to_string(),
+            _ => {
+                return Response::err(
+                    id,
+                    -32002,
+                    "No document is open in Ashlr MD. Open one first (open_file).",
+                )
+            }
+        },
+        Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+    };
     let text = format!("{instruction}\n\n---\n\n{content}");
 
     Response::ok(id, json!({
@@ -2514,27 +2537,23 @@ pub fn compute_unified_diff(
     let n = edits.len();
     let mut i = 0;
     while i < n {
-        if edits[i].kind != ' ' {
-            // Found a change — extend hunk window by context_lines each side.
-            let start = i.saturating_sub(context);
-            let mut end = i;
-            while end < n && (edits[end].kind != ' ' || end < i + context) {
-                end += 1;
-            }
-            end = end.min(n);
-            // Merge with previous hunk if overlapping.
-            if let Some(last) = hunk_ranges.last_mut() {
-                if start <= last.1 {
-                    last.1 = end;
-                    i = end;
-                    continue;
-                }
-            }
-            hunk_ranges.push((start, end));
-            i = end;
-        } else {
+        if edits[i].kind == ' ' {
             i += 1;
+            continue;
         }
+        // A run of changes [i, run_end), widened by `context` lines each side.
+        let mut run_end = i;
+        while run_end < n && edits[run_end].kind != ' ' {
+            run_end += 1;
+        }
+        let start = i.saturating_sub(context);
+        let end = (run_end + context).min(n);
+        // Merge with the previous hunk when their context windows touch.
+        match hunk_ranges.last_mut() {
+            Some(last) if start <= last.1 => last.1 = end,
+            _ => hunk_ranges.push((start, end)),
+        }
+        i = run_end;
     }
 
     let mut diff_lines: Vec<String> = Vec::new();
@@ -2583,13 +2602,52 @@ pub enum DiffOp {
     Insert(usize),       // index in B
 }
 
-/// Compute an edit script between two slices using a simple O(ND) LCS
-/// approach.  Returns the ops in document order.
+/// Largest LCS table (cells) `lcs_diff` will allocate: 16M cells, 128 MiB.
+/// Past this, the changed middle is reported as a whole-block replacement
+/// instead of a minimal diff, so two large, very different files cannot make
+/// the MCP server allocate gigabytes and abort (which kills the agent's
+/// session with it).
+pub const MAX_LCS_CELLS: usize = 16 * 1024 * 1024;
+
+/// Compute an edit script between two slices. Returns the ops in document
+/// order.
 ///
-/// This is not the fastest possible implementation but it is correct, has no
-/// external dependencies, and is fast enough for typical Markdown documents
-/// (hundreds to low thousands of lines).
+/// The common prefix and suffix are matched directly, so the quadratic LCS
+/// table only covers the changed middle (typical edits stay tiny even in long
+/// documents). If that middle would still need more than [`MAX_LCS_CELLS`],
+/// it is emitted as "delete all of A's middle, insert all of B's": a correct
+/// but non-minimal diff.
 pub fn lcs_diff<T: PartialEq>(a: &[T], b: &[T]) -> Vec<DiffOp> {
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suffix = a[prefix..]
+        .iter()
+        .rev()
+        .zip(b[prefix..].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (a_mid, b_mid) = (&a[prefix..a.len() - suffix], &b[prefix..b.len() - suffix]);
+
+    let mut ops: Vec<DiffOp> = (0..prefix).map(|i| DiffOp::Equal(i, i)).collect();
+    let fits = (a_mid.len() + 1)
+        .checked_mul(b_mid.len() + 1)
+        .is_some_and(|cells| cells <= MAX_LCS_CELLS);
+    if fits {
+        ops.extend(lcs_table_diff(a_mid, b_mid).into_iter().map(|op| match op {
+            DiffOp::Equal(i, j) => DiffOp::Equal(i + prefix, j + prefix),
+            DiffOp::Delete(i) => DiffOp::Delete(i + prefix),
+            DiffOp::Insert(j) => DiffOp::Insert(j + prefix),
+        }));
+    } else {
+        ops.extend((0..a_mid.len()).map(|i| DiffOp::Delete(i + prefix)));
+        ops.extend((0..b_mid.len()).map(|j| DiffOp::Insert(j + prefix)));
+    }
+    let (a_tail, b_tail) = (a.len() - suffix, b.len() - suffix);
+    ops.extend((0..suffix).map(|k| DiffOp::Equal(a_tail + k, b_tail + k)));
+    ops
+}
+
+/// The classic O(m·n) LCS table and back-track. Callers bound the size.
+fn lcs_table_diff<T: PartialEq>(a: &[T], b: &[T]) -> Vec<DiffOp> {
     let m = a.len();
     let n = b.len();
 
