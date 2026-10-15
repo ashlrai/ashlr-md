@@ -30,7 +30,7 @@
  * ## Architecture
  *
  * Handler implementations live in src/mcp/handlers/:
- *   - export.ts      — PDF/DOCX/HTML/EPUB/archive/canvas-graph/outline/batch-export/profiles
+ *   - export.ts      — PDF/DOCX/HTML/EPUB/outline/batch-export/profiles
  *   - edit.ts        — set-content, edit, batch-edit, atomic-edits, stream-edit, stream-edit-apply
  *   - search.ts      — batch-read, semantic-search, diff-docs
  *   - review.ts      — request_review
@@ -71,9 +71,7 @@ import {
 import {
   handleBatchExport,
   handleBatchExportProfiles,
-  handleCanvasGraphExport,
   handleExportPayload,
-  handleMarkdownArchive,
   handleOutlineExport,
 } from "./handlers/export";
 import { handleRequestReview } from "./handlers/review";
@@ -257,8 +255,6 @@ export function useMcpBridge(): void {
 
     // export
     unlisteners.push(handleExportPayload());
-    unlisteners.push(handleMarkdownArchive());
-    unlisteners.push(handleCanvasGraphExport());
     unlisteners.push(handleOutlineExport());
     unlisteners.push(handleBatchExport());
     unlisteners.push(handleBatchExportProfiles());
