@@ -25,7 +25,8 @@ use mdopener_mcp::{
     tool_export_markdown_archive, tool_export_canvas_graph,
     store_append_message, store_get_context,
     session_file_path, load_session_from_disk,
-    IpcClient, Request,
+    IpcClient, Request, tool_open_file_with,
+    launch::Launch,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -116,18 +117,32 @@ fn initialize_supported_protocol_echoed() {
 }
 
 #[test]
-fn initialize_unsupported_protocol_falls_back_to_default() {
-    let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": "1999-01-01" })));
-    assert!(resp.error.is_none());
-    let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
-    assert_eq!(proto, "2024-11-05");
+fn initialize_unsupported_protocol_falls_back_to_latest_supported() {
+    // Spec: answer with another supported version, SHOULD be the latest.
+    for requested in ["1999-01-01", "2025-11-25"] {
+        let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": requested })));
+        assert!(resp.error.is_none());
+        let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+        assert_eq!(proto, "2025-06-18", "requested {requested}");
+    }
+}
+
+#[test]
+fn initialize_echoes_every_version_current_clients_send() {
+    // Claude Code and other current clients send one of these.
+    for requested in ["2025-06-18", "2025-03-26", "2024-11-05"] {
+        let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": requested })));
+        let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+        assert_eq!(proto, requested);
+    }
 }
 
 #[test]
 fn initialize_no_params_uses_default() {
     let resp = handle_initialize(id(1), None);
     let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
-    assert_eq!(proto, "2024-11-05");
+    assert_eq!(proto, mdopener_mcp::DEFAULT_PROTOCOL);
+    assert_eq!(proto, *mdopener_mcp::SUPPORTED_PROTOCOLS.last().unwrap());
 }
 
 #[test]
@@ -440,23 +455,72 @@ fn open_file_mode_edit_forwarded_in_post_body() {
     assert_eq!(body["mode"], json!("edit"));
 }
 
-// When IPC fails we fall through to the url-scheme launcher.  In a test
-// environment `open mdopener://...` will fail or succeed depending on the OS,
-// so we just assert the RPC-level error is not a missing-path error and that
-// IPC was attempted.
+// When IPC fails we fall through to the url-scheme launcher. The launcher is
+// injected so no test ever starts a real OS launcher or GUI.
 #[test]
-fn open_file_ipc_failure_attempts_url_scheme() {
+fn open_file_ipc_failure_launches_url_scheme() {
     let ipc = MockIpc::new()
         .on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp" }), &ipc);
-    // The IPC call was attempted
-    let calls = ipc.calls();
-    assert!(calls.iter().any(|(m, p, _)| m == "POST" && p == "/open"));
-    // Response is either a url-scheme success or a specific OS error, but not
-    // a missing-param error (-32602).
-    if let Some(e) = &resp.error {
-        assert_ne!(e.code, -32602, "should not be a param error");
-    }
+    let seen = Mutex::new(Vec::<String>::new());
+    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp", "mode": "edit" }), &ipc, &|url| {
+        seen.lock().unwrap().push(url.to_string());
+        Launch::Opened { launcher: "xdg-open".into() }
+    });
+    assert!(ipc.calls().iter().any(|(m, p, _)| m == "POST" && p == "/open"));
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+    assert!(text.contains("url-scheme"), "{text}");
+    let urls = seen.lock().unwrap();
+    assert_eq!(urls.len(), 1);
+    assert!(urls[0].starts_with("mdopener://open?path="), "{}", urls[0]);
+    assert!(urls[0].ends_with("&mode=edit"), "{}", urls[0]);
+}
+
+#[test]
+fn open_file_headless_reports_no_launcher_honestly() {
+    let ipc = MockIpc::new()
+        .on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
+        Launch::NoLauncher { tried: vec!["xdg-open".into(), "gio".into()] }
+    });
+    let err = resp.error.expect("headless open must be an error");
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("not running"), "{}", err.message);
+    assert!(err.message.contains("xdg-open, gio"), "{}", err.message);
+    assert!(err.message.contains("desktop session"), "{}", err.message);
+}
+
+#[test]
+fn open_file_launcher_failure_is_an_error() {
+    let ipc = MockIpc::new()
+        .on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
+        Launch::Failed { launcher: "xdg-open".into(), code: Some(4) }
+    });
+    let err = resp.error.expect("failed launcher must be an error");
+    assert!(err.message.contains("status 4"), "{}", err.message);
+}
+
+#[test]
+fn open_file_pending_launcher_is_unconfirmed_success() {
+    let ipc = MockIpc::new()
+        .on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
+        Launch::Pending { launcher: "xdg-open".into() }
+    });
+    assert!(resp.error.is_none());
+    let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+    assert!(text.contains("\"confirmed\":false") || text.contains("\"confirmed\": false"), "{text}");
+}
+
+#[test]
+fn open_file_rejects_unknown_mode_before_any_launch() {
+    let ipc = MockIpc::new();
+    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp", "mode": "edit&path=/etc/passwd" }), &ipc, &|_| {
+        panic!("must not launch")
+    });
+    assert_eq!(resp.error.unwrap().code, -32602);
+    assert!(ipc.calls().is_empty());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
