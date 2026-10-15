@@ -6,28 +6,31 @@
 //! ## IPC
 //! The running Ashlr MD app starts a loopback HTTP server and writes its port
 //! to `~/.mdopener/ipc-port`.  This binary reads that file to find the app.
-//! If the file is absent, most tools return an error; `open_file` is the
-//! exception — it can launch the app via the `mdopener://` URL scheme.
+//! If the file is absent, tools that need the app return an error. `open_file`
+//! can launch the app via the `mdopener://` URL scheme. `diff_documents`,
+//! `edit_canvas`, `list_ai_actions`, the two conversation tools, and
+//! `export_text` / `export_metadata` given a `path` work without the app.
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
-//!   notifications/initialized → ack (no-op)
-//!   tools/list      → list available tools
-//!   tools/call      → invoke a tool
+//!   notifications/* → no reply
 //!   ping            → {"result":{}}
+//!   tools/list, tools/call
+//!   resources/list, resources/read
+//!   prompts/list, prompts/get   (summarize, review_plan, improve_writing)
 //!
 //! ## Tools
-//!   open_file(path, mode?)          open a file in the app
-//!   get_current_content()           get current doc path + markdown
-//!   set_content(content, save?)     replace current doc content
-//!   list_recent(limit?)             recent file list
-//!   export(format, output_path?)    trigger an export
-//!   request_review(...)             block until human approves/rejects
-//!   get_user_annotations(path)      highlights, comments, bookmarks
-//!   edit_document(find, replace)    precise substring edit
-//!   replace_document(content)       full document replacement
-//!   search_vault(query, limit?)     full-text vault search
-//!   present_document(path?)         zen/presentation mode
+//! The authoritative catalog is `tool_registry()` in `lib.rs` (23 tools):
+//! open_file, get_current_content, set_content, list_recent, export,
+//! request_review, get_user_annotations, edit_document, replace_document,
+//! search_vault, present_document, list_ai_actions, get_conversation_context,
+//! save_conversation_message, export_markdown_archive, export_canvas_graph,
+//! batch_export_format, diff_documents, edit_canvas, stream_edit,
+//! stream_edit_apply, export_text, export_metadata.
+//!
+//! ## Resources
+//!   mdopener://current, export:current, text://vault-search?q=…,
+//!   mdopener://recent-documents, and file://<path> for each vault file.
 
 use std::io::{self, BufRead, Write as _};
 
