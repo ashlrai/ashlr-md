@@ -51,20 +51,29 @@ impl Launch {
 
 /// The launcher commands to try, in order, for the host OS.
 pub fn launchers(url: &str) -> Vec<(String, Vec<String>)> {
+    launchers_for(std::env::consts::OS, url)
+}
+
+/// The launcher commands to try for `os` (a `std::env::consts::OS` value).
+/// Pure, so every platform's argv is testable on any host.
+pub fn launchers_for(os: &str, url: &str) -> Vec<(String, Vec<String>)> {
     let url = url.to_string();
-    if cfg!(target_os = "macos") {
-        vec![("open".into(), vec![url])]
-    } else if cfg!(windows) {
-        // `start` is a cmd built-in; "" is the window title it requires.
-        vec![(
-            "cmd".into(),
-            vec!["/C".into(), "start".into(), String::new(), url],
-        )]
-    } else {
-        vec![
+    match os {
+        "macos" => vec![("open".into(), vec![url])],
+        // Never go through `cmd /C start`: cmd treats the `&` between query
+        // parameters as a command separator, so `...?path=x&mode=read` would
+        // run `mode=read` as a second command. `rundll32` is spawned directly
+        // (CreateProcess, no shell) and hands the URL to the registered
+        // scheme handler. The URL is percent-encoded, so it has no spaces or
+        // quotes for Rust's argument quoting to alter.
+        "windows" => vec![(
+            "rundll32".into(),
+            vec!["url.dll,FileProtocolHandler".into(), url],
+        )],
+        _ => vec![
             ("xdg-open".into(), vec![url.clone()]),
             ("gio".into(), vec!["open".into(), url]),
-        ]
+        ],
     }
 }
 
@@ -119,7 +128,14 @@ pub fn run_first(
                         code: status.code(),
                     }
                 }
-                Ok(None) if start.elapsed() >= deadline => return Launch::Pending { launcher },
+                Ok(None) if start.elapsed() >= deadline => {
+                    // Reap it in the background so a long-lived caller
+                    // (mdopener-mcp) does not accumulate zombies.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return Launch::Pending { launcher };
+                }
                 Ok(None) => std::thread::sleep(Duration::from_millis(25)),
                 Err(_) => {
                     return Launch::Failed {
@@ -285,6 +301,28 @@ mod tests {
             Launch::Opened {
                 launcher: "xdg-open".into()
             }
+        );
+    }
+
+    #[test]
+    fn windows_launcher_bypasses_cmd_and_keeps_the_whole_url() {
+        let url = "mdopener://open?path=%2Fx.md&mode=read";
+        let l = launchers_for("windows", url);
+        assert_eq!(
+            l,
+            vec![(
+                "rundll32".to_string(),
+                vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()]
+            )]
+        );
+        assert!(l.iter().all(|(prog, _)| prog != "cmd"));
+    }
+
+    #[test]
+    fn macos_launcher_is_open() {
+        assert_eq!(
+            launchers_for("macos", "mdopener://x"),
+            vec![("open".to_string(), vec!["mdopener://x".to_string()])]
         );
     }
 

@@ -14,7 +14,7 @@
 //! OS-specific URL launcher:
 //!   macOS   — `open <url>`
 //!   Linux   — `xdg-open <url>`, else `gio open <url>`
-//!   Windows — `cmd /C start "" <url>`
+//!   Windows — `rundll32 url.dll,FileProtocolHandler <url>`
 //!
 //! This binary is intentionally tiny: std only + urlencoding.  It is bundled
 //! as a Tauri sidecar and also installed to /usr/local/bin (macOS/Linux) or
@@ -171,7 +171,7 @@ fn run_hook() {
 ///
 /// - macOS   → `open <url>`
 /// - Linux   → `xdg-open <url>`, else `gio open <url>`
-/// - Windows → `cmd /C start "" <url>`
+/// - Windows → `rundll32 url.dll,FileProtocolHandler <url>`
 fn launch_url(url: &str) {
     let outcome = launch::launch_url(url, CLI_DEADLINE, true);
     match &outcome {

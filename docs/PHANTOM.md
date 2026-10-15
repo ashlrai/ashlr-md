@@ -24,7 +24,7 @@ Ashlr MD; otherwise it falls back to terminal output.
 ### `mdopen` exit status
 
 `mdopen` hands the `mdopener://` URL to the OS launcher (`open` on macOS,
-`xdg-open` then `gio open` on Linux, `cmd /C start` on Windows) and waits at
+`xdg-open` then `gio open` on Linux, `rundll32 url.dll,FileProtocolHandler` on Windows) and waits at
 most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 
 | Exit | Meaning |
