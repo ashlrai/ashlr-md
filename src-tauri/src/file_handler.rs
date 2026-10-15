@@ -47,12 +47,7 @@ pub fn handle_opened(app: &AppHandle, urls: Vec<Url>) {
 pub fn buffer_cli_args(app: &AppHandle) {
     let args: Vec<String> = std::env::args()
         .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .filter_map(|a| {
-            std::fs::canonicalize(&a)
-                .ok()
-                .map(|p| p.to_string_lossy().into_owned())
-        })
+        .filter_map(|a| cli_arg_to_path(&a))
         .collect();
 
     if args.is_empty() {
@@ -64,10 +59,55 @@ pub fn buffer_cli_args(app: &AppHandle) {
     buf.extend(args);
 }
 
+/// The file a launch argument names, as an absolute path. Accepts a plain path
+/// or a `file://` URI: the Linux desktop entry launches the app with `%u`, so
+/// file managers pass `file:///…` URIs. Flags, `mdopener://` deep links (the
+/// deep-link plugin handles those) and paths that do not resolve yield `None`.
+pub fn cli_arg_to_path(arg: &str) -> Option<String> {
+    if arg.starts_with('-') {
+        return None;
+    }
+    let path = if arg.starts_with("file://") {
+        tauri::Url::parse(arg).ok()?.to_file_path().ok()?
+    } else {
+        std::path::PathBuf::from(arg)
+    };
+    std::fs::canonicalize(path)
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Drain and return any buffered file paths. The frontend calls this once on
 /// mount to pick up files that were opened before the webview was ready.
 #[tauri::command]
 pub fn take_pending_files(state: tauri::State<PendingFiles>) -> Vec<String> {
     let mut buf = state.0.lock().unwrap();
     std::mem::take(&mut *buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cli_arg_to_path;
+
+    #[test]
+    fn launch_args_accept_paths_and_file_uris() {
+        let dir = std::env::temp_dir().join(format!("md-cli-args-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a file é.md");
+        std::fs::write(&file, "# hi").unwrap();
+        let canonical = std::fs::canonicalize(&file)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+
+        assert_eq!(cli_arg_to_path(file.to_str().unwrap()), Some(canonical.clone()));
+        let uri = tauri::Url::from_file_path(&file).unwrap().to_string();
+        assert!(uri.contains("a%20file%20%C3%A9.md"), "{uri}");
+        assert_eq!(cli_arg_to_path(&uri), Some(canonical));
+
+        assert_eq!(cli_arg_to_path("--flag"), None);
+        assert_eq!(cli_arg_to_path("mdopener://open?path=%2Fx.md"), None);
+        assert_eq!(cli_arg_to_path("file:///no/such/file.md"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

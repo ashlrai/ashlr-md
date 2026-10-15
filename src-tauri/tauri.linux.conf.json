@@ -4,6 +4,10 @@
     "resources": {
       "target/release/mdopen": "./",
       "target/release/mdopener-mcp": "./"
+    },
+    "linux": {
+      "deb": { "desktopTemplate": "linux/main.desktop.hbs" },
+      "rpm": { "desktopTemplate": "linux/main.desktop.hbs" }
     }
   }
 }

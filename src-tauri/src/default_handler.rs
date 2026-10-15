@@ -13,11 +13,9 @@
 //! `text/markdown` (and the unofficial `text/x-markdown` alias).  No root
 //! privileges are required — `xdg-mime` writes into `~/.config/mimeapps.list`.
 //!
-//! ASSUMPTION: the Tauri-generated `.desktop` file is named
-//! `app.mdopener.desktop.desktop` (Tauri 2 appends `.desktop` to the bundle
-//! identifier `app.mdopener.desktop`).  **Integrator: verify this against the
-//! actual file in `/usr/share/applications/` after `tauri build` on Linux and
-//! update `LINUX_DESKTOP_FILE` if it differs.**
+//! The Tauri bundler names the `.deb`/`.rpm` desktop entry after the product
+//! name: `/usr/share/applications/Ashlr MD.desktop` (verified in the v0.4.0
+//! `.deb`). See `LINUX_DESKTOP_FILE`.
 //!
 //! ## Windows
 //! Win10+ blocks fully-programmatic default-app changes (the shell's UserChoice
@@ -74,15 +72,11 @@ use std::process::Command;
 
 /// Linux: the `.desktop` filename Tauri generates for this app.
 ///
-/// Tauri 2 names the desktop file `<identifier>.desktop` where the identifier
-/// comes from `tauri.conf.json` → `identifier`.  With identifier
-/// `app.mdopener.desktop`, Tauri appends another `.desktop` suffix, producing
-/// `app.mdopener.desktop.desktop`.
-///
-/// **Integrator: verify against `/usr/share/applications/` after `tauri build`
-/// on Linux and update this constant if the actual name differs.**
-#[cfg(target_os = "linux")]
-const LINUX_DESKTOP_FILE: &str = "app.mdopener.desktop.desktop";
+/// The bundler names it `<productName>.desktop` (`productName` in
+/// `tauri.conf.json`), not after the identifier: the v0.4.0 `.deb` installs
+/// `/usr/share/applications/Ashlr MD.desktop`. `xdg-mime` accepts the space.
+#[cfg(any(target_os = "linux", test))]
+const LINUX_DESKTOP_FILE: &str = "Ashlr MD.desktop";
 
 /// Windows: the ProgID registered under `HKCU\Software\Classes`.
 #[cfg(target_os = "windows")]
@@ -558,8 +552,8 @@ fn open_default_apps_help_impl(_app: AppHandle) -> Result<(), String> {
     // method.  Return an instructional message for the UI to display.
     Err(format!(
         "To set Ashlr MD as the default Markdown viewer on Linux, run:\n\
-         \n  xdg-mime default {LINUX_DESKTOP_FILE} text/markdown\
-         \n  xdg-mime default {LINUX_DESKTOP_FILE} text/x-markdown\
+         \n  xdg-mime default '{LINUX_DESKTOP_FILE}' text/markdown\
+         \n  xdg-mime default '{LINUX_DESKTOP_FILE}' text/x-markdown\
          \n\nOr use your desktop environment's \"Default Applications\" panel \
          (GNOME Settings → Default Applications, \
          KDE System Settings → Applications → File Associations)."
@@ -589,6 +583,32 @@ fn open_default_apps_help_impl(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::DefaultHandlerStatus;
+
+    /// The desktop entry the bundler writes is `<productName>.desktop`.
+    #[test]
+    fn linux_desktop_file_matches_the_bundled_product_name() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let product = conf["productName"].as_str().unwrap();
+        assert_eq!(super::LINUX_DESKTOP_FILE, format!("{product}.desktop"));
+    }
+
+    /// deb and rpm launch with `%u`, or deep links and opened files never
+    /// reach the app (the deep-link plugin reads them from argv on Linux).
+    #[test]
+    fn linux_desktop_template_passes_the_url_argument() {
+        let template = include_str!("../linux/main.desktop.hbs");
+        assert!(template.contains("\nExec={{exec}} %u\n"), "{template}");
+        assert!(template.contains("MimeType={{mime_type}}"));
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.linux.conf.json")).unwrap();
+        for pkg in ["deb", "rpm"] {
+            assert_eq!(
+                conf["bundle"]["linux"][pkg]["desktopTemplate"],
+                "linux/main.desktop.hbs"
+            );
+        }
+    }
 
     #[test]
     fn default_status_serializes_camel_case() {
