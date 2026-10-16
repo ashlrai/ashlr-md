@@ -36,6 +36,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP `export` refuses formats the app cannot write.** Before, any `format`
+  (`"xyz"`, `"PDF"`, `"md"`) was forwarded, the app wrote HTML to `output_path`
+  and reported ok. The tool now accepts `pdf`, `docx`, `html` and `epub` (the
+  app already exported EPUB; the schema did not list it) and returns -32602
+  for anything else.
+- **`mdopener-mcp` reports the app version.** `serverInfo.version` said
+  `0.1.0`; it now comes from the crate version, and the `mdopener-mcp` and
+  `mdopen` sidecars are versioned with the app (0.4.0). A stdio test keeps
+  it equal to `tauri.conf.json`.
 - **Agent edits apply to the live document, not a stale snapshot.** An MCP
   `edit_document`/`replace_document` that arrived within ~200 ms of you typing
   used to run against a debounced mirror — it could miss just-typed text or

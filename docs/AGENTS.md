@@ -216,7 +216,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
-| `export` | `format: "pdf"\|"docx"\|"html"`, `output_path?: string` | `{ ok }` | Trigger an export of the open document. Omitting `output_path` lets the app prompt for a location. |
+| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok }` | Trigger an export of the open document. Omitting `output_path` lets the app prompt for a location. |
 | `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer` | `{ verdict, reviewId, comments }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path` or `content` is required. |
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus GFM task-checkbox states parsed from the live document. Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
