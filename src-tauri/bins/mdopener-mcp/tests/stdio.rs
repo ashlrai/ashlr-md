@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
+/// The app version the sidecar ships with, so serverInfo cannot drift from it.
+fn app_version() -> String {
+    let conf: Value = serde_json::from_str(include_str!("../../../tauri.conf.json")).unwrap();
+    conf["version"].as_str().unwrap().to_string()
+}
+
 fn session(protocol: &str) -> Vec<Value> {
     let home = tempfile::tempdir().unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
@@ -55,6 +61,7 @@ fn handshake_with_current_client_protocol_versions() {
         assert_eq!(out[0]["id"], 1);
         assert_eq!(out[0]["result"]["protocolVersion"], protocol);
         assert_eq!(out[0]["result"]["serverInfo"]["name"], "mdopener-mcp");
+        assert_eq!(out[0]["result"]["serverInfo"]["version"], app_version(), "{protocol}");
         assert_eq!(out[1]["id"], 2);
         let tools = out[1]["result"]["tools"].as_array().unwrap();
         assert!(tools.iter().any(|t| t["name"] == "open_file"));

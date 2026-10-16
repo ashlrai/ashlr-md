@@ -1664,19 +1664,9 @@ fn export_tool_app_not_running_returns_descriptive_error() {
 }
 
 // ── Unsupported / unknown format ──────────────────────────────────────────────
-// Note: format validation is done by the app (via IPC), not by this MCP layer.
-// The MCP layer forwards the format string and lets the app reject unknown ones.
-// This test verifies the forwarding behaviour, not app-side validation.
-
-#[test]
-fn export_tool_unknown_format_forwarded_to_app() {
-    // App returns an error for an unsupported format.
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("Unsupported export format: odt".into()));
-    let resp = tool_export(id(40), &json!({ "format": "odt" }), &ipc);
-    // The IPC error becomes an isError result, so the agent sees a clear failure.
-    tool_error_text(&resp);
-}
+// The app's export handler does not reject unknown formats: it falls through
+// to an HTML export and reports ok. So this layer validates the format and
+// refuses anything else before a request reaches the app.
 
 // ── Missing required param ────────────────────────────────────────────────────
 
@@ -1690,11 +1680,25 @@ fn export_tool_missing_format_returns_param_error() {
     assert!(ipc.calls().is_empty(), "no IPC call should be made for a param error");
 }
 
+#[test]
+fn export_tool_rejects_unknown_format_without_ipc() {
+    // The app's handler turns any unknown format into an HTML export and
+    // reports ok, so the server must refuse it before the request is sent.
+    for format in &["xyz", "PDF", "md"] {
+        let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
+        let resp = tool_export(id(51), &json!({ "format": format, "output_path": "/tmp/o.pdf" }), &ipc);
+        let err = resp.error.as_ref().unwrap_or_else(|| panic!("{format} must be refused"));
+        assert_eq!(err.code, -32602, "{format}");
+        assert!(err.message.contains("pdf/docx/html/epub"), "{format}: {}", err.message);
+        assert!(ipc.calls().is_empty(), "{format}: no IPC call should be made");
+    }
+}
+
 // ── Format field is present in every IPC POST body ───────────────────────────
 
 #[test]
 fn export_tool_format_always_in_ipc_body() {
-    for format in &["pdf", "docx", "html"] {
+    for format in &["pdf", "docx", "html", "epub"] {
         let ipc = MockIpc::new()
             .on_post("/export", Ok(json!({ "ok": true })));
         tool_export(id(60), &json!({ "format": format }), &ipc);

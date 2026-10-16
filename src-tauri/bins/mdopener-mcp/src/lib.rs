@@ -146,7 +146,7 @@ pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
             },
             "serverInfo": {
                 "name": "mdopener-mcp",
-                "version": "0.1.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
         }),
     )
@@ -445,7 +445,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "format": {
                         "type": "string",
-                        "enum": ["pdf", "docx", "html"],
+                        "enum": EXPORT_FORMATS,
                         "description": "Export format."
                     },
                     "output_path": {
@@ -1119,9 +1119,20 @@ pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     }
 }
 
+/// Formats the app's export handler implements; anything else would silently
+/// fall through to HTML there, so it is refused here before reaching the app.
+pub const EXPORT_FORMATS: [&str; 4] = ["pdf", "docx", "html", "epub"];
+
 pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let format = match args["format"].as_str() {
-        Some(f) => f.to_string(),
+        Some(f) if EXPORT_FORMATS.contains(&f) => f.to_string(),
+        Some(other) => {
+            return Response::err(
+                id,
+                -32602,
+                format!("`format` must be one of {}, got '{other}'", EXPORT_FORMATS.join("/")),
+            )
+        }
         None => return Response::err(id, -32602, "`format` is required"),
     };
 
