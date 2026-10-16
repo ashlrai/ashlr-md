@@ -33,9 +33,9 @@ There are two cooperating pieces:
 The MCP server understands the MCP lifecycle (`initialize` →
 `notifications/initialized` → `tools/list` / `tools/call`, plus `ping`,
 `resources/*`, and `prompts/*`) and negotiates one of three protocol revisions:
-**`2024-11-05`** (baseline/default), **`2025-03-26`**, or **`2025-06-18`**. It
-echoes the client's requested `protocolVersion` when it's one of these, and
-otherwise advertises the baseline.
+**`2024-11-05`**, **`2025-03-26`**, or **`2025-06-18`** (default). It echoes the
+client's requested `protocolVersion` when it's one of these, and otherwise
+advertises the latest, `2025-06-18`.
 
 ---
 
@@ -158,7 +158,7 @@ command = "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
 # Windows (adjust to your install dir):
 # command = "C:\\Users\\<you>\\AppData\\Local\\Ashlr MD\\mdopener-mcp.exe"
 # Linux (.deb):
-# command = ""/usr/lib/Ashlr MD/mdopener-mcp""
+# command = "/usr/lib/Ashlr MD/mdopener-mcp"
 args = []
 ```
 
@@ -205,7 +205,7 @@ Cursor). You should then see `ashlr-md` listed with a green status indicator.
 
 ## MCP tool reference
 
-The `mdopener-mcp` server exposes **eleven** tools over stdio JSON-RPC 2.0.
+The `mdopener-mcp` server exposes **20** tools over stdio JSON-RPC 2.0.
 Every tool returns its payload inside the standard MCP `content` envelope
 (`{ "content": [{ "type": "text", "text": "…" }], "isError": false }`); the
 "Returns" column below describes the JSON carried inside that text.
@@ -221,8 +221,17 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus GFM task-checkbox states parsed from the live document. Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. |
-| `search_vault` | `query: string`, `limit?: integer` | `{ query, results }` | Case-insensitive full-text search across the vault (watched folder) + recents. `limit` defaults to `50` (clamped 1–200). Results carry file paths, line numbers, and snippets. |
+| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. |
+| `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
+| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
+| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. |
+| `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk. `context_lines` defaults to `3`. |
+| `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, ops_applied }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `save` defaults to `true`. |
+| `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately. |
+| `stream_edit_apply` | `edit_id: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). |
+| `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` from disk, or the open document via the app when omitted. |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` from disk, or the open document via the app when omitted. |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -261,6 +270,12 @@ The server implements `resources/list` and `resources/read`.
 
 - **`mdopener://current`** — the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content.
+- **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
+  resource (`mimeType: application/json`; optional `&limit=`). Returns
+  `{ results, mode, query }`; an error when the app is not running.
+- **`mdopener://recent-documents`** — recently opened files that still exist,
+  each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
+  (`mimeType: application/json`).
 - **`file://<path>` (vault files)** — every file the app advertises as part of
   the **vault** (watched folder) plus **recents** is listed as an individually
   readable resource.
@@ -402,6 +417,7 @@ mdopen README.md                # open a file (read mode, default)
 mdopen --edit PLAN.md           # open directly in edit mode (-e also works)
 mdopen --read NOTES.md          # force read mode (-r also works)
 cat notes.md | mdopen -         # pipe stdin → temp file → open in app
+mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
 mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
 mdopen --help
 ```

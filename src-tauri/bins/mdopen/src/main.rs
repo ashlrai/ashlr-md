@@ -4,6 +4,7 @@
 //!   mdopen <file.md>          open a file (read mode)
 //!   mdopen --edit <file.md>   open in edit mode
 //!   mdopen -                  read from stdin, write to a temp file, then open
+//!   mdopen -- <file.md>       `--` ends flags, for names starting with `-`
 //!   mdopen --help             print this help text
 //!
 //! The tool resolves the path to an absolute path, percent-encodes it, and
@@ -38,7 +39,7 @@ fn main() {
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
     // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
     // agent, whatever the payload looks like.
-    if args.iter().any(|a| a == "--hook") {
+    if is_hook(&args) {
         run_hook();
         process::exit(0);
     }
@@ -73,6 +74,17 @@ fn main() {
     open_in_app(&resolved.to_string_lossy(), mode);
 }
 
+/// The arguments before a `--` end-of-flags marker (all of them if none).
+fn flag_args(args: &[String]) -> &[String] {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    &args[..end]
+}
+
+/// Whether the command line asks for `--hook` mode.
+fn is_hook(args: &[String]) -> bool {
+    flag_args(args).iter().any(|a| a == "--hook")
+}
+
 /// What the command line asks for (everything except `--hook`).
 #[derive(Debug, PartialEq, Eq)]
 enum Cli {
@@ -85,13 +97,20 @@ enum Cli {
 
 /// Parse the non-hook command line. `Err` carries a one-line usage error.
 fn parse_args(args: &[String]) -> Result<Cli, String> {
-    if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
+    if args.is_empty() || flag_args(args).iter().any(|a| a == "--help" || a == "-h") {
         return Ok(Cli::Help);
     }
     let mut mode = None;
     let mut positional: Vec<&str> = Vec::new();
+    let mut flags_done = false;
     for arg in args {
+        if flags_done {
+            positional.push(arg);
+            continue;
+        }
         match arg.as_str() {
+            // `--` ends flags, so `mdopen -- -notes.md` opens `-notes.md`.
+            "--" => flags_done = true,
             "--edit" | "-e" => mode = Some("edit"),
             "--read" | "-r" => mode = Some("read"),
             flag if flag.starts_with('-') && flag != "-" => {
@@ -267,6 +286,7 @@ const HELP: &str = "mdopen — open Markdown files in Ashlr MD
 USAGE:
     mdopen [FLAGS] <file.md>
     mdopen -                   read from stdin
+    mdopen [FLAGS] -- <file>   `--` ends flags (e.g. mdopen -- -notes.md)
 
 FLAGS:
     --edit, -e                 open in edit mode
@@ -363,6 +383,31 @@ mod tests {
         assert!(parse_args(&args(&["a.md", "b.md"]))
             .unwrap_err()
             .contains("expected one file, got 2"));
+    }
+
+    #[test]
+    fn double_dash_ends_flags() {
+        assert_eq!(
+            parse_args(&args(&["--", "-notes.md"])),
+            Ok(Cli::Open {
+                mode: None,
+                target: "-notes.md".into()
+            })
+        );
+        // Flags before `--` still apply; nothing after it is a flag.
+        assert_eq!(
+            parse_args(&args(&["-e", "--", "--help"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: "--help".into()
+            })
+        );
+        assert!(parse_args(&args(&["--"])).unwrap_err().contains("no file"));
+        assert!(parse_args(&args(&["--", "a.md", "-b.md"]))
+            .unwrap_err()
+            .contains("expected one file, got 2"));
+        assert!(!is_hook(&args(&["--", "--hook"])));
+        assert!(is_hook(&args(&["--hook"])));
     }
 
     #[test]

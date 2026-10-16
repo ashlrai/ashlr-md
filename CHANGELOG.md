@@ -41,6 +41,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   and reported ok. The tool now accepts `pdf`, `docx`, `html` and `epub` (the
   app already exported EPUB; the schema did not list it) and returns -32602
   for anything else.
+- **MCP `search_vault` says when the app is down.** With Ashlr MD closed it
+  returned `{ "mode": "grep-local", "results": [] }`, which reads as "no
+  matches": the local grep fallback gets its file list from the app. It now
+  returns `isError: true` with the "not running" message, as the other tools
+  do; the `text://vault-search` resource returns an error the same way.
+- **`mdopen -- -notes.md`** opens `-notes.md`: `--` now ends flags.
+- **`docs/AGENTS.md` matches the server:** 20 tools (all listed), default
+  protocol `2025-06-18`, the `text://vault-search` and
+  `mdopener://recent-documents` resources, and a valid Codex TOML example. A
+  test keeps the tool count and default protocol in sync.
 - **`mdopener-mcp` reports the app version.** `serverInfo.version` said
   `0.1.0`; it now comes from the crate version, and the `mdopener-mcp` and
   `mdopen` sidecars are versioned with the app (0.4.0). A stdio test keeps
