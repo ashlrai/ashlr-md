@@ -41,15 +41,15 @@ Easiest: **Preferences → AI agents (MCP) → Connect to Claude Code / Cursor**
 
 ```bash
 # Claude Code (macOS path shown; Linux: "/usr/lib/Ashlr MD/mdopener-mcp")
-claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 # Codex
-codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp"
+codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 ```
 
 Cursor (`~/.cursor/mcp.json`):
 
 ```json
-{ "mcpServers": { "ashlr-md": { "command": "/Applications/Ashlr MD.app/Contents/MacOS/mdopener-mcp" } } }
+{ "mcpServers": { "ashlr-md": { "command": "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp" } } }
 ```
 
 Windows path: `%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe`. More in [docs/AGENTS.md](./docs/AGENTS.md).
