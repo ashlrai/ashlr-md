@@ -30,7 +30,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 **Deeper agent integration**
 - **One-click connect for your coding agent** — wire Ashlr MD into Claude Code, Cursor, or Codex from **Preferences → AI agents (MCP)**, no terminal. See [`docs/AGENTS.md`](./docs/AGENTS.md).
 - **Auto-open hook** — a Claude Code `PostToolUse` hook (`mdopen --hook`) pops every Markdown file your agent writes into Ashlr MD for review.
-- **A real MCP server** — protocol-negotiating `mdopener-mcp` with **resources** (vault + recents, scoped), **prompts** (`summarize` / `review_plan` / `improve_writing`), and eleven tools including `search_vault`, `present_document`, `edit_document`, `replace_document`, and `export`. Multi-document & project awareness across your vault.
+- **A real MCP server** — protocol-negotiating `mdopener-mcp` with **resources** (vault + recents, scoped), **prompts** (`summarize` / `review_plan` / `improve_writing`), and 20 tools including `search_vault`, `present_document`, `edit_document`, `replace_document`, and `export`. Multi-document & project awareness across your vault.
 - **Stop-and-ask human review loop** — the blocking `request_review` tool surfaces a plan/diff/doc and waits for your in-app **Approve / Request changes / Dismiss** verdict, which flows straight back to the agent.
 - **"Render this string" / inline preview** — `present_document` and `set_content` let an agent show a doc full-screen without writing a file first.
 

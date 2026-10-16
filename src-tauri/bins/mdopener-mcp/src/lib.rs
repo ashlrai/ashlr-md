@@ -554,7 +554,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, with automatic grep fallback for offline use. Returns { results, mode }. In mode 'semantic' or 'grep-local' (app not running) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode }. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1316,7 +1316,7 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
     }
 
     // Grep fallback: ask the app's IPC layer (which does its own grep), or
-    // perform a local grep if the app is not running.
+    // grep the vault files on disk if that route fails.
     let encoded = urlencoding::encode(&query);
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
@@ -1324,7 +1324,8 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
             tool_result(id, v)
         }
         Err(_ipc_err) => {
-            // App not running — perform local grep across vault files.
+            // The app's search failed: grep the vault files on disk. The file
+            // list comes from the app too, so this errors if it is not running.
             match grep_vault(&query, limit, ipc) {
                 Ok(results) => tool_result(id, json!({
                     "results": results,
@@ -1671,14 +1672,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             );
         }
 
-        // Try semantic search, fall back to grep.
-        let (results, mode) = if ollama_available() {
+        // Try semantic search, fall back to grep. Every path needs the app
+        // (it supplies the vault file list), so failing to reach it is an
+        // error rather than an empty result set.
+        let searched = if ollama_available() {
             match semantic_search_vault(&query, limit, ipc) {
-                Ok(r) => (r, "semantic"),
-                Err(_) => {
-                    let r = grep_vault(&query, limit, ipc).unwrap_or_default();
-                    (r, "grep-local")
-                }
+                Ok(r) => Ok((r, "semantic")),
+                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
             }
         } else {
             // Try IPC grep first.
@@ -1689,13 +1689,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                         .as_array()
                         .cloned()
                         .unwrap_or_default();
-                    (results, "grep")
+                    Ok((results, "grep"))
                 }
-                Err(_) => {
-                    let r = grep_vault(&query, limit, ipc).unwrap_or_default();
-                    (r, "grep-local")
-                }
+                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
             }
+        };
+        let (results, mode) = match searched {
+            Ok(found) => found,
+            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
         };
 
         let payload = json!({ "results": results, "mode": mode, "query": query });
@@ -1869,29 +1870,29 @@ pub fn canonicalize_path(raw: &str) -> String {
 }
 
 /// Collect candidate file paths from the vault and recents advertised by the
-/// app.  Falls back to an empty list if the app is not running.
-pub fn vault_file_paths(ipc: &dyn IpcClient) -> Vec<String> {
+/// app.  The list comes from the app over IPC, so this errors when the app is
+/// not running (an empty list would read as "no matches").
+pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
+    let v = ipc.get("/vault")?;
     let mut paths = Vec::new();
-    if let Ok(v) = ipc.get("/vault") {
-        if let Some(files) = v["files"].as_array() {
-            for f in files {
-                if let Some(p) = f["path"].as_str() {
-                    paths.push(canonicalize_path(p));
-                }
+    if let Some(files) = v["files"].as_array() {
+        for f in files {
+            if let Some(p) = f["path"].as_str() {
+                paths.push(canonicalize_path(p));
             }
         }
-        if let Some(recents) = v["recents"].as_array() {
-            for r in recents {
-                if let Some(p) = r.as_str() {
-                    let cp = canonicalize_path(p);
-                    if !paths.contains(&cp) {
-                        paths.push(cp);
-                    }
+    }
+    if let Some(recents) = v["recents"].as_array() {
+        for r in recents {
+            if let Some(p) = r.as_str() {
+                let cp = canonicalize_path(p);
+                if !paths.contains(&cp) {
+                    paths.push(cp);
                 }
             }
         }
     }
-    paths
+    Ok(paths)
 }
 
 /// Perform semantic search: embed the query and each candidate document,
@@ -1903,8 +1904,8 @@ pub fn semantic_search_vault(
     limit: u64,
     ipc: &dyn IpcClient,
 ) -> Result<Vec<Value>, String> {
+    let paths = vault_file_paths(ipc)?;
     let query_vec = ollama_embed(query)?;
-    let paths = vault_file_paths(ipc);
     let mut scored: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
@@ -1928,14 +1929,15 @@ pub fn semantic_search_vault(
     Ok(scored.iter().map(|r| r.to_json()).collect())
 }
 
-/// Perform a local grep search across vault files when the app IPC is
-/// unavailable.  Reads files directly from disk.
+/// Grep the vault files directly on disk (used when the app's own `/search`
+/// fails).  The file list still comes from the app, so this errors when the
+/// app is not running.
 pub fn grep_vault(
     query: &str,
     limit: u64,
     ipc: &dyn IpcClient,
 ) -> Result<Vec<Value>, String> {
-    let paths = vault_file_paths(ipc);
+    let paths = vault_file_paths(ipc)?;
     if paths.is_empty() {
         return Ok(vec![]);
     }

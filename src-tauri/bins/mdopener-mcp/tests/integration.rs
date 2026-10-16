@@ -1869,7 +1869,7 @@ fn vault_file_paths_returns_files_and_recents() {
             ],
             "recents": ["/recent/c.md"]
         })));
-    let paths = vault_file_paths(&ipc);
+    let paths = vault_file_paths(&ipc).expect("vault list");
     // All three paths should be present (after canonicalization attempt).
     assert!(paths.iter().any(|p| p.contains("a.md")), "a.md should be in paths");
     assert!(paths.iter().any(|p| p.contains("b.md")), "b.md should be in paths");
@@ -1883,26 +1883,34 @@ fn vault_file_paths_deduplicates_recents_already_in_files() {
             "files": [{ "path": "/vault/a.md", "name": "a.md" }],
             "recents": ["/vault/a.md"]
         })));
-    let paths = vault_file_paths(&ipc);
+    let paths = vault_file_paths(&ipc).expect("vault list");
     let count = paths.iter().filter(|p| p.contains("a.md")).count();
     assert_eq!(count, 1, "duplicate path should appear only once");
 }
 
 #[test]
-fn vault_file_paths_ipc_error_returns_empty() {
+fn vault_file_paths_ipc_error_is_an_error() {
+    // An empty list would make an app that is down look like "no matches".
     let ipc = MockIpc::new()
         .on_get("/vault", Err("ipc-port not found".into()));
-    let paths = vault_file_paths(&ipc);
-    assert!(paths.is_empty(), "IPC error should yield empty path list");
+    let err = vault_file_paths(&ipc).expect_err("IPC error must propagate");
+    assert!(err.contains("ipc-port not found"), "{err}");
 }
 
 // ── grep_vault ────────────────────────────────────────────────────────────────
 
 #[test]
-fn grep_vault_no_vault_paths_returns_empty() {
-    // IPC unavailable → vault_file_paths returns [] → grep returns [].
+fn grep_vault_without_vault_list_is_an_error() {
+    // IPC unavailable → no vault file list → error, not an empty result set.
     let ipc = MockIpc::new()
         .on_get("/vault", Err("ipc-port not found".into()));
+    assert!(grep_vault("anything", 50, &ipc).is_err());
+}
+
+#[test]
+fn grep_vault_empty_vault_returns_empty() {
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
     let results = grep_vault("anything", 50, &ipc).expect("grep_vault should not error");
     assert!(results.is_empty(), "no vault paths → no results");
 }
@@ -3214,4 +3222,53 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
     assert!(diff.contains("@@ -2,10 +2,10 @@"), "{diff}");
     assert!(diff.contains(" 9\n 10\n 11\n@@ -15,6 +15,6 @@"), "{diff}");
     assert!(diff.ends_with("+eighteen\n 19\n 20"), "{diff}");
+}
+
+// ── search_vault / text://vault-search when the app is down ─────────────────
+
+/// Every IPC route fails the way it does when the app is not running.
+fn app_down_ipc() -> MockIpc {
+    MockIpc::new()
+        .on_get("/", Err("ipc-port not found".into()))
+        .on_post("/", Err("ipc-port not found".into()))
+}
+
+#[test]
+fn search_vault_app_down_is_tool_error_not_empty_results() {
+    for semantic in [json!(false), json!(true), Value::Null] {
+        let mut args = json!({ "query": "anything" });
+        if !semantic.is_null() {
+            args["semantic"] = semantic.clone();
+        }
+        let resp = tool_search_vault(id(1), &args, &app_down_ipc());
+        let text = tool_error_text(&resp);
+        assert!(
+            text.contains("does not appear to be running"),
+            "semantic={semantic}: {text}"
+        );
+    }
+}
+
+#[test]
+fn resource_read_vault_search_app_down_is_error() {
+    let resp = handle_resource_read(id(1), "text://vault-search?q=anything", &app_down_ipc());
+    let err = resp.error.as_ref().expect("app down must be an error, not empty results");
+    assert_eq!(err.code, -32000);
+    assert!(err.message.contains("does not appear to be running"), "{}", err.message);
+}
+
+// ── docs/AGENTS.md matches the server ─────────────────────────────────────────
+
+#[test]
+fn agents_doc_states_the_real_tool_count_and_default_protocol() {
+    let doc = include_str!("../../../../docs/AGENTS.md");
+    let tools = tool_registry();
+    let count = format!("exposes **{}** tools", tools.len());
+    assert!(doc.contains(&count), "docs/AGENTS.md must say {count:?}");
+    for t in &tools {
+        let row = format!("| `{}` |", t.name);
+        assert!(doc.contains(&row), "docs/AGENTS.md tool table is missing {row:?}");
+    }
+    let default = format!("**`{}`** (default)", mdopener_mcp::DEFAULT_PROTOCOL);
+    assert!(doc.contains(&default), "docs/AGENTS.md must say {default:?}");
 }
