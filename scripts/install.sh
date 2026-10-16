@@ -133,7 +133,7 @@ else
     sudo cp -R "$APP_PATH" "$DEST_APP"
   fi
   success "Ashlr MD installed to $DEST_APP"
-  APP_BINARY="$DEST_APP/Contents/MacOS/mdopener-mcp"
+  APP_BINARY="$DEST_APP/Contents/Resources/mdopener-mcp"
 fi
 
 # ── 6. Symlink mdopen CLI ─────────────────────────────────────────────────────
