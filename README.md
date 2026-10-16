@@ -239,6 +239,15 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 See [`docs/VISION.md`](./docs/VISION.md) for the north star and
 [`docs/RELEASING.md`](./docs/RELEASING.md) for the release process.
 
+## Part of the Ashlr ecosystem
+
+Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Its
+siblings: [Phantom](https://github.com/ashlrai/phantom),
+[Phantom Secrets](https://github.com/ashlrai/phantom-secrets),
+[Lexicon](https://github.com/ashlrai/lexicon),
+[Locus](https://github.com/ashlrai/locus) and
+[Ashlr Stack](https://github.com/ashlrai/ashlr-stack).
+
 ## Contributing
 
 Contributions welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md). The
