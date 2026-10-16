@@ -77,3 +77,38 @@ fn handshake_with_current_client_protocol_versions() {
         assert!(text.contains("Ashlr MD"), "{text}");
     }
 }
+
+/// `--version` / `--help` answer and exit 0 instead of serving stdio (stdin is
+/// left open, so a server that ignored the flag would hang the test).
+#[test]
+fn version_and_help_flags_exit_without_serving() {
+    use std::time::{Duration, Instant};
+    for (flag, expect) in [
+        ("--version", format!("mdopener-mcp {}", app_version())),
+        ("-V", format!("mdopener-mcp {}", app_version())),
+        ("--help", "--version".to_string()),
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .arg(flag)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let start = Instant::now();
+        let status = loop {
+            if let Some(s) = child.try_wait().unwrap() {
+                break s;
+            }
+            if start.elapsed() > Duration::from_secs(10) {
+                let _ = child.kill();
+                panic!("{flag}: still serving stdio after 10s");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(status.success(), "{flag}");
+        let mut out = String::new();
+        std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut out).unwrap();
+        assert!(out.contains(&expect), "{flag}: {out:?}");
+    }
+}

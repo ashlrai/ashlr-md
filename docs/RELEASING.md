@@ -49,10 +49,10 @@ build matrix and **uploads each platform's bundles as workflow artifacts**.
 
 | Platform | Runner | Artifacts |
 |---|---|---|
-| macOS arm64 | `macos-14` | `Ashlr.MD_X.Y.Z_aarch64.dmg` + updater `.sig` |
-| macOS x86_64 | `macos-13` | `Ashlr.MD_X.Y.Z_x64.dmg` + updater `.sig` |
-| Linux x86_64 | `ubuntu-22.04` | `ashlr-md_X.Y.Z_amd64.deb`, `Ashlr.MD_X.Y.Z_amd64.AppImage` + `.sig` files |
-| Windows x86_64 | `windows-latest` | `Ashlr.MD_X.Y.Z_x64-setup.exe` (NSIS), `Ashlr.MD_X.Y.Z_x64_en-US.msi` + `.sig` files |
+| macOS arm64 | `macos-14` | `Ashlr_MD_X.Y.Z_aarch64.dmg` + updater `.sig` |
+| macOS x86_64 | `macos-13` | `Ashlr_MD_X.Y.Z_x64.dmg` + updater `.sig` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr_MD_X.Y.Z_amd64.deb`, `Ashlr_MD_X.Y.Z_amd64.AppImage` + `.sig` files |
+| Windows x86_64 | `windows-latest` | `Ashlr_MD_X.Y.Z_x64-setup.exe` (NSIS), `Ashlr_MD_X.Y.Z_x64_en-US.msi` + `.sig` files |
 
 Each leg uploads a platform-specific entry to the Tauri updater manifest.
 After all four legs complete, `latest.json` in the release contains aggregated
@@ -111,9 +111,9 @@ doesn't exist yet; place the cask at `Casks/ashlr-md.rb` in that repo.
 ```bash
 # 1. Download the new DMG and compute its SHA-256
 curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr.MD_X.Y.Z_aarch64.dmg" \
-  -o Ashlr.MD_X.Y.Z_aarch64.dmg
-shasum -a 256 Ashlr.MD_X.Y.Z_aarch64.dmg
+  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr_MD_X.Y.Z_aarch64.dmg" \
+  -o Ashlr_MD_X.Y.Z_aarch64.dmg
+shasum -a 256 Ashlr_MD_X.Y.Z_aarch64.dmg
 
 # 2. Clone the tap repo and update the cask
 git clone https://github.com/ashlrai/homebrew-ashlr-md.git
@@ -146,13 +146,13 @@ The manifest templates live at `packaging/winget/`.
 ```bash
 # 1. Download the NSIS installer and compute its SHA-256
 curl -L \
-  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr.MD_X.Y.Z_x64-setup.exe" \
-  -o Ashlr.MD_X.Y.Z_x64-setup.exe
+  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr_MD_X.Y.Z_x64-setup.exe" \
+  -o Ashlr_MD_X.Y.Z_x64-setup.exe
 
 # macOS/Linux:
-shasum -a 256 Ashlr.MD_X.Y.Z_x64-setup.exe
+shasum -a 256 Ashlr_MD_X.Y.Z_x64-setup.exe
 # Windows PowerShell:
-# Get-FileHash "Ashlr.MD_X.Y.Z_x64-setup.exe" -Algorithm SHA256
+# Get-FileHash "Ashlr_MD_X.Y.Z_x64-setup.exe" -Algorithm SHA256
 
 # 2. Copy the three manifests to a versioned folder
 mkdir -p manifests/a/ashlrai/AshlrMD/X.Y.Z
@@ -176,7 +176,7 @@ The PKGBUILD template lives at `packaging/linux/aur/PKGBUILD`.
 
 ```bash
 # 1. Compute SHA-256 of the .deb
-shasum -a 256 ashlr-md_X.Y.Z_amd64.deb
+shasum -a 256 Ashlr_MD_X.Y.Z_amd64.deb
 
 # 2. Update packaging/linux/aur/PKGBUILD:
 #    pkgver=X.Y.Z
