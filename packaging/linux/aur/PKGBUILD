@@ -13,15 +13,17 @@
 #
 # PLACEHOLDER VALUES — update after each release:
 #   <VERSION>       e.g. 0.2.0
-#   <SHA256_DEB>    sha256sum ashlr-md_<VERSION>_amd64.deb
+#   <SHA256_DEB>    sha256sum Ashlr_MD_<VERSION>_amd64.deb
 #
-# ARTIFACT NAME (produced by tauri-action)
-#   ashlr-md_<VERSION>_amd64.deb
+# ARTIFACT NAME (produced by tauri-action; productName "Ashlr MD", space -> _)
+#   Ashlr_MD_<VERSION>_amd64.deb
+#   It installs the app as /usr/bin/md-opener (the Cargo binary name), the
+#   sidecars under "/usr/lib/Ashlr MD/", and "Ashlr MD.desktop".
 #
 # HOW TO UPDATE FOR A NEW RELEASE
 #   1. Set pkgver=<new version>
 #   2. Update sha256sums with the new .deb checksum:
-#        sha256sum ashlr-md_<VERSION>_amd64.deb
+#        sha256sum Ashlr_MD_<VERSION>_amd64.deb
 #   3. Run `updpkgsums` to auto-refresh (requires wget/curl).
 #   4. Test locally: makepkg -si
 #   5. Push to AUR: git push aur main
@@ -54,7 +56,7 @@ conflicts=('ashlr-md-appimage')  # mutual exclusion with the AppImage variant
 
 # Source: repackage the upstream .deb from GitHub Releases.
 # The .deb is a standard ar archive; bsdtar (part of libarchive) extracts it.
-source=("${pkgname}_${pkgver}_amd64.deb::https://github.com/ashlrai/ashlr-md/releases/download/v${pkgver}/ashlr-md_${pkgver}_amd64.deb")
+source=("${pkgname}_${pkgver}_amd64.deb::https://github.com/ashlrai/ashlr-md/releases/download/v${pkgver}/Ashlr_MD_${pkgver}_amd64.deb")
 sha256sums=('<SHA256_DEB>')
 
 # No build step — we extract the pre-built deb.
@@ -74,10 +76,9 @@ package() {
         2>/dev/null || true
 
     # Ensure the .desktop file is present (Tauri deb bundles it automatically)
-    # Path inside the deb: /usr/share/applications/app.mdopener.desktop.desktop
-    # If the Tauri bundler uses a different name, adjust the path below.
+    # Path inside the deb: "/usr/share/applications/Ashlr MD.desktop"
 
-    # Ensure the binary is executable
-    chmod +x "${pkgdir}/usr/bin/ashlr-md" 2>/dev/null || \
-    chmod +x "${pkgdir}/usr/bin/Ashlr MD" 2>/dev/null || true
+    # Ensure the binaries are executable
+    chmod +x "${pkgdir}/usr/bin/md-opener"
+    chmod +x "${pkgdir}/usr/lib/Ashlr MD/mdopen" "${pkgdir}/usr/lib/Ashlr MD/mdopener-mcp"
 }

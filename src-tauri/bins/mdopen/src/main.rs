@@ -6,6 +6,7 @@
 //!   mdopen -                  read from stdin, write to a temp file, then open
 //!   mdopen -- <file.md>       `--` ends flags, for names starting with `-`
 //!   mdopen --help             print this help text
+//!   mdopen --version          print the version
 //!
 //! The tool resolves the path to an absolute path, percent-encodes it, and
 //! invokes the OS-appropriate command to open the `mdopener://open?path=…` URL,
@@ -50,6 +51,10 @@ fn main() {
             print!("{HELP}");
             process::exit(0);
         }
+        Ok(Cli::Version) => {
+            println!("{}", version_line());
+            process::exit(0);
+        }
         Ok(Cli::Open { mode, target }) => (mode, target),
         Err(msg) => {
             eprintln!("mdopen: {msg}");
@@ -89,6 +94,7 @@ fn is_hook(args: &[String]) -> bool {
 #[derive(Debug, PartialEq, Eq)]
 enum Cli {
     Help,
+    Version,
     Open {
         mode: Option<&'static str>,
         target: String,
@@ -99,6 +105,12 @@ enum Cli {
 fn parse_args(args: &[String]) -> Result<Cli, String> {
     if args.is_empty() || flag_args(args).iter().any(|a| a == "--help" || a == "-h") {
         return Ok(Cli::Help);
+    }
+    if flag_args(args)
+        .iter()
+        .any(|a| a == "--version" || a == "-V")
+    {
+        return Ok(Cli::Version);
     }
     let mut mode = None;
     let mut positional: Vec<&str> = Vec::new();
@@ -132,6 +144,11 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             many.len()
         )),
     }
+}
+
+/// `mdopen <version>`, the crate version (kept in step with the app's).
+fn version_line() -> String {
+    format!("mdopen {}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Resolve `target` to an absolute path of an existing regular file.
@@ -293,6 +310,7 @@ FLAGS:
     --read, -r                 open in read mode (default)
     --hook                     Claude Code PostToolUse hook (reads JSON on stdin)
     --help, -h                 print this help
+    --version, -V              print the version
 
 EXAMPLES:
     mdopen README.md
@@ -343,6 +361,22 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn version_flag_is_version_and_matches_the_crate() {
+        assert_eq!(parse_args(&args(&["--version"])), Ok(Cli::Version));
+        assert_eq!(parse_args(&args(&["-V"])), Ok(Cli::Version));
+        // After `--` it is a file name, not a flag.
+        assert!(matches!(
+            parse_args(&args(&["--", "--version"])),
+            Ok(Cli::Open { .. })
+        ));
+        assert_eq!(
+            version_line(),
+            format!("mdopen {}", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(HELP.contains("--version"));
     }
 
     #[test]

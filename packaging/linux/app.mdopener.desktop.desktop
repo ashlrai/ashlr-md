@@ -3,8 +3,8 @@
 # .desktop file for Ashlr MD
 #
 # INSTALL LOCATIONS
-#   System-wide (deb package installs here automatically):
-#     /usr/share/applications/app.mdopener.desktop.desktop
+#   System-wide (the deb installs its own generated copy as
+#     "/usr/share/applications/Ashlr MD.desktop")
 #   Per-user:
 #     ~/.local/share/applications/app.mdopener.desktop.desktop
 #
@@ -14,9 +14,9 @@
 #
 # ICON
 #   The deb bundle installs the icon to:
-#     /usr/share/icons/hicolor/128x128/apps/app.mdopener.desktop.png
+#     /usr/share/icons/hicolor/128x128/apps/md-opener.png
 #   The AppImage bundles the icon internally at:
-#     .DirIcon  (symlinked to app.mdopener.desktop.png)
+#     .DirIcon  (symlinked to md-opener.png)
 #   For the AUR package, icons are extracted from the deb or bundled directly.
 #
 # MIME-TYPE REGISTRATION
@@ -31,12 +31,13 @@ Type=Application
 Name=Ashlr MD
 GenericName=Markdown Editor
 Comment=AI-native Markdown viewer, editor, and exporter
+# The deb installs the app binary as /usr/bin/md-opener (the Cargo binary name).
 # %F — pass all selected file paths as arguments (multi-file open support)
-Exec=ashlr-md %F
-Icon=app.mdopener.desktop
+Exec=md-opener %F
+Icon=md-opener
 Terminal=false
 StartupNotify=true
-StartupWMClass=ashlr-md
+StartupWMClass=md-opener
 Categories=Office;TextEditor;Utility;
 
 # File association: all common Markdown MIME types

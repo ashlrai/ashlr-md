@@ -3272,3 +3272,108 @@ fn agents_doc_states_the_real_tool_count_and_default_protocol() {
     let default = format!("**`{}`** (default)", mdopener_mcp::DEFAULT_PROTOCOL);
     assert!(doc.contains(&default), "docs/AGENTS.md must say {default:?}");
 }
+
+// ── Disk-reading tools refuse non-Markdown files (no app needed) ─────────────
+
+/// A temp dir holding a secret `.env`, a non-Markdown `hostname`, a Markdown
+/// `notes.md`, and (on Unix) a `link.md` symlink pointing at `.env`.
+fn secret_fixture() -> (tempfile::TempDir, String, String, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join(".env");
+    std::fs::write(&env, "OPENAI_API_KEY=sk-secret-value\n").unwrap();
+    let host = dir.path().join("hostname");
+    std::fs::write(&host, "box\n").unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, "# Notes\n\nHello world.\n").unwrap();
+    let link = dir.path().join("link.md");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&env, &link).unwrap();
+    #[cfg(not(unix))]
+    std::fs::write(&link, "OPENAI_API_KEY=sk-secret-value\n").unwrap();
+    let s = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+    (dir, s(env), s(host), s(notes), s(link))
+}
+
+fn assert_refused(resp: &mdopener_mcp::Response, label: &str) {
+    let text = tool_error_text(resp);
+    assert!(
+        !text.contains("sk-secret-value"),
+        "{label}: leaked secret: {text}"
+    );
+    assert!(
+        text.contains("Markdown"),
+        "{label}: unclear message: {text}"
+    );
+}
+
+#[test]
+fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
+    let (_dir, env, host, notes, link) = secret_fixture();
+    let ipc = MockIpc::new();
+    for (a, b) in [(&env, &host), (&notes, &env), (&host, &notes)] {
+        let resp = call("diff_documents", json!({ "path_a": a, "path_b": b }), &ipc);
+        assert_refused(&resp, &format!("diff_documents {a} {b}"));
+    }
+    for bad in [&env, &host] {
+        for tool in ["export_text", "export_metadata"] {
+            let resp = call(tool, json!({ "path": bad }), &ipc);
+            assert_refused(&resp, &format!("{tool} {bad}"));
+        }
+    }
+    #[cfg(unix)]
+    {
+        let resp = call(
+            "diff_documents",
+            json!({ "path_a": link, "path_b": notes }),
+            &ipc,
+        );
+        assert_refused(&resp, "diff_documents via .md symlink");
+        for tool in ["export_text", "export_metadata"] {
+            let resp = call(tool, json!({ "path": link }), &ipc);
+            assert_refused(&resp, &format!("{tool} via .md symlink"));
+        }
+    }
+    let _ = link;
+}
+
+#[test]
+fn read_tools_still_read_markdown_paths() {
+    let (_dir, _env, _host, notes, _link) = secret_fixture();
+    let ipc = MockIpc::new();
+    let resp = call(
+        "diff_documents",
+        json!({ "path_a": notes, "path_b": notes }),
+        &ipc,
+    );
+    assert!(!is_error(&resp), "{:?}", resp.result);
+    let resp = call("export_text", json!({ "path": notes }), &ipc);
+    assert!(!is_error(&resp));
+    assert!(content_text(&resp)["text"]
+        .as_str()
+        .unwrap()
+        .contains("Hello world."));
+    let resp = call("export_metadata", json!({ "path": notes }), &ipc);
+    assert!(!is_error(&resp));
+    assert_eq!(content_text(&resp)["word_count"], json!(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".env");
+    std::fs::write(&target, "{\"nodes\":[],\"edges\":[]}").unwrap();
+    let link = dir.path().join("board.canvas");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let resp = call(
+        "edit_canvas",
+        json!({ "path": link.to_string_lossy(), "ops": [] }),
+        &MockIpc::new(),
+    );
+    let text = tool_error_text(&resp);
+    assert!(text.contains(".canvas"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "{\"nodes\":[],\"edges\":[]}"
+    );
+}

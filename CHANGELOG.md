@@ -36,6 +36,21 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP read tools no longer read arbitrary files.** `diff_documents`,
+  `export_text` and `export_metadata` read their `path` straight from disk with
+  no app running, so an agent could read `~/.env` or any other file through
+  them. They now accept only Markdown documents (`.md`, `.markdown`, `.mdown`,
+  `.mkd`, `.mdx`) that are not dotfiles, checked after resolving symlinks, and
+  return an `isError` result otherwise. `edit_canvas` likewise refuses a
+  `.canvas` symlink that resolves to a non-canvas file.
+- **`--version` on the CLIs.** `mdopener-mcp --version` printed nothing and
+  blocked serving stdio; `mdopen --version` failed with "unknown flag". Both now
+  print the version and exit 0 (`mdopener-mcp --help` too).
+- **Packaging templates name the real release assets.** The Homebrew cask,
+  AUR PKGBUILD, winget manifest and docs/RELEASING.md used `Ashlr.MD_…` and
+  `ashlr-md_…_amd64.deb`, which 404; Tauri publishes `Ashlr_MD_…`. The PKGBUILD
+  and `.desktop` entry now use the installed binary `md-opener` (and icon), and
+  the cask points at `Contents/Resources/mdopen`.
 - **MCP `export` refuses formats the app cannot write.** Before, any `format`
   (`"xyz"`, `"PDF"`, `"md"`) was forwarded, the app wrote HTML to `output_path`
   and reported ok. The tool now accepts `pdf`, `docx`, `html` and `epub` (the

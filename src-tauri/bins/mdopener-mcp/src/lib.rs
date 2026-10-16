@@ -676,7 +676,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "diff_documents",
-            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }.",
+            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }. Only Markdown files (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles are read.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -870,7 +870,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file. When omitted the currently open document is used."
+                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
                     }
                 }
             }),
@@ -896,7 +896,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file. When omitted the currently open document is used."
+                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1869,6 +1869,43 @@ pub fn canonicalize_path(raw: &str) -> String {
         .unwrap_or_else(|_| raw.to_string())
 }
 
+/// Markdown extensions a path-taking read tool may open. Mirrors the app's
+/// `MD_EXTENSIONS` (src-tauri/src/document.rs).
+pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
+
+/// Resolve a caller-supplied path for a tool that reads a document straight
+/// from disk (no app involved), refusing anything that is not a Markdown
+/// document. The check runs on the canonical path, so a `notes.md` symlink to
+/// `.env` is refused too. Dotfiles (`.env.md`, `.secrets.md`) are refused even
+/// with a Markdown extension. Returns the canonical path, or a message for an
+/// `isError` result.
+pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
+    let abs = canonicalize_path(raw);
+    let p = std::path::Path::new(&abs);
+    let hidden = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.starts_with('.'))
+        .unwrap_or(true);
+    let markdown = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false);
+    if hidden || !markdown {
+        return Err(format!(
+            "Refusing to read `{arg}` '{abs}': only Markdown documents ({}) that are not \
+             dotfiles can be read by this tool.",
+            MD_EXTENSIONS
+                .iter()
+                .map(|e| format!(".{e}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(abs)
+}
+
 /// Collect candidate file paths from the vault and recents advertised by the
 /// app.  The list comes from the app over IPC, so this errors when the app is
 /// not running (an empty list would read as "no matches").
@@ -2281,8 +2318,14 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
     };
     let context_lines = args["context_lines"].as_u64().unwrap_or(3) as usize;
 
-    let path_a = canonicalize_path(&raw_a);
-    let path_b = canonicalize_path(&raw_b);
+    let path_a = match checked_document_path(&raw_a, "path_a") {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
+    let path_b = match checked_document_path(&raw_b, "path_b") {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
 
     let content_a = match std::fs::read_to_string(&path_a) {
         Ok(c) => c,
@@ -2560,6 +2603,14 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     let path = std::fs::canonicalize(raw_path)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| raw_path.to_string());
+    // Re-check after resolving symlinks: `x.canvas -> ~/.env` must not be read
+    // or overwritten.
+    if !path.ends_with(".canvas") {
+        return tool_error(
+            id,
+            format!("Refusing {path}: `path` must resolve to a .canvas file"),
+        );
+    }
 
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match std::fs::read_to_string(&path) {
@@ -3351,7 +3402,10 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     // Resolve source: explicit path → disk read; no path → IPC current content.
     let (markdown, path_used) = match args["path"].as_str() {
         Some(raw) => {
-            let abs = canonicalize_path(raw);
+            let abs = match checked_document_path(raw, "path") {
+                Ok(p) => p,
+                Err(e) => return tool_error(id, e),
+            };
             match std::fs::read_to_string(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
@@ -3574,7 +3628,10 @@ pub fn count_embedded_images(content: &str) -> usize {
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let (markdown, path_used) = match args["path"].as_str() {
         Some(raw) => {
-            let abs = canonicalize_path(raw);
+            let abs = match checked_document_path(raw, "path") {
+                Ok(p) => p,
+                Err(e) => return tool_error(id, e),
+            };
             match std::fs::read_to_string(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),

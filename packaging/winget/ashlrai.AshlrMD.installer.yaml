@@ -6,11 +6,11 @@
 # PLACEHOLDER VALUES — update after each release
 #   <VERSION>         — release version string, e.g. 0.2.0
 #   <SHA256_NSIS_EXE> — SHA-256 of the NSIS .exe installer
-#                       PowerShell: Get-FileHash "Ashlr.MD_<VERSION>_x64-setup.exe" -Algorithm SHA256
+#                       PowerShell: Get-FileHash "Ashlr_MD_<VERSION>_x64-setup.exe" -Algorithm SHA256
 #
 # ARTIFACT NAMES (produced by tauri-action)
-#   NSIS .exe:  Ashlr.MD_<VERSION>_x64-setup.exe      ← primary
-#   MSI:        Ashlr.MD_<VERSION>_x64_en-US.msi       ← alternate
+#   NSIS .exe:  Ashlr_MD_<VERSION>_x64-setup.exe      ← primary
+#   MSI:        Ashlr_MD_<VERSION>_x64_en-US.msi       ← alternate
 #
 # SILENT INSTALL FLAGS
 #   NSIS (nullsoft): /S                — fully silent install
@@ -24,7 +24,7 @@ MinimumOSVersion: "10.0.17763.0"   # Windows 10 1809 — WebView2 baseline
 Installers:
   - Architecture: x64
     InstallerType: nullsoft
-    InstallerUrl: "https://github.com/ashlrai/ashlr-md/releases/download/v<VERSION>/Ashlr.MD_<VERSION>_x64-setup.exe"
+    InstallerUrl: "https://github.com/ashlrai/ashlr-md/releases/download/v<VERSION>/Ashlr_MD_<VERSION>_x64-setup.exe"
     InstallerSha256: <SHA256_NSIS_EXE>
     InstallerLocale: en-US
     # Silent install / uninstall switches for NSIS

@@ -13,7 +13,7 @@
 # AFTER EACH RELEASE
 #   1. Download the new .dmg from the GitHub Release.
 #   2. Compute the sha256:
-#        shasum -a 256 "Ashlr.MD_<VERSION>_aarch64.dmg"
+#        shasum -a 256 "Ashlr_MD_<VERSION>_aarch64.dmg"
 #   3. Update `version` and `sha256` below.
 #   4. Commit + push to the tap repo — Homebrew picks up the change automatically.
 #
@@ -29,27 +29,27 @@ cask "ashlr-md" do
   # Release metadata — update both values for every new release.
   # -------------------------------------------------------------------------
   version "<VERSION>"        # e.g. "0.2.0"
-  sha256  "<SHA256>"         # shasum -a 256 "Ashlr.MD_<VERSION>_aarch64.dmg"
+  sha256  "<SHA256>"         # shasum -a 256 "Ashlr_MD_<VERSION>_aarch64.dmg"
 
   # -------------------------------------------------------------------------
   # Download URL
-  # tauri-action produces the artifact name:
-  #   Ashlr.MD_<version>_aarch64.dmg     (Apple Silicon / arm64)
-  #   Ashlr.MD_<version>_x64.dmg         (Intel / x86_64)
+  # tauri-action produces the artifact name (productName "Ashlr MD", space -> _):
+  #   Ashlr_MD_<version>_aarch64.dmg     (Apple Silicon / arm64)
+  #   Ashlr_MD_<version>_x64.dmg         (Intel / x86_64)
   #
   # This cask targets Apple Silicon (aarch64). For a universal cask that
   # serves both architectures, use an `on_arm` / `on_intel` block:
   #
   #   on_arm do
-  #     url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr.MD_#{version}_aarch64.dmg"
+  #     url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr_MD_#{version}_aarch64.dmg"
   #     sha256 "<SHA256_ARM64>"
   #   end
   #   on_intel do
-  #     url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr.MD_#{version}_x64.dmg"
+  #     url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr_MD_#{version}_x64.dmg"
   #     sha256 "<SHA256_X64>"
   #   end
   # -------------------------------------------------------------------------
-  url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr.MD_#{version}_aarch64.dmg",
+  url "https://github.com/ashlrai/ashlr-md/releases/download/v#{version}/Ashlr_MD_#{version}_aarch64.dmg",
       verified: "github.com/ashlrai/ashlr-md/"
 
   name "Ashlr MD"
@@ -63,9 +63,9 @@ cask "ashlr-md" do
 
   # -------------------------------------------------------------------------
   # Bundled CLI binary (sidecar shipped inside the .app)
-  # Uncomment once the app reliably ships mdopen inside its MacOS bundle dir.
+  # The sidecars ship in Contents/Resources (tauri.macos.conf.json).
   # -------------------------------------------------------------------------
-  # binary "#{appdir}/Ashlr MD.app/Contents/MacOS/mdopen"
+  # binary "#{appdir}/Ashlr MD.app/Contents/Resources/mdopen"
 
   # -------------------------------------------------------------------------
   # Zap stanza — what `brew uninstall --zap ashlr-md` removes
@@ -91,7 +91,7 @@ cask "ashlr-md" do
 
     The mdopen CLI sidecar ships inside the app bundle. You can symlink
     it to a directory on your PATH:
-      ln -sf "/Applications/Ashlr MD.app/Contents/MacOS/mdopen" \
+      ln -sf "/Applications/Ashlr MD.app/Contents/Resources/mdopen" \
              /usr/local/bin/mdopen
   EOS
 end

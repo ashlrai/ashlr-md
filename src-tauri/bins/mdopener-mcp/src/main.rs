@@ -40,7 +40,33 @@ use std::io::{self, BufRead, Write as _};
 
 use mdopener_mcp::{dispatch, Request, RealIpcClient};
 
+const HELP: &str = "mdopener-mcp — MCP server for Ashlr MD (stdio JSON-RPC 2.0)
+
+USAGE:
+    mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)
+    mdopener-mcp --version     print the version
+    mdopener-mcp --help        print this help
+
+Register it with your MCP client; see docs/AGENTS.md.
+";
+
 fn main() {
+    // Informational flags answer and exit instead of blocking on stdin.
+    // Any other arguments are ignored, as before.
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!("mdopener-mcp {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--help" | "-h" => {
+                print!("{HELP}");
+                return;
+            }
+            _ => {}
+        }
+    }
+
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
     let ipc = RealIpcClient;
