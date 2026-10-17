@@ -422,6 +422,9 @@ before proceeding.
 - `blocking` (default `true`) — if `false`, the review is registered and the call
   returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
   Call `request_review` with that `review_id` to wait for the verdict. A
+  resumed call with `blocking: false` does not wait: it reads the review once
+  and returns its verdict, `{ "status": "pending", … }`, or `timeout` once its
+  window has closed, ignoring `wait_ms`. A
   review of a `path` can also be read later via `get_user_annotations`; one
   of inline `content` has no path, so only `review_id` finds it.
 - `timeout_ms` (default `300000` = 5 min, must be **5 000–600 000**) — how long

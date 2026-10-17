@@ -5254,6 +5254,69 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     );
 }
 
+/// A resumed call with `blocking: false` used to wait up to `wait_ms` like a
+/// blocking one; it now reads the review's state once and returns it.
+#[test]
+fn resumed_non_blocking_review_returns_its_state_at_once() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::{Duration, Instant};
+    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+    let v = content_text(&tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "blocking": false }),
+        &ipc,
+        Duration::ZERO,
+    ));
+    let review_id = v["reviewId"].as_str().unwrap().to_string();
+    // A poll interval far longer than the test may take: a call that waits
+    // at all would sleep through it.
+    let poll = Duration::from_secs(30);
+    let pending = MockIpc::new().on_get("/review/result", Ok(json!({ "status": "pending" })));
+    let started = Instant::now();
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": review_id, "blocking": false, "wait_ms": 50_000 }),
+        &pending,
+        poll,
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["status"], "pending", "{v}");
+    assert_eq!(v["reviewId"], review_id.as_str());
+    assert_eq!(pending.calls().len(), 1, "one look at the review");
+
+    let done = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "done", "verdict": "approved", "comments": "ok" })),
+    );
+    let resp = tool_request_review_with(
+        id(3),
+        &json!({ "review_id": review_id, "blocking": false }),
+        &done,
+        poll,
+    );
+    assert_eq!(content_text(&resp)["verdict"], "approved");
+
+    // A review whose window has closed reports timeout, still at once.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let started = Instant::now();
+    let resp = tool_request_review_with(
+        id(4),
+        &json!({ "review_id": format!("rev_1_00000001_{}", now - 60_000), "blocking": false }),
+        &pending,
+        poll,
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(content_text(&resp)["verdict"], "timeout");
+}
+
 /// A resumed call (`review_id`) cannot change the review, so it used to
 /// ignore `path`, `content` and `timeout_ms` without a word: an agent that
 /// edited its plan and resent it with the old id got the verdict on the old

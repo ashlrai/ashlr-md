@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A non-blocking `request_review` resume returns at once.** A call with
+  `review_id` and `blocking: false` still waited up to `wait_ms` (50 s by
+  default) like a blocking one. It now reads the review once and returns its
+  verdict, `pending`, or `timeout` once the window has closed.
 - **`edit_canvas` refuses colours JSON Canvas does not allow.**
   `set_node_color` and `add_node` wrote any string as a node colour, so
   `"red"` or `"7"` was saved and the node showed without its colour. Only a
