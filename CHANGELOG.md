@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`search_vault`'s `limit` means the same in every mode.** The app's own
+  search returned at most 200 results and turned `limit: 0` into 1, while the
+  on-disk greps and semantic search returned as many as asked, up to every
+  file of a 5000-file vault. Every mode now returns at most 200, and a `limit`
+  below 1 is refused (`-32602`) by the tool and the `text://vault-search`
+  resource.
 - **A semantic fallback keeps the app's search note.** When semantic search
   was unavailable and `search_vault` fell back to the app's own search, its
   "semantic search was unavailable" note replaced the app's note, so a

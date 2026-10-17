@@ -788,7 +788,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "minimum": 0, "description": "Max number of results to return. Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -2405,6 +2405,10 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
     }
 }
 
+/// Most results `search_vault` (and `text://vault-search`) returns, in every
+/// mode: the cap the app's own `/search` applies.
+pub const SEARCH_MAX_RESULTS: u64 = 200;
+
 /// The search behind both `search_vault` and the `text://vault-search`
 /// resource: `{ results, mode, note? }`, or the error the agent should see.
 ///
@@ -2444,6 +2448,10 @@ pub fn search_vault_in(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Value, String> {
+    // The app's own search returns at most SEARCH_MAX_RESULTS; the other
+    // modes are held to the same, so a limit means the same in every mode
+    // (an on-disk vault of 5000 files could otherwise return 5000 results).
+    let limit = limit.clamp(1, SEARCH_MAX_RESULTS);
     // The vault file list: from the app, or from `vault` on disk when the app
     // is unreachable. Fetched once, and only when needed.
     let mut listed: Option<Result<VaultFiles, String>> = None;
@@ -3133,14 +3141,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = match val.parse() {
-                    Ok(l) => l,
-                    Err(_) => {
+                    Ok(l) if l > 0 => l,
+                    _ => {
                         return Response::err(
                             id,
                             -32602,
                             format!(
-                                "text://vault-search: `limit` must be a whole number, got \
-                                 {:?}. Omit it for the default of 50.",
+                                "text://vault-search: `limit` must be a whole number of at \
+                                 least 1, got {:?}. Omit it for the default of 50.",
                                 decode(val)
                             ),
                         )

@@ -2749,6 +2749,54 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     assert!(msg.contains("search is disabled"), "got: {msg}");
 }
 
+/// A `limit` meant something different in each mode: the app's search
+/// returned at most 200 and turned 0 into 1, while the on-disk greps and
+/// semantic search returned as many as asked, up to every file in the vault.
+#[test]
+fn search_vault_limit_is_the_same_in_every_mode() {
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    for i in 0..205 {
+        std::fs::write(dir.path().join(format!("n{i}.md")), "the target topic\n").unwrap();
+    }
+    let vault = dir.path().to_str().unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 1000 });
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 200, "grep-disk");
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = mdopener_mcp::search_vault_in("target", 1000, true, Some(dir.path()), &ipc, &embed)
+        .unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 200, "semantic");
+    // The app is asked for no more than it returns.
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    tool_search_vault(
+        id(2),
+        &json!({ "query": "t", "semantic": false, "limit": 1000 }),
+        &ipc,
+    );
+    let asked: Vec<String> = ipc.calls().into_iter().map(|c| c.1).collect();
+    assert_eq!(asked, ["/search?q=t&limit=200"], "{asked:?}");
+    // 0 is refused before the search, by the tool and by the resource.
+    let msg = refused_before_the_tool("search_vault", json!({ "query": "t", "limit": 0 }));
+    assert!(msg.starts_with("`limit` must be at least 1"), "{msg}");
+    let resp = mdopener_mcp::handle_resource_read(
+        id(3),
+        "text://vault-search?q=t&limit=0",
+        &MockIpc::new(),
+    );
+    assert_eq!(
+        resp.error.as_ref().map(|e| e.code),
+        Some(-32602),
+        "{:?}",
+        resp.error
+    );
+}
+
 /// `vault` is searched on disk only when the app cannot be reached: a refusal
 /// stays the error, and an unreachable app falls back with a note.
 #[test]
@@ -7243,7 +7291,7 @@ fn integer_below_its_minimum_is_refused() {
         (
             "search_vault",
             json!({ "query": "q", "limit": -1 }),
-            "`limit` must be at least 0, got -1",
+            "`limit` must be at least 1, got -1",
         ),
         (
             "get_conversation_context",
