@@ -3161,7 +3161,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD.",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running.",
         "mimeType": "text/markdown"
     })];
 
@@ -3201,22 +3201,44 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, json!({ "resources": resources }))
 }
 
+/// The live document's text for `mdopener://current` and the prompts, or the
+/// JSON-RPC error: `-32002` when no document is open (the app answers
+/// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
+/// `-32000` when the app cannot be reached. An open document that is empty
+/// is `""`. The resource used to answer `""` with no document open, so an
+/// agent could not tell "nothing open" from "an empty document", while the
+/// prompts already refused it.
+fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
+    let v = ipc
+        .get("/content")
+        .map_err(|e| (-32000, app_not_running_msg(&e)))?;
+    let no_document = v["path"].is_null();
+    match v["content"].as_str() {
+        Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
+        _ if no_document => Err((
+            -32002,
+            "No document is open in Ashlr MD. Open one first (open_file).".to_string(),
+        )),
+        _ => Err((
+            -32002,
+            "Ashlr MD did not return the current document's content.".to_string(),
+        )),
+    }
+}
+
 /// The query parameters `text://vault-search` takes.
 const VAULT_SEARCH_PARAMS: &[&str] = &["q", "limit", "semantic", "vault"];
 
 pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Response {
     if uri == "mdopener://current" {
-        return match ipc.get("/content") {
-            Ok(v) => {
-                let text = v["content"].as_str().unwrap_or("").to_string();
-                Response::ok(
-                    id,
-                    json!({
-                        "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
-                    }),
-                )
-            }
-            Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        return match current_document(ipc) {
+            Ok(text) => Response::ok(
+                id,
+                json!({
+                    "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
+                }),
+            ),
+            Err((code, msg)) => Response::err(id, code, msg),
         };
     }
 
@@ -3525,19 +3547,9 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
     };
     // Without the live document the prompt would ask the model to work on an
     // empty string, so a missing app or document is an error, not "".
-    let content = match ipc.get("/content") {
-        // The app answers `{ "path": null, "content": "" }` when nothing is open.
-        Ok(v) => match v["content"].as_str() {
-            Some(c) if !(c.is_empty() && v["path"].is_null()) => c.to_string(),
-            _ => {
-                return Response::err(
-                    id,
-                    -32002,
-                    "No document is open in Ashlr MD. Open one first (open_file).",
-                )
-            }
-        },
-        Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+    let content = match current_document(ipc) {
+        Ok(c) => c,
+        Err((code, msg)) => return Response::err(id, code, msg),
     };
     let text = format!("{instruction}\n\n---\n\n{content}");
 

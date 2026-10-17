@@ -332,7 +332,10 @@ See the dedicated [Human review loop](#human-review-loop) section.
 The server implements `resources/list` and `resources/read`.
 
 - **`mdopener://current`** — the document currently open in Ashlr MD
-  (`mimeType: text/markdown`). Reading it returns the live content.
+  (`mimeType: text/markdown`). Reading it returns the live content; an open
+  document that is empty is `""`. With no document open it is `-32002`
+  ("No document is open"), as for the prompts, and `-32000` when the app is
+  not running.
 - **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
   `&semantic=false` or `true` to force grep or semantic search, like
@@ -377,7 +380,9 @@ The server implements `prompts/list` and `prompts/get`. Each prompt embeds the
 | `improve_writing` | Tighten the prose and fix grammar of the current document without changing its meaning or structure. |
 
 `prompts/get` returns a single `user` message whose text is the instruction
-followed by the current document content.
+followed by the current document content. With no document open it is
+`-32002` ("No document is open"), and `-32000` when the app is not running,
+the same errors `mdopener://current` gives.
 
 ---
 

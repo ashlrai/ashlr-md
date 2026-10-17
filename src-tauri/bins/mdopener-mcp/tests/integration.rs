@@ -7922,3 +7922,39 @@ fn search_vault_refuses_an_empty_or_blank_query_before_the_app() {
     }
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
+
+/// `mdopener://current` answered `""` when no document was open, so an agent
+/// could not tell "nothing open" from an empty document; the prompts already
+/// refused it. Both now refuse it the same way (-32002), an open empty
+/// document is still `""`, and an unreachable app is -32000.
+#[test]
+fn current_resource_with_no_document_open_is_an_error_like_the_prompts() {
+    let none_open =
+        || MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let resp = handle_resource_read(id(1), "mdopener://current", &none_open());
+    let err = resp.error.expect("no document open must be an error");
+    assert_eq!(err.code, -32002);
+    assert!(
+        err.message.contains("No document is open"),
+        "{}",
+        err.message
+    );
+    let prompt = mdopener_mcp::handle_prompt_get(id(2), "summarize", &none_open());
+    let perr = prompt.error.expect("prompt with no document");
+    assert_eq!((perr.code, perr.message), (err.code, err.message));
+
+    let no_content = MockIpc::new().on_get("/content", Ok(json!({ "path": "/a.md" })));
+    let err = handle_resource_read(id(3), "mdopener://current", &no_content)
+        .error
+        .expect("an answer without content must be an error");
+    assert_eq!(err.code, -32002, "{}", err.message);
+
+    let empty_doc =
+        MockIpc::new().on_get("/content", Ok(json!({ "path": "/a.md", "content": "" })));
+    let resp = handle_resource_read(id(4), "mdopener://current", &empty_doc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    assert_eq!(resp.result.unwrap()["contents"][0]["text"], "");
+
+    let resp = handle_resource_read(id(5), "mdopener://current", &MockIpc::new());
+    assert_eq!(resp.error.expect("app unreachable").code, -32000);
+}

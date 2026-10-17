@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://current` says when no document is open.** With nothing open
+  it answered an empty document, so an agent could not tell the two apart,
+  while the prompts already refused it. It is now `-32002` "No document is
+  open", the prompts' error; an open empty document is still `""`.
 - **`search_vault` refuses an empty query.** An empty or whitespace-only
   `query` was sent to the app, so with the app closed the agent was told to
   start it rather than that its query was empty. `query` now declares
