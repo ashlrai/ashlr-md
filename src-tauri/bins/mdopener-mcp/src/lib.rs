@@ -2493,7 +2493,15 @@ pub fn search_vault_in(
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
             v["mode"] = json!("grep");
-            if let Some(note) = semantic_note {
+            // Keep the app's own note (it says when the vault list was cut
+            // short, and `truncated` stays set): the fallback note goes first.
+            let app_note = v["note"].as_str().map(str::to_string);
+            let note = [semantic_note, app_note]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !note.is_empty() {
                 v["note"] = json!(note);
             }
             Ok(v)

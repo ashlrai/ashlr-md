@@ -2606,6 +2606,34 @@ fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     assert!(note.contains("search is disabled"), "note: {note}");
 }
 
+/// Semantic search that fell back to the app's own search replaced the app's
+/// `note` with its own, so `truncated: true` came with no word that only the
+/// newest files were searched.
+#[test]
+fn a_semantic_fallback_keeps_the_apps_truncation_note() {
+    let app_note = "The watched folder has more Markdown files than Ashlr MD lists, so only \
+                    its 200 most recently changed files (and the recent documents) were searched.";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [], "recents": [], "truncated": true, "limit": 200 })),
+        )
+        .on_get(
+            "/search",
+            Ok(json!({ "query": "q", "results": [], "truncated": true, "note": app_note })),
+        );
+    let embed = |_: &str| Err("Ollama is not running".to_string());
+    let v = mdopener_mcp::search_vault_in("q", 5, true, None, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "grep", "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.starts_with("Semantic search was unavailable"),
+        "{note}"
+    );
+    assert!(note.ends_with(app_note), "{note}");
+}
+
 /// The app lists at most `limit` files of the watched folder (its synced
 /// MAX_FILES); search_vault said nothing when the folder had more, so "no
 /// hits" read as "not in the folder". The number in the note is the app's,

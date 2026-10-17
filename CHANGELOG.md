@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A semantic fallback keeps the app's search note.** When semantic search
+  was unavailable and `search_vault` fell back to the app's own search, its
+  "semantic search was unavailable" note replaced the app's note, so a
+  `truncated: true` result no longer said that only the newest files were
+  searched. Both notes are now kept.
 - **A slow export no longer turns other agent requests away.** A headless
   export waits up to 30 s for the window, in one of the two slots edits,
   opens, presents and reviews also wait in, so two exports in flight made the
