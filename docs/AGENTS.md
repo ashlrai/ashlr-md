@@ -434,7 +434,8 @@ registered (an AppImage or dev build on Linux). Otherwise it opens the
 for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
-stderr.
+stderr. Run with no arguments at all, it prints its help to stderr and exits
+`1`; `mdopen --help` prints it to stdout and exits `0`.
 
 ### Install
 

@@ -37,6 +37,16 @@ fn help_exits_0() {
     assert!(String::from_utf8(out.stdout).unwrap().contains("--version"));
 }
 
+/// With no arguments there is nothing to open: the help goes to stderr and
+/// the exit is 1, so a script that passed an empty variable sees a failure.
+#[test]
+fn no_arguments_is_a_usage_error() {
+    let out = Command::new(env!("CARGO_BIN_EXE_mdopen")).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(out.stdout.is_empty(), "{out:?}");
+    assert!(String::from_utf8(out.stderr).unwrap().contains("USAGE:"));
+}
+
 /// A fresh scratch directory, removed on drop.
 struct Scratch(std::path::PathBuf);
 
