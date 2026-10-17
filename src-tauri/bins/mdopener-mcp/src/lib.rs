@@ -821,8 +821,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "minimum": 0,
-                        "description": "Maximum number of entries to return. Defaults to 10."
+                        "minimum": 1,
+                        "maximum": LIST_RECENT_MAX,
+                        "description": "Maximum number of entries to return, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 10. The app keeps at most 12 recent files."
                     }
                 }
             }),
@@ -873,7 +874,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
-                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
+                    "review_id": { "type": "string", "minLength": 1, "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one; an empty or blank id is refused. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
             }),
@@ -892,7 +893,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -911,7 +912,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "find": { "type": "string", "description": "The exact text to replace. Must appear exactly once in the document." },
+                    "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
                     "path": { "type": "string", "description": "Optional: assert this is the open document (errors if a different file is open)." }
@@ -949,7 +950,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note?, vault?, truncated?, depthCut? }; `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, query?, note?, vault?, truncated?, depthCut? }; `query` (mode 'grep' only) is the query as the app searched it, `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1016,6 +1017,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "The session identifier previously passed to save_conversation_message. Required."
                     },
                     "limit": {
@@ -1043,6 +1045,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session). At most 200 bytes once encoded for its file name (letters, digits, `-` and `_` count one byte, other bytes three)."
                     },
                     "role": {
@@ -1052,7 +1055,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "content": {
                         "type": "string",
-                        "description": "The message text. For agent messages describe the action taken. For human messages include their verdict and any comments."
+                        "minLength": 1,
+                        "description": "The message text, not empty or only whitespace. For agent messages describe the action taken. For human messages include their verdict and any comments."
                     },
                     "cited_docs": {
                         "type": "array",
@@ -1104,6 +1108,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
                     },
                     "ops": {
@@ -1182,7 +1187,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "find": {
                         "type": "string",
-                        "description": "Exact text to search for in the current document."
+                        "minLength": 1,
+                        "description": "Exact text to search for in the current document, not empty."
                     },
                     "replace": {
                         "type": "string",
@@ -1227,7 +1233,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "find": {
                         "type": "string",
-                        "description": "The exact find string from the preview request."
+                        "minLength": 1,
+                        "description": "The exact find string from the preview request, not empty."
                     },
                     "replace": {
                         "type": "string",
@@ -1434,6 +1441,7 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 ///   element whose type differs from the declared `items.type`;
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`);
+/// - a number above the declared `maximum` (`list_recent`'s `limit`);
 /// - a value outside the declared `enum`, at the top level or in a field of an
 ///   array element (`ops[0].type`), with the allowed values listed.
 ///
@@ -1504,6 +1512,11 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
                 return Err(format!("`{key}` must be at least {min}, got {value}"));
+            }
+        }
+        if let (Some(max), Some(n)) = (prop["maximum"].as_i64(), value.as_f64()) {
+            if n > max as f64 {
+                return Err(format!("`{key}` must be at most {max}, got {value}"));
             }
         }
         // JSON Schema counts characters (code points), not bytes.
@@ -1919,8 +1932,31 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
     }
 }
 
+/// Largest `limit` `list_recent` accepts: the cap `search_vault` and
+/// `get_conversation_context` hold their `limit` to. The app keeps far fewer
+/// recents (12), so no list is ever cut by this cap.
+pub const LIST_RECENT_MAX: u64 = 200;
+
 pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let limit = whole_number(args, "limit").unwrap_or(10);
+    // A `limit` that is not a whole number from 1 to LIST_RECENT_MAX used to
+    // become the default (2.5) or reach the app unchecked (0, 10^15), which
+    // answered with an empty list or every recent. Omitted keeps the default.
+    let limit = match &args["limit"] {
+        Value::Null => 10,
+        v => match whole_number_value(v).filter(|n| (1..=LIST_RECENT_MAX).contains(n)) {
+            Some(n) => n,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {LIST_RECENT_MAX}, got {v}; \
+                         omit it for the default of 10"
+                    ),
+                )
+            }
+        },
+    };
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -2272,10 +2308,21 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
-    let resume = args["review_id"]
-        .as_str()
-        .filter(|r| !r.is_empty())
-        .map(str::to_string);
+    // An empty or blank `review_id` used to be read as absent, so a call
+    // that meant to resume (`{ "review_id": "", "content": ... }`) registered
+    // a new review, which replaced and so ended the pending one the agent
+    // meant to wait on.
+    let resume = match args["review_id"].as_str() {
+        Some(r) if r.trim().is_empty() => {
+            return Response::err(
+                id,
+                -32602,
+                "`review_id` must not be empty or blank: pass the `reviewId` a pending call \
+                 returned, or leave `review_id` out to request a new review",
+            )
+        }
+        r => r.map(str::to_string),
+    };
     let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
         Ok(t) => t,
         Err(e) => return Response::err(id, -32602, e),
@@ -3414,6 +3461,12 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
 /// `{ results, mode, query, note? }`, leaving out `vault`, `truncated` and
 /// `depthCut`, which the result carries when it searched a folder on disk or
 /// did not search every file.
+/// The fields a `search_vault` tool result can carry, as its description
+/// states them. `query` is the app's own echo, so only mode `grep` has it; the
+/// `text://vault-search` resource adds it in every mode.
+pub const SEARCH_VAULT_TOOL_FIELDS: &str =
+    "{ results, mode, query?, note?, vault?, truncated?, depthCut? }";
+
 pub const VAULT_SEARCH_RESOURCE_FIELDS: &str =
     "{ results, mode, query, note?, vault?, truncated?, depthCut? }";
 

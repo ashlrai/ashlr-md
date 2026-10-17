@@ -913,6 +913,59 @@ fn list_recent_custom_limit_clamped() {
     assert!(calls[0].1.contains("limit=5"));
 }
 
+/// A `limit` that is not a whole number from 1 to 200 used to become the
+/// default (2.5) or reach the app unchecked (0, a huge value). It is refused,
+/// before the app is asked, both by the tool and by the schema check.
+#[test]
+fn list_recent_refuses_a_limit_out_of_range_or_not_whole() {
+    for bad in [
+        json!(0),
+        json!(2.5),
+        json!(201),
+        json!(1_000_000_000_000u64),
+        json!(-1),
+    ] {
+        let ipc = MockIpc::new().on_get("/recent", Ok(json!([])));
+        let resp = tool_list_recent(id(1), &json!({ "limit": bad }), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{bad} was accepted"));
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message
+                .contains("`limit` must be a whole number from 1 to 200"),
+            "{}",
+            err.message
+        );
+        assert!(ipc.calls().is_empty(), "{bad} reached the app");
+
+        let msg = param_error(&call_tool("list_recent", json!({ "limit": bad })));
+        assert!(msg.contains("`limit`"), "{msg}");
+    }
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 0 })));
+    assert_eq!(msg, "`limit` must be at least 1, got 0");
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 500 })));
+    assert_eq!(msg, "`limit` must be at most 200, got 500");
+
+    // The bounds themselves, `2.0` as a whole number, and `null` (the default).
+    for (limit, want) in [
+        (json!(1), "limit=1"),
+        (json!(200), "limit=200"),
+        (json!(3.0), "limit=3"),
+        (json!(null), "limit=10"),
+    ] {
+        let ipc = MockIpc::new().on_get("/recent", Ok(json!([])));
+        let resp = tool_list_recent(id(1), &json!({ "limit": limit }), &ipc);
+        assert!(resp.error.is_none(), "{limit}: {:?}", resp.error);
+        assert!(
+            ipc.calls()[0].1.ends_with(want),
+            "{limit}: {:?}",
+            ipc.calls()
+        );
+    }
+}
+
 #[test]
 fn list_recent_returns_files_array() {
     let files = json!(["/a.md", "/b.md", "/c.md"]);
@@ -5241,6 +5294,109 @@ fn vault_search_resource_documents_every_field_it_returns() {
     }
 }
 
+/// The `search_vault` description said `{ results, mode, note?, ... }` while
+/// a reply the app answered (mode `grep`) also carried the app's `query`. The
+/// description and docs/AGENTS.md now state the same field list, and replies
+/// in every mode return only documented fields.
+#[test]
+fn search_vault_tool_documents_every_field_it_returns() {
+    use mdopener_mcp::{DISK_VAULT_MAX_DEPTH, SEARCH_VAULT_TOOL_FIELDS};
+    let shape = SEARCH_VAULT_TOOL_FIELDS;
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "search_vault")
+        .unwrap();
+    for (place, text) in [
+        ("tools/list", def.description),
+        ("docs/AGENTS.md", include_str!("../../../../docs/AGENTS.md")),
+    ] {
+        assert!(text.contains(shape), "{place} must state {shape}");
+    }
+    let fields = documented_fields(shape);
+
+    // Mode `grep`: the app answers, with a vault list cut short by depth.
+    let app = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
+            "query": "x",
+            "results": [],
+            "truncated": true,
+            "depthCut": true,
+            "note": "Some files were not searched."
+        })),
+    );
+    let grep = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "x", "semantic": false }),
+        &app,
+    ));
+    assert_eq!(grep["mode"], "grep", "{grep}");
+
+    // Mode `grep-disk`: the app is down; an on-disk vault too deep to walk.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deep = dir.path().to_path_buf();
+    for level in 0..=DISK_VAULT_MAX_DEPTH {
+        deep = deep.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "x marks it\n").unwrap();
+    std::fs::write(deep.join("b.md"), "x marks it\n").unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let gone = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let vault = dir.path().to_str().unwrap();
+    let disk = content_text(&tool_search_vault(
+        id(2),
+        &json!({ "query": "x", "semantic": false, "vault": vault }),
+        &gone,
+    ));
+    assert_eq!(disk["mode"], "grep-disk", "{disk}");
+
+    // Mode `grep-local`: the app lists the vault but its search fails.
+    let listed = json!({ "files": [{ "path": doc }], "recents": [], "truncated": true });
+    let local_ipc = MockIpc::new()
+        .on_get("/vault", Ok(listed.clone()))
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let local = content_text(&tool_search_vault(
+        id(3),
+        &json!({ "query": "x", "semantic": false }),
+        &local_ipc,
+    ));
+    assert_eq!(local["mode"], "grep-local", "{local}");
+
+    // Mode `semantic`, through the search the tool runs, embedder injected.
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let sem_ipc = MockIpc::new().on_get("/vault", Ok(listed));
+    let semantic = mdopener_mcp::search_vault_in("x", 5, true, None, &sem_ipc, &embed).unwrap();
+    assert_eq!(semantic["mode"], "semantic", "{semantic}");
+
+    let mut seen = std::collections::HashSet::new();
+    for payload in [&grep, &disk, &local, &semantic] {
+        let obj = payload.as_object().unwrap();
+        for key in obj.keys() {
+            assert!(
+                fields.iter().any(|(name, _)| name == key),
+                "`{key}` is returned but not documented in {shape}: {payload}"
+            );
+            seen.insert(key.clone());
+        }
+        for (name, optional) in &fields {
+            assert!(
+                *optional || obj.contains_key(name),
+                "`{name}` missing: {payload}"
+            );
+        }
+    }
+    for (name, _) in &fields {
+        assert!(
+            seen.contains(name),
+            "`{name}` is documented but never returned"
+        );
+    }
+}
+
 // ── search_vault / text://vault-search when the app is down ─────────────────
 
 /// Every IPC route fails the way it does when the app is not running.
@@ -6050,6 +6206,44 @@ fn get_user_annotations_sends_an_absolute_path() {
     let cwd = std::env::current_dir().unwrap();
     let want = urlencoding::encode(cwd.join("notes/plan.md").to_str().unwrap()).into_owned();
     assert_eq!(calls[0].1, format!("/annotations?path={want}"));
+}
+
+/// An empty `review_id` used to be read as absent: with `content` the call
+/// registered a new review, which superseded the pending one the agent meant
+/// to resume. It is refused before the app is asked, by the tool and by the
+/// schema check.
+#[test]
+fn request_review_refuses_an_empty_or_blank_review_id() {
+    use mdopener_mcp::tool_request_review_with;
+    for bad in ["", "   "] {
+        let ipc = MockIpc::new()
+            .on_post("/review", Ok(json!({ "ok": true })))
+            .on_get("/review/result", Ok(json!({ "status": "pending" })));
+        let resp = tool_request_review_with(
+            id(1),
+            &json!({ "review_id": bad, "content": "plan", "blocking": false }),
+            &ipc,
+            std::time::Duration::from_millis(10),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.contains("`review_id` must not be empty or blank"),
+            "{msg}"
+        );
+        assert!(
+            ipc.calls().is_empty(),
+            "{bad:?} reached the app: {:?}",
+            ipc.calls()
+        );
+    }
+    let msg = param_error(&call_tool(
+        "request_review",
+        json!({ "review_id": "", "content": "plan" }),
+    ));
+    assert_eq!(
+        msg,
+        "`review_id` must be at least 1 character long, got \"\""
+    );
 }
 
 /// A blocking review returns `pending` with its id once `wait_ms` passes,
@@ -8023,6 +8217,87 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
     assert!(!msg.contains("Did you mean"), "{msg}");
 }
 
+/// `edit_document.find` and `get_user_annotations.path` were refused when
+/// empty by the tools but declared no `minLength`, so a client validating
+/// against the schema sent them anyway. Every required string a tool refuses
+/// when empty now declares `minLength: 1`, and the rest are listed here as
+/// strings an empty value is meaningful for (or that are refused in their own
+/// words by the tool).
+#[test]
+fn required_strings_refused_when_empty_declare_min_length() {
+    let must = [
+        ("get_user_annotations", "path"),
+        ("edit_document", "find"),
+        ("search_vault", "query"),
+        ("stream_edit", "find"),
+        ("stream_edit_apply", "find"),
+        ("edit_canvas", "path"),
+        ("get_conversation_context", "session_id"),
+        ("save_conversation_message", "session_id"),
+        ("save_conversation_message", "content"),
+    ];
+    // Empty is a real value: replacing with nothing, an empty document.
+    // A path or format is checked by the tool (or the enum) in its own words.
+    let may_be_empty = [
+        ("open_file", "path"),
+        ("set_content", "content"),
+        ("export", "format"),
+        ("edit_document", "replace"),
+        ("replace_document", "content"),
+        ("save_conversation_message", "role"),
+        ("diff_documents", "path_a"),
+        ("diff_documents", "path_b"),
+        ("stream_edit", "replace"),
+        ("stream_edit_apply", "replace"),
+    ];
+    let mut found = 0;
+    for def in tool_registry() {
+        let props = def.input_schema["properties"].as_object().unwrap();
+        let required: Vec<&str> = def.input_schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        for (k, prop) in props {
+            let pair = (def.name, k.as_str());
+            if must.contains(&pair) {
+                found += 1;
+                assert_eq!(prop["minLength"], 1, "{}.{k} needs minLength 1", def.name);
+                let mut args = serde_json::Map::new();
+                for r in &required {
+                    args.insert(r.to_string(), json!("x"));
+                }
+                if def.name == "edit_canvas" {
+                    args.insert("ops".into(), json!([{ "type": "delete_node", "id": "n" }]));
+                }
+                if def.name == "save_conversation_message" {
+                    args.insert("role".into(), json!("agent"));
+                }
+                args.insert(k.clone(), json!(""));
+                let msg = param_error(&call_tool(def.name, Value::Object(args)));
+                assert_eq!(
+                    msg,
+                    format!("`{k}` must be at least 1 character long, got \"\""),
+                    "{}.{k}",
+                    def.name
+                );
+            } else if prop["type"] == "string" && required.contains(&k.as_str()) {
+                assert!(
+                    may_be_empty.contains(&pair),
+                    "{}.{k} is a required string: declare minLength or list it",
+                    def.name
+                );
+            }
+        }
+    }
+    assert_eq!(
+        found,
+        must.len(),
+        "a listed argument is missing from the registry"
+    );
+}
+
 #[test]
 fn blank_session_id_is_refused() {
     use_temp_sessions_dir();
@@ -8048,7 +8323,7 @@ fn integer_below_its_minimum_is_refused() {
         (
             "list_recent",
             json!({ "limit": -5 }),
-            "`limit` must be at least 0, got -5",
+            "`limit` must be at least 1, got -5",
         ),
         (
             "search_vault",
