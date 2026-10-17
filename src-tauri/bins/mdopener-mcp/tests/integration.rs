@@ -5104,6 +5104,39 @@ fn export_text_and_metadata_with_nothing_open_are_errors() {
 // Tool: export_metadata — frontmatter, headings, wikilinks, images, word count
 // ════════════════════════════════════════════════════════════════════════════
 
+/// A missing file given by a relative path was reported as "Cannot read
+/// 'nope.md': No such file or directory (os error 2)": the raw OS text and the
+/// relative spelling, which did not say where the server looked. It is now
+/// the absolute path and "the file does not exist", as `open_file` says.
+#[test]
+fn reading_a_missing_relative_path_names_the_absolute_path_and_says_it_does_not_exist() {
+    let name = format!("ashlr-md-missing-{}.md", std::process::id());
+    let abs = std::env::current_dir().unwrap().join(&name);
+    assert!(!abs.exists());
+    let abs = abs.to_string_lossy().into_owned();
+    let ipc = MockIpc::new();
+    let args = json!({ "path": name });
+    let other = std::env::temp_dir().join(format!("ashlr-md-present-{}.md", std::process::id()));
+    std::fs::write(&other, "# x\n").unwrap();
+    let errors = [
+        tool_error_text(&tool_export_text(json!(1), &args, &ipc)),
+        tool_error_text(&tool_export_metadata(json!(2), &args, &ipc)),
+        tool_error_text(&call(
+            "diff_documents",
+            json!({ "path_a": name, "path_b": other.to_string_lossy() }),
+            &ipc,
+        )),
+    ];
+    std::fs::remove_file(&other).unwrap();
+    for err in errors {
+        assert!(
+            err.contains(&format!("'{abs}': the file does not exist.")),
+            "{err}"
+        );
+        assert!(!err.contains("os error"), "{err}");
+    }
+}
+
 #[test]
 fn export_metadata_parses_frontmatter_and_headings() {
     let md = concat!(

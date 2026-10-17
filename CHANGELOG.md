@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`export_text`, `export_metadata` and `diff_documents` say when a file is
+  missing.** A relative path to a missing file was reported as "Cannot read
+  'nope.md': No such file or directory (os error 2)". The error now names the
+  absolute path the server resolved and says "the file does not exist", as
+  `open_file` does.
 - **`get_current_content` reports no open document as an error.** With
   nothing open it returned `{ "path": null, "content": "" }` as a success,
   the same as an empty document, so an agent could not tell the two apart.

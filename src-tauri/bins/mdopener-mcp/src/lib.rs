@@ -2111,6 +2111,18 @@ fn app_reached_but_failed(err: &str) -> bool {
     .any(|p| err.starts_with(p))
 }
 
+/// "Cannot read {what}'{path}': ..." for a failed document read, saying "the
+/// file does not exist" for a missing file, as `open_file` does. The raw OS
+/// text ("No such file or directory (os error 2)") read like a fault and,
+/// with the relative path the agent passed, did not say where it looked.
+fn cannot_read(what: &str, path: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        format!("Cannot read {what}'{path}': the file does not exist.")
+    } else {
+        format!("Cannot read {what}'{path}': {e}")
+    }
+}
+
 pub fn agent_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
         .or_else(|_| std::path::absolute(raw))
@@ -5214,11 +5226,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         },
     };
 
-    let doc_a = match checked_document(&raw_a, "path_a") {
+    let doc_a = match checked_document(&agent_path(&raw_a), "path_a") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
-    let doc_b = match checked_document(&raw_b, "path_b") {
+    let doc_b = match checked_document(&agent_path(&raw_b), "path_b") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -5226,11 +5238,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
 
     let content_a = match doc_a.read() {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
+        Err(e) => return tool_error(id, cannot_read("path_a ", &path_a, &e)),
     };
     let content_b = match doc_b.read() {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
+        Err(e) => return tool_error(id, cannot_read("path_b ", &path_b, &e)),
     };
 
     let (diff, hunks, added, removed) =
@@ -7113,11 +7125,11 @@ pub fn count_words(text: &str) -> usize {
 /// is an error rather than an empty document.
 fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
     if let Some(raw) = args["path"].as_str() {
-        let doc = checked_document(raw, "path")?;
+        let doc = checked_document(&agent_path(raw), "path")?;
         let abs = doc.path.clone();
         return match doc.read() {
             Ok(c) => Ok((without_bom(c), Some(abs))),
-            Err(e) => Err(format!("Cannot read '{abs}': {e}")),
+            Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
     let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
