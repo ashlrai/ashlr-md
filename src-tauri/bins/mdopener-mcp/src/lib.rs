@@ -35,7 +35,12 @@ pub struct RpcError {
 
 impl Response {
     pub fn ok(id: Value, result: Value) -> Self {
-        Self { jsonrpc: "2.0", id, result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0",
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn err(id: Value, code: i32, message: impl Into<String>) -> Self {
@@ -43,7 +48,10 @@ impl Response {
             jsonrpc: "2.0",
             id,
             result: None,
-            error: Some(RpcError { code, message: message.into() }),
+            error: Some(RpcError {
+                code,
+                message: message.into(),
+            }),
         }
     }
 }
@@ -127,9 +135,7 @@ pub const DEFAULT_PROTOCOL: &str = "2025-06-18";
 pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
     // Negotiate: honor the client's requested protocolVersion if we support it,
     // otherwise advertise our latest (per the MCP lifecycle spec).
-    let requested = params
-        .as_ref()
-        .and_then(|p| p["protocolVersion"].as_str());
+    let requested = params.as_ref().and_then(|p| p["protocolVersion"].as_str());
     let protocol = match requested {
         Some(v) if SUPPORTED_PROTOCOLS.contains(&v) => v,
         _ => DEFAULT_PROTOCOL,
@@ -240,30 +246,103 @@ fn conversation_store() -> &'static Mutex<HashMap<String, SessionLog>> {
 /// Maximum messages kept per session in the in-process store.
 pub const MAX_MESSAGES_PER_SESSION: usize = 200;
 
+static SESSIONS_DIR_OVERRIDE: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// Keep session files in `dir` instead of `~/.mdopener/sessions` for the rest
+/// of this process. Tests use it to stay off the real home directory without
+/// mutating `HOME` while other test threads read it. Returns `false` (and
+/// changes nothing) when a directory was already set.
+#[doc(hidden)]
+pub fn set_sessions_dir(dir: std::path::PathBuf) -> bool {
+    SESSIONS_DIR_OVERRIDE.set(dir).is_ok()
+}
+
 /// Return the directory where session JSON files are persisted.
 pub fn sessions_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = SESSIONS_DIR_OVERRIDE.get() {
+        return Some(dir.clone());
+    }
     dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
 }
 
 /// Path for a specific session's on-disk JSON file.
+///
+/// The mapping is injective: ASCII letters, digits, `-` and `_` are kept
+/// (so ids that were already file-name safe keep their file), and every other
+/// byte of the UTF-8 id is written as `%XX`. `%` itself is escaped, so `a.b`
+/// (`a%2Eb.json`) and `a_b` (`a_b.json`) no longer share a file, and no id
+/// can produce a separator, `..` or a dotfile.
 pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
-    // Sanitise the session ID: keep only alphanumeric, '-', and '_'.
+    let mut safe = String::with_capacity(session_id.len());
+    for b in session_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+            safe.push(b as char);
+        } else {
+            safe.push_str(&format!("%{b:02X}"));
+        }
+    }
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// The file name earlier builds used: every character other than an
+/// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
+/// Only read, as a fallback, so that history saved before the injective
+/// mapping stays reachable.
+fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     let safe: String = session_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
-/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`.
-/// Creates the directory if it does not exist.  Errors are silently ignored
-/// (persistence is best-effort; the in-process store is always authoritative).
-pub fn persist_session(session_id: &str, log: &SessionLog) {
-    let Some(path) = session_file_path(session_id) else { return };
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+/// Load `session_id`'s log from disk, keeping only its own messages. On a
+/// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
+/// still share a file; their messages are told apart by `session_id`.
+/// Returns the log and whether the file also held another session's messages.
+///
+/// When the session has no file of its own yet, its messages are read from
+/// the legacy file name (filtered the same way, since that file may be shared
+/// with other ids). The next append writes them to the session's own file
+/// and leaves the legacy file untouched.
+fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
+    let own = |mut log: SessionLog| {
+        let before = log.messages.len();
+        log.messages.retain(|m| m.session_id == session_id);
+        let foreign = log.messages.len() != before;
+        (log, foreign)
+    };
+    let path = session_file_path(session_id)?;
+    if path.exists() {
+        return load_session_from_disk(session_id).map(own);
     }
-    let Ok(json) = serde_json::to_string_pretty(log) else { return };
+    let legacy = legacy_session_file_path(session_id)?;
+    if legacy == path {
+        return None;
+    }
+    let text = read_regular_file(&legacy).ok()?;
+    let (log, _) = own(serde_json::from_str(&text).ok()?);
+    Some((log, false))
+}
+
+/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the
+/// directory if it does not exist. The persisted log is what every reader
+/// (another server process, this one after a restart) sees, so a failed
+/// write is an error for the caller to report.
+pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
+    let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    }
+    let json =
+        serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
     // Write a sibling temp file and rename it into place. Other server
     // processes re-read this file on every get and append, and an in-place
     // write lets them read a truncated log, fail to parse it, and write their
@@ -273,16 +352,20 @@ pub fn persist_session(session_id: &str, log: &SessionLog) {
     let mut tmp = path.clone().into_os_string();
     tmp.push(format!(".{}-{seq}.tmp", std::process::id()));
     let tmp = std::path::PathBuf::from(tmp);
-    if std::fs::write(&tmp, json).is_err() || std::fs::rename(&tmp, &path).is_err() {
+    let written = std::fs::write(&tmp, json)
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| format!("Cannot write {}: {e}", path.display()));
+    if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+    written
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
 /// or cannot be parsed.
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
-    let text = std::fs::read_to_string(&path).ok()?;
+    let text = read_regular_file(&path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
@@ -297,7 +380,11 @@ pub fn store_append_message(
     let role = role.trim();
     match role {
         "agent" | "human" | "system" => {}
-        other => return Err(format!("`role` must be 'agent', 'human', or 'system', got '{other}'")),
+        other => {
+            return Err(format!(
+                "`role` must be 'agent', 'human', or 'system', got '{other}'"
+            ))
+        }
     }
 
     let ts = std::time::SystemTime::now()
@@ -318,16 +405,31 @@ pub fn store_append_message(
         timestamp_ms: ts,
     };
 
-    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store()
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?;
     // Continue the persisted log, re-read on every append: another server
     // process (a second agent, or this agent after a restart) may have
     // appended since this process cached it, and writing the cached copy
     // back would drop those messages.
-    let fresh = load_session_from_disk(session_id);
-    let log = store.entry(session_id.to_string()).or_default();
-    if let Some(disk) = fresh {
-        *log = disk;
-    }
+    let fresh = match load_own_session(session_id) {
+        Some((_, true)) => {
+            let path = session_file_path(session_id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            return Err(format!(
+                "Session file {path} also holds another session's messages (ids that \
+                 differ only in case share a file on this file system); use a different \
+                 `session_id`."
+            ));
+        }
+        Some((disk, false)) => Some(disk),
+        None => None,
+    };
+    let mut log = match fresh {
+        Some(disk) => disk,
+        None => store.get(session_id).cloned().unwrap_or_default(),
+    };
     log.messages.push(msg.clone());
 
     // Bound the in-process store.
@@ -336,7 +438,11 @@ pub fn store_append_message(
         log.messages.drain(..excess);
     }
 
-    persist_session(session_id, log);
+    // Only a log that reached disk replaces the cached one, so a failed
+    // write leaves no unsaved message behind.
+    persist_session(session_id, &log)
+        .map_err(|e| format!("Message not saved to the session file: {e}"))?;
+    store.insert(session_id.to_string(), log);
     Ok(msg)
 }
 
@@ -344,11 +450,13 @@ pub fn store_append_message(
 /// If the in-process store is empty for this session, attempt to load from disk
 /// (handles cold-start / process-restart scenarios).
 pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationMessage>, String> {
-    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store()
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?;
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read.
-    if let Some(log) = load_session_from_disk(session_id) {
+    if let Some((log, _)) = load_own_session(session_id) {
         store.insert(session_id.to_string(), log);
     }
 
@@ -1173,10 +1281,12 @@ fn export_extensions(format: &str) -> &'static [&'static str] {
 /// dotfile, in an existing directory is accepted. Errors are argument errors.
 pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
     if format == "pdf" {
-        return Err("`output_path` is not supported for pdf: pdf export goes through the \
+        return Err(
+            "`output_path` is not supported for pdf: pdf export goes through the \
                     system print dialog. Use html, docx or epub with `output_path`, or omit \
                     `output_path` to print to PDF."
-            .to_string());
+                .to_string(),
+        );
     }
     let abs = std::path::absolute(raw).map_err(|e| format!("`output_path` '{raw}': {e}"))?;
     let name = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -1190,7 +1300,11 @@ pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf,
         return Err(format!(
             "`output_path` '{}' must name a {format} file ({}), not a dotfile",
             abs.display(),
-            allowed.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
+            allowed
+                .iter()
+                .map(|e| format!(".{e}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     let dir = abs.parent().filter(|d| !d.as_os_str().is_empty());
@@ -1230,7 +1344,10 @@ pub fn tool_export_with(
             return Response::err(
                 id,
                 -32602,
-                format!("`format` must be one of {}, got '{other}'", EXPORT_FORMATS.join("/")),
+                format!(
+                    "`format` must be one of {}, got '{other}'",
+                    EXPORT_FORMATS.join("/")
+                ),
             )
         }
         None => return Response::err(id, -32602, "`format` is required"),
@@ -1355,11 +1472,17 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
-    let resume = args["review_id"].as_str().filter(|r| !r.is_empty()).map(str::to_string);
+    let resume = args["review_id"]
+        .as_str()
+        .filter(|r| !r.is_empty())
+        .map(str::to_string);
     let path = args["path"].as_str().map(agent_path);
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(300_000).clamp(5_000, 600_000);
+    let timeout_ms = args["timeout_ms"]
+        .as_u64()
+        .unwrap_or(300_000)
+        .clamp(5_000, 600_000);
     let wait_ms = args["wait_ms"]
         .as_u64()
         .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
@@ -1385,8 +1508,7 @@ pub fn tool_request_review_with(
             // forever on a record the app never resolves (a review replaced
             // in the panel by a newer one keeps `pending` in the app).
             let window_end_ms = unix_ms() + timeout_ms;
-            let review_id =
-                format!("rev_{nanos}_{:08x}_{window_end_ms}", std::process::id());
+            let review_id = format!("rev_{nanos}_{:08x}_{window_end_ms}", std::process::id());
             let post_body = json!({
                 "reviewId": review_id,
                 "path": path,
@@ -1426,33 +1548,49 @@ pub fn tool_request_review_with(
         let now = std::time::Instant::now();
         if now >= deadline {
             if window_ends {
-                return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "No verdict received within the timeout period."
-                }));
+                return tool_result(
+                    id,
+                    json!({
+                        "verdict": "timeout",
+                        "reviewId": review_id,
+                        "message": "No verdict received within the timeout period."
+                    }),
+                );
             }
-            return tool_result(id, json!({
-                "status": "pending",
-                "reviewId": review_id,
-                "message": "No verdict yet. Call request_review again with this review_id to keep waiting."
-            }));
+            return tool_result(
+                id,
+                json!({
+                    "status": "pending",
+                    "reviewId": review_id,
+                    "message": "No verdict yet. Call request_review again with this review_id to keep waiting."
+                }),
+            );
         }
         std::thread::sleep(poll.min(deadline - now));
         match ipc.get(&endpoint) {
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
-                "not_found" => return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "Review record lost (app may have restarted)."
-                })),
-                _ => return tool_result(id, json!({
-                    "verdict": resp["verdict"],
-                    "reviewId": review_id,
-                    "comments": resp["comments"],
-                })),
+                "not_found" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "timeout",
+                            "reviewId": review_id,
+                            "message": "Review record lost (app may have restarted)."
+                        }),
+                    )
+                }
+                _ => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": resp["verdict"],
+                            "reviewId": review_id,
+                            "comments": resp["comments"],
+                        }),
+                    )
+                }
             },
         }
     }
@@ -1531,10 +1669,13 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         // Attempt semantic search via Ollama embeddings.
         match semantic_search_vault(&query, limit, ipc) {
             Ok(results) => {
-                return tool_result(id, json!({
-                    "results": results,
-                    "mode": "semantic"
-                }));
+                return tool_result(
+                    id,
+                    json!({
+                        "results": results,
+                        "mode": "semantic"
+                    }),
+                );
             }
             Err(_) => {
                 // Embedding failed — fall through to grep.
@@ -1554,10 +1695,13 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
             // The app's search failed: grep the vault files on disk. The file
             // list comes from the app too, so this errors if it is not running.
             match grep_vault(&query, limit, ipc) {
-                Ok(results) => tool_result(id, json!({
-                    "results": results,
-                    "mode": "grep-local"
-                })),
+                Ok(results) => tool_result(
+                    id,
+                    json!({
+                        "results": results,
+                        "mode": "grep-local"
+                    }),
+                ),
                 Err(e) => tool_error(id, app_not_running_msg(&e)),
             }
         }
@@ -1601,19 +1745,22 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                 .into_iter()
                 .collect();
 
-            tool_result(id, json!({
-                "sessionId": session_id,
-                "messages": messages.iter().map(|m| json!({
-                    "id": m.id,
-                    "sessionId": m.session_id,
-                    "role": m.role,
-                    "content": m.content,
-                    "citedDocs": m.cited_docs,
-                    "timestampMs": m.timestamp_ms,
-                })).collect::<Vec<_>>(),
-                "count": messages.len(),
-                "recentDocs": cited_docs,
-            }))
+            tool_result(
+                id,
+                json!({
+                    "sessionId": session_id,
+                    "messages": messages.iter().map(|m| json!({
+                        "id": m.id,
+                        "sessionId": m.session_id,
+                        "role": m.role,
+                        "content": m.content,
+                        "citedDocs": m.cited_docs,
+                        "timestampMs": m.timestamp_ms,
+                    })).collect::<Vec<_>>(),
+                    "count": messages.len(),
+                    "recentDocs": cited_docs,
+                }),
+            )
         }
         Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
     }
@@ -1634,6 +1781,11 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         Some(r) => r,
         None => return Response::err(id, -32602, "`role` is required"),
     };
+    if !matches!(role.trim(), "agent" | "human" | "system") {
+        let got = role.trim();
+        let msg = format!("`role` must be 'agent', 'human', or 'system', got '{got}'");
+        return Response::err(id, -32602, msg);
+    }
 
     let content = match args["content"].as_str() {
         Some(c) if !c.trim().is_empty() => c.to_string(),
@@ -1643,18 +1795,27 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
 
     let cited_docs: Vec<String> = args["cited_docs"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
 
     match store_append_message(&session_id, role, &content, cited_docs) {
-        Ok(msg) => tool_result(id, json!({
-            "ok": true,
-            "messageId": msg.id,
-            "sessionId": msg.session_id,
-            "role": msg.role,
-            "timestampMs": msg.timestamp_ms,
-        })),
-        Err(e) => Response::err(id, -32602, e),
+        Ok(msg) => tool_result(
+            id,
+            json!({
+                "ok": true,
+                "messageId": msg.id,
+                "sessionId": msg.session_id,
+                "role": msg.role,
+                "timestampMs": msg.timestamp_ms,
+            }),
+        ),
+        // The arguments were valid (checked above); this is a failure to
+        // store the message, e.g. the session file could not be written.
+        Err(e) => tool_error(id, e),
     }
 }
 
@@ -1801,23 +1962,24 @@ pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
         })
         .collect();
 
-    tool_result(id, json!({
-        "actions": filtered,
-        "count": filtered.len()
-    }))
+    tool_result(
+        id,
+        json!({
+            "actions": filtered,
+            "count": filtered.len()
+        }),
+    )
 }
 
 // ── Resources ─────────────────────────────────────────────────────────────────
 
 pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
-    let mut resources = vec![
-        json!({
-            "uri": "mdopener://current",
-            "name": "Current document",
-            "description": "The document currently open in Ashlr MD.",
-            "mimeType": "text/markdown"
-        }),
-    ];
+    let mut resources = vec![json!({
+        "uri": "mdopener://current",
+        "name": "Current document",
+        "description": "The document currently open in Ashlr MD.",
+        "mimeType": "text/markdown"
+    })];
 
     // Advertise the semantic-search resource template so MCP clients can
     // discover it and construct queries like text://vault-search?q=my+topic.
@@ -1860,9 +2022,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         return match ipc.get("/content") {
             Ok(v) => {
                 let text = v["content"].as_str().unwrap_or("").to_string();
-                Response::ok(id, json!({
-                    "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
-                }))
+                Response::ok(
+                    id,
+                    json!({
+                        "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
+                    }),
+                )
             }
             Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
         };
@@ -1915,10 +2080,7 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             let encoded = urlencoding::encode(&query);
             match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
                 Ok(v) => {
-                    let results = v["results"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default();
+                    let results = v["results"].as_array().cloned().unwrap_or_default();
                     Ok((results, "grep"))
                 }
                 Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
@@ -1930,13 +2092,16 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
 
         let payload = json!({ "results": results, "mode": mode, "query": query });
-        return Response::ok(id, json!({
-            "contents": [{
-                "uri": uri,
-                "mimeType": "application/json",
-                "text": payload.to_string()
-            }]
-        }));
+        return Response::ok(
+            id,
+            json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": payload.to_string()
+                }]
+            }),
+        );
     }
 
     // mdopener://recent-documents — scoped list of recently opened files.
@@ -1946,14 +2111,33 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         return handle_recent_documents_resource(id, ipc);
     }
 
-    if let Some(p) = uri.strip_prefix("file://") {
-        if !is_advertised_path(p, ipc) {
-            return Response::err(id, -32002, format!("Resource not in vault: {uri}"));
-        }
-        return match std::fs::read_to_string(p) {
-            Ok(text) => Response::ok(id, json!({
-                "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
-            })),
+    if let Some(raw) = uri.strip_prefix("file://") {
+        // `file://localhost/a` names the same file as `file:///a`.
+        let raw = match raw.strip_prefix("localhost/") {
+            Some(_) => &raw["localhost".len()..],
+            None => raw,
+        };
+        // resources/list advertises `file://<path>` unencoded, but clients
+        // percent-encode URIs (`My%20Notes.md`). The decoded path is what
+        // must be advertised: the scope check runs after decoding, so
+        // encoding cannot name a file outside the vault.
+        let decoded = urlencoding::decode(raw).ok().map(|d| d.into_owned());
+        let advertised = |p: &str| is_advertised_path(p, ipc);
+        let p = if advertised(raw) {
+            raw.to_string()
+        } else {
+            match decoded {
+                Some(d) if d != raw && advertised(&d) => d,
+                _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+            }
+        };
+        return match read_regular_file(&p) {
+            Ok(text) => Response::ok(
+                id,
+                json!({
+                    "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
+                }),
+            ),
             Err(e) => Response::err(id, -32002, format!("Cannot read {p}: {e}")),
         };
     }
@@ -2018,10 +2202,13 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
     };
     let text = format!("{instruction}\n\n---\n\n{content}");
 
-    Response::ok(id, json!({
-        "description": format!("Apply the '{name}' prompt to the current Ashlr MD document"),
-        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
-    }))
+    Response::ok(
+        id,
+        json!({
+            "description": format!("Apply the '{name}' prompt to the current Ashlr MD document"),
+            "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
+        }),
+    )
 }
 
 // ── Semantic search engine ────────────────────────────────────────────────────
@@ -2089,7 +2276,11 @@ pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let mag_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
     let mag_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if mag_a == 0.0 || mag_b == 0.0 { 0.0 } else { dot / (mag_a * mag_b) }
+    if mag_a == 0.0 || mag_b == 0.0 {
+        0.0
+    } else {
+        dot / (mag_a * mag_b)
+    }
 }
 
 /// Canonicalize a path string, returning the input unchanged on failure.
@@ -2097,6 +2288,21 @@ pub fn canonicalize_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| raw.to_string())
+}
+
+/// Read a file as UTF-8 text, refusing anything that is not a regular file
+/// (after following symlinks). Opening a FIFO for reading blocks until a
+/// writer appears, and a device or socket is never a document, so every disk
+/// read goes through here rather than `std::fs::read_to_string`.
+pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    let path = path.as_ref();
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    std::fs::read_to_string(path)
 }
 
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's
@@ -2107,8 +2313,9 @@ pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// from disk (no app involved), refusing anything that is not a Markdown
 /// document. The check runs on the canonical path, so a `notes.md` symlink to
 /// `.env` is refused too. Dotfiles (`.env.md`, `.secrets.md`) are refused even
-/// with a Markdown extension. Returns the canonical path, or a message for an
-/// `isError` result.
+/// with a Markdown extension, and so is anything that exists but is not a
+/// regular file (a FIFO named `x.md` would block the read forever). Returns
+/// the canonical path, or a message for an `isError` result.
 pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
@@ -2132,6 +2339,14 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+    }
+    // A missing file falls through so the caller reports "No such file".
+    if let Ok(meta) = std::fs::metadata(p) {
+        if !meta.is_file() {
+            return Err(format!(
+                "Refusing to read `{arg}` '{abs}': it is not a regular file."
+            ));
+        }
     }
     Ok(abs)
 }
@@ -2176,7 +2391,7 @@ pub fn semantic_search_vault(
     let mut scored: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2188,10 +2403,19 @@ pub fn semantic_search_vault(
         };
         let score = cosine_similarity(&query_vec, &doc_vec);
         let (line_number, snippet) = best_snippet_for_query(&content, query);
-        scored.push(SearchResult { path: path.clone(), snippet, line_number, score });
+        scored.push(SearchResult {
+            path: path.clone(),
+            snippet,
+            line_number,
+            score,
+        });
     }
 
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(limit as usize);
     Ok(scored.iter().map(|r| r.to_json()).collect())
 }
@@ -2199,11 +2423,7 @@ pub fn semantic_search_vault(
 /// Grep the vault files directly on disk (used when the app's own `/search`
 /// fails).  The file list still comes from the app, so this errors when the
 /// app is not running.
-pub fn grep_vault(
-    query: &str,
-    limit: u64,
-    ipc: &dyn IpcClient,
-) -> Result<Vec<Value>, String> {
+pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
     let paths = vault_file_paths(ipc)?;
     if paths.is_empty() {
         return Ok(vec![]);
@@ -2212,7 +2432,7 @@ pub fn grep_vault(
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2240,7 +2460,11 @@ pub fn grep_vault(
         }
     }
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit as usize);
     Ok(results.iter().map(|r| r.to_json()).collect())
 }
@@ -2343,9 +2567,7 @@ pub fn parse_url(url: &str) -> Result<(String, u16, String), String> {
         .split_once('/')
         .map(|(a, p)| (a, format!("/{p}")))
         .unwrap_or((rest, "/".to_string()));
-    let (host, port_str) = authority
-        .split_once(':')
-        .ok_or("Expected host:port")?;
+    let (host, port_str) = authority.split_once(':').ok_or("Expected host:port")?;
     let port = port_str
         .parse::<u16>()
         .map_err(|e| format!("Invalid port: {e}"))?;
@@ -2477,7 +2699,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     let mut documents: Vec<Value> = Vec::new();
     for path in &recent_paths {
         // Skip paths that no longer exist on disk.
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2514,13 +2736,16 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     }
 
     let payload = json!({ "documents": documents, "count": documents.len() });
-    Response::ok(id, json!({
-        "contents": [{
-            "uri": "mdopener://recent-documents",
-            "mimeType": "application/json",
-            "text": payload.to_string()
-        }]
-    }))
+    Response::ok(
+        id,
+        json!({
+            "contents": [{
+                "uri": "mdopener://recent-documents",
+                "mimeType": "application/json",
+                "text": payload.to_string()
+            }]
+        }),
+    )
 }
 
 // ── diff_documents tool ───────────────────────────────────────────────────────
@@ -2558,11 +2783,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return tool_error(id, e),
     };
 
-    let content_a = match std::fs::read_to_string(&path_a) {
+    let content_a = match read_regular_file(&path_a) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match std::fs::read_to_string(&path_b) {
+    let content_b = match read_regular_file(&path_b) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -2570,14 +2795,17 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
     let (diff, hunks, added, removed) =
         compute_unified_diff(&path_a, &path_b, &content_a, &content_b, context_lines);
 
-    tool_result(id, json!({
-        "diff": diff,
-        "hunks": hunks,
-        "added": added,
-        "removed": removed,
-        "path_a": path_a,
-        "path_b": path_b,
-    }))
+    tool_result(
+        id,
+        json!({
+            "diff": diff,
+            "hunks": hunks,
+            "added": added,
+            "removed": removed,
+            "path_a": path_a,
+            "path_b": path_b,
+        }),
+    )
 }
 
 /// Compute a unified diff between two text blobs.
@@ -2616,27 +2844,42 @@ pub fn compute_unified_diff(
     for op in &lcs {
         match op {
             DiffOp::Equal(na, nb) => {
-                edits.push(EditLine { kind: ' ', text: lines_a[*na].to_string() });
+                edits.push(EditLine {
+                    kind: ' ',
+                    text: lines_a[*na].to_string(),
+                });
                 ia = na + 1;
                 ib = nb + 1;
             }
             DiffOp::Delete(na) => {
-                edits.push(EditLine { kind: '-', text: lines_a[*na].to_string() });
+                edits.push(EditLine {
+                    kind: '-',
+                    text: lines_a[*na].to_string(),
+                });
                 ia = na + 1;
             }
             DiffOp::Insert(nb) => {
-                edits.push(EditLine { kind: '+', text: lines_b[*nb].to_string() });
+                edits.push(EditLine {
+                    kind: '+',
+                    text: lines_b[*nb].to_string(),
+                });
                 ib = nb + 1;
             }
         }
     }
     // Drain remaining lines from A (deletions) and B (insertions).
     while ia < lines_a.len() {
-        edits.push(EditLine { kind: '-', text: lines_a[ia].to_string() });
+        edits.push(EditLine {
+            kind: '-',
+            text: lines_a[ia].to_string(),
+        });
         ia += 1;
     }
     while ib < lines_b.len() {
-        edits.push(EditLine { kind: '+', text: lines_b[ib].to_string() });
+        edits.push(EditLine {
+            kind: '+',
+            text: lines_b[ib].to_string(),
+        });
         ib += 1;
     }
 
@@ -2693,8 +2936,12 @@ pub fn compute_unified_diff(
 
         for e in slice {
             diff_lines.push(format!("{}{}", e.kind, e.text));
-            if e.kind == '+' { total_added += 1; }
-            if e.kind == '-' { total_removed += 1; }
+            if e.kind == '+' {
+                total_added += 1;
+            }
+            if e.kind == '-' {
+                total_removed += 1;
+            }
         }
     }
 
@@ -2843,7 +3090,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
-    let raw_content = match std::fs::read_to_string(&path) {
+    let raw_content = match read_regular_file(&path) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
@@ -2856,6 +3103,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
     let mut edges: Vec<serde_json::Map<String, Value>> = parsed.edges;
+    let mut output = parsed.rest;
 
     // ── Apply ops ────────────────────────────────────────────────────────────
     let ops = match args["ops"].as_array() {
@@ -2871,32 +3119,50 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     for (i, op) in ops.iter().enumerate() {
         let op_type = match op["type"].as_str() {
             Some(t) => t,
-            None => {
-                return Response::err(id, -32602, format!("op[{i}]: missing `type`"))
-            }
+            None => return Response::err(id, -32602, format!("op[{i}]: missing `type`")),
         };
 
         match op_type {
             "move_node" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] move_node: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] move_node: `id` required"),
+                        )
+                    }
                 };
                 let x = match op["x"].as_f64() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] move_node: `x` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] move_node: `x` required"),
+                        )
+                    }
                 };
                 let y = match op["y"].as_f64() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] move_node: `y` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] move_node: `y` required"),
+                        )
+                    }
                 };
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] move_node: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] move_node: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 node.insert("x".into(), json!(x));
                 node.insert("y".into(), json!(y));
@@ -2904,27 +3170,50 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "resize_node" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] resize_node: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] resize_node: `id` required"),
+                        )
+                    }
                 };
                 let w = match op["width"].as_f64() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] resize_node: `width` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] resize_node: `width` required"),
+                        )
+                    }
                 };
                 let h = match op["height"].as_f64() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] resize_node: `height` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] resize_node: `height` required"),
+                        )
+                    }
                 };
                 if w <= 0.0 || h <= 0.0 {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] resize_node: width and height must be positive"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] resize_node: width and height must be positive"),
+                    );
                 }
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] resize_node: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] resize_node: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 node.insert("width".into(), json!(w));
                 node.insert("height".into(), json!(h));
@@ -2932,110 +3221,196 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "edit_text" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_text: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_text: `id` required"),
+                        )
+                    }
                 };
                 let text = match op["text"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_text: `text` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_text: `text` required"),
+                        )
+                    }
                 };
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_text: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_text: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 if node.get("type").and_then(Value::as_str) != Some("text") {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] edit_text: node `{node_id}` is not a text node"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] edit_text: node `{node_id}` is not a text node"),
+                    );
                 }
                 node.insert("text".into(), json!(text));
             }
             "edit_link" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_link: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_link: `id` required"),
+                        )
+                    }
                 };
                 let url = match op["url"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_link: `url` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_link: `url` required"),
+                        )
+                    }
                 };
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_link: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_link: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 if node.get("type").and_then(Value::as_str) != Some("link") {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] edit_link: node `{node_id}` is not a link node"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] edit_link: node `{node_id}` is not a link node"),
+                    );
                 }
                 node.insert("url".into(), json!(url));
             }
             "edit_group_label" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_group_label: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_group_label: `id` required"),
+                        )
+                    }
                 };
                 let label = match op["label"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_group_label: `label` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_group_label: `label` required"),
+                        )
+                    }
                 };
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_group_label: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_group_label: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 if node.get("type").and_then(Value::as_str) != Some("group") {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] edit_group_label: node `{node_id}` is not a group node"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] edit_group_label: node `{node_id}` is not a group node"),
+                    );
                 }
                 node.insert("label".into(), json!(label));
             }
             "set_node_color" => {
                 let node_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] set_node_color: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] set_node_color: `id` required"),
+                        )
+                    }
                 };
                 let node = match find_node_mut(&mut nodes, node_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] set_node_color: node `{node_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] set_node_color: node `{node_id}` not found"),
+                        )
+                    }
                 };
                 match op.get("color") {
-                    Some(Value::Null) | None => { node.remove("color"); }
-                    Some(v) => { node.insert("color".into(), v.clone()); }
+                    Some(Value::Null) | None => {
+                        node.remove("color");
+                    }
+                    Some(v) => {
+                        node.insert("color".into(), v.clone());
+                    }
                 }
             }
             "add_node" => {
                 let new_node = match op["node"].as_object() {
                     Some(n) => n,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_node: `node` object required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_node: `node` object required"),
+                        )
+                    }
                 };
                 let new_id = match new_node.get("id").and_then(Value::as_str) {
                     Some(s) => s,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_node: node.id required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_node: node.id required"),
+                        )
+                    }
                 };
-                if nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(new_id)) {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] add_node: id `{new_id}` already exists"));
+                if nodes
+                    .iter()
+                    .any(|n| n.get("id").and_then(Value::as_str) == Some(new_id))
+                {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] add_node: id `{new_id}` already exists"),
+                    );
                 }
                 nodes.push(new_node.clone());
             }
             "delete_node" => {
-                let node_id = req_str!(id, op["id"],
-                    "op[{}] delete_node: `id` required", i);
+                let node_id = req_str!(id, op["id"], "op[{}] delete_node: `id` required", i);
                 let before = nodes.len();
                 nodes.retain(|n| n.get("id").and_then(Value::as_str) != Some(node_id));
                 if nodes.len() == before {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] delete_node: node `{node_id}` not found"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] delete_node: node `{node_id}` not found"),
+                    );
                 }
                 edges.retain(|e| {
                     e.get("fromNode").and_then(Value::as_str) != Some(node_id)
@@ -3045,108 +3420,197 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "add_edge" => {
                 let new_edge = match op["edge"].as_object() {
                     Some(e) => e,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: `edge` object required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: `edge` object required"),
+                        )
+                    }
                 };
                 let new_id = match new_edge.get("id").and_then(Value::as_str) {
                     Some(s) => s,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: edge.id required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: edge.id required"),
+                        )
+                    }
                 };
-                if edges.iter().any(|e| e.get("id").and_then(Value::as_str) == Some(new_id)) {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: id `{new_id}` already exists"));
+                if edges
+                    .iter()
+                    .any(|e| e.get("id").and_then(Value::as_str) == Some(new_id))
+                {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] add_edge: id `{new_id}` already exists"),
+                    );
                 }
                 let from = match new_edge.get("fromNode").and_then(Value::as_str) {
                     Some(s) => s,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: edge.fromNode required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: edge.fromNode required"),
+                        )
+                    }
                 };
                 let to = match new_edge.get("toNode").and_then(Value::as_str) {
                     Some(s) => s,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: edge.toNode required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: edge.toNode required"),
+                        )
+                    }
                 };
-                if !nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(from)) {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: fromNode `{from}` not found"));
+                if !nodes
+                    .iter()
+                    .any(|n| n.get("id").and_then(Value::as_str) == Some(from))
+                {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] add_edge: fromNode `{from}` not found"),
+                    );
                 }
-                if !nodes.iter().any(|n| n.get("id").and_then(Value::as_str) == Some(to)) {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] add_edge: toNode `{to}` not found"));
+                if !nodes
+                    .iter()
+                    .any(|n| n.get("id").and_then(Value::as_str) == Some(to))
+                {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] add_edge: toNode `{to}` not found"),
+                    );
                 }
                 edges.push(new_edge.clone());
             }
             "delete_edge" => {
                 let edge_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] delete_edge: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] delete_edge: `id` required"),
+                        )
+                    }
                 };
                 let before = edges.len();
                 edges.retain(|e| e.get("id").and_then(Value::as_str) != Some(edge_id));
                 if edges.len() == before {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] delete_edge: edge `{edge_id}` not found"));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("op[{i}] delete_edge: edge `{edge_id}` not found"),
+                    );
                 }
             }
             "edit_edge_label" => {
                 let edge_id = match op["id"].as_str() {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_edge_label: `id` required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_edge_label: `id` required"),
+                        )
+                    }
                 };
                 let edge = match find_edge_mut(&mut edges, edge_id) {
                     Some(v) => v,
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] edit_edge_label: edge `{edge_id}` not found")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] edit_edge_label: edge `{edge_id}` not found"),
+                        )
+                    }
                 };
                 match op.get("label") {
-                    Some(Value::Null) | None => { edge.remove("label"); }
-                    Some(v) => { edge.insert("label".into(), v.clone()); }
+                    Some(Value::Null) | None => {
+                        edge.remove("label");
+                    }
+                    Some(v) => {
+                        edge.insert("label".into(), v.clone());
+                    }
                 }
             }
             "reorder_edges" => {
                 let new_ids = match op["ids"].as_array() {
                     Some(a) => a.clone(),
-                    None => return Response::err(id, -32602,
-                        format!("op[{i}] reorder_edges: `ids` array required")),
+                    None => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] reorder_edges: `ids` array required"),
+                        )
+                    }
                 };
                 if new_ids.len() != edges.len() {
-                    return Response::err(id, -32602,
-                        format!("op[{i}] reorder_edges: expected {} ids, got {}",
-                            edges.len(), new_ids.len()));
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!(
+                            "op[{i}] reorder_edges: expected {} ids, got {}",
+                            edges.len(),
+                            new_ids.len()
+                        ),
+                    );
                 }
                 let edge_map: std::collections::HashMap<String, serde_json::Map<String, Value>> =
-                    edges.iter().filter_map(|e| {
-                        e.get("id").and_then(Value::as_str)
-                            .map(|eid| (eid.to_string(), e.clone()))
-                    }).collect();
+                    edges
+                        .iter()
+                        .filter_map(|e| {
+                            e.get("id")
+                                .and_then(Value::as_str)
+                                .map(|eid| (eid.to_string(), e.clone()))
+                        })
+                        .collect();
                 let mut reordered = Vec::with_capacity(edges.len());
                 for v in &new_ids {
                     let eid = match v.as_str() {
                         Some(s) => s,
-                        None => return Response::err(id, -32602,
-                            format!("op[{i}] reorder_edges: id must be a string")),
+                        None => {
+                            return Response::err(
+                                id,
+                                -32602,
+                                format!("op[{i}] reorder_edges: id must be a string"),
+                            )
+                        }
                     };
                     match edge_map.get(eid) {
                         Some(e) => reordered.push(e.clone()),
-                        None => return Response::err(id, -32602,
-                            format!("op[{i}] reorder_edges: unknown edge id `{eid}`")),
+                        None => {
+                            return Response::err(
+                                id,
+                                -32602,
+                                format!("op[{i}] reorder_edges: unknown edge id `{eid}`"),
+                            )
+                        }
                     }
                 }
                 edges = reordered;
             }
             other => {
-                return Response::err(id, -32602,
-                    format!("op[{i}]: unknown operation type `{other}`"));
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("op[{i}]: unknown operation type `{other}`"),
+                );
             }
         }
         ops_applied.push(op_type.to_string());
     }
 
     // ── Serialise ────────────────────────────────────────────────────────────
-    let output = json!({ "nodes": nodes, "edges": edges });
+    output.insert("nodes".into(), json!(nodes));
+    output.insert("edges".into(), json!(edges));
     let serialised = match serde_json::to_string_pretty(&output) {
         Ok(s) => s,
         Err(e) => return tool_error(id, format!("Serialisation error: {e}")),
@@ -3160,15 +3624,18 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         }
     }
 
-    tool_result(id, json!({
-        "ok": true,
-        "path": path,
-        "nodes_count": nodes.len(),
-        "edges_count": edges.len(),
-        "ops_applied": ops_applied,
-        "saved": save,
-        "content": if save { Value::Null } else { json!(serialised) },
-    }))
+    tool_result(
+        id,
+        json!({
+            "ok": true,
+            "path": path,
+            "nodes_count": nodes.len(),
+            "edges_count": edges.len(),
+            "ops_applied": ops_applied,
+            "saved": save,
+            "content": if save { Value::Null } else { json!(serialised) },
+        }),
+    )
 }
 
 // ── Canvas JSON helpers ───────────────────────────────────────────────────────
@@ -3176,35 +3643,58 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 struct RawCanvas {
     nodes: Vec<serde_json::Map<String, Value>>,
     edges: Vec<serde_json::Map<String, Value>>,
+    /// Every other top-level key, written back unchanged on save.
+    rest: serde_json::Map<String, Value>,
 }
 
 fn parse_canvas_json(raw: &str) -> Result<RawCanvas, String> {
-    let v: Value = serde_json::from_str(raw)
-        .map_err(|e| format!("Invalid JSON: {e}"))?;
-    let obj = v.as_object().ok_or("Canvas must be a JSON object")?;
-    let nodes = obj.get("nodes")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    let edges = obj.get("edges")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    Ok(RawCanvas { nodes, edges })
+    let v: Value = serde_json::from_str(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let Value::Object(mut rest) = v else {
+        return Err("Canvas must be a JSON object".into());
+    };
+    let nodes = take_canvas_items(&mut rest, "nodes")?;
+    let edges = take_canvas_items(&mut rest, "edges")?;
+    Ok(RawCanvas { nodes, edges, rest })
+}
+
+/// Remove `key` (`nodes` or `edges`) from the canvas object as a list of
+/// objects. A missing key is an empty list; anything that is not an array of
+/// objects is an error, since saving would otherwise drop it.
+fn take_canvas_items(
+    obj: &mut serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Vec<serde_json::Map<String, Value>>, String> {
+    let items = match obj.remove(key) {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(format!("`{key}` must be an array")),
+    };
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(i, item)| match item {
+            Value::Object(m) => Ok(m),
+            other => Err(format!("{key}[{i}] must be an object, got {other}")),
+        })
+        .collect()
 }
 
 fn find_node_mut<'a>(
     nodes: &'a mut [serde_json::Map<String, Value>],
     id: &str,
 ) -> Option<&'a mut serde_json::Map<String, Value>> {
-    nodes.iter_mut().find(|n| n.get("id").and_then(Value::as_str) == Some(id))
+    nodes
+        .iter_mut()
+        .find(|n| n.get("id").and_then(Value::as_str) == Some(id))
 }
 
 fn find_edge_mut<'a>(
     edges: &'a mut [serde_json::Map<String, Value>],
     id: &str,
 ) -> Option<&'a mut serde_json::Map<String, Value>> {
-    edges.iter_mut().find(|e| e.get("id").and_then(Value::as_str) == Some(id))
+    edges
+        .iter_mut()
+        .find(|e| e.get("id").and_then(Value::as_str) == Some(id))
 }
 
 // (All error paths in tool_edit_canvas use explicit `return Response::err` —
@@ -3230,8 +3720,12 @@ pub struct StreamEditPayload {
     pub path: Option<String>,
 }
 
-fn default_preview() -> bool { true }
-fn default_preview_lines() -> u32 { 5 }
+fn default_preview() -> bool {
+    true
+}
+fn default_preview_lines() -> u32 {
+    5
+}
 
 /// The `path` the stream-edit tools assert. The frontend compares it to the
 /// open document's path as a plain string, and a document opened by drag and
@@ -3345,7 +3839,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///
 /// Rules:
 /// - YAML front-matter fences (`---` … `---` / `---` … `...`) at the top are
-///   removed entirely.
+///   removed entirely. A leading `---` that is never closed is not
+///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
 ///   code content is preserved as-is.
 /// - ATX headings: leading `#` characters and a space are removed.
@@ -3362,20 +3857,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Blank lines are collapsed to a single blank line between paragraphs.
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
-    let mut lines = content.lines().peekable();
-
-    // Remove YAML front-matter at the very start.
-    if let Some(&first) = lines.peek() {
-        if first.trim() == "---" {
-            lines.next(); // consume opening fence
-            // Consume until closing `---` or `...`
-            for line in lines.by_ref() {
-                if line.trim() == "---" || line.trim() == "..." {
-                    break;
-                }
-            }
-        }
-    }
+    // Remove YAML front-matter at the very start (only when it is closed).
+    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
+    let lines = content.lines().skip(skip);
 
     let mut in_code_block = false;
 
@@ -3513,11 +3997,7 @@ pub fn strip_inline_markdown(s: &str) -> String {
             }
         }
         // Obsidian embedded image ![[…]] → empty (no useful text)
-        if chars[i] == '!'
-            && i + 2 < n
-            && chars[i + 1] == '['
-            && chars[i + 2] == '['
-        {
+        if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
             if let Some(close) = find_double_close(&chars, i + 3) {
                 i = close + 2;
                 continue;
@@ -3536,7 +4016,10 @@ pub fn strip_inline_markdown(s: &str) -> String {
         if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
             if let Some(close) = find_double_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
-                let label = inner.split('|').next().map(str::to_string)
+                let label = inner
+                    .split('|')
+                    .next()
+                    .map(str::to_string)
                     .unwrap_or_else(|| inner.clone());
                 out.push_str(&label);
                 i = close + 2;
@@ -3616,7 +4099,12 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
     let mut inner = String::new();
     while i < chars.len() {
         match chars[i] {
-            '[' => { depth += 1; if depth > 1 { inner.push('['); } }
+            '[' => {
+                depth += 1;
+                if depth > 1 {
+                    inner.push('[');
+                }
+            }
             ']' => {
                 depth -= 1;
                 if depth == 0 {
@@ -3642,10 +4130,13 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
     let mut depth = 0usize;
     let mut i = start;
     while i < chars.len() {
-        if chars[i] == open { depth += 1; }
-        else if chars[i] == close {
+        if chars[i] == open {
+            depth += 1;
+        } else if chars[i] == close {
             depth -= 1;
-            if depth == 0 { return i + 1; }
+            if depth == 0 {
+                return i + 1;
+            }
         }
         i += 1;
     }
@@ -3676,7 +4167,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
@@ -3708,6 +4199,26 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 
 // ── export_metadata tool ──────────────────────────────────────────────────────
 
+/// The lines between a leading `---` and the closing `---` or `...`, or
+/// `None` when the document does not open with front-matter. A leading `---`
+/// that is never closed is a thematic break, not front-matter, so the rest
+/// of the document is not swallowed.
+fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
+    let mut lines = content.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+    let mut fm_lines = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            return Some(fm_lines);
+        }
+        fm_lines.push(line);
+    }
+    None
+}
+
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
 /// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
@@ -3715,22 +4226,9 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// simple key: value lines.  Only scalar string/bool/number values are parsed;
 /// multi-line and nested YAML are returned as raw strings.
 pub fn extract_frontmatter(content: &str) -> Value {
-    let mut lines = content.lines();
-    let first = match lines.next() {
-        Some(l) => l.trim(),
-        None => return Value::Null,
-    };
-    if first != "---" {
+    let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
-    }
-    let mut fm_lines: Vec<&str> = Vec::new();
-    for line in lines {
-        let t = line.trim();
-        if t == "---" || t == "..." {
-            break;
-        }
-        fm_lines.push(line);
-    }
+    };
     if fm_lines.is_empty() {
         return Value::Null;
     }
@@ -3754,10 +4252,7 @@ pub fn extract_frontmatter(content: &str) -> Value {
                 json!(f)
             } else {
                 // Strip surrounding quotes if present.
-                let s = val_str
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string();
+                let s = val_str.trim_matches('"').trim_matches('\'').to_string();
                 json!(s)
             };
             map.insert(key, val);
@@ -3824,10 +4319,9 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
                 let inner: String = chars[i + 2..close].iter().collect();
                 let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
                 // Exclude embedded image wikilinks (preceded by `!`).
-                if (i == 0 || chars[i - 1] != '!')
-                    && !target.is_empty() {
-                        links.insert(target);
-                    }
+                if (i == 0 || chars[i - 1] != '!') && !target.is_empty() {
+                    links.insert(target);
+                }
                 i = close + 2;
                 continue;
             }
@@ -3905,7 +4399,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
@@ -3939,4 +4433,3 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     }
     tool_result(id, result)
 }
-
