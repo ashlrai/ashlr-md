@@ -24,7 +24,7 @@
 //! %LOCALAPPDATA%\Programs\mdopen (Windows) by the in-app "Install CLI tool"
 //! command.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
 
@@ -201,18 +201,24 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
     if !p.is_file() {
         return Err(format!("{target:?} is not a file"));
     }
-    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let markdown = std::path::Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
-    if !markdown || name.starts_with('.') {
+    if !is_markdown_document_name(&p) {
         return Err(format!(
             "{target:?} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
             MD_EXTENSIONS.join(", .")
         ));
     }
     Ok(p)
+}
+
+/// Whether the (resolved) path's file name is one the app opens: a Markdown
+/// extension and not a dotfile.
+fn is_markdown_document_name(p: &Path) -> bool {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let markdown = Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    markdown && !name.starts_with('.')
 }
 
 /// Extensions the app opens (mirrors `MD_EXTENSIONS` in src-tauri/src/document.rs).
@@ -476,8 +482,11 @@ fn hook_target(input: &str) -> Option<PathBuf> {
             p = PathBuf::from(cwd).join(p);
         }
     }
+    // Judged again after resolving symlinks, as the app does: a written
+    // `.notes.md`, or a `notes.md` linking to a dotfile or a non-Markdown
+    // file, used to be handed to the app, which refuses it.
     let abs = std::fs::canonicalize(&p).ok()?;
-    abs.is_file().then_some(abs)
+    (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
 }
 
 const HELP: &str = "mdopen — open Markdown files in Ashlr MD
@@ -523,7 +532,6 @@ EXIT STATUS:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     fn args(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
@@ -821,5 +829,31 @@ mod tests {
         assert_eq!(hook_target(""), None);
         assert_eq!(hook_target("[1,2]"), None);
         assert_eq!(hook_target(r#"{"tool_input":{"file_path":7}}"#), None);
+    }
+
+    #[test]
+    fn hook_target_skips_dotfiles_after_resolving_links() {
+        let s = Scratch::new("hook-dot");
+        let dot = s.file(".notes.md");
+        assert_eq!(hook_target(&payload(&s.0, dot.to_str().unwrap())), None);
+        assert_eq!(hook_target(&payload(&s.0, ".notes.md")), None);
+        #[cfg(unix)]
+        {
+            let env = s.0.join(".env");
+            std::fs::write(&env, "KEY=x").unwrap();
+            let txt = s.0.join("secrets.txt");
+            std::fs::write(&txt, "x").unwrap();
+            for (link, target) in [("to-env.md", &env), ("to-txt.md", &txt)] {
+                std::os::unix::fs::symlink(target, s.0.join(link)).unwrap();
+                assert_eq!(hook_target(&payload(&s.0, link)), None, "{link}");
+            }
+            // A link to a Markdown document still opens it.
+            let real = s.file("real.md");
+            std::os::unix::fs::symlink(&real, s.0.join("alias.md")).unwrap();
+            assert_eq!(
+                hook_target(&payload(&s.0, "alias.md")),
+                Some(std::fs::canonicalize(&real).unwrap())
+            );
+        }
     }
 }
