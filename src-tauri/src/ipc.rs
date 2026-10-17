@@ -739,8 +739,9 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 /// MCP tools that read a path from disk accept Markdown only. The check runs
 /// on the canonical path, so a `notes.md` symlink to a secret is refused;
 /// dotfiles and anything that exists but is not a regular file are refused
-/// too. Returns the canonical path (or the given one when it does not exist,
-/// which the open then reports).
+/// too, and so is a path that does not exist: the window cannot open it, and
+/// the endpoint would otherwise answer `ok` for an open that never happens.
+/// Returns the canonical path.
 fn checked_agent_path(raw: &str) -> Result<String, String> {
     let abs = std::fs::canonicalize(raw)
         .map(|p| p.to_string_lossy().into_owned())
@@ -760,6 +761,9 @@ fn checked_agent_path(raw: &str) -> Result<String, String> {
             "Refusing to open '{abs}': agents can open only Markdown documents (.md, \
              .markdown, .mdown, .mkd, .mdx) that are not dotfiles."
         ));
+    }
+    if !p.exists() {
+        return Err(format!("Cannot open '{abs}': the file does not exist."));
     }
     Ok(abs)
 }
@@ -1764,6 +1768,12 @@ mod tests {
             let err = checked_agent_path(p.to_str().unwrap()).unwrap_err();
             assert!(err.contains("Markdown"), "{p:?}: {err}");
         }
+
+        // The window cannot open a file that is not there (it would report
+        // the open as done and show nothing).
+        let missing = d.0.join("missing.md");
+        let err = checked_agent_path(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
     }
 
     /// A scratch directory removed on drop (the app crate has no tempfile).

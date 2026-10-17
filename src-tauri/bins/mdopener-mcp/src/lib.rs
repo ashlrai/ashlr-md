@@ -1193,9 +1193,9 @@ pub fn tool_open_file_with(
         }
     };
 
-    // A path that does not exist yet is allowed (the app opens it as a new
-    // document), but it is still made absolute against this server's working
-    // directory: the app resolves paths against its own, unrelated cwd.
+    // The path is made absolute against this server's working directory: the
+    // app resolves paths against its own, unrelated cwd. A missing file is
+    // left for the app to refuse ("does not exist") when it is running.
     let abs = match openable_document_path(&raw_path) {
         Ok(abs) => abs,
         Err(e) => return tool_error(id, e),

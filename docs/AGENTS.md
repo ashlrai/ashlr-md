@@ -214,7 +214,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 
 | Tool | Parameters | Returns | Notes |
 |---|---|---|---|
-| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)). |
+| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a running app refuses a file that does not exist. |
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
