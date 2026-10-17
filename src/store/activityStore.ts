@@ -137,7 +137,15 @@ export const useActivityStore = create<ActivityState>()(
       lastError: null,
 
       setWatchedDir: (dir) => {
-        set({ watchedDir: dir, lastError: null });
+        // The listing and badges belong to the folder they were read from: a
+        // new folder starts empty until `loadFiles` lists it, so the drawer and
+        // the agents' `/vault` (search_vault) never show the old folder's files
+        // as the new one's, also when that listing fails.
+        if (dir !== get().watchedDir) {
+          set({ watchedDir: dir, files: [], unseen: [], lastError: null });
+        } else {
+          set({ lastError: null });
+        }
         // Watching a folder is the primary activation event ("Ashlr is where my
         // agent's markdown lands"). Recorded locally for first-run gating.
         if (dir) useActivationStore.getState().markActivated();
@@ -150,9 +158,15 @@ export const useActivityStore = create<ActivityState>()(
           return;
         }
         try {
-          const files = await listMarkdownFiles(dir);
+          // Ask for as many files as the store keeps: the backend's default
+          // (100) silently left half of them out of the drawer and of what
+          // search_vault searches.
+          const files = await listMarkdownFiles(dir, MAX_FILES);
+          // The folder changed while this listing ran: it is not this one's.
+          if (get().watchedDir !== dir) return;
           set({ files, lastError: null });
         } catch (e) {
+          if (get().watchedDir !== dir) return;
           set({ lastError: e instanceof Error ? e.message : String(e) });
         }
       },

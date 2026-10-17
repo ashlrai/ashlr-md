@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The watched-folder list (and what `search_vault` searches) follows the
+  folder.** Switching folders kept the old folder's files until the new
+  listing arrived, kept them for good when it failed, and a slow listing of
+  the old folder could land after the switch. The listing also asked for the
+  backend's default 100 files while the list holds 200, so half of a large
+  folder was never searched. Each folder now starts empty, a stale listing is
+  discarded, and up to 200 files are listed.
 - **The canvas view says when it cannot show part of a canvas.** Malformed
   nodes and edges, edges to a missing node, and a `nodes` or `edges` that is
   not a list were left out without a word, so a canvas written badly by an

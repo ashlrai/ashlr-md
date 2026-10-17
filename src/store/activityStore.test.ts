@@ -188,4 +188,53 @@ describe("activityStore", () => {
     expect(s.unseen).toHaveLength(0);
     expect(s.lastError).toBeNull();
   });
+
+  // ── Folder switches (the vault list agents search) ──────────────────────
+
+  it("loadFiles asks the backend for as many files as the store keeps", async () => {
+    useActivityStore.setState({ watchedDir: "/watch" });
+    listMock.mockResolvedValue([]);
+    await useActivityStore.getState().loadFiles();
+    expect(listMock).toHaveBeenCalledWith("/watch", 200);
+  });
+
+  it("switching folders clears the old folder's files and badges", () => {
+    useActivityStore.setState({
+      watchedDir: "/old",
+      files: [makeFile("a.md")],
+      unseen: ["/watch/a.md"],
+    });
+    useActivityStore.getState().setWatchedDir("/new");
+    const s = useActivityStore.getState();
+    expect(s.files).toEqual([]);
+    expect(s.unseen).toEqual([]);
+    // Re-setting the same folder keeps its listing.
+    useActivityStore.setState({ files: [makeFile("b.md")] });
+    useActivityStore.getState().setWatchedDir("/new");
+    expect(useActivityStore.getState().files).toHaveLength(1);
+  });
+
+  it("a listing that finishes after the folder changed is discarded", async () => {
+    let resolveOld: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveOld = r;
+        }),
+    );
+    useActivityStore.getState().setWatchedDir("/old");
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().setWatchedDir("/new");
+    resolveOld([makeFile("stale.md")]);
+    await pending;
+    expect(useActivityStore.getState().files).toEqual([]);
+
+    // Nor does a failure of the old listing set an error on the new folder.
+    listMock.mockRejectedValueOnce(new Error("gone"));
+    useActivityStore.getState().setWatchedDir("/old2");
+    const failing = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().setWatchedDir("/new2");
+    await failing;
+    expect(useActivityStore.getState().lastError).toBeNull();
+  });
 });
