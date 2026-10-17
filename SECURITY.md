@@ -71,6 +71,14 @@ secondary sensitive asset is your **AI provider API key**.
   `read_image_data_url`) are intentionally not path-scoped — opening any file the
   user points at is the app's core function. The one write-side guard is refusing
   to write inside a vault's `.obsidian/` config dir.
+- **Agent opens are Markdown-only.** Because an opened document can be read
+  back over the IPC (`/content`, recents), the `/open`, `/present` and
+  `/review` endpoints, the MCP tools that call them (`open_file`,
+  `present_document`, `request_review` with a path) and the `mdopen` CLI refuse
+  anything but an existing Markdown document (`.md`, `.markdown`, `.mdown`,
+  `.mkd`, `.mdx`) that is not a dotfile, checked on the canonical path, so a
+  `notes.md` symlink to `.env` is refused too. The IPC answers HTTP 400 with
+  the reason, which reaches the agent as an `isError` tool result.
 
 ### Native capabilities
 
