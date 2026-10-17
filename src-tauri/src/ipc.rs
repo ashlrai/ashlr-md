@@ -911,6 +911,9 @@ fn handle_open(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
+            if let Some(e) = open_mode_refusal(b.mode.as_deref()) {
+                return send_error(req, 400, &e);
+            }
             let abs = match checked_agent_path(&b.path) {
                 Ok(abs) => abs,
                 Err(e) => return send_error(req, 400, &e),
@@ -924,6 +927,18 @@ fn handle_open(mut req: Request, app: &AppHandle) {
             send_json(req, reply);
         }
         Err((code, e)) => send_error(req, code, &e),
+    }
+}
+
+/// Why `/open` refuses `mode`, if it does. The window switches only to
+/// `read` or `edit` and ignores anything else, so a misspelt mode would be
+/// answered `ok` with the document left in whatever view it was.
+fn open_mode_refusal(mode: Option<&str>) -> Option<String> {
+    match mode {
+        None | Some("read" | "edit") => None,
+        Some(other) => Some(format!(
+            "Unknown mode '{other}': use \"read\" or \"edit\", or omit it to keep the current view."
+        )),
     }
 }
 
@@ -2200,6 +2215,20 @@ mod tests {
 
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn open_refuses_a_mode_the_window_ignores() {
+        use super::open_mode_refusal;
+        assert_eq!(open_mode_refusal(None), None);
+        assert_eq!(open_mode_refusal(Some("read")), None);
+        assert_eq!(open_mode_refusal(Some("edit")), None);
+        let err = open_mode_refusal(Some("Edit")).unwrap();
+        assert!(
+            err.contains("'Edit'") && err.contains("\"read\" or \"edit\""),
+            "{err}"
+        );
+        assert!(open_mode_refusal(Some("")).is_some());
+    }
+
     #[test]
     fn an_undelivered_window_event_is_refused_not_answered_ok() {
         use super::{emit_failure, emitted_reply};
