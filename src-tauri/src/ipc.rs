@@ -1025,7 +1025,10 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     if body.review_id.is_empty() {
         return send_error(req, 400, "reviewId is required");
     }
-    let timeout_ms = body.timeout_ms.unwrap_or(300_000).clamp(5_000, 600_000);
+    let timeout_ms = match review_timeout(body.timeout_ms) {
+        Ok(t) => t,
+        Err(e) => return send_error(req, 400, &e),
+    };
     let abs_path = match body.path.as_deref().map(checked_agent_path).transpose() {
         Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
@@ -1088,6 +1091,26 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
             .remove(&body.review_id);
     }
     send_json(req, reply);
+}
+
+/// The review window when `timeoutMs` is not given: 5 minutes.
+const REVIEW_DEFAULT_TIMEOUT_MS: u64 = 300_000;
+/// The shortest and longest review windows accepted (mirrored by the
+/// `request_review` MCP tool, which refuses the same values).
+const REVIEW_MIN_TIMEOUT_MS: u64 = 5_000;
+const REVIEW_MAX_TIMEOUT_MS: u64 = 600_000;
+
+/// The review window for a `/review` request's `timeoutMs`. A value outside
+/// the accepted range is refused rather than clamped, so the caller never
+/// waits on a window it did not ask for.
+fn review_timeout(requested: Option<u64>) -> Result<u64, String> {
+    match requested {
+        None => Ok(REVIEW_DEFAULT_TIMEOUT_MS),
+        Some(t) if (REVIEW_MIN_TIMEOUT_MS..=REVIEW_MAX_TIMEOUT_MS).contains(&t) => Ok(t),
+        Some(t) => Err(format!(
+            "timeoutMs must be between {REVIEW_MIN_TIMEOUT_MS} and {REVIEW_MAX_TIMEOUT_MS} ms, got {t}."
+        )),
+    }
 }
 
 /// The `/review` reply when the window did not open the document under
@@ -1864,10 +1887,22 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_tasks, apply_unique_edit, parse_tasks, same_path, InflightEdit, INFLIGHT_EDITS,
-        MAX_INFLIGHT_EDITS,
+        annotation_tasks, apply_unique_edit, parse_tasks, review_timeout, same_path, InflightEdit,
+        INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn review_timeout_outside_the_range_is_refused_not_clamped() {
+        assert_eq!(review_timeout(None), Ok(300_000));
+        assert_eq!(review_timeout(Some(5_000)), Ok(5_000));
+        assert_eq!(review_timeout(Some(600_000)), Ok(600_000));
+        for bad in [0, 4_999, 600_001, u64::MAX] {
+            let err = review_timeout(Some(bad)).unwrap_err();
+            assert!(err.contains("between 5000 and 600000 ms"), "{bad}: {err}");
+            assert!(err.contains(&bad.to_string()), "{err}");
+        }
+    }
 
     #[test]
     fn inflight_edit_guard_caps_concurrency() {

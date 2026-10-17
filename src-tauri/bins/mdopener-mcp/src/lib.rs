@@ -644,7 +644,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min), min 5000, max 600000." },
+                    "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
                 },
@@ -1591,6 +1591,28 @@ pub fn tool_request_review(id: Value, args: &Value, ipc: &dyn IpcClient) -> Resp
     tool_request_review_with(id, args, ipc, std::time::Duration::from_millis(1_500))
 }
 
+/// The shortest and longest `request_review` windows (the app refuses the
+/// same range for `/review`'s `timeoutMs`).
+pub const REVIEW_MIN_TIMEOUT_MS: u64 = 5_000;
+pub const REVIEW_MAX_TIMEOUT_MS: u64 = 600_000;
+
+/// `timeout_ms` for `request_review`: the default 5 minutes when absent, else
+/// a whole number of milliseconds within the accepted range. Anything else is
+/// refused rather than clamped or defaulted, so the agent never waits on a
+/// window it did not ask for.
+fn review_timeout_arg(v: &Value) -> Result<u64, String> {
+    if v.is_null() {
+        return Ok(300_000);
+    }
+    match v.as_u64() {
+        Some(t) if (REVIEW_MIN_TIMEOUT_MS..=REVIEW_MAX_TIMEOUT_MS).contains(&t) => Ok(t),
+        _ => Err(format!(
+            "`timeout_ms` must be a whole number of milliseconds between \
+             {REVIEW_MIN_TIMEOUT_MS} and {REVIEW_MAX_TIMEOUT_MS}, got {v}"
+        )),
+    }
+}
+
 /// [`tool_request_review`] with the poll interval injected for tests.
 pub fn tool_request_review_with(
     id: Value,
@@ -1612,10 +1634,10 @@ pub fn tool_request_review_with(
     };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let timeout_ms = args["timeout_ms"]
-        .as_u64()
-        .unwrap_or(300_000)
-        .clamp(5_000, 600_000);
+    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
+        Ok(t) => t,
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let wait_ms = args["wait_ms"]
         .as_u64()
         .unwrap_or(DEFAULT_REVIEW_WAIT_MS)

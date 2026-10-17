@@ -1211,52 +1211,58 @@ fn request_review_ipc_down_returns_error() {
 }
 
 #[test]
-fn request_review_timeout_ms_clamped_to_minimum() {
-    // timeout_ms below 5000 should be clamped up — non-blocking so no sleep
-    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
-    let resp = tool_request_review(
-        id(1),
-        &json!({ "content": "x", "blocking": false, "timeout_ms": 100 }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(
-        actual_timeout >= 5_000,
-        "timeout should be clamped to >=5000, got {actual_timeout}"
-    );
+fn request_review_timeout_ms_out_of_range_is_refused_not_clamped() {
+    // Clamping silently gave the agent a window it did not ask for.
+    for bad in [
+        json!(100),
+        json!(4_999),
+        json!(600_001),
+        json!(-1),
+        json!(1.5),
+        json!("60000"),
+    ] {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "content": "x", "blocking": false, "timeout_ms": bad }),
+            &ipc,
+        );
+        let err = resp.error.expect("out-of-range timeout_ms must be refused");
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message.contains("between 5000 and 600000"),
+            "{bad}: {}",
+            err.message
+        );
+        assert!(
+            !ipc.calls()
+                .iter()
+                .any(|(m, p, _)| m == "POST" && p == "/review"),
+            "no review may be registered for {bad}"
+        );
+    }
 }
 
 #[test]
-fn request_review_timeout_ms_clamped_to_maximum() {
-    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
-    let resp = tool_request_review(
-        id(1),
-        &json!({ "content": "x", "blocking": false, "timeout_ms": 9_999_999 }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(
-        actual_timeout <= 600_000,
-        "timeout should be clamped to <=600000, got {actual_timeout}"
-    );
+fn request_review_timeout_ms_at_the_bounds_is_passed_through() {
+    for ok in [5_000u64, 600_000] {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "content": "x", "blocking": false, "timeout_ms": ok }),
+            &ipc,
+        );
+        assert!(resp.error.is_none(), "{:?}", resp.error);
+        let calls = ipc.calls();
+        let body = calls
+            .iter()
+            .find(|(m, p, _)| m == "POST" && p == "/review")
+            .unwrap()
+            .2
+            .as_ref()
+            .unwrap();
+        assert_eq!(body["timeoutMs"], json!(ok));
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

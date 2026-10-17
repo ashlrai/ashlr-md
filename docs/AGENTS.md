@@ -378,8 +378,11 @@ before proceeding.
 - `blocking` (default `true`) — if `false`, the review is registered and the call
   returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
   can later check the outcome via `get_user_annotations`.
-- `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  the human has to decide (the review panel's window). When the window closes
+- `timeout_ms` (default `300000` = 5 min, must be **5 000–600 000**) — how long
+  the human has to decide (the review panel's window). A value outside that
+  range (or not a whole number) is refused with an invalid-params error naming
+  the range, and no review is registered; the app's `/review` refuses the same
+  values with a 400. When the window closes
   during a call (the first one, or one resumed with `review_id`) with no
   decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
   review never waits past its window.
