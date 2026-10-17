@@ -14,10 +14,15 @@ pub struct MarkdownFile {
 }
 
 /// Read a Markdown file from disk and return its content plus light metadata.
+/// Only a regular file of at most 16 MiB is read
+/// ([`crate::doc_read::MAX_DOCUMENT_BYTES`]): a FIFO named `x.md` blocked the
+/// thread running the command forever, and a multi-gigabyte file (or a link
+/// to `/dev/zero`) was read whole into memory and sent to the webview.
 #[tauri::command]
 pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
     let p = Path::new(&path);
-    let content = std::fs::read_to_string(p).map_err(|e| format!("Could not read {path}: {e}"))?;
+    let content = crate::doc_read::read_document_following(p, crate::doc_read::MAX_DOCUMENT_BYTES)
+        .map_err(|e| format!("Could not read {path}: {e}"))?;
     let size = content.len() as u64;
     let file_name = p
         .file_name()
@@ -629,6 +634,58 @@ pub fn open_in_obsidian(app: tauri::AppHandle, path: String) -> Result<(), Strin
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// `read_markdown_file` read whatever the path named, whole: a FIFO
+    /// named `x.md` blocked it forever, and a file of any size went into
+    /// memory. It now reads regular files of at most 16 MiB only.
+    #[test]
+    fn read_markdown_file_refuses_a_fifo_and_a_file_over_16_mib() {
+        let root = make_tree();
+        let big = root.join("big.md");
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        let err = read_markdown_file(big.to_string_lossy().into_owned())
+            .err()
+            .expect("an oversized file was read");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let at_cap = root.join("at-cap.md");
+        std::fs::File::create(&at_cap)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES)
+            .unwrap();
+        let file = read_markdown_file(at_cap.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(file.size, crate::doc_read::MAX_DOCUMENT_BYTES);
+        // A missing file still says "(os error 2)", which the frontend
+        // relies on to drop a recent that is gone.
+        let err = read_markdown_file(root.join("gone.md").to_string_lossy().into_owned())
+            .err()
+            .unwrap();
+        assert!(err.contains("(os error 2)"), "{err}");
+
+        #[cfg(unix)]
+        {
+            let fifo = root.join("pipe.md");
+            let ok = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "mkfifo failed");
+            let (tx, rx) = std::sync::mpsc::channel();
+            let path = fifo.to_string_lossy().into_owned();
+            std::thread::spawn(move || {
+                let _ = tx.send(read_markdown_file(path).err());
+            });
+            let err = rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("reading a FIFO blocked")
+                .expect("a FIFO was read");
+            assert!(err.contains("not a regular file"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     fn make_tree() -> std::path::PathBuf {
         // Unique dir per call so the (parallel) tests don't race on a shared path.

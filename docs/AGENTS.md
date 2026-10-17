@@ -726,7 +726,10 @@ The integration is **local-only and token-authenticated**:
   blocking the server. Each also refuses (or, for search and the
   recent-documents resource, skips) a file larger than 16 MiB, the most the
   app accepts in one request, instead of reading it whole into memory and
-  into the reply. Session files are read up to 16 MiB too.
+  into the reply. Session files are read up to 16 MiB too. The app reads
+  the same way when the human opens a document or searches from the
+  window: regular files only, opened without blocking, at most 16 MiB (the
+  document `/content` returns was read that way).
 - An answer from the app's IPC server (or from Ollama) is read up to 64 MiB,
   headers included; a longer one is refused ("more than 64 MiB") instead of
   being read into memory for as long as the peer keeps sending.

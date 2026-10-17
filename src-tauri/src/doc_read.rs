@@ -6,13 +6,15 @@
 //! (`notes.md` re-pointed at `~/.ssh/id_rsa`, or the folder above it at
 //! another folder), so on Unix the read refuses a link in the last component
 //! (`O_NOFOLLOW`) and any file whose device and inode differ from the ones the
-//! check saw. Mirrors mdopener-mcp's `CheckedDocument`.
+//! check saw. Mirrors mdopener-mcp's `CheckedDocument`. Reads for the human
+//! ([`read_document_following`]) follow links but share the cap and the
+//! regular-file-only, non-blocking open.
 
 use std::io::Read as _;
 use std::path::Path;
 
-/// Largest document an agent read takes from disk: the 16 MiB the IPC server
-/// accepts in one request, and what mdopener-mcp reads.
+/// Largest document read from disk, for an agent or for the window: the
+/// 16 MiB the IPC server accepts in one request, and what mdopener-mcp reads.
 pub(crate) const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Which file a path named when it was checked: device and inode on Unix.
@@ -141,6 +143,22 @@ pub(crate) fn read_open_file(
         return Err(too_large(text.len() as u64, max));
     }
     Ok(text)
+}
+
+/// Read the document the human named (`read_markdown_file`, the search
+/// panel), following links as opening a file does: regular files only, at
+/// most `max` bytes. The type is checked before opening, and the open does
+/// not block on a FIFO (`O_NONBLOCK` on Unix) and is judged again by the
+/// handle, so a FIFO named `x.md` (or swapped in) cannot hang the IPC worker
+/// thread, and `x.md -> /dev/zero` cannot be read until memory runs out.
+pub(crate) fn read_document_following(path: &Path, max: u64) -> Result<String, String> {
+    let before = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !before.is_file() {
+        return Err("it is not a regular file".into());
+    }
+    let file = open_for_read(path, false).map_err(|e| e.to_string())?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    read_open_file(file, &meta, max)
 }
 
 fn read_no_follow(path: &Path, expected: Option<FileIdentity>, max: u64) -> Result<String, String> {
