@@ -5768,7 +5768,7 @@ fn canvas_saves_replace_the_file_and_never_write_through_a_link() {
     );
     assert!(!is_error(&resp), "{resp:?}");
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&board).unwrap()).unwrap();
-    assert_eq!(saved["nodes"][0]["x"], json!(5.0));
+    assert_eq!(saved["nodes"][0]["x"], json!(5));
     let mode = std::fs::metadata(&board).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "{mode:o}");
     let left: Vec<_> = std::fs::read_dir(dir.path())
@@ -7181,6 +7181,39 @@ fn saving_past_the_session_cap_drops_the_oldest_and_says_so() {
         "{body}"
     );
     std::fs::remove_file(&path).unwrap();
+}
+
+// ── edit_canvas writes whole coordinates as integers ─────────────────────────
+
+/// JSON Canvas positions and sizes are integers, but move_node and
+/// resize_node wrote `"x": 5.0`. A whole value is now written as an integer
+/// (also when given as `5.0`); a fractional one is kept as given.
+#[test]
+fn edit_canvas_writes_whole_coordinates_as_integers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let canvas = json!({
+        "nodes": [{ "id": "a", "type": "text", "text": "hi", "x": 0, "y": 0,
+                    "width": 10, "height": 10 }],
+        "edges": []
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [
+            { "type": "move_node", "id": "a", "x": 5, "y": -3.0 },
+            { "type": "resize_node", "id": "a", "width": 200.0, "height": 50.5 }
+        ] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let saved: Value = serde_json::from_str(&text).unwrap();
+    let node = &saved["nodes"][0];
+    assert!(node["x"].is_i64() && node["x"] == 5, "{text}");
+    assert!(node["y"].is_i64() && node["y"] == -3, "{text}");
+    assert!(node["width"].is_i64() && node["width"] == 200, "{text}");
+    assert_eq!(node["height"].as_f64(), Some(50.5), "{text}");
+    assert!(!text.contains("5.0") && !text.contains("200.0"), "{text}");
 }
 
 // ── edit_canvas keeps what it does not edit ───────────────────────────────────

@@ -1145,10 +1145,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                     "description": "Operation type."
                                 },
                                 "id": { "type": "string", "description": "Node or edge id (required for most ops)." },
-                                "x": { "type": "number", "description": "New x coordinate (move_node)." },
-                                "y": { "type": "number", "description": "New y coordinate (move_node)." },
-                                "width": { "type": "number", "description": "New width (resize_node)." },
-                                "height": { "type": "number", "description": "New height (resize_node)." },
+                                "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
+                                "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
+                                "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
+                                "height": { "type": "number", "description": "New height (resize_node); a whole number is written as an integer." },
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
                                 "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
@@ -5469,6 +5469,18 @@ macro_rules! req_str {
 
 // ── edit_canvas tool ──────────────────────────────────────────────────────────
 
+/// A coordinate or size for a canvas node: a whole number is written as a
+/// JSON integer (JSON Canvas positions and sizes are integers; `json!(5.0)`
+/// wrote `5.0`), anything else as the number given.
+fn canvas_number(v: f64) -> Value {
+    const LIMIT: f64 = 9_007_199_254_740_992.0; // 2^53, exact in an f64
+    if v.fract() == 0.0 && v.abs() <= LIMIT {
+        json!(v as i64)
+    } else {
+        json!(v)
+    }
+}
+
 /// Apply a list of typed edit operations to a `.canvas` file and optionally
 /// write the mutated JSON back to disk.
 ///
@@ -5584,8 +5596,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
-                node.insert("x".into(), json!(x));
-                node.insert("y".into(), json!(y));
+                node.insert("x".into(), canvas_number(x));
+                node.insert("y".into(), canvas_number(y));
             }
             "resize_node" => {
                 let node_id = match op["id"].as_str() {
@@ -5635,8 +5647,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
-                node.insert("width".into(), json!(w));
-                node.insert("height".into(), json!(h));
+                node.insert("width".into(), canvas_number(w));
+                node.insert("height".into(), canvas_number(h));
             }
             "edit_text" => {
                 let node_id = match op["id"].as_str() {

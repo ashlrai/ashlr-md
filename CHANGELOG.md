@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` writes whole coordinates as integers.** `move_node` and
+  `resize_node` wrote `"x": 5` as `"x": 5.0`, while JSON Canvas positions and
+  sizes are integers. A whole-number `x`, `y`, `width` or `height` is now
+  written as an integer; a fractional one is kept as given.
 - **A path cited twice in one message is saved once.** `save_conversation_message`
   stored `cited_docs: ["a.md", "a.md"]` as given, and `get_conversation_context`
   returned the message's `citedDocs` with the path twice. Saving now keeps each
