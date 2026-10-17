@@ -57,14 +57,16 @@ export function handleExportPayload(): Promise<UnlistenFn> {
         const fileName = useDocumentStore.getState().fileName ?? "export";
         const title =
           fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+        // html/docx/epub write to the agent's path with no dialog. pdf can only
+        // print, so the MCP server never sends a path for it.
         if (format === "pdf") {
           await exportPdf(title);
         } else if (format === "docx") {
-          await exportDocx(title);
+          await exportDocx(title, outputPath);
         } else if (format === "epub") {
-          await exportEpub(title);
+          await exportEpub(title, outputPath);
         } else {
-          await exportHtml(title);
+          await exportHtml(title, outputPath);
         }
         await invoke("mcp_export_result", {
           format,

@@ -24,7 +24,8 @@ use mdopener_mcp::{
     tool_get_conversation_context, tool_save_conversation_message,
     store_append_message, store_get_context,
     session_file_path, load_session_from_disk,
-    IpcClient, Request, tool_open_file_with,
+    IpcClient, Request, tool_open_file_with, tool_export_with,
+    tool_stream_edit, tool_stream_edit_apply,
     launch::Launch,
 };
 use serde_json::{json, Value};
@@ -721,18 +722,21 @@ fn export_docx_format_forwarded() {
 
 #[test]
 fn export_html_with_output_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("out.html");
     let ipc = MockIpc::new()
         .on_post("/export", Ok(json!({ "ok": true })));
-    tool_export(
+    tool_export_with(
         id(1),
-        &json!({ "format": "html", "output_path": "/tmp/out.html" }),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
         &ipc,
+        std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
     let body = calls.iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
         .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], "/tmp/out.html");
+    assert_eq!(body["outputPath"], json!(out.to_string_lossy()));
 }
 
 #[test]
@@ -1495,36 +1499,42 @@ fn export_tool_html_success_returns_ok_result() {
 
 #[test]
 fn export_tool_output_path_forwarded_to_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("out.docx");
     let ipc = MockIpc::new()
         .on_post("/export", Ok(json!({ "ok": true })));
-    tool_export(
+    tool_export_with(
         id(10),
-        &json!({ "format": "pdf", "output_path": "/home/user/reports/out.pdf" }),
+        &json!({ "format": "docx", "output_path": out.to_string_lossy() }),
         &ipc,
+        std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
     let body = calls.iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
         .expect("POST /export not called")
         .2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], "/home/user/reports/out.pdf",
+    assert_eq!(body["outputPath"], json!(out.to_string_lossy()),
         "output_path must be forwarded as outputPath");
 }
 
 #[test]
 fn export_tool_html_with_output_path_forwarded() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("export.html");
     let ipc = MockIpc::new()
         .on_post("/export", Ok(json!({ "ok": true })));
-    tool_export(
+    tool_export_with(
         id(11),
-        &json!({ "format": "html", "output_path": "/tmp/export.html" }),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
         &ipc,
+        std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
     let body = calls.iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
         .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], "/tmp/export.html");
+    assert_eq!(body["outputPath"], json!(out.to_string_lossy()));
     assert_eq!(body["format"], "html");
 }
 
@@ -3376,4 +3386,185 @@ fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
         std::fs::read_to_string(&target).unwrap(),
         "{\"nodes\":[],\"edges\":[]}"
     );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// export output_path is written by the app and confirmed on disk
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Stands in for the app: on `POST /export` it writes `outputPath` (as the
+/// frontend does through `write_markdown_file`), when `write` is true.
+struct ExportingApp {
+    write: bool,
+    posts: Mutex<Vec<Value>>,
+}
+
+impl IpcClient for ExportingApp {
+    fn get(&self, path: &str) -> Result<Value, String> {
+        Err(format!("unexpected GET {path}"))
+    }
+    fn post(&self, path: &str, body: Value) -> Result<Value, String> {
+        assert_eq!(path, "/export");
+        if self.write {
+            if let Some(out) = body["outputPath"].as_str() {
+                std::fs::write(out, "<!doctype html><p>hi</p>").unwrap();
+            }
+        }
+        self.posts.lock().unwrap().push(body);
+        Ok(json!({ "ok": true }))
+    }
+}
+
+fn exporting_app(write: bool) -> ExportingApp {
+    ExportingApp { write, posts: Mutex::new(vec![]) }
+}
+
+const SHORT: std::time::Duration = std::time::Duration::from_millis(300);
+
+#[test]
+fn export_output_path_returns_once_the_file_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("plan.html");
+    let app = exporting_app(true);
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &app,
+        SHORT,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let v = content_text(&resp);
+    assert_eq!(v["path"], json!(out.to_string_lossy()));
+    assert_eq!(v["bytes"], json!(24));
+}
+
+#[test]
+fn export_output_path_errors_when_the_app_never_writes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("plan.html");
+    // A stale export from earlier must not count as this one.
+    std::fs::write(&out, "old").unwrap();
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &exporting_app(false),
+        SHORT,
+    );
+    let text = tool_error_text(&resp);
+    assert!(text.contains("did not write") && text.contains("Read view"), "{text}");
+}
+
+#[test]
+fn export_output_path_resolves_a_symlinked_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+    std::fs::create_dir(&real).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&real, dir.path().join("link")).unwrap();
+    #[cfg(not(unix))]
+    return;
+    let app = exporting_app(true);
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "epub", "output_path": dir.path().join("link/book.epub").to_string_lossy() }),
+        &app,
+        SHORT,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let posted = app.posts.lock().unwrap()[0]["outputPath"].clone();
+    assert_eq!(posted, json!(real.join("book.epub").to_string_lossy()));
+}
+
+#[test]
+fn export_output_path_rejects_unsafe_or_unsupported_targets_without_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let cases = [
+        ("pdf", d.join("out.pdf"), "print dialog"),
+        ("html", d.join(".bashrc"), "must name a html file"),
+        ("html", d.join("notes.md"), "must name a html file"),
+        ("docx", d.join("out.html"), "must name a docx file"),
+        ("html", d.join("missing/out.html"), "directory does not exist"),
+    ];
+    for (format, path, want) in cases {
+        let app = exporting_app(true);
+        let resp = tool_export_with(
+            id(1),
+            &json!({ "format": format, "output_path": path.to_string_lossy() }),
+            &app,
+            SHORT,
+        );
+        let err = resp.error.as_ref().unwrap_or_else(|| panic!("{format} {path:?}: {resp:?}"));
+        assert_eq!(err.code, -32602);
+        assert!(err.message.contains(want), "{format} {path:?}: {}", err.message);
+        assert!(app.posts.lock().unwrap().is_empty(), "must not reach the app");
+    }
+}
+
+#[test]
+fn export_without_output_path_still_opens_the_dialog() {
+    let app = exporting_app(false);
+    let resp = tool_export_with(id(1), &json!({ "format": "pdf" }), &app, SHORT);
+    assert!(!is_error(&resp));
+    assert_eq!(content_text(&resp)["dialog"], json!(true));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Paths sent to the app are resolved the way the agent means them
+// ════════════════════════════════════════════════════════════════════════════
+
+/// `<tmp>/link/plan.md` where `link -> real`: the app holds the canonical
+/// `<tmp>/real/plan.md`, and request_review / open_file send that form.
+fn symlinked_plan() -> (tempfile::TempDir, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::write(real.join("plan.md"), "# Plan\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&real, dir.path().join("link")).unwrap();
+    let via_link = dir.path().join("link/./plan.md").to_string_lossy().into_owned();
+    let canonical = real.join("plan.md").to_string_lossy().into_owned();
+    (dir, via_link, canonical)
+}
+
+#[cfg(unix)]
+#[test]
+fn get_user_annotations_looks_up_the_canonical_path() {
+    let (_dir, via_link, canonical) = symlinked_plan();
+    let ipc = MockIpc::new().on_get("/annotations", Ok(json!({ "verdict": null })));
+    tool_get_annotations(id(1), &json!({ "path": via_link }), &ipc);
+    let (_, path, _) = ipc.calls().remove(0);
+    assert_eq!(
+        path,
+        format!("/annotations?path={}", urlencoding::encode(&canonical))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn edit_tools_assert_the_canonical_path() {
+    let (_dir, via_link, canonical) = symlinked_plan();
+    let ipc = MockIpc::new()
+        .on_post("/edit", Ok(json!({ "ok": true })))
+        .on_post("/stream-edit", Ok(json!({ "ok": true })));
+    tool_edit_document(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "path": via_link }),
+        &ipc,
+    );
+    tool_stream_edit(
+        id(2),
+        &json!({ "find": "a", "replace": "b", "path": via_link }),
+        &ipc,
+    );
+    tool_stream_edit_apply(
+        id(3),
+        &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": via_link }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    assert_eq!(calls.len(), 3);
+    for (_, p, body) in calls {
+        assert_eq!(body.unwrap()["path"], json!(canonical), "{p}");
+    }
 }
