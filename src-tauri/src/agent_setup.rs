@@ -20,77 +20,29 @@ use tauri::Manager;
 
 #[path = "mcp_command.rs"]
 mod mcp_command;
+#[path = "sidecar_path.rs"]
+mod sidecar_path;
 
 // ── Binary path resolution ────────────────────────────────────────────────────
 
-/// Resolve the absolute path to the `mdopener-mcp` sidecar binary.
-///
-/// Search order:
-///   1. Next to the running executable (covers both the packaged `.app` and
-///      `cargo tauri dev` / `cargo tauri build` scenarios where Tauri places
-///      sidecars alongside the main binary).
-///   2. The Tauri resource directory (alternate bundling layout).
-///   3. `src-tauri/target/release/mdopener-mcp` relative to the executable
-///      (local `cargo build --release` without `tauri build`).
-///
-/// Returns an error string if the binary cannot be found in any location.
+/// Resolve the absolute path to the `mdopener-mcp` sidecar binary
+/// (`mdopener-mcp.exe` on Windows). See [`resolve_sidecar_binary`].
 fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
     resolve_sidecar_binary(app, "mdopener-mcp")
 }
 
 /// Resolve the absolute path to a bundled sidecar binary by name (e.g.
-/// `mdopener-mcp`, `mdopen`). Searches the same locations across bundling
-/// layouts and dev builds.
+/// `mdopener-mcp`, `mdopen`), using the host's executable suffix so the
+/// lookup matches the platform resource map. Search order is documented on
+/// [`sidecar_path::resolve`].
 fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Cannot determine app executable path: {e}"))?;
     let exe_dir = exe
         .parent()
         .ok_or("App executable has no parent directory")?;
-
-    // Candidate locations, in preference order.
-    let mut candidates: Vec<PathBuf> = vec![
-        // 1. Tauri sidecar: placed next to the app binary by Tauri's bundler.
-        exe_dir.join(bin),
-    ];
-
-    // 2. Tauri resource directory (alternate bundling layout on some targets).
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join(bin));
-    }
-
-    // 3. Local cargo release build (dev workflow without `tauri build`).
-    //    Walk up from the exe dir looking for `target/release`.
-    let mut dir = exe_dir.to_path_buf();
-    for _ in 0..8 {
-        let candidate = dir.join("target").join("release").join(bin);
-        if candidate.exists() {
-            candidates.push(candidate);
-            break;
-        }
-        match dir.parent() {
-            Some(p) => dir = p.to_path_buf(),
-            None => break,
-        }
-    }
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate
-                .to_str()
-                .map(|s| s.to_owned())
-                .ok_or_else(|| format!("{bin} path contains non-UTF-8 characters"));
-        }
-    }
-
-    Err(format!(
-        "{bin} binary not found. Searched:\n{}",
-        candidates
-            .iter()
-            .map(|p| format!("  • {}", p.display()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    ))
+    let resource_dir = app.path().resource_dir().ok();
+    sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())
 }
 
 // ── Agent detection ───────────────────────────────────────────────────────────
@@ -451,12 +403,12 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
 /// Return the command a user can paste into a Unix shell, or PowerShell on
 /// Windows, to register Ashlr MD with Claude Code — used by Settings' Copy button.
 ///
-/// Falls back to a placeholder path if the binary cannot be resolved (e.g. in
-/// a renderer-only preview context where `AppHandle` is unavailable at
-/// component load time).
+/// Falls back to the host platform's typical install path, shown as a
+/// placeholder, if the binary cannot be resolved (e.g. a dev build without the
+/// sidecar); see [`sidecar_path::unresolved_mcp_placeholder`].
 #[tauri::command]
 pub fn mcp_command_string(app: tauri::AppHandle) -> String {
     let path = resolve_mcp_binary_path(&app)
-        .unwrap_or_else(|_| "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp".to_string());
+        .unwrap_or_else(|_| sidecar_path::unresolved_mcp_placeholder());
     mcp_command::mcp_command(&path)
 }
