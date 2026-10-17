@@ -49,6 +49,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   without them, and MCP clients must then assume `destructiveHint` and
   `openWorldHint` are `true`, so it read as destructive. It now states
   all four hints (not read-only, not destructive, idempotent, closed world).
+- **`scripts/install.sh` falls back to `~/.local/bin` when `/usr/local/bin`
+  is not writable.** An existing directory passes `mkdir -p`, so a
+  root-owned `/usr/local/bin` was picked, the link failed, and the script
+  still printed `mdopen → /usr/local/bin/mdopen` without trying the
+  fallback. Writability and the link itself are now checked.
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

@@ -152,14 +152,15 @@ fi
 
 # ── 6. Symlink mdopen CLI ─────────────────────────────────────────────────────
 info "Symlinking mdopen CLI…"
+# An existing directory the user cannot write (a root-owned /usr/local/bin)
+# passes `mkdir -p`, so writability is checked after it, and a failed link
+# falls through to the next directory instead of being reported as done.
 install_cli_to() {
   local dir="$1"
-  if [[ -w "$dir" ]] || mkdir -p "$dir" 2>/dev/null; then
-    ln -sf "$MDOPEN_BIN" "$dir/mdopen"
-    success "mdopen → $dir/mdopen"
-    return 0
-  fi
-  return 1
+  mkdir -p "$dir" 2>/dev/null || return 1
+  [[ -w "$dir" ]] || return 1
+  ln -sf "$MDOPEN_BIN" "$dir/mdopen" || return 1
+  success "mdopen → $dir/mdopen"
 }
 
 if ! install_cli_to "$CLI_BIN_DIR"; then
