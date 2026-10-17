@@ -8,8 +8,10 @@
 // are skipped, as are CSS comments inside a stylesheet string, which no one
 // sees. The app's package descriptions (shown in app metadata) are checked
 // too, and so are the shell page (index.html: the window title before the
-// app loads), every string in the Tauri configs (window titles, bundle
-// descriptions, file association names) and the string literals of the Rust
+// app loads), the landing page (landing/index.html: its title, meta and
+// social descriptions and body copy, HTML comments aside), every string in
+// the Tauri configs (window titles, bundle descriptions, file association
+// names) and the string literals of the Rust
 // crates (dialog, menu, tray and notification text, and the errors the
 // window reports). Rust comments and `#[cfg(test)]` modules are not
 // checked; a pattern that must match a dash in document content writes it as
@@ -18,6 +20,7 @@
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import indexHtml from "../index.html?raw";
+import landingHtml from "../landing/index.html?raw";
 import mdopenCargo from "../src-tauri/bins/mdopen/Cargo.toml?raw";
 import mcpCargo from "../src-tauri/bins/mdopener-mcp/Cargo.toml?raw";
 import appCargo from "../src-tauri/Cargo.toml?raw";
@@ -241,6 +244,20 @@ describe("no em or en dashes in user-facing strings", () => {
     const text = indexHtml.replace(/<!--[\s\S]*?-->/g, "");
     expect(text).toContain("<title>Ashlr MD</title>");
     expect(text).not.toMatch(DASH);
+  });
+
+  it("the landing page has none, as characters or entities", () => {
+    // A comment keeps its newlines so the reported line numbers hold.
+    const text = landingHtml.replace(/<!--[\s\S]*?-->/g, (c) =>
+      c.replace(/[^\n]/g, ""),
+    );
+    expect(text).toContain("<title>Ashlr MD: Markdown, finally beautiful</title>");
+    const found = text
+      .split("\n")
+      .map((l, k) => [k + 1, l] as const)
+      .filter(([, l]) => DASH.test(l) || /&(?:[mn]dash|#821[12]|#x201[34]);/i.test(l))
+      .map(([k, l]) => `landing/index.html:${k}: ${l.trim().slice(0, 120)}`);
+    expect(found).toEqual([]);
   });
 
   it("strings in the Tauri configs have none", () => {

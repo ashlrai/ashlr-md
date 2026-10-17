@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The landing page has no em or en dashes.** Its title, meta and social
+  descriptions and body copy used them; they are plain punctuation now, as
+  the repo's style asks, and the dash guard test covers the page (HTML
+  comments aside) so they do not return.
 - **The app starts with a launch argument that is not valid UTF-8.** Such an
   argument (a file name in a legacy encoding, passed by a file manager or a
   script) made the app panic at startup, before its window opened. It is now
