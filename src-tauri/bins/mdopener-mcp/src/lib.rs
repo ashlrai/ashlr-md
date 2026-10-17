@@ -3233,6 +3233,24 @@ pub struct StreamEditPayload {
 fn default_preview() -> bool { true }
 fn default_preview_lines() -> u32 { 5 }
 
+/// The `path` the stream-edit tools assert. The frontend compares it to the
+/// open document's path as a plain string, and a document opened by drag and
+/// drop, a file dialog or the file tree keeps the path it was opened by (not
+/// its canonical form). So when `raw` names the open document, send the app's
+/// own spelling of it; otherwise send [`agent_path`] (which the app then
+/// reports as a mismatch, as it should).
+pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
+    let want = agent_path(raw);
+    let open = ipc
+        .get("/content")
+        .ok()
+        .and_then(|v| v["path"].as_str().map(str::to_string));
+    match open {
+        Some(open) if open == want || agent_path(&open) == want => open,
+        _ => want,
+    }
+}
+
 /// Preview a find/replace edit as a unified diff before committing.
 ///
 /// Forwards to the frontend via POST `/stream-edit`.  The frontend calls
@@ -3256,7 +3274,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
     let preview_lines = args["preview_lines"].as_u64().unwrap_or(5).clamp(0, 20) as u32;
-    let path = args["path"].as_str().map(agent_path);
+    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
         "find": find,
@@ -3298,7 +3316,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
     };
     let match_index = args["match_index"].as_u64().unwrap_or(0) as u32;
     let save = args["save"].as_bool().unwrap_or(false);
-    let path = args["path"].as_str().map(agent_path);
+    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
         "editId": edit_id,

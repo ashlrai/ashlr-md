@@ -3562,11 +3562,52 @@ fn edit_tools_assert_the_canonical_path() {
         &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": via_link }),
         &ipc,
     );
-    let calls = ipc.calls();
-    assert_eq!(calls.len(), 3);
-    for (_, p, body) in calls {
+    // No open document is reported here, so the canonical path is sent.
+    let posts: Vec<_> = ipc.calls().into_iter().filter(|(m, _, _)| m == "POST").collect();
+    assert_eq!(posts.len(), 3);
+    for (_, p, body) in posts {
         assert_eq!(body.unwrap()["path"], json!(canonical), "{p}");
     }
+}
+
+/// The frontend checks a stream edit's `path` against the open document's
+/// path as a string, and a document opened by drag and drop, a dialog or the
+/// file tree keeps the (symlinked) path it was opened by. Naming that file,
+/// by that path or any other, must assert the app's own spelling, not the
+/// canonical one the app would reject as "not the currently open document".
+#[cfg(unix)]
+#[test]
+fn stream_edit_tools_assert_the_open_documents_own_path() {
+    use mdopener_mcp::stream_edit_path;
+    let (dir, via_link, canonical) = symlinked_plan();
+    let opened_as = dir.path().join("link/plan.md").to_string_lossy().into_owned();
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(json!({ "path": opened_as, "content": "# Plan\n" })))
+        .on_post("/stream-edit", Ok(json!({ "ok": true })));
+    for raw in [&opened_as, &via_link, &canonical] {
+        assert_eq!(stream_edit_path(raw, &ipc), opened_as, "{raw}");
+    }
+    tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "path": canonical }),
+        &ipc,
+    );
+    tool_stream_edit_apply(
+        id(2),
+        &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": via_link }),
+        &ipc,
+    );
+    let posts: Vec<_> = ipc.calls().into_iter().filter(|(m, _, _)| m == "POST").collect();
+    assert_eq!(posts.len(), 2);
+    for (_, p, body) in posts {
+        assert_eq!(body.unwrap()["path"], json!(opened_as), "{p}");
+    }
+
+    // Another file is still sent resolved, so the app reports the mismatch.
+    let other = std::fs::canonicalize(dir.path()).unwrap().join("other.md");
+    std::fs::write(&other, "x").unwrap();
+    let other = other.to_string_lossy().into_owned();
+    assert_eq!(stream_edit_path(&other, &ipc), other);
 }
 
 // ── Agent-workflow regressions ────────────────────────────────────────────────
