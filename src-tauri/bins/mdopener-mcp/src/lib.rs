@@ -1117,7 +1117,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "ops": {
                         "type": "array",
-                        "description": "Ordered list of edit operations to apply atomically.",
+                        "minItems": 1,
+                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written).",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1451,6 +1452,8 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`);
 /// - a number above the declared `maximum` (`list_recent`'s `limit`);
+/// - an array with fewer elements than its declared `minItems`
+///   (`edit_canvas`'s `ops`), as "`ops` must not be empty";
 /// - a value outside the declared `enum`, at the top level or in a field of an
 ///   array element (`ops[0].type`), with the allowed values listed.
 ///
@@ -1535,6 +1538,18 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     "`{key}` must be at least {min} character{} long, got {value}",
                     if min == 1 { "" } else { "s" }
                 ));
+            }
+        }
+        if let (Some(min), Some(items)) = (prop["minItems"].as_u64(), value.as_array()) {
+            if (items.len() as u64) < min {
+                return Err(if min == 1 {
+                    format!("`{key}` must not be empty")
+                } else {
+                    format!(
+                        "`{key}` must have at least {min} items, got {}",
+                        items.len()
+                    )
+                });
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -5334,6 +5349,16 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         );
     }
 
+    // Checked before the file is read: an empty list is an argument error
+    // whether or not the canvas exists, and it never reaches the save.
+    let ops = match args["ops"].as_array() {
+        Some(a) => a.clone(),
+        None => return Response::err(id, -32602, "`ops` must be an array"),
+    };
+    if ops.is_empty() {
+        return Response::err(id, -32602, "`ops` must not be empty");
+    }
+
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
         Ok(c) => c,
@@ -5351,13 +5376,6 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     let mut output = parsed.rest;
 
     // ── Apply ops ────────────────────────────────────────────────────────────
-    let ops = match args["ops"].as_array() {
-        Some(a) => a.clone(),
-        None => return Response::err(id, -32602, "`ops` must be an array"),
-    };
-    if ops.is_empty() {
-        return Response::err(id, -32602, "`ops` must not be empty");
-    }
 
     let mut ops_applied: Vec<String> = Vec::new();
     // Edges `delete_node` removed along with their node, reported back.

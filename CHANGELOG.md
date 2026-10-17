@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` refuses an empty `ops` before reading the canvas.** The
+  list was checked only after the file was read, so a missing canvas
+  answered "Failed to read" instead of naming the empty list, and the schema
+  let an empty list through. The schema now declares `minItems: 1`, the
+  argument check enforces it, and the file is neither read nor written.
 - **`stream_edit` refuses a `preview_lines` above 20.** It was read as 20 in
   silence, and the schema declared no maximum. It is now refused with
   `-32602` naming the range, as `diff_documents` refuses a `context_lines`,

@@ -5570,6 +5570,46 @@ fn read_tools_still_read_markdown_paths() {
     assert_eq!(content_text(&resp)["word_count"], json!(3));
 }
 
+/// `edit_canvas` with `ops: []` checked the list only after it had read the
+/// canvas, so a missing file answered "Failed to read" instead of naming the
+/// empty list, and the schema let an empty list through. The schema now
+/// declares `minItems: 1`, the argument check refuses it, and the tool
+/// refuses it before the file is read; the file is never written.
+#[test]
+fn edit_canvas_refuses_empty_ops_before_reading_or_writing() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "edit_canvas")
+        .unwrap();
+    assert_eq!(def.input_schema["properties"]["ops"]["minItems"], 1);
+    let dir = tempfile::tempdir().unwrap();
+    let board = dir.path().join("board.canvas");
+    let original = "{ \"nodes\": [], \"edges\": [] }";
+    std::fs::write(&board, original).unwrap();
+    let before = std::fs::metadata(&board).unwrap().modified().unwrap();
+    let args = json!({ "path": board.to_string_lossy(), "ops": [], "save": true });
+    assert_eq!(
+        param_error(&call_tool("edit_canvas", args.clone())),
+        "`ops` must not be empty"
+    );
+    assert_eq!(
+        param_error(&mdopener_mcp::tool_edit_canvas(id(1), &args)),
+        "`ops` must not be empty"
+    );
+    assert_eq!(std::fs::read_to_string(&board).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&board).unwrap().modified().unwrap(),
+        before
+    );
+    // A missing canvas with no ops is the argument error, not a read error.
+    let missing = dir.path().join("missing.canvas");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(2),
+        &json!({ "path": missing.to_string_lossy(), "ops": [] }),
+    );
+    assert_eq!(param_error(&resp), "`ops` must not be empty");
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
@@ -5580,7 +5620,7 @@ fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
     std::os::unix::fs::symlink(&target, &link).unwrap();
     let resp = call(
         "edit_canvas",
-        json!({ "path": link.to_string_lossy(), "ops": [] }),
+        json!({ "path": link.to_string_lossy(), "ops": [{ "type": "delete_node", "id": "n" }] }),
         &MockIpc::new(),
     );
     let text = tool_error_text(&resp);
@@ -5932,7 +5972,10 @@ fn stream_edit_refuses_preview_lines_above_20() {
         .into_iter()
         .find(|t| t.name == "stream_edit")
         .unwrap();
-    assert_eq!(def.input_schema["properties"]["preview_lines"]["maximum"], 20);
+    assert_eq!(
+        def.input_schema["properties"]["preview_lines"]["maximum"],
+        20
+    );
     let msg = param_error(&call_tool(
         "stream_edit",
         json!({ "find": "a", "replace": "b", "preview_lines": 21 }),
@@ -5956,7 +5999,10 @@ fn stream_edit_refuses_preview_lines_above_20() {
     assert!(ipc.calls().is_empty(), "the app was asked");
     // 20 itself still passes, and an omitted one is the default of 5.
     for (args, want) in [
-        (json!({ "find": "a", "replace": "b", "preview_lines": 20 }), 20),
+        (
+            json!({ "find": "a", "replace": "b", "preview_lines": 20 }),
+            20,
+        ),
         (json!({ "find": "a", "replace": "b" }), 5),
     ] {
         let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": true })));
@@ -7991,7 +8037,7 @@ fn every_declared_argument_passes_the_check() {
                 // `timeout_ms` starts at 5000).
                 Some("integer") => json!(prop["minimum"].as_i64().unwrap_or(1).max(1)),
                 Some("number") => json!(1.5),
-                Some("array") => json!([]),
+                Some("array") => sample_array(prop),
                 Some("object") => json!({}),
                 _ => json!("x"),
             };
@@ -8000,6 +8046,25 @@ fn every_declared_argument_passes_the_check() {
         let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
         assert!(r.is_ok(), "{}: {:?}", def.name, r);
     }
+}
+
+/// An array `prop` accepts: empty, or as many elements as its `minItems`
+/// asks for (`edit_canvas`'s `ops`), each with its required fields filled.
+fn sample_array(prop: &Value) -> Value {
+    let n = prop["minItems"].as_u64().unwrap_or(0) as usize;
+    let items = &prop["items"];
+    let item = match items["type"].as_str() {
+        Some("object") => {
+            let mut obj = serde_json::Map::new();
+            for req in items["required"].as_array().into_iter().flatten() {
+                let req = req.as_str().unwrap();
+                obj.insert(req.to_string(), sample_of(&items["properties"][req]).0);
+            }
+            Value::Object(obj)
+        }
+        _ => sample_of(items).0,
+    };
+    Value::Array(vec![item; n])
 }
 
 /// A value of the JSON type `prop` declares (its first `enum` value when it has
@@ -8013,7 +8078,7 @@ fn sample_of(prop: &Value) -> (Value, Value) {
         Some("boolean") => (json!(true), json!("yes")),
         Some("integer") => (json!(prop["minimum"].as_i64().unwrap_or(0)), json!("1")),
         Some("number") => (json!(1.5), json!("1.5")),
-        Some("array") => (json!([]), json!({})),
+        Some("array") => (sample_array(prop), json!({})),
         Some("object") => (json!({}), json!([])),
         other => panic!("property without a type: {other:?} in {prop}"),
     }
