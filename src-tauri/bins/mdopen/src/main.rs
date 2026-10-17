@@ -149,8 +149,8 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
         match arg.as_str() {
             // `--` ends flags, so `mdopen -- -notes.md` opens `-notes.md`.
             "--" => flags_done = true,
-            "--edit" | "-e" => mode = Some("edit"),
-            "--read" | "-r" => mode = Some("read"),
+            "--edit" | "-e" => mode = set_mode(mode, "edit")?,
+            "--read" | "-r" => mode = set_mode(mode, "read")?,
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(format!("unknown flag: {flag}"));
             }
@@ -169,6 +169,19 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             "expected one file, got {}; run mdopen once per file",
             many.len()
         )),
+    }
+}
+
+/// Record a `--edit`/`--read` flag. Repeating the same one is harmless, but
+/// asking for both is a contradiction: keeping whichever came last would open
+/// the file in a mode the caller may not have meant.
+fn set_mode(
+    current: Option<&'static str>,
+    want: &'static str,
+) -> Result<Option<&'static str>, String> {
+    match current {
+        Some(m) if m != want => Err("--edit and --read conflict; pass only one".to_string()),
+        _ => Ok(Some(want)),
     }
 }
 
@@ -407,7 +420,7 @@ USAGE:
 
 FLAGS:
     --edit, -e                 open in edit mode
-    --read, -r                 open in read mode (default)
+    --read, -r                 open in read mode (default; not with --edit)
     --hook                     Claude Code PostToolUse hook (reads JSON on stdin)
     --help, -h                 print this help
     --version, -V              print the version
@@ -425,7 +438,7 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage, unresolvable path, not a file or not a Markdown document
+    1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case. With
@@ -522,6 +535,27 @@ mod tests {
         assert!(parse_args(&args(&["a.md", "b.md"]))
             .unwrap_err()
             .contains("expected one file, got 2"));
+    }
+
+    #[test]
+    fn edit_and_read_together_are_a_usage_error() {
+        for pair in [["-e", "-r"], ["--read", "--edit"], ["-r", "-e"]] {
+            let err = parse_args(&args(&[pair[0], pair[1], "a.md"])).unwrap_err();
+            assert!(
+                err.contains("--edit and --read conflict"),
+                "{pair:?}: {err}"
+            );
+        }
+        // Repeating the same mode is not a conflict.
+        assert_eq!(
+            parse_args(&args(&["-e", "--edit", "a.md"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: "a.md".into()
+            })
+        );
+        // After `--`, `-r` is a file name, not a second mode.
+        assert!(parse_args(&args(&["-e", "--", "-r"])).is_ok());
     }
 
     #[test]
