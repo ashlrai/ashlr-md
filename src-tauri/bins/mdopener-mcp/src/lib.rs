@@ -4105,9 +4105,8 @@ fn semantic_hits(
     let mut skipped = 0;
 
     for path in paths {
-        let content = match read_document_file(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Some(content) = searchable_document(path) else {
+            continue;
         };
         // Truncate to first 8 KB to stay within typical embedding context limits.
         let truncated: String = content.chars().take(8192).collect();
@@ -4151,6 +4150,17 @@ fn semantic_hits(
 /// Grep the vault files directly on disk (used when the app's own `/search`
 /// fails).  The file list still comes from the app, so this errors when the
 /// app is not running.
+/// The text of a vault or recent file a search may read, or `None` when it
+/// is not a Markdown document that is not a dotfile (judged after resolving
+/// symlinks, and read from the resolved path) or cannot be read. Recents are
+/// whatever the human opened, and the grep and semantic searches used to read
+/// every one, returning lines of a dropped `.env` or of a `notes.md` link to
+/// `~/.ssh/id_rsa` that every other read refuses.
+fn searchable_document(path: &str) -> Option<String> {
+    let checked = checked_document_path(path, "path").ok()?;
+    read_document_file(checked).ok()
+}
+
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
     Ok(grep_paths(query, limit, &vault_file_paths(ipc)?))
 }
@@ -4161,9 +4171,8 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in paths {
-        let content = match read_document_file(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Some(content) = searchable_document(path) else {
+            continue;
         };
         let mut match_count = 0usize;
         let mut first_line = 0usize;

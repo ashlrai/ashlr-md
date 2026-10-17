@@ -686,6 +686,10 @@ The integration is **local-only and token-authenticated**:
   symlinks.
 - Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
   server keeps the directory `0700` and writes each session file `0600`.
+- Searches (`search_vault`, `text://vault-search` and the app's `/search`)
+  read only the vault files and recents that are Markdown documents and not
+  dotfiles, checked after resolving symlinks, so a recent `.env` or a
+  `notes.md` link to a key is never searched.
 - The tools that read a path straight from disk (`diff_documents`,
   `export_text` / `export_metadata` with `path`, `search_vault` with `vault`
   when the app is unreachable, and the task list of

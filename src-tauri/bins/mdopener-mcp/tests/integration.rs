@@ -2430,7 +2430,11 @@ fn grep_vault_empty_vault_returns_empty() {
 fn grep_vault_with_real_temp_file_finds_match() {
     use std::io::Write;
     // Write a temp file with known content.
-    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .expect("tempfile");
     writeln!(f, "# Meeting notes\nThis is about the quarterly review.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
 
@@ -2452,7 +2456,11 @@ fn grep_vault_with_real_temp_file_finds_match() {
 #[test]
 fn grep_vault_no_match_returns_empty() {
     use std::io::Write;
-    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .expect("tempfile");
     writeln!(f, "# Notes\nSome content here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
 
@@ -2471,7 +2479,11 @@ fn grep_vault_no_match_returns_empty() {
 fn grep_vault_results_sorted_by_score_descending() {
     use std::io::Write;
     // File A: query appears once in 10 lines → low density.
-    let mut fa = tempfile::NamedTempFile::new().unwrap();
+    let mut fa = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     for i in 0..9 {
         writeln!(fa, "line {i}").unwrap();
     }
@@ -2479,7 +2491,11 @@ fn grep_vault_results_sorted_by_score_descending() {
     let path_a = fa.path().to_str().unwrap().to_string();
 
     // File B: query appears in every line → high density.
-    let mut fb = tempfile::NamedTempFile::new().unwrap();
+    let mut fb = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     for _ in 0..5 {
         writeln!(fb, "needle needle needle").unwrap();
     }
@@ -2505,12 +2521,55 @@ fn grep_vault_results_sorted_by_score_descending() {
     );
 }
 
+/// Recents hold whatever the human opened. The grep and semantic searches
+/// read every one, so a dropped `.env` or a `notes.md` link to a key had its
+/// matching lines returned, though every other read refuses such files.
+#[test]
+fn vault_searches_read_only_markdown_documents() {
+    use mdopener_mcp::semantic_search_vault_with;
+    let dir = tempfile::tempdir().unwrap();
+    let md = dir.path().join("notes.md");
+    std::fs::write(&md, "TOKEN in notes\n").unwrap();
+    let env = dir.path().join(".env");
+    std::fs::write(&env, "TOKEN=secret\n").unwrap();
+    let key = dir.path().join("id_rsa");
+    std::fs::write(&key, "TOKEN key\n").unwrap();
+    let hidden = dir.path().join(".hidden.md");
+    std::fs::write(&hidden, "TOKEN hidden\n").unwrap();
+    let mut recents = vec![env, key.clone(), hidden];
+    #[cfg(unix)]
+    {
+        let link = dir.path().join("link.md");
+        std::os::unix::fs::symlink(&key, &link).unwrap();
+        recents.push(link);
+    }
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
+            "files": [{ "path": md.to_str().unwrap() }],
+            "recents": recents.iter().map(|p| p.to_str().unwrap()).collect::<Vec<_>>(),
+        })),
+    );
+    let canon = std::fs::canonicalize(&md).unwrap();
+    let only_notes = |results: &[Value]| {
+        let paths: Vec<&str> = results.iter().filter_map(|r| r["path"].as_str()).collect();
+        assert_eq!(paths, vec![canon.to_str().unwrap()], "{results:?}");
+    };
+    only_notes(&grep_vault("TOKEN", 50, &ipc).unwrap());
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    only_notes(&semantic_search_vault_with("TOKEN", 50, &ipc, &embed).unwrap());
+}
+
 #[test]
 fn grep_vault_respects_limit() {
     use std::io::Write;
     let ipc_files: Vec<Value> = (0..10)
         .map(|i| {
-            let mut f = tempfile::NamedTempFile::new().unwrap();
+            let mut f = tempfile::Builder::new()
+                .prefix("note")
+                .suffix(".md")
+                .tempfile()
+                .unwrap();
             writeln!(f, "line with keyword here").unwrap();
             // Keep file alive by leaking — acceptable in test context.
             let path = f.path().to_str().unwrap().to_string();
@@ -2559,7 +2618,11 @@ fn search_vault_semantic_false_uses_ipc_grep() {
 #[test]
 fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
     use std::io::Write;
-    let mut f = tempfile::NamedTempFile::new().unwrap();
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     writeln!(f, "# Notes\nThis mentions the target topic explicitly.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
 
@@ -2643,7 +2706,11 @@ fn search_vault_semantic_false_has_no_fallback_note() {
 #[test]
 fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     use std::io::Write;
-    let mut f = tempfile::NamedTempFile::new().unwrap();
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     writeln!(f, "# Notes\nThe target topic is here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
     let reason = "IPC server returned HTTP 403: search is disabled";
@@ -2703,7 +2770,11 @@ fn a_semantic_fallback_keeps_the_apps_truncation_note() {
 #[test]
 fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     use std::io::Write;
-    let mut f = tempfile::NamedTempFile::new().unwrap();
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     writeln!(f, "# Notes\nThe target topic is here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
     let vault =
@@ -3017,7 +3088,11 @@ fn search_vault_refuses_a_hidden_vault_folder() {
 fn search_vault_falls_back_when_every_embedding_fails() {
     use mdopener_mcp::{search_vault_with, semantic_search_vault_with};
     use std::io::Write;
-    let mut f = tempfile::NamedTempFile::new().unwrap();
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .unwrap();
     writeln!(f, "# Notes\nThe target topic is here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
     let ipc = MockIpc::new()

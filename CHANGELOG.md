@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Vault search reads only Markdown documents.** The app's `/search` and
+  the MCP server's grep and semantic searches read every vault file and
+  recent, and recents hold whatever the human opened, so a dropped `.env`
+  or a `notes.md` link to `~/.ssh/id_rsa` had its matching lines returned
+  to the agent. Like every other agent read, they now read only Markdown
+  documents that are not dotfiles, judged after resolving symlinks.
 - **A `notifications/*` method sent with an `id` is answered.** The server
   dropped it like a notification, so a client that sent one as a request
   waited on that id forever. It is now `-32600` with the id, saying that a

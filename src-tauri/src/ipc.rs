@@ -1650,9 +1650,8 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
         return send_json(req, serde_json::json!({ "query": q, "results": [] }));
     }
 
-    // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
-    let mut paths: Vec<String> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    // Candidate set = vault files ∪ recents, locks dropped before search.
+    let mut listed: Vec<String> = Vec::new();
     let (truncated, vault_limit, scan_cut, depth_cut);
     {
         let vault_state = app.state::<VaultMirror>();
@@ -1661,24 +1660,33 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
         vault_limit = vault.limit;
         scan_cut = vault.scan_cut;
         depth_cut = vault.depth_cut;
-        for f in vault.files.iter() {
-            if seen.insert(f.path.clone()) {
-                paths.push(f.path.clone());
-            }
-        }
+        listed.extend(vault.files.iter().map(|f| f.path.clone()));
     }
     {
         let recent_state = app.state::<RecentMirror>();
         let recents = recent_state.0.lock_recover();
-        for r in recents.iter() {
-            if seen.insert(r.path.clone()) {
-                paths.push(r.path.clone());
-            }
-        }
+        listed.extend(recents.iter().map(|r| r.path.clone()));
     }
+    let paths = searchable_documents(listed);
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
     send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut));
+}
+
+/// The files `/search` may read for an agent, deduped: only Markdown
+/// documents that are not dotfiles, judged after resolving symlinks (as
+/// [`checked_agent_path`] does for `/open`). Recents hold whatever the human
+/// opened (a dropped `.env`, a `notes.md` later re-pointed at `~/.ssh/id_rsa`),
+/// and searching them used to hand the agent their matching lines, though
+/// every other agent read refuses such files. Returns the canonical paths, so
+/// a link re-pointed after this check is not followed when the file is read.
+fn searchable_documents(listed: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    listed
+        .iter()
+        .filter_map(|p| checked_agent_path(p).ok())
+        .filter(|p| seen.insert(p.clone()))
+        .collect()
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
@@ -2344,7 +2352,7 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
-        same_path, search_body, InflightEdit, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
+        same_path, search_body, searchable_documents, InflightEdit, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
 
@@ -3270,6 +3278,37 @@ mod tests {
         let missing = d.0.join("missing.md");
         let err = checked_agent_path(missing.to_str().unwrap()).unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
+    }
+
+    /// `/search` read every recent, so a dropped `.env` or a `notes.md` link
+    /// to a key had its matching lines returned to the agent.
+    #[test]
+    fn search_reads_only_markdown_documents() {
+        let d = Scratch::new("search-scope");
+        let md = d.0.join("notes.md");
+        std::fs::write(&md, "TOKEN in notes").unwrap();
+        let env = d.0.join(".env");
+        std::fs::write(&env, "TOKEN=secret").unwrap();
+        let txt = d.0.join("id_rsa");
+        std::fs::write(&txt, "TOKEN key").unwrap();
+        let hidden = d.0.join(".hidden.md");
+        std::fs::write(&hidden, "TOKEN hidden").unwrap();
+        let mut listed = vec![md.clone(), env, txt.clone(), hidden, md.clone()];
+        #[cfg(unix)]
+        {
+            let link = d.0.join("link.md");
+            std::os::unix::fs::symlink(&txt, &link).unwrap();
+            listed.push(link);
+        }
+        let listed = listed
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(
+            searchable_documents(listed),
+            vec![canon.to_string_lossy().into_owned()]
+        );
     }
 
     /// A scratch directory removed on drop (the app crate has no tempfile).
