@@ -269,7 +269,9 @@ fn open_in_app(
     let ipc_error = match ipc::home_dir() {
         Some(home) => match ipc::open(&home, abs_path, mode) {
             Ok(()) => return Ok(Opened::Confirmed),
-            Err(e) => e,
+            // The running app said no; the URL scheme would only reach it again.
+            Err(ipc::Failure::Refused(reason)) => return Err(reason),
+            Err(ipc::Failure::Unreachable(e)) => e,
         },
         None => "no home directory".to_string(),
     };
