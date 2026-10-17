@@ -871,7 +871,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
-                    "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
+                    "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped." },
@@ -2337,13 +2337,17 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
+    // An empty `content` (with no path) used to register a review of no
+    // text at all, which the human could only approve or reject blind.
+    for field in ["path", "content"] {
+        if let Err(e) = non_empty_str(args, field) {
+            return Response::err(id, -32602, e);
+        }
+    }
     // An empty or blank `review_id` used to be read as absent, so a call
     // that meant to resume (`{ "review_id": "", "content": ... }`) registered
     // a new review, which replaced and so ended the pending one the agent
     // meant to wait on.
-    if let Err(e) = non_empty_str(args, "path") {
-        return Response::err(id, -32602, e);
-    }
     let resume = match args["review_id"].as_str() {
         Some(r) if r.trim().is_empty() => {
             return Response::err(

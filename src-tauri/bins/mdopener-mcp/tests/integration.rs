@@ -8231,6 +8231,8 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
 /// reached the file checks and came back as "only Markdown documents can be
 /// read" or "No such file or directory". Those declare `minLength: 1` too,
 /// and the tools refuse an empty value themselves with "must not be empty".
+/// So does `request_review.content`, which used to register a review of no
+/// text when no path was given.
 #[test]
 fn required_strings_refused_when_empty_declare_min_length() {
     let must = [
@@ -8250,6 +8252,7 @@ fn required_strings_refused_when_empty_declare_min_length() {
         ("export_text", "path"),
         ("export_metadata", "path"),
         ("request_review", "path"),
+        ("request_review", "content"),
         ("search_vault", "vault"),
     ];
     // Empty is a real value: replacing with nothing, an empty document.
@@ -8313,7 +8316,7 @@ fn required_strings_refused_when_empty_declare_min_length() {
     // Called directly, past the schema check, the tools refuse an empty
     // path themselves rather than reporting a file error.
     let ipc = MockIpc::new();
-    let direct: [(&str, mdopener_mcp::Response); 8] = [
+    let direct: [(&str, mdopener_mcp::Response); 9] = [
         ("path", tool_open_file(id(1), &json!({ "path": "" }), &ipc)),
         (
             "path",
@@ -8340,6 +8343,14 @@ fn required_strings_refused_when_empty_declare_min_length() {
             mdopener_mcp::tool_request_review(
                 id(1),
                 &json!({ "path": "", "blocking": false }),
+                &ipc,
+            ),
+        ),
+        (
+            "content",
+            mdopener_mcp::tool_request_review(
+                id(1),
+                &json!({ "content": "", "blocking": false }),
                 &ipc,
             ),
         ),
