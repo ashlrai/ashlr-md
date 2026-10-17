@@ -286,7 +286,7 @@ The `find` string must occur **exactly once**:
 
 - **0 matches** → the edit is refused: *"`find` string not found in the current document."*
 - **2+ matches** → the edit is refused: *"`find` string is not unique (N matches) — include more surrounding context to disambiguate."*
-- **empty `find`** → refused.
+- **empty `find`** → refused by the MCP server itself with `-32602` (*"`find` must not be empty"*), whether or not the app is running.
 
 So include enough surrounding context to make `find` unique. These soft failures
 come back as a **tool error** (`isError: true`) with the reason, not an opaque

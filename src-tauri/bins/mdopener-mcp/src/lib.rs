@@ -2514,8 +2514,12 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 // ── Document edit / search / present tools ───────────────────────────────────
 
 pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty `find` is refused here, as `stream_edit` does: the app refuses
+    // it too, but with the app closed the agent was told to start the app
+    // instead of being told what is wrong with its call.
     let find = match args["find"].as_str() {
-        Some(f) => f.to_string(),
+        Some(f) if !f.is_empty() => f.to_string(),
+        Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
         None => return Response::err(id, -32602, "`find` is required"),
     };
     let replace = match args["replace"].as_str() {

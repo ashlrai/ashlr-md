@@ -1030,6 +1030,21 @@ fn edit_document_missing_find_returns_error() {
 }
 
 #[test]
+fn edit_document_empty_find_is_refused_without_the_app() {
+    // The app is closed: an empty `find` must still be named as the problem,
+    // not answered with "start the app".
+    let ipc = MockIpc::new().on_post("/edit", Err("Could not connect to IPC server".into()));
+    let resp = tool_edit_document(id(1), &json!({ "find": "", "replace": "x" }), &ipc);
+    let err = resp
+        .error
+        .as_ref()
+        .expect("an empty find must be a param error");
+    assert_eq!(err.code, -32602);
+    assert_eq!(err.message, "`find` must not be empty");
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
+}
+
+#[test]
 fn edit_document_missing_replace_returns_error() {
     let ipc = MockIpc::new();
     let resp = tool_edit_document(id(1), &json!({ "find": "old" }), &ipc);
