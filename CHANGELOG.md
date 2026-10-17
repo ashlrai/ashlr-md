@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A `notifications/*` method sent with an `id` is answered.** The server
+  dropped it like a notification, so a client that sent one as a request
+  waited on that id forever. It is now `-32600` with the id, saying that a
+  notification must not carry one; without an id it is still silent.
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

@@ -105,9 +105,22 @@ impl IpcClient for RealIpcClient {
 
 pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
     // JSON-RPC notifications (methods under "notifications/", carrying no id)
-    // must NOT receive a response. Drop them silently.
+    // must NOT receive a response. Drop them silently. One sent with an `id`
+    // is a request, and a request is always answered: dropping it left the
+    // client waiting on that id forever. MCP notifications MUST NOT carry an
+    // id, so it is an Invalid Request.
     if req.method.starts_with("notifications/") {
-        return None;
+        return req.id.map(|id| {
+            Response::err(
+                id,
+                -32600,
+                format!(
+                    "Invalid Request: `{}` is a notification and must not carry an `id`; \
+                     send it without one (it gets no reply).",
+                    req.method
+                ),
+            )
+        });
     }
 
     let id = req.id.clone().unwrap_or(Value::Null);

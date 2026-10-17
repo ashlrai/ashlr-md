@@ -171,6 +171,30 @@ fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
     assert_eq!(out[4], json!({"jsonrpc":"2.0","id":10,"result":{}}));
 }
 
+/// A `notifications/*` method sent with an `id` is a request, so it is
+/// answered (-32600 with that id) instead of dropped like a notification:
+/// before, the client waited on that id forever. Without an id it stays
+/// silent, alone and inside a batch.
+#[test]
+fn notification_method_with_an_id_is_answered() {
+    let out = raw_session(&[
+        r#"{"jsonrpc":"2.0","id":1,"method":"notifications/initialized"}"#,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        r#"[{"jsonrpc":"2.0","id":"c","method":"notifications/cancelled","params":{"requestId":1}},{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}]"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#,
+    ]);
+    assert_eq!(out.len(), 3, "{out:?}");
+    assert_eq!(out[0]["id"], 1);
+    assert_eq!(out[0]["error"]["code"], -32600, "{:?}", out[0]);
+    let msg = out[0]["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("notifications/initialized"), "{msg}");
+    let batch = out[1].as_array().expect("batch reply is an array");
+    assert_eq!(batch.len(), 1, "{batch:?}");
+    assert_eq!(batch[0]["id"], "c");
+    assert_eq!(batch[0]["error"]["code"], -32600);
+    assert_eq!(out[2], json!({"jsonrpc":"2.0","id":2,"result":{}}));
+}
+
 /// An unknown command-line argument is still ignored (old client configs may
 /// pass one) but named in one stderr line, and stdout stays JSON-RPC only.
 /// Before, a typo such as `--verison` started the server without a word.

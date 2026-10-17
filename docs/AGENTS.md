@@ -37,7 +37,8 @@ The MCP server understands the MCP lifecycle (`initialize` →
 client's requested `protocolVersion` when it's one of these, and otherwise
 advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
 which `2025-03-26` clients may send) gets one array reply; a message without
-an `id` is a notification and gets no reply.
+an `id` is a notification and gets no reply. A `notifications/*` method
+sent *with* an `id` is answered `-32600`, so the client is not left waiting.
 
 ---
 
