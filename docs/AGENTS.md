@@ -359,7 +359,8 @@ for a file, plus the current state of its GFM task checkboxes
 edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
 silent and always succeeds, so it never disrupts Claude's tool flow — it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
-read mode via the `mdopener://` scheme.
+read mode: through the running app's loopback IPC channel, or via the
+`mdopener://` scheme when the app is not running.
 
 ### One-click install
 
@@ -398,6 +399,11 @@ The `matcher` fires on the `Edit` and `Write` tools; the `if` guard narrows it t
 
 `mdopen` opens any Markdown file in Ashlr MD from a terminal, CI script, or agent
 tool call.
+When the app is running, `mdopen` hands it the file over the token-authenticated
+loopback IPC channel, so it works even where the `mdopener://` scheme is not
+registered (an AppImage or dev build on Linux). Otherwise it opens the
+`mdopener://` URL, which launches the app. It exits `1` when neither works;
+for `mdopen -` the temp file holding stdin is then removed.
 
 ### Install
 
