@@ -22,13 +22,8 @@ use std::path::Path;
 /// produces.
 #[tauri::command]
 pub fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
-    let tmp = format!("{path}.mdopener.tmp");
-    std::fs::write(&tmp, &data)
-        .map_err(|e| format!("Could not write temporary file for {path}: {e}"))?;
-    std::fs::rename(&tmp, Path::new(&path)).map_err(|e| {
-        // Best-effort cleanup of the temp file if the rename fails.
-        let _ = std::fs::remove_file(&tmp);
-        format!("Could not save {path}: {e}")
-    })?;
-    Ok(())
+    // The same writer as Markdown saves: a new temp file under a random
+    // name (never a planted `<path>.mdopener.tmp` symlink), then a rename.
+    crate::document::write_atomic(Path::new(&path), &data)
+        .map_err(|e| format!("Could not save {path}: {e}"))
 }

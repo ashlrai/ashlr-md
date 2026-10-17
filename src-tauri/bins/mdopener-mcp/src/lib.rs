@@ -4105,9 +4105,8 @@ fn semantic_hits(
     let mut skipped = 0;
 
     for path in paths {
-        let content = match read_document_file(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Some(content) = searchable_document(path) else {
+            continue;
         };
         // Truncate to first 8 KB to stay within typical embedding context limits.
         let truncated: String = content.chars().take(8192).collect();
@@ -4151,6 +4150,17 @@ fn semantic_hits(
 /// Grep the vault files directly on disk (used when the app's own `/search`
 /// fails).  The file list still comes from the app, so this errors when the
 /// app is not running.
+/// The text of a vault or recent file a search may read, or `None` when it
+/// is not a Markdown document that is not a dotfile (judged after resolving
+/// symlinks, and read from the resolved path) or cannot be read. Recents are
+/// whatever the human opened, and the grep and semantic searches used to read
+/// every one, returning lines of a dropped `.env` or of a `notes.md` link to
+/// `~/.ssh/id_rsa` that every other read refuses.
+fn searchable_document(path: &str) -> Option<String> {
+    let checked = checked_document_path(path, "path").ok()?;
+    read_document_file(checked).ok()
+}
+
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
     Ok(grep_paths(query, limit, &vault_file_paths(ipc)?))
 }
@@ -4161,9 +4171,8 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in paths {
-        let content = match read_document_file(path) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let Some(content) = searchable_document(path) else {
+            continue;
         };
         let mut match_count = 0usize;
         let mut first_line = 0usize;
@@ -5502,7 +5511,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Write to disk ────────────────────────────────────────────────────────
     let save = args["save"].as_bool().unwrap_or(true);
     if save {
-        if let Err(e) = std::fs::write(&path, &serialised) {
+        if let Err(e) = replace_file(std::path::Path::new(&path), serialised.as_bytes()) {
             return tool_error(id, format!("Failed to write {path}: {e}"));
         }
     }
@@ -5522,6 +5531,59 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "content": if save { Value::Null } else { json!(serialised) },
         }),
     )
+}
+
+/// Replace the file at `path` with `bytes`: written into a new sibling temp
+/// file (created with `create_new`, so never through an existing name or
+/// symlink) that takes the old file's permissions, then renamed over `path`.
+/// The rename replaces whatever is at `path` and never follows it, so a
+/// `.canvas` swapped for a symlink to `~/.bashrc` after `edit_canvas` checked
+/// and read it is replaced, not written through: the write used to be
+/// `std::fs::write`, which follows the link.
+pub fn replace_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let keep = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.permissions());
+    let mut attempt = 0;
+    let (tmp, mut file) = loop {
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(
+            ".{}-{seq}-{nanos:x}.mdopener.tmp",
+            std::process::id()
+        ));
+        let tmp = std::path::PathBuf::from(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(f) => break (tmp, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt < 16 => {
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    };
+    let written = keep
+        .map_or(Ok(()), |p| file.set_permissions(p))
+        .and_then(|()| file.write_all(bytes))
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&tmp, path)
+        });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 // ── Canvas JSON helpers ───────────────────────────────────────────────────────

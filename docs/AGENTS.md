@@ -650,6 +650,11 @@ From JavaScript / Electron:
 shell.openExternal(`mdopener://open?path=${encodeURIComponent(filePath)}`);
 ```
 
+Since any web page or program can launch these links, a link opens only an
+existing Markdown document that is not a dotfile (checked after resolving
+symlinks, as for `open_file`); anything else is ignored. The `path` is
+percent-decoded once.
+
 ---
 
 ## How it works: the IPC model
@@ -686,6 +691,10 @@ The integration is **local-only and token-authenticated**:
   symlinks.
 - Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
   server keeps the directory `0700` and writes each session file `0600`.
+- Searches (`search_vault`, `text://vault-search` and the app's `/search`)
+  read only the vault files and recents that are Markdown documents and not
+  dotfiles, checked after resolving symlinks, so a recent `.env` or a
+  `notes.md` link to a key is never searched.
 - The tools that read a path straight from disk (`diff_documents`,
   `export_text` / `export_metadata` with `path`, `search_vault` with `vault`
   when the app is unreachable, and the task list of
@@ -698,7 +707,9 @@ The integration is **local-only and token-authenticated**:
   `get_current_content` would return it; the app's `/open`, `/present` and
   `/review` endpoints refuse such a path too (HTTP 400, and the reason
   reaches the agent). `edit_canvas` likewise re-checks `.canvas`
-  after resolving symlinks.
+  after resolving symlinks, and saves by renaming a new temp file over the
+  canvas (keeping its permissions), so a canvas swapped for a symlink after
+  the check is replaced, never written through.
 - `export` with `output_path` writes that file without a dialog and replaces
   an existing file of that name. It only accepts a non-dotfile path with the
   format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing

@@ -36,6 +36,42 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **"Apply hunk" never patches hidden files or follows a link out of the
+  folder.** A diff block names its target file, and an agent writes the diff:
+  one naming `.git/config` (git runs `core.fsmonitor` as a command) or `.env`
+  next to the document was applied on a click. A target that is a link to a
+  file outside the document's folder was read through and its patched text
+  written into the folder, where agents read it. Both are now refused.
+- **`edit_canvas` never writes through a symlink.** It saved with a write
+  that follows symlinks, so a `.canvas` swapped for a link to `~/.bashrc`
+  after the tool checked and read it had the canvas JSON written into
+  `~/.bashrc`. It now writes a new temp file and renames it over the canvas,
+  which replaces a link instead of following it, and keeps the file's
+  permissions.
+- **Saving keeps the file's permissions.** A save (or an export over an
+  existing file) replaced the file with a new one in the default mode, so a
+  private `0600` note became readable by every user on the machine after its
+  first save, including one an agent made with `save: true`. The new file now
+  takes the old one's permissions before anything is written to it.
+- **Saves never write through a planted temp-file symlink.** Every app
+  write (saving a document, an export, a pasted image) went to the fixed
+  `<path>.mdopener.tmp` with a write that follows symlinks, so a vault (a
+  cloned repository, a shared folder) shipping `notes.md.mdopener.tmp ->
+  ~/.bashrc` had the next save of `notes.md` written into `~/.bashrc`. The
+  temp file is now created new under a random name and never opened when
+  something is already there.
+- **`mdopener://` links open only Markdown documents.** Any web page or
+  program can launch the URL scheme, and `mdopener://open?path=` (and
+  `export`) opened whatever path it named, such as `~/.ssh/id_rsa`: the
+  window showed it, `/content` handed it to agents, and a save wrote over
+  it. A link now opens only an existing Markdown document that is not a
+  dotfile, judged after resolving symlinks, as `/open` already required.
+- **Vault search reads only Markdown documents.** The app's `/search` and
+  the MCP server's grep and semantic searches read every vault file and
+  recent, and recents hold whatever the human opened, so a dropped `.env`
+  or a `notes.md` link to `~/.ssh/id_rsa` had its matching lines returned
+  to the agent. Like every other agent read, they now read only Markdown
+  documents that are not dotfiles, judged after resolving symlinks.
 - **A `notifications/*` method sent with an `id` is answered.** The server
   dropped it like a notification, so a client that sent one as a request
   waited on that id forever. It is now `-32600` with the id, saying that a

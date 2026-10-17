@@ -41,14 +41,71 @@ pub fn write_markdown_file(path: String, content: String) -> Result<(), String> 
     if path_targets_obsidian_dir(&path) {
         return Err("Refusing to write inside an Obsidian .obsidian/ config folder.".into());
     }
-    let tmp = format!("{path}.mdopener.tmp");
-    std::fs::write(&tmp, content.as_bytes()).map_err(|e| format!("Could not write {path}: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        // Best-effort cleanup of the temp file if the rename failed.
+    write_atomic(Path::new(&path), content.as_bytes())
+        .map_err(|e| format!("Could not save {path}: {e}"))
+}
+
+/// Write `bytes` to `path` atomically: into a new sibling temp file, then
+/// renamed over `path` (atomic on one filesystem, so a crash never leaves a
+/// half-written file). Every app write goes through here.
+///
+/// The temp file is created new (`O_EXCL`) under a random name, never opened
+/// if something is already there. It used to be the fixed `<path>.mdopener.tmp`
+/// written with `std::fs::write`, which follows a symlink: a vault (a cloned
+/// repository, a shared folder) that ships `notes.md.mdopener.tmp ->
+/// ~/.bashrc` had the next save of `notes.md` written into `~/.bashrc`.
+///
+/// The new file takes the permissions of the file it replaces, set before any
+/// byte is written: a fresh temp file gets the default mode (`0644` under the
+/// usual umask), so saving a private `0600` note used to leave it readable by
+/// every user on the machine.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let keep = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.permissions());
+    let (tmp, mut file) = create_temp_sibling(path)?;
+    let written = keep
+        .map_or(Ok(()), |p| file.set_permissions(p))
+        .and_then(|()| file.write_all(bytes))
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&tmp, path)
+        });
+    if written.is_err() {
+        // Best-effort cleanup of the temp file if the write or rename failed.
         let _ = std::fs::remove_file(&tmp);
-        format!("Could not save {path}: {e}")
-    })?;
-    Ok(())
+    }
+    written
+}
+
+/// Create a new, empty `<path>.<random>.mdopener.tmp` next to `path` (the
+/// Activity drawer ignores that suffix). `create_new` refuses an existing
+/// name, a symlink included, so another name is tried.
+fn create_temp_sibling(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    for _ in 0..16 {
+        let mut nonce = [0u8; 8];
+        getrandom::getrandom(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;
+        let hex: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".{hex}.mdopener.tmp"));
+        let tmp = std::path::PathBuf::from(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => return Ok((tmp, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not create a temporary file next to it",
+    ))
 }
 
 /// Return the subset of `paths` that still exist as files on disk.
@@ -381,6 +438,30 @@ pub fn apply_file_patch(
         .file_name()
         .ok_or("The patch target has no file name.")?;
     let resolved = canon_parent.join(file_name);
+    // The file itself is judged after resolving symlinks too: a `notes.md`
+    // link to `~/.ssh/id_rsa` was read through and its patched text written
+    // into the folder (the rename replaced the link), where agents read it.
+    let resolved = match std::fs::canonicalize(&resolved) {
+        Ok(real) if !real.starts_with(&base) => return Err(LINKED_OUT_OF_FOLDER.into()),
+        Ok(real) => real,
+        Err(_) => resolved,
+    };
+    // Hidden files and folders (`.git/config`, `.env`, `.github/…`) are never
+    // patched: a diff an agent wrote could otherwise set `core.fsmonitor` in
+    // `.git/config`, which git runs as a command.
+    let hidden = resolved
+        .strip_prefix(&base)
+        .map(|rel| {
+            rel.components()
+                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        })
+        .unwrap_or(true);
+    if hidden {
+        return Err(
+            "Refusing to patch a hidden file or a file in a hidden folder (such as .git/ or .env)."
+                .into(),
+        );
+    }
     let resolved_str = resolved.to_string_lossy().into_owned();
 
     if path_targets_obsidian_dir(&resolved_str) {
@@ -399,6 +480,10 @@ pub fn apply_file_patch(
     write_markdown_file(resolved_str.clone(), new_content)?;
     Ok(resolved_str)
 }
+
+/// Why [`apply_file_patch`] refuses a target that is a link out of the folder.
+const LINKED_OUT_OF_FOLDER: &str =
+    "Refusing to patch a file outside the document's own folder (it is a link that points out of it).";
 
 /// Image extensions accepted for a pasted-image save (lower-cased, no dot).
 const PASTE_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
@@ -522,13 +607,7 @@ fn write_pasted_image_under(
     }
 
     // Atomic write: temp sibling then rename, matching write_markdown_file.
-    let target_str = target.to_string_lossy().into_owned();
-    let tmp = format!("{target_str}.mdopener.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("Could not write the image: {e}"))?;
-    std::fs::rename(&tmp, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("Could not save the image: {e}")
-    })?;
+    write_atomic(&target, bytes).map_err(|e| format!("Could not save the image: {e}"))?;
     Ok((target, name))
 }
 
@@ -652,6 +731,68 @@ mod tests {
         assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
     }
 
+    /// The temp file was the fixed `<path>.mdopener.tmp`, written through
+    /// whatever was there: a planted symlink sent the save elsewhere.
+    #[cfg(unix)]
+    #[test]
+    fn saves_never_write_through_a_planted_temp_symlink() {
+        let root = make_tree();
+        let outside = root.join("bashrc");
+        std::fs::write(&outside, "keep me").unwrap();
+        let doc = root.join("notes.md");
+        std::fs::write(&doc, "old").unwrap();
+        let planted = root.join("notes.md.mdopener.tmp");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+
+        write_markdown_file(s(&doc), "new".into()).unwrap();
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
+        assert!(!std::fs::symlink_metadata(&doc)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+
+        let out = root.join("out.docx");
+        std::os::unix::fs::symlink(&outside, root.join("out.docx.mdopener.tmp")).unwrap();
+        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"PK");
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+
+        // No temp file is left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name().to_string_lossy().ends_with(".mdopener.tmp")
+                    && !e.file_type().unwrap().is_symlink()
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    /// A save replaced the file with a new one in the default mode, so a
+    /// private `0600` note became world-readable.
+    #[cfg(unix)]
+    #[test]
+    fn saves_keep_the_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = make_tree();
+        let doc = root.join("private.md");
+        std::fs::write(&doc, "old").unwrap();
+        std::fs::set_permissions(&doc, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_markdown_file(s(&doc), "new".into()).unwrap();
+        let mode = std::fs::metadata(&doc).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{mode:o}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
+
+        let out = root.join("private.docx");
+        std::fs::write(&out, "old").unwrap();
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o640)).unwrap();
+        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640, "{mode:o}");
+    }
+
     #[test]
     fn write_guard_rejects_obsidian_dir() {
         let root = make_tree();
@@ -687,6 +828,58 @@ mod tests {
             std::fs::read_to_string(root.join("secret.md")).unwrap(),
             "TOPSECRET"
         );
+    }
+
+    /// A diff an agent wrote could patch `.git/config` (git runs
+    /// `core.fsmonitor` as a command) or `.env` next to the document, and a
+    /// `link.md` to a file outside the folder was read through and its
+    /// patched text written into the folder.
+    #[test]
+    fn apply_file_patch_rejects_hidden_and_linked_targets() {
+        let root = make_tree();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git").join("config"), "[core]\n").unwrap();
+        std::fs::write(root.join(".env"), "TOKEN=1").unwrap();
+        for (target, find) in [
+            (".git/config", "[core]"),
+            (".env", "TOKEN"),
+            ("./.env", "TOKEN"),
+        ] {
+            let err =
+                apply_file_patch(s(&root), target.into(), find.into(), "x".into()).unwrap_err();
+            assert!(err.contains("hidden"), "{target}: {err}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git").join("config")).unwrap(),
+            "[core]\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".env")).unwrap(),
+            "TOKEN=1"
+        );
+
+        #[cfg(unix)]
+        {
+            let outside = make_tree();
+            let key = outside.join("id_rsa");
+            std::fs::write(&key, "BEGIN KEY").unwrap();
+            let link = root.join("link.md");
+            std::os::unix::fs::symlink(&key, &link).unwrap();
+            let err = apply_file_patch(s(&root), "link.md".into(), "BEGIN".into(), "x".into())
+                .unwrap_err();
+            assert!(err.contains("outside"), "{err}");
+            assert!(std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(std::fs::read_to_string(&key).unwrap(), "BEGIN KEY");
+            let _ = std::fs::remove_dir_all(&outside);
+        }
+
+        // An ordinary file in the folder is still patched.
+        let ok = apply_file_patch(s(&root), "Alpha.md".into(), "Alpha".into(), "A".into());
+        assert!(ok.is_ok(), "{ok:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
