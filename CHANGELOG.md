@@ -89,6 +89,31 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `0.1.0`; it now comes from the crate version, and the `mdopener-mcp` and
   `mdopen` sidecars are versioned with the app (0.4.0). A stdio test keeps
   it equal to `tauri.conf.json`.
+- **Windows: Settings looks up the bundled MCP server by its real name.** The
+  sidecar lookup behind Settings' connect actions and manual copy command
+  searched for `mdopener-mcp` without the `.exe` suffix, so a Windows install
+  reported it as not found even though the bundle declares `mdopener-mcp.exe`.
+  The lookup now uses the platform's executable suffix, and when nothing is
+  found the copy command shows that platform's typical install path instead of
+  the macOS one. Not yet verified on an installed Windows build.
+- **Settings finds Claude Code and Codex on Windows.** Agent CLI detection
+  shelled out to `which`, which stock Windows lacks, so the Connect buttons
+  stayed disabled there. It now searches `PATH` in-process (with `PATHEXT` on
+  Windows, so npm's `claude.cmd`/`codex.cmd` and the native `claude.exe` are
+  found), and the Connect actions run the same resolved file. Not yet verified
+  on an installed Windows build.
+- **The auto-open hook no longer breaks on the space in "Ashlr MD".** The hook
+  command wrote the `mdopen` path unquoted, so Claude Code's shell split
+  `/Applications/Ashlr MD.app/...` into two words and the hook never ran. The
+  path is now single-quoted, and re-running **Auto-open agent Markdown**
+  repairs an unquoted entry an earlier version wrote for the same path. The
+  Windows hook assumes Claude Code runs hooks through a POSIX shell (Git Bash);
+  that is unverified.
+- **Install mdopen on Windows looks for `mdopen.exe`.** It searched for a bare
+  `mdopen` and wrote a suffixless copy. It now uses the same lookup as agent
+  setup, copies `mdopen.exe` into `%USERPROFILE%\.local\bin`, and no longer
+  tries `/usr/local/bin` there. That folder is not on `PATH` by default; the
+  docs now say so instead of claiming the installer edits `PATH`.
 - **Agent edits apply to the live document, not a stale snapshot.** An MCP
   `edit_document`/`replace_document` that arrived within ~200 ms of you typing
   used to run against a debounced mirror — it could miss just-typed text or
