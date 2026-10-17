@@ -197,6 +197,11 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
     }
     match positional.as_slice() {
         [] => Err("no file specified".to_string()),
+        // `mdopen "$FILE"` with an empty variable used to come back as
+        // `cannot resolve path "": No such file or directory`.
+        [one] if one.trim().is_empty() => {
+            Err("the file path is empty; pass the Markdown file to open".to_string())
+        }
         [one] => Ok(Cli::Open {
             mode,
             target: (*one).to_string(),
@@ -234,6 +239,11 @@ fn version_line() -> String {
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
     let p = std::fs::canonicalize(target)
         .map_err(|e| format!("cannot resolve path {target:?}: {e}"))?;
+    if p.is_dir() {
+        return Err(format!(
+            "{target:?} is a directory, not a file; pass a Markdown file in it"
+        ));
+    }
     if !p.is_file() {
         return Err(format!("{target:?} is not a file"));
     }
@@ -552,7 +562,8 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
+    1  bad usage (including --edit with --read or an empty path), unresolvable
+       path, a directory, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an argument that is
        not valid UTF-8, `-` with empty stdin or
        more than 16 MiB of it, or the app is not running
@@ -730,6 +741,24 @@ mod tests {
         assert!(is_hook(&args(&["--hook"])));
     }
 
+    /// `mdopen "$FILE"` with an empty or blank variable is a usage error
+    /// that says the path is empty, not a file system error about "".
+    #[test]
+    fn an_empty_or_blank_path_is_a_usage_error() {
+        for argv in [&[""][..], &["  "], &["--edit", ""], &["--", " \t"]] {
+            assert_eq!(
+                parse_args(&args(argv)).unwrap_err(),
+                "the file path is empty; pass the Markdown file to open",
+                "{argv:?}"
+            );
+        }
+        // A name with spaces around it is still a name.
+        assert!(matches!(
+            parse_args(&args(&[" a.md"])),
+            Ok(Cli::Open { .. })
+        ));
+    }
+
     #[test]
     fn resolve_file_rejects_directories_and_missing_paths() {
         let s = Scratch::new("resolve");
@@ -738,9 +767,19 @@ mod tests {
             resolve_file(f.to_str().unwrap()).unwrap(),
             std::fs::canonicalize(&f).unwrap()
         );
-        assert!(resolve_file(s.0.to_str().unwrap())
+        assert_eq!(
+            resolve_file(s.0.to_str().unwrap()).unwrap_err(),
+            format!(
+                "{:?} is a directory, not a file; pass a Markdown file in it",
+                s.0.to_str().unwrap()
+            )
+        );
+        // A directory named like a document is still a directory.
+        let dir_md = s.0.join("folder.md");
+        std::fs::create_dir_all(&dir_md).unwrap();
+        assert!(resolve_file(dir_md.to_str().unwrap())
             .unwrap_err()
-            .contains("is not a file"));
+            .contains("is a directory"));
         assert!(resolve_file(s.0.join("nope.md").to_str().unwrap())
             .unwrap_err()
             .contains("cannot resolve path"));

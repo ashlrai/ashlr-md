@@ -628,7 +628,10 @@ than the 16 MiB a document may be (it stops reading there and writes no temp
 file). Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
 stderr. Run with no arguments at all, it prints its help to stderr and exits
-`1`; `mdopen --help` prints it to stdout and exits `0`. An argument that is
+`1`; `mdopen --help` prints it to stdout and exits `0`. An empty or blank
+path (`mdopen "$FILE"` with an empty variable) is a usage error saying the
+path is empty, and a directory is refused as a directory (exit `1` for
+both). An argument that is
 not valid UTF-8 is a usage error (exit `1`, naming it on stderr): Ashlr MD
 takes paths as UTF-8 text, and such an argument used to crash `mdopen` with
 exit `101`, `--hook` included, which still exits `0` in silence.

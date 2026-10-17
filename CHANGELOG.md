@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` says when the path is empty or a directory.** `mdopen "$FILE"`
+  with an empty or blank variable answered `cannot resolve path "": No such
+  file or directory`, and a directory (even one named `notes.md`) was "not a
+  file". An empty or blank path is now a usage error saying the file path is
+  empty, and a directory is refused as a directory; both still exit `1`.
 - **`mdopen` no longer crashes on an argument that is not valid UTF-8.**
   Such an argument (a file name in another encoding) made `mdopen` panic with
   a backtrace and exit `101`, and `mdopen --hook`, which must always exit
