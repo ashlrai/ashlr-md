@@ -867,7 +867,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, ops_applied }. Safe for remote/agent use — only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use — only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3544,6 +3544,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     let mut ops_applied: Vec<String> = Vec::new();
+    // Edges `delete_node` removed along with their node, reported back.
+    let mut removed_edge_ids: Vec<Value> = Vec::new();
 
     for (i, op) in ops.iter().enumerate() {
         let op_type = match op["type"].as_str() {
@@ -3842,8 +3844,12 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     );
                 }
                 edges.retain(|e| {
-                    e.get("fromNode").and_then(Value::as_str) != Some(node_id)
-                        && e.get("toNode").and_then(Value::as_str) != Some(node_id)
+                    let keep = e.get("fromNode").and_then(Value::as_str) != Some(node_id)
+                        && e.get("toNode").and_then(Value::as_str) != Some(node_id);
+                    if !keep {
+                        removed_edge_ids.push(e.get("id").cloned().unwrap_or(Value::Null));
+                    }
+                    keep
                 });
             }
             "add_edge" => {
@@ -4038,6 +4044,13 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Serialise ────────────────────────────────────────────────────────────
+    let ids = |items: &[serde_json::Map<String, Value>]| -> Vec<Value> {
+        items
+            .iter()
+            .map(|m| m.get("id").cloned().unwrap_or(Value::Null))
+            .collect()
+    };
+    let (node_ids, edge_ids) = (ids(&nodes), ids(&edges));
     output.insert("nodes".into(), json!(nodes));
     output.insert("edges".into(), json!(edges));
     let serialised = match serde_json::to_string_pretty(&output) {
@@ -4060,6 +4073,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "path": path,
             "nodes_count": nodes.len(),
             "edges_count": edges.len(),
+            "node_ids": node_ids,
+            "edge_ids": edge_ids,
+            "removed_edge_ids": removed_edge_ids,
             "ops_applied": ops_applied,
             "saved": save,
             "content": if save { Value::Null } else { json!(serialised) },

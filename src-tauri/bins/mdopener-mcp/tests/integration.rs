@@ -5301,6 +5301,37 @@ fn edit_canvas_preserves_unknown_top_level_keys() {
     assert_eq!(saved["nodes"][0]["pluginData"], json!({ "k": 1 }));
 }
 
+/// The reply names the ids left in the canvas, so a follow-up op can target
+/// them, and the edges `delete_node` removed with its node, which used to go
+/// unreported.
+#[test]
+fn edit_canvas_reports_the_ids_left_and_the_edges_delete_node_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let node = |id: &str| json!({ "id": id, "type": "text", "text": id, "x": 0, "y": 0, "width": 9, "height": 9 });
+    let canvas = json!({
+        "nodes": [node("a"), node("b"), node("c")],
+        "edges": [
+            { "id": "ab", "fromNode": "a", "toNode": "b" },
+            { "id": "bc", "fromNode": "b", "toNode": "c" },
+            { "id": "ca", "fromNode": "c", "toNode": "a" }
+        ]
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [
+            { "type": "delete_node", "id": "b" },
+            { "type": "add_node", "node": node("d") }
+        ] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let v = content_text(&resp);
+    assert_eq!(v["node_ids"], json!(["a", "c", "d"]), "{v}");
+    assert_eq!(v["edge_ids"], json!(["ca"]), "{v}");
+    assert_eq!(v["removed_edge_ids"], json!(["ab", "bc"]), "{v}");
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]
