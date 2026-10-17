@@ -125,7 +125,7 @@ Open **Preferences → AI agents (MCP)** and click **Connect to Codex**. Ashlr M
 runs the following for you:
 
 ```bash
-codex mcp add --transport stdio ashlr-md -- <mcp-binary>
+codex mcp add ashlr-md -- <mcp-binary>
 ```
 
 This writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
@@ -136,13 +136,13 @@ for agent control.
 
 ```bash
 # macOS
-codex mcp add --transport stdio ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
 # Windows (adjust to your install dir)
-codex mcp add --transport stdio ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe"
+codex mcp add ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb)
-codex mcp add --transport stdio ashlr-md -- "/usr/lib/Ashlr MD/mdopener-mcp"
+codex mcp add ashlr-md -- "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
 ### Manual — `config.toml`

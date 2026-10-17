@@ -295,7 +295,7 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Register Ashlr MD as an MCP server in OpenAI Codex (global config).
 ///
-/// Runs: `codex mcp add --transport stdio ashlr-md -- <mcp-binary-path>`, which
+/// Runs: `codex mcp add ashlr-md -- <mcp-binary-path>`, which
 /// writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
 /// consumes MCP *tools* (not resources/prompts) — exactly what ashlr-md exposes
 /// for agent control.
@@ -304,7 +304,7 @@ pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
     let mcp_path = resolve_mcp_binary_path(&app)?;
 
     let output = Command::new("codex")
-        .args(["mcp", "add", "--transport", "stdio", "ashlr-md", "--", &mcp_path])
+        .args(["mcp", "add", "ashlr-md", "--", &mcp_path])
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
