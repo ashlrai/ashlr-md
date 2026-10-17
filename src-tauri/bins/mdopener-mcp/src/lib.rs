@@ -3256,6 +3256,17 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
+    // A missing file can never be presented. It was sent to the app first, so
+    // with the app closed the agent heard only "not running", and learned the
+    // path was wrong after starting it.
+    if let Some(abs) = path.as_deref() {
+        if !std::path::Path::new(abs).is_file() {
+            return tool_error(
+                id,
+                format!("Cannot present '{abs}': the file does not exist."),
+            );
+        }
+    }
     match ipc.post("/present", json!({ "path": path })) {
         Ok(v) if v["ok"].as_bool() == Some(false) => {
             let what = path.as_deref().unwrap_or("the open document");

@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`present_document` refuses a missing file itself.** A `path` that does
+  not exist was sent to the app, so with the app closed the agent heard only
+  "not running" and learned the path was wrong after starting it. It is now
+  refused first: "Cannot present '<absolute path>': the file does not exist."
 - **`mdopen` names the target of a refused link.** `notes.md` linking to
   `.env` was refused as `"notes.md" is not a Markdown document`, though its
   name is one. It now reads `"notes.md" links to /abs/.env, which is not a

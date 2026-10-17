@@ -1490,9 +1490,13 @@ fn present_document_no_path_uses_current_doc() {
 
 #[test]
 fn present_document_with_path_sends_canonicalized() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, "# Notes\n").unwrap();
     let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
-    let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
+    let resp = tool_present_document(id(1), &json!({ "path": notes }), &ipc);
     assert!(resp.error.is_none());
+    assert!(!is_error(&resp), "{resp:?}");
     let calls = ipc.calls();
     let body = calls
         .iter()
@@ -1503,6 +1507,30 @@ fn present_document_with_path_sends_canonicalized() {
         .unwrap();
     // Should have received a non-null path
     assert!(!body["path"].is_null(), "path should be set");
+}
+
+/// A missing file was sent to the app, so with the app closed the agent was
+/// told only that it is not running. It is refused before the app is asked,
+/// with the absolute path, whether the app is running or not.
+#[test]
+fn present_document_refuses_a_missing_file_without_asking_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.md");
+    for ipc in [
+        MockIpc::new().on_post("/present", Ok(json!({ "ok": true }))),
+        MockIpc::new().on_post("/present", Err("ipc-port not found".into())),
+    ] {
+        let resp = tool_present_document(id(1), &json!({ "path": missing }), &ipc);
+        let err = tool_error_text(&resp);
+        assert!(
+            err.contains(&format!(
+                "Cannot present '{}': the file does not exist.",
+                missing.display()
+            )),
+            "{err}"
+        );
+        assert!(ipc.calls().is_empty(), "the app must not be asked");
+    }
 }
 
 #[test]
