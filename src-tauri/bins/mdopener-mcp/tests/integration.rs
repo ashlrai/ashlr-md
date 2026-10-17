@@ -4553,6 +4553,29 @@ fn recent_docs_are_newest_first_and_stable() {
     }
 }
 
+/// Session files written before `save_conversation_message` refused an empty
+/// `cited_docs` path still hold such entries (and the window writes the same
+/// file). `recentDocs` leaves empty and blank paths out, so the latest real
+/// citation stays first.
+#[test]
+fn recent_docs_skip_empty_paths_from_old_sessions() {
+    let sess = unique_session();
+    store_append_message(&sess, "agent", "Read.", vec!["/v/a.md".into()]).unwrap();
+    store_append_message(
+        &sess,
+        "agent",
+        "Old build.",
+        vec!["".into(), "/v/b.md".into(), "  ".into()],
+    )
+    .unwrap();
+    store_append_message(&sess, "agent", "Old build.", vec!["".into()]).unwrap();
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    assert_eq!(
+        content_text(&resp)["recentDocs"],
+        json!(["/v/b.md", "/v/a.md"])
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════

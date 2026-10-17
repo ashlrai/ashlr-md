@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`recentDocs` leaves out empty paths from older session files.** A
+  session saved before `cited_docs` refused an empty path still returned it
+  in `get_conversation_context`'s `recentDocs`, as the first entry when it
+  was the latest citation. Empty and blank paths are now skipped when read.
 - **`edit_canvas` refuses an empty `ops` before reading the canvas.** The
   list was checked only after the file was read, so a missing canvas
   answered "Failed to read" instead of naming the empty list, and the schema

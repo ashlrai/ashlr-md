@@ -3248,11 +3248,14 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
             // Newest first, each path once: agents read `recentDocs[0]` as
             // the most recently cited document. This used to go through a
             // HashSet, so the order changed from one call to the next.
+            // An empty (or blank) path, which earlier builds stored, is left
+            // out: as the latest citation it came back as `recentDocs[0]`.
             let mut seen = std::collections::HashSet::new();
             let cited_docs: Vec<String> = messages
                 .iter()
                 .rev()
                 .flat_map(|m| m.cited_docs.iter())
+                .filter(|d| !d.trim().is_empty())
                 .filter(|d| seen.insert(d.as_str()))
                 .cloned()
                 .collect();
