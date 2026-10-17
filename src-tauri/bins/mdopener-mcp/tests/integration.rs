@@ -879,7 +879,9 @@ fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
 }
 
 /// The description says what a null `path` means and that no open document
-/// is an error, as `mdopener://current` and `export_text` report it.
+/// is an error, as `mdopener://current` reports it (`export_text` says so
+/// with its own message, which
+/// `get_current_content_description_quotes_each_nothing_open_message` pins).
 #[test]
 fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     let reg = tool_registry();
@@ -891,7 +893,7 @@ fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     assert!(d.contains("`path` is null for an unsaved document"), "{d}");
     assert!(d.contains("With no document open this is an error"), "{d}");
     assert!(d.contains("isError: true"), "{d}");
-    assert!(d.contains("mdopener://current and export_text"), "{d}");
+    assert!(d.contains("as for mdopener://current"), "{d}");
     assert!(!d.contains("not an error"), "{d}");
 }
 
@@ -9151,6 +9153,38 @@ fn list_ai_actions_description_names_its_result() {
         keys_of(false),
         ["argument", "icon", "id", "label", "scope", "shortLabel"]
     );
+}
+
+/// get_current_content's description said its nothing-open error matched
+/// export_text's, but export_text (and export_metadata) say to pass `path`,
+/// which get_current_content does not take. The description now quotes
+/// each message, and the messages are the ones the tools give.
+#[test]
+fn get_current_content_description_quotes_each_nothing_open_message() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "get_current_content")
+        .unwrap()
+        .description;
+    let none_open =
+        || MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let own = tool_error_text(&call("get_current_content", json!({}), &none_open()));
+    assert_eq!(
+        own,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    assert!(d.contains(&format!("\"{own}\"")), "{d}");
+    for tool in ["export_text", "export_metadata"] {
+        let msg = tool_error_text(&call(tool, json!({}), &none_open()));
+        assert_eq!(
+            msg, "No document is open in Ashlr MD; pass `path` to read a file.",
+            "{tool}"
+        );
+        assert!(d.contains(&format!("\"{msg}\"")), "{d}");
+        assert!(d.contains(tool), "{d}");
+    }
+    let resp = handle_resource_read(id(1), "mdopener://current", &none_open());
+    assert_eq!(resp.error.as_ref().unwrap().message, own);
 }
 
 #[test]

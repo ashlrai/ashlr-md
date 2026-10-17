@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_current_content`'s nothing-open claim is true.** Its description
+  said the error matched `export_text`'s, but `export_text` and
+  `export_metadata` say to pass `path` ("No document is open in Ashlr MD;
+  pass `path` to read a file."), which `get_current_content` does not take.
+  The description and docs/AGENTS.md now quote each message, and the export
+  descriptions say their error names `path`.
 - **Prompts say they take no arguments and need an open document.**
   `prompts/list` described what `summarize`, `review_plan` and
   `improve_writing` do but not that they take no arguments or that they fail

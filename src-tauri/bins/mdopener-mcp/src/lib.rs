@@ -787,7 +787,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD\"), as for mdopener://current and export_text; the app reports an unsaved document that is still empty the same way, so an error here never hides content.",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD. Open one first (open_file).\"), as for mdopener://current (-32002 there, same message); export_text and export_metadata without `path` are errors too, but theirs says to pass `path` instead (\"No document is open in Ashlr MD; pass `path` to read a file.\"). The app reports an unsaved document that is still empty the same way, so an error here never hides content.",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",
@@ -1307,7 +1307,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 counts, and the absolute path of the file read (absent for an unsaved open document). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC (an error when nothing is open).",
+                document via IPC (with nothing open, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1339,7 +1339,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
                 `path` absent for an unsaved open document). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC (an error when nothing is open).",
+                reads the currently open document via IPC (with nothing open, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -7225,10 +7225,15 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
     let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     let path = v["path"].as_str().map(str::to_string);
     if path.is_none() && content.is_empty() {
-        return Err("No document is open in Ashlr MD; pass `path` to read a file.".to_string());
+        return Err(NO_DOCUMENT_TO_READ.to_string());
     }
     Ok((content, path))
 }
+
+/// The error `export_text` and `export_metadata` give without `path` when no
+/// document is open. Unlike [`NO_DOCUMENT_OPEN`] it names `path`, which these
+/// tools take; `get_current_content`'s description quotes both.
+const NO_DOCUMENT_TO_READ: &str = "No document is open in Ashlr MD; pass `path` to read a file.";
 
 /// `content` without a leading UTF-8 byte order mark. Editors on Windows
 /// (Notepad among them) save one; it hid a document's front-matter from
