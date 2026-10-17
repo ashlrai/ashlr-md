@@ -273,7 +273,13 @@ required string a tool cannot use when empty declares `1`: `search_vault`'s
 `query`, `edit_document`'s and `stream_edit`'s and `stream_edit_apply`'s
 `find`, `get_user_annotations`'s and `edit_canvas`'s `path`, and the
 `session_id` of both conversation tools and `save_conversation_message`'s
-`content`; `search_vault` also refuses a `query` that is
+`content`. So does every path a tool reads or opens (`open_file`'s,
+`present_document`'s, `export_text`'s, `export_metadata`'s and
+`request_review`'s `path`, `diff_documents`' `path_a` and `path_b`) and
+`search_vault`'s `vault`: an empty one is refused with `-32602`
+(`` `path` must not be empty ``), where it used to reach the file checks and
+come back as "only Markdown documents can be read" or "No such file or
+directory". `search_vault` also refuses a `query` that is
 only whitespace with `-32602`, before it asks the app (it used to report that
 the app was not running). So a string such as `"1"`, a negative or a
 fractional `match_index` is refused rather than read as `0`, and `"save":

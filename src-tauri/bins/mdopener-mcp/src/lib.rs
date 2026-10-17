@@ -752,6 +752,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Absolute or relative path to the Markdown file to open."
                     },
                     "mode": {
@@ -869,7 +870,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
@@ -957,7 +958,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
-                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
+                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -976,7 +977,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -1081,8 +1082,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
-                    "path_b": { "type": "string", "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
+                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -1279,6 +1280,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
@@ -1307,6 +1309,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
@@ -1803,9 +1806,10 @@ pub fn tool_open_file_with(
     ipc: &dyn IpcClient,
     launcher: &dyn Fn(&str) -> launch::Launch,
 ) -> Response {
-    let raw_path = match args["path"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path` is required"),
+    let raw_path = match non_empty_str(args, "path") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
 
     let mode = match args["mode"].as_str() {
@@ -2312,6 +2316,9 @@ pub fn tool_request_review_with(
     // that meant to resume (`{ "review_id": "", "content": ... }`) registered
     // a new review, which replaced and so ended the pending one the agent
     // meant to wait on.
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let resume = match args["review_id"].as_str() {
         Some(r) if r.trim().is_empty() => {
             return Response::err(
@@ -2621,7 +2628,11 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => return Response::err(id, -32602, "`query` is required"),
     };
     let limit = whole_number(args, "limit").unwrap_or(50);
-    let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
+    let vault = match non_empty_str(args, "vault") {
+        Ok(v) => v,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let vault = match vault.map(disk_vault_dir).transpose() {
         Ok(v) => v,
         Err(e) => return tool_error(id, e),
     };
@@ -3070,11 +3081,11 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
 }
 
 pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = match args["path"]
-        .as_str()
-        .map(openable_document_path)
-        .transpose()
-    {
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let path = match path.map(openable_document_path).transpose() {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -4671,6 +4682,18 @@ pub fn whole_number(args: &Value, name: &str) -> Option<u64> {
     whole_number_value(&args[name])
 }
 
+/// `args[name]` as a string, `None` when absent (or not a string, which the
+/// schema check refuses first). An empty string is refused with the message
+/// the other tools use, "`name` must not be empty": as a path it used to
+/// reach the file checks, which answered with misleading errors such as
+/// "only Markdown documents can be read" or "No such file or directory".
+fn non_empty_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, String> {
+    match args[name].as_str() {
+        Some("") => Err(format!("`{name}` must not be empty")),
+        s => Ok(s),
+    }
+}
+
 fn whole_number_value(v: &Value) -> Option<u64> {
     v.as_u64().or_else(|| {
         v.as_f64()
@@ -4852,13 +4875,15 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 /// - `removed` — total lines removed
 /// - `path_a` / `path_b` — the resolved absolute paths
 pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
-    let raw_a = match args["path_a"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path_a` is required"),
+    let raw_a = match non_empty_str(args, "path_a") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path_a` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
-    let raw_b = match args["path_b"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path_b` is required"),
+    let raw_b = match non_empty_str(args, "path_b") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path_b` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
     let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
@@ -6608,6 +6633,9 @@ fn without_bom(content: String) -> String {
 }
 
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let (markdown, path_used) = match source_document(args, ipc) {
         Ok(doc) => doc,
         Err(e) => return tool_error(id, e),
@@ -7167,6 +7195,9 @@ pub fn count_embedded_images(content: &str) -> usize {
 /// }
 /// ```
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let (markdown, path_used) = match source_document(args, ipc) {
         Ok(doc) => doc,
         Err(e) => return tool_error(id, e),

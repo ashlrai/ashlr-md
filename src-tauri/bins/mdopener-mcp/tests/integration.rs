@@ -8223,6 +8223,12 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
 /// when empty now declares `minLength: 1`, and the rest are listed here as
 /// strings an empty value is meaningful for (or that are refused in their own
 /// words by the tool).
+///
+/// An empty path (`open_file`, `present_document`, `diff_documents`,
+/// `export_text`, `export_metadata`, `request_review`) or `search_vault.vault`
+/// reached the file checks and came back as "only Markdown documents can be
+/// read" or "No such file or directory". Those declare `minLength: 1` too,
+/// and the tools refuse an empty value themselves with "must not be empty".
 #[test]
 fn required_strings_refused_when_empty_declare_min_length() {
     let must = [
@@ -8235,18 +8241,23 @@ fn required_strings_refused_when_empty_declare_min_length() {
         ("get_conversation_context", "session_id"),
         ("save_conversation_message", "session_id"),
         ("save_conversation_message", "content"),
+        ("open_file", "path"),
+        ("present_document", "path"),
+        ("diff_documents", "path_a"),
+        ("diff_documents", "path_b"),
+        ("export_text", "path"),
+        ("export_metadata", "path"),
+        ("request_review", "path"),
+        ("search_vault", "vault"),
     ];
     // Empty is a real value: replacing with nothing, an empty document.
     // A path or format is checked by the tool (or the enum) in its own words.
     let may_be_empty = [
-        ("open_file", "path"),
         ("set_content", "content"),
         ("export", "format"),
         ("edit_document", "replace"),
         ("replace_document", "content"),
         ("save_conversation_message", "role"),
-        ("diff_documents", "path_a"),
-        ("diff_documents", "path_b"),
         ("stream_edit", "replace"),
         ("stream_edit_apply", "replace"),
     ];
@@ -8296,6 +8307,53 @@ fn required_strings_refused_when_empty_declare_min_length() {
         must.len(),
         "a listed argument is missing from the registry"
     );
+
+    // Called directly, past the schema check, the tools refuse an empty
+    // path themselves rather than reporting a file error.
+    let ipc = MockIpc::new();
+    let direct: [(&str, mdopener_mcp::Response); 8] = [
+        ("path", tool_open_file(id(1), &json!({ "path": "" }), &ipc)),
+        (
+            "path",
+            tool_present_document(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path_a",
+            mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": "", "path_b": "b.md" })),
+        ),
+        (
+            "path_b",
+            mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": "a.md", "path_b": "" })),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_export_text(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_export_metadata(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_request_review(
+                id(1),
+                &json!({ "path": "", "blocking": false }),
+                &ipc,
+            ),
+        ),
+        (
+            "vault",
+            mdopener_mcp::tool_search_vault(id(1), &json!({ "query": "x", "vault": "" }), &ipc),
+        ),
+    ];
+    for (k, resp) in direct {
+        assert_eq!(
+            param_error(&resp),
+            format!("`{k}` must not be empty"),
+            "{resp:?}"
+        );
+    }
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
 
 #[test]
