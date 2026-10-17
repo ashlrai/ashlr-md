@@ -932,6 +932,17 @@ fn export_ipc_error_propagated() {
     tool_error_text(&resp);
 }
 
+/// The app answers `{ "ok": false, "error" }` when it could not hand the
+/// export to its window; the tool read any reply as accepted and reported
+/// the export dialog as shown.
+#[test]
+fn export_reports_the_apps_ok_false_reply() {
+    let reason = "The app could not reach its window: window closed";
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": false, "error": reason })));
+    let msg = tool_error_text(&tool_export(id(1), &json!({ "format": "pdf" }), &ipc));
+    assert!(msg.contains(reason), "{msg}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool 6: edit_document
 // ════════════════════════════════════════════════════════════════════════════

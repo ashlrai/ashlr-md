@@ -1476,14 +1476,19 @@ pub fn tool_export_with(
     };
     let before = output_path.as_deref().and_then(file_fingerprint);
 
-    if let Err(e) = ipc.post(
+    match ipc.post(
         "/export",
         json!({
             "format": format,
             "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
         }),
     ) {
-        return tool_error(id, app_not_running_msg(&e));
+        // The app could not hand the export to its window: nothing will run.
+        Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+            return tool_error(id, window_refusal(&resp, "export", "the document"));
+        }
+        Ok(_) => {}
+        Err(e) => return tool_error(id, app_not_running_msg(&e)),
     }
 
     let Some(out) = output_path else {

@@ -875,7 +875,7 @@ fn window_round_trip(
         return Some(Ok(EditOutcome {
             ok: false,
             replaced: 0,
-            error: Some(format!("The app could not reach its window: {e}")),
+            error: Some(window_unreachable_msg(&e)),
         }));
     }
     let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
@@ -968,11 +968,11 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             if let Some(e) = export_refusal(&b.format, open.as_deref()) {
                 return send_error(req, 400, &e);
             }
-            let _ = app.emit("mcp://export", serde_json::json!({
+            let emitted = app.emit("mcp://export", serde_json::json!({
                 "format": b.format,
                 "outputPath": b.output_path,
             }));
-            send_json(req, serde_json::json!({"ok": true}));
+            send_json(req, emitted_reply(emitted, serde_json::json!({"ok": true})));
         }
         Err((code, e)) => send_error(req, code, &e),
     }
@@ -1050,7 +1050,9 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         }
     }
     // Tell the frontend a review is pending so it shows the review panel.
-    let _ = app.emit(
+    // When the window cannot be told, no panel will ever show, so the review
+    // is dropped and refused rather than left for the agent to wait on.
+    let emitted = app.emit(
         "mcp://review",
         serde_json::json!({
             "reviewId": body.review_id,
@@ -1059,7 +1061,18 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
             "timeoutMs": timeout_ms,
         }),
     );
-    send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
+    let reply = emitted_reply(
+        emitted,
+        serde_json::json!({ "ok": true, "reviewId": body.review_id }),
+    );
+    if reply["ok"] != true {
+        app.state::<ReviewState>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&body.review_id);
+    }
+    send_json(req, reply);
 }
 
 /// The `/review` reply when the window did not open the document under
@@ -1393,6 +1406,30 @@ fn editor_busy() -> serde_json::Value {
     })
 }
 
+/// Why a request did not reach the window: the app's event could not be
+/// delivered, so nothing will act on it or report back.
+fn window_unreachable_msg(e: &dyn std::fmt::Display) -> String {
+    format!("The app could not reach its window: {e}")
+}
+
+/// The `{ "ok": false }` reply for an event that could not be delivered, or
+/// `None` once it was. The window never hears of an undelivered request, so
+/// answering `ok` (or waiting out the round-trip timeout and guessing why)
+/// would tell the agent something that is not happening.
+fn emit_failure<E: std::fmt::Display>(emitted: Result<(), E>) -> Option<serde_json::Value> {
+    emitted
+        .err()
+        .map(|e| serde_json::json!({ "ok": false, "error": window_unreachable_msg(&e) }))
+}
+
+/// `ok` when the event was delivered, else the [`emit_failure`] reply.
+fn emitted_reply<E: std::fmt::Display>(
+    emitted: Result<(), E>,
+    ok: serde_json::Value,
+) -> serde_json::Value {
+    emit_failure(emitted).unwrap_or(ok)
+}
+
 /// The `/open`, `/present` or `/review` reply when [`MAX_INFLIGHT_EDITS`]
 /// round-trips are already parked: worded for what was refused (`doing` the
 /// document at `path`), not as an edit.
@@ -1474,12 +1511,22 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
         let pending = app.state::<PendingEdits>();
         pending.0.lock().unwrap().insert(edit_id.clone(), tx);
     }
-    let _ = app.emit("mcp://edit", serde_json::json!({
+    let emitted = app.emit("mcp://edit", serde_json::json!({
         "editId": edit_id,
         "find": body.find,
         "replace": body.replace,
         "save": body.save,
     }));
+    // Nothing will report back when the window was never told: say so now
+    // instead of timing out with a guess.
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingEdits>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&edit_id);
+        return send_json(req, reply);
+    }
 
     // Park until the frontend reports back, or give up after the timeout. On
     // timeout (or a closed channel) drop the pending entry so a late reply is a
@@ -1555,7 +1602,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(edit_id.clone(), tx);
     }
 
-    let _ = app.emit(
+    let emitted = app.emit(
         "mcp://stream-edit",
         serde_json::json!({
             "editId": edit_id,
@@ -1566,6 +1613,14 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             "path": path,
         }),
     );
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingStreamEdits>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&edit_id);
+        return send_json(req, reply);
+    }
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1637,7 +1692,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(apply_id.clone(), tx);
     }
 
-    let _ = app.emit(
+    let emitted = app.emit(
         "mcp://stream-edit-apply",
         serde_json::json!({
             "editId": apply_id,
@@ -1649,6 +1704,14 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             "originalEditId": body.edit_id,
         }),
     );
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingStreamEditsApply>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&apply_id);
+        return send_json(req, reply);
+    }
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -2137,6 +2200,21 @@ mod tests {
 
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn an_undelivered_window_event_is_refused_not_answered_ok() {
+        use super::{emit_failure, emitted_reply};
+        let ok = serde_json::json!({ "ok": true, "reviewId": "r1" });
+        assert_eq!(emitted_reply(Ok::<(), String>(()), ok.clone()), ok);
+        let v = emitted_reply(Err("window closed"), ok);
+        assert_eq!(v["ok"], false);
+        assert_eq!(
+            v["error"],
+            "The app could not reach its window: window closed"
+        );
+        assert_eq!(emit_failure(Ok::<(), String>(())), None);
+        assert!(emit_failure(Err("gone")).is_some());
+    }
+
     #[test]
     fn a_busy_open_or_present_names_what_was_refused() {
         use super::window_busy;
