@@ -2369,6 +2369,96 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
     assert!(!results.is_empty(), "local grep should find the match");
 }
 
+#[test]
+fn search_vault_semantic_true_with_ollama_down_says_it_fell_back() {
+    // Only meaningful when nothing listens on Ollama's port.
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })))
+        .on_get(
+            "/search",
+            Ok(json!({
+                "results": [
+                    { "path": "/vault/a.md", "score": 0.8, "snippet": "hello", "lineNumber": 1 }
+                ]
+            })),
+        );
+    let resp = tool_search_vault(
+        id(202),
+        &json!({ "query": "hello", "semantic": true }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str(), Some("grep"));
+    let note = text["note"]
+        .as_str()
+        .expect("a fallback must be explained in words");
+    assert!(
+        note.contains("Semantic search was unavailable"),
+        "note: {note}"
+    );
+    assert!(note.contains("keyword"), "note: {note}");
+}
+
+#[test]
+fn search_vault_semantic_false_has_no_fallback_note() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = tool_search_vault(
+        id(203),
+        &json!({ "query": "hello", "semantic": false }),
+        &ipc,
+    );
+    let text = content_text(&resp);
+    assert!(text.get("note").is_none(), "no fallback happened: {text}");
+}
+
+#[test]
+fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let reason = "IPC server returned HTTP 403: search is disabled";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get("/search", Err(reason.into()));
+    let resp = tool_search_vault(
+        id(204),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str(), Some("grep-local"));
+    let note = text["note"]
+        .as_str()
+        .expect("the app's refusal must be surfaced");
+    assert!(note.contains("refused"), "note: {note}");
+    assert!(note.contains("search is disabled"), "note: {note}");
+}
+
+#[test]
+fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
+    let reason = "IPC server returned HTTP 403: search is disabled";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Err("IPC server returned HTTP 403: vault is disabled".into()),
+        )
+        .on_get("/search", Err(reason.into()));
+    let resp = tool_search_vault(id(205), &json!({ "query": "x", "semantic": false }), &ipc);
+    let result = resp.result.as_ref().expect("tool error result");
+    assert_eq!(result["isError"], json!(true));
+    let msg = result["content"][0]["text"].as_str().unwrap_or("");
+    assert!(msg.contains("search is disabled"), "got: {msg}");
+}
+
 // ── text://vault-search resource ──────────────────────────────────────────────
 
 #[test]

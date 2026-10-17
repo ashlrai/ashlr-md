@@ -194,8 +194,12 @@ const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 
 /// Read stdin into a temp `.md` file and return its path.
 fn read_stdin_to_temp() -> PathBuf {
-    use std::io::Read as _;
+    use std::io::{IsTerminal as _, Read as _};
 
+    // Typed input: say how to finish, rather than waiting for EOF in silence.
+    if let Some(hint) = stdin_hint(std::io::stdin().is_terminal()) {
+        eprintln!("mdopen: {hint}");
+    }
     let mut content = Vec::new();
     std::io::stdin()
         .read_to_end(&mut content)
@@ -203,11 +207,41 @@ fn read_stdin_to_temp() -> PathBuf {
             eprintln!("mdopen: failed to read stdin: {e}");
             process::exit(1);
         });
+    if let Err(msg) = check_stdin_content(&content) {
+        eprintln!("mdopen: {msg}");
+        process::exit(1);
+    }
 
     write_new_temp(&std::env::temp_dir(), &content).unwrap_or_else(|e| {
         eprintln!("mdopen: failed to write temp file: {e}");
         process::exit(1);
     })
+}
+
+/// The stderr hint for `mdopen -` when stdin is a terminal (nothing is piped),
+/// or `None` when it is a pipe or file.
+fn stdin_hint(stdin_is_terminal: bool) -> Option<&'static str> {
+    if !stdin_is_terminal {
+        return None;
+    }
+    Some(if cfg!(windows) {
+        "reading Markdown from the terminal; type it, then press Ctrl+Z and Enter \
+         to open it (Ctrl+C cancels). To open a file, pipe it: `type notes.md | mdopen -`."
+    } else {
+        "reading Markdown from the terminal; type it, then press Ctrl+D to open it \
+         (Ctrl+C cancels). To open a file, pipe it: `cat notes.md | mdopen -`."
+    })
+}
+
+/// Refuse piped content with nothing to show, so `mdopen -` never opens an
+/// empty temp document (e.g. `mdopen - < /dev/null`, or a failed producer).
+fn check_stdin_content(content: &[u8]) -> Result<(), String> {
+    if content.iter().all(u8::is_ascii_whitespace) {
+        return Err("stdin was empty, so there is nothing to open. \
+                    Pipe Markdown in, e.g. `cat notes.md | mdopen -`."
+            .into());
+    }
+    Ok(())
 }
 
 /// Write `content` to a new `mdopen-stdin-*.md` file in `dir`. The file is
@@ -521,6 +555,14 @@ mod tests {
             let err = resolve_file(link.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{err}");
         }
+    }
+
+    #[test]
+    fn a_terminal_on_stdin_gets_a_hint_and_a_pipe_does_not() {
+        let hint = stdin_hint(true).expect("a terminal on stdin needs a hint");
+        assert!(hint.contains("Ctrl+"), "hint: {hint}");
+        assert!(hint.contains("mdopen -"), "hint: {hint}");
+        assert_eq!(stdin_hint(false), None);
     }
 
     #[test]

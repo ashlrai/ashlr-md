@@ -117,4 +117,27 @@ describe("reviewStore", () => {
     useReviewStore.getState().dismiss("nonexistent");
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  // ── Expire ───────────────────────────────────────────────────────────────
+
+  it("expire(reviewId) clears pending and records a timeout verdict", () => {
+    invokeMock.mockResolvedValue(undefined);
+    useReviewStore.getState().registerReview(makePending());
+    useReviewStore.getState().setDraftComment("half-typed");
+    useReviewStore.getState().expire("rev-001");
+    expect(useReviewStore.getState().pending).toBeNull();
+    expect(useReviewStore.getState().draftComment).toBe("");
+    expect(invokeMock).toHaveBeenCalledWith("set_review_verdict", {
+      reviewId: "rev-001",
+      verdict: "timeout",
+      comments: null,
+    });
+  });
+
+  it("expire with a stale reviewId leaves the newer review alone", () => {
+    useReviewStore.getState().registerReview(makePending({ reviewId: "current" }));
+    useReviewStore.getState().expire("old-id");
+    expect(useReviewStore.getState().pending?.reviewId).toBe("current");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 });
