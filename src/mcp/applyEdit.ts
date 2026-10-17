@@ -178,58 +178,33 @@ export function buildUnifiedDiff(
     content.slice(0, matchOffset) + replace + content.slice(matchOffset + find.length);
   const afterLines = afterContent.split("\n");
 
-  // Determine the line range affected by the change.
-  const findLines = find.split("\n");
-  const replaceLines = replace.split("\n");
+  // The edit touches whole lines [s, s + removed) of the original. Everything
+  // outside them is unchanged, so on the "after" side the same lines start at
+  // s and span `replace`'s line count. The added lines are read from the
+  // edited text, not from `replace`: a match inside a line keeps the text
+  // around it ("Hello world" with "world" -> "there" reads "+Hello there").
+  const s = offsetToLine(content, matchOffset) - 1;
+  const removedLineCount = find.split("\n").length;
+  const addedLineCount = replace.split("\n").length;
 
-  // startLine: 1-based line where the match begins
-  const startLine = offsetToLine(content, matchOffset);
-  const removedLineCount = findLines.length;
-  const addedLineCount = replaceLines.length;
-
-  // Context window (clamped to actual file bounds)
-  const ctxStart = Math.max(0, startLine - 1 - contextLines);
-  const removeEnd = startLine - 1 + removedLineCount;
+  // Context window, clamped to the file on each side.
+  const ctxStart = Math.max(0, s - contextLines);
+  const ctxBefore = s - ctxStart;
+  const removeEnd = s + removedLineCount;
   const ctxEnd = Math.min(lines.length, removeEnd + contextLines);
+  const ctxAfter = ctxEnd - removeEnd;
 
-  // Build hunk lines for "before" (a) side
-  const aLines = lines.slice(ctxStart, ctxEnd);
-  // Build hunk lines for "after" (b) side
-  const bStart = ctxStart;
-  const bEnd = Math.min(
-    afterLines.length,
-    ctxStart + contextLines + addedLineCount + contextLines,
-  );
+  // Hunk header: both sides start at the same line (nothing before the
+  // change moved), and each side counts exactly the lines it lists.
+  const aHunkLen = ctxBefore + removedLineCount + ctxAfter;
+  const bHunkLen = ctxBefore + addedLineCount + ctxAfter;
+  const hunkHeader = `@@ -${ctxStart + 1},${aHunkLen} +${ctxStart + 1},${bHunkLen} @@`;
 
-  // Hunk header numbers
-  const aHunkStart = ctxStart + 1;
-  const aHunkLen = ctxEnd - ctxStart;
-  const bHunkStart = ctxStart + 1;
-  const bHunkLen = bEnd - bStart;
-
-  const hunkHeader = `@@ -${aHunkStart},${aHunkLen} +${bHunkStart},${bHunkLen} @@`;
-
-  // Produce diff lines by walking both sides
   const diffLines: string[] = [`--- a/${label}`, `+++ b/${label}`, hunkHeader];
-
-  // Context before change
-  const ctxBefore = startLine - 1 - ctxStart;
-  for (let i = 0; i < ctxBefore; i++) {
-    diffLines.push(` ${aLines[i] ?? ""}`);
-  }
-  // Removed lines
-  for (let i = 0; i < removedLineCount; i++) {
-    diffLines.push(`-${aLines[ctxBefore + i] ?? ""}`);
-  }
-  // Added lines
-  for (let i = 0; i < addedLineCount; i++) {
-    diffLines.push(`+${replaceLines[i]}`);
-  }
-  // Context after change
-  const ctxAfterStart = ctxBefore + removedLineCount;
-  for (let i = ctxAfterStart; i < aLines.length; i++) {
-    diffLines.push(` ${aLines[i]}`);
-  }
+  for (let i = ctxStart; i < s; i++) diffLines.push(` ${lines[i]}`);
+  for (let i = s; i < removeEnd; i++) diffLines.push(`-${lines[i]}`);
+  for (let i = s; i < s + addedLineCount; i++) diffLines.push(`+${afterLines[i]}`);
+  for (let i = removeEnd; i < ctxEnd; i++) diffLines.push(` ${lines[i]}`);
 
   return diffLines.join("\n") + "\n";
 }

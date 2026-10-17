@@ -1414,6 +1414,34 @@ describe("computeStreamEditDiff — pure utility", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("diff shows the whole edited line when the match is inside a line", () => {
+    // The added line used to be the bare replacement ("+there"), so the
+    // preview did not show the line the edit would leave behind.
+    const r = computeStreamEditDiff("Hello world\nsecond", "world", "there", 1);
+    expect(r.diff).toBe(
+      "--- a/document\n+++ b/document\n@@ -1,2 +1,2 @@\n-Hello world\n+Hello there\n second\n",
+    );
+  });
+
+  it("hunk header counts the lines each side lists, at the top of the file", () => {
+    // The "+" count assumed full leading context, so a change on line 1
+    // with 5 context lines claimed 11 lines on the new side for 6 listed.
+    const content = Array.from({ length: 20 }, (_, i) => `l${i}`).join("\n");
+    const r = computeStreamEditDiff(content, "l0", "X", 5);
+    const lines = r.diff!.trimEnd().split("\n");
+    expect(lines[2]).toBe("@@ -1,6 +1,6 @@");
+    const body = lines.slice(3);
+    expect(body.filter((l) => !l.startsWith("+")).length).toBe(6);
+    expect(body.filter((l) => !l.startsWith("-")).length).toBe(6);
+  });
+
+  it("multi-line match ending mid-line keeps the rest of that line", () => {
+    const r = computeStreamEditDiff("a\nb c\nd e\nf", "c\nd", "Q", 1);
+    expect(r.diff).toBe(
+      "--- a/document\n+++ b/document\n@@ -1,4 +1,3 @@\n a\n-b c\n-d e\n+b Q e\n f\n",
+    );
+  });
+
   it("buildUnifiedDiff includes file label in header", () => {
     const d = buildUnifiedDiff("hello\nworld\n", "world", "earth", 6, 3, "myfile.md");
     expect(d).toContain("--- a/myfile.md");
