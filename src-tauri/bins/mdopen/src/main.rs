@@ -88,10 +88,12 @@ fn main() {
     match open_in_app(&resolved.to_string_lossy(), mode, CLI_DEADLINE, true) {
         Ok(Opened::Confirmed) => {}
         Ok(Opened::Unconfirmed(note)) => eprintln!("mdopen: {note}"),
-        Err(msg) => {
+        Err(NotOpened { msg, maybe_later }) => {
             // Nothing will ever read the piped content: do not leave it behind
-            // in the temp dir.
-            if from_stdin {
+            // in the temp dir. Unless the app may still open it (it was
+            // reached but did not answer in time), when removing it would
+            // turn a slow open into a failed one.
+            if from_stdin && !maybe_later {
                 let _ = std::fs::remove_file(&resolved);
             }
             eprintln!("mdopen: {msg}");
@@ -314,6 +316,23 @@ enum Opened {
     Unconfirmed(String),
 }
 
+/// Why [`open_in_app`] did not confirm an open.
+#[derive(Debug, PartialEq, Eq)]
+struct NotOpened {
+    msg: String,
+    /// The app was reached and may still open the file.
+    maybe_later: bool,
+}
+
+impl NotOpened {
+    fn no(msg: String) -> Self {
+        NotOpened {
+            msg,
+            maybe_later: false,
+        }
+    }
+}
+
 /// Open `abs_path` in Ashlr MD: through the running app's IPC server first,
 /// else by handing an `mdopener://open?…` URL to the OS launcher (see
 /// [`launch`]), which can also cold-start the app. `Err` means it definitely
@@ -323,12 +342,20 @@ fn open_in_app(
     mode: Option<&str>,
     deadline: Duration,
     inherit_stderr: bool,
-) -> Result<Opened, String> {
+) -> Result<Opened, NotOpened> {
     let ipc_error = match ipc::home_dir() {
         Some(home) => match ipc::open(&home, abs_path, mode) {
             Ok(()) => return Ok(Opened::Confirmed),
             // The running app said no; the URL scheme would only reach it again.
-            Err(ipc::Failure::Refused(reason)) => return Err(reason),
+            Err(ipc::Failure::Refused(reason)) => return Err(NotOpened::no(reason)),
+            // Reached but failed or slow: it may still open the file, so a
+            // URL-scheme retry could report a false success or open it twice.
+            Err(ipc::Failure::Failed(reason)) => {
+                return Err(NotOpened {
+                    msg: reason,
+                    maybe_later: true,
+                })
+            }
             Err(ipc::Failure::Unreachable(e)) => e,
         },
         None => "no home directory".to_string(),
@@ -343,7 +370,10 @@ fn open_in_app(
     match &outcome {
         launch::Launch::Opened { .. } => Ok(Opened::Confirmed),
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
-        _ => Err(format!("{} ({ipc_error})", outcome.describe())),
+        _ => Err(NotOpened::no(format!(
+            "{} ({ipc_error})",
+            outcome.describe()
+        ))),
     }
 }
 
@@ -441,8 +471,11 @@ EXIT STATUS:
     1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
-       on stderr says which. A `-` temp file is removed in that case. With
-       no arguments at all, this help is printed on stderr.
+       on stderr says which. A `-` temp file is removed in that case. Also
+       1 when the running app answered with a server error or did not
+       answer within 6s: the open is not retried through the URL scheme
+       (the app may still open the file, so a `-` temp file is kept).
+       With no arguments at all, this help is printed on stderr.
     --hook always exits 0 and prints nothing (run with a terminal on stdin,
        it prints a hint on stderr instead of waiting for a payload)
 ";
