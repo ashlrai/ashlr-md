@@ -36,6 +36,80 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Empty arguments are refused before the app is asked.** An empty inline
+  `content` in `request_review` registered a review of no text; an empty
+  `path` in `edit_document`, `stream_edit` and `stream_edit_apply` came back
+  as "not the open document"; `export` with `output_path: ""` said "cannot
+  make an empty path absolute"; and an empty path in
+  `save_conversation_message`'s `cited_docs` was stored and returned in
+  `recentDocs`. Each is now `-32602` saying the argument must not be empty
+  (leaving an optional one out is still allowed), and the schemas declare
+  `minLength: 1`.
+- **`search_vault` and `diff_documents` refuse values past their limits.**
+  A `search_vault` `limit` above 200 (also as `text://vault-search?...&limit=`)
+  was read as 200, and a `diff_documents` `context_lines` above 10000 as
+  10000, in silence. Both are now refused with `-32602` naming the range, as
+  `list_recent` and `get_conversation_context` refuse a `limit`, and the
+  schemas declare the maximum.
+- **Inline review content is shown in the review panel.** A
+  `request_review` with `content` and no path told the human an agent wanted
+  a review of inline content but never showed it, so they approved or
+  rejected text they had not seen. The panel now shows it as plain text.
+- **`request_review` refuses a `wait_ms` or `timeout_ms` outside its
+  range.** `wait_ms` was clamped to 1000 to 600000 in silence while its
+  schema said `minimum: 0`, so `wait_ms: 0` still blocked for a second. Both
+  are now refused outside their real ranges (`wait_ms` 1000 to 600000,
+  `timeout_ms` 5000 to 600000), and the schemas say so.
+- **`list_recent` and `get_conversation_context` refuse a `limit` outside 1
+  to 200.** A fractional limit became the default, `0` returned an empty
+  list, and a limit above 200 was clamped. They are now `-32602` naming the
+  range and the default; the argument check enforces a declared `maximum`.
+  The app's `/recent` clamps its `limit` to 1 to 200, as `/search` does.
+- **Empty paths and required strings are refused in the tools' own words.**
+  An empty `find` (`edit_document`) or `path` (`get_user_annotations`,
+  `open_file`, `present_document`, `diff_documents`, `export_text`,
+  `export_metadata`, `request_review`) or `search_vault` `vault` reached the
+  app or the file checks, so with the app closed the agent was told to start
+  it, or read "only Markdown documents can be read". Each is now `-32602`
+  "must not be empty", and every required string a tool cannot use empty
+  declares `minLength: 1`.
+- **An empty `review_id` no longer starts a new review.** `request_review`
+  read `review_id: ""` as absent and registered a new review, which replaced
+  the pending one the agent meant to wait on. It is now refused.
+- **Agent setup recognises this app's registrations and hook by any path.**
+  Connect to Claude Code or Codex reported "already registered" while the
+  registration ran an MCP binary that no longer existed (after the app was
+  moved or reinstalled); such a registration is now repointed to this app.
+  A registration or Claude hook that reaches this app's binary through a
+  symlink (or, on macOS, a difference in case) counts as this app's, so it
+  is not reported as another program and the hook is not installed twice. A
+  "does not exist" error is no longer read as "already exists".
+- **The auto-open hook is repointed when its `mdopen` is gone.** Install
+  auto-open hook treated any entry mentioning `mdopen --hook` as installed,
+  so after the app moved the hook failed on every Markdown write. A stale
+  entry now points at this app's `mdopen`.
+- **Connect to Cursor never wipes an `mcp.json` it cannot parse.** A file
+  with a comment or a trailing comma was replaced by `{}` plus our entry,
+  deleting every other configured server, and some shapes crashed the
+  command. Such files are now left unchanged, with the reason.
+- **`mdopen --hook` judges the file a link points to.** A written
+  `.notes.md`, or a `notes.md` link to `.env` or another non-Markdown file,
+  was handed to the app. The resolved file is now checked as `mdopen <file>`
+  checks it, and skipped silently when it is not a Markdown document.
+- **One bad byte no longer ends the MCP server.** A request line that was
+  not UTF-8 shut the server down silently. It now gets `-32700` and the
+  session continues.
+- **`stream_edit` previews show the edited line.** A match inside a line
+  previewed as the bare replacement (`+there` for `Hello world` to `Hello
+  there`), and the hunk header could count more lines than it listed. The
+  added lines are now the edited text and the header matches.
+- **`get_conversation_context` lists `recentDocs` newest first.** The order
+  changed from call to call; it is now most recently cited first, each path
+  once.
+- **Tool descriptions match what the tools return.** `list_ai_actions` says
+  what `{arg}` is in the templates that use it (an `argument` field), and the
+  `search_vault` and `text://vault-search` descriptions list every field a
+  reply carries, including `vault`, `truncated`, `depthCut` and `query`.
 - **Image embeds, "Apply hunk" and the semantic index never hang on a FIFO
   or read a device.** An embed checked the image's size and then read it
   whole, so a vault `pic.png` link to `/dev/zero` (which reports a size of
