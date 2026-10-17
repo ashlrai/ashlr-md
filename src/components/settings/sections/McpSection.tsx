@@ -23,7 +23,7 @@ export function McpSection() {
   const [codexStatus, setCodexStatus] = useState<ConnectStatus>({ kind: "idle" });
   const [hookStatus, setHookStatus] = useState<ConnectStatus>({ kind: "idle" });
   const [mcpCmd, setMcpCmd] = useState<string>(
-    "claude mcp add ashlr-md /Applications/Ashlr\\ MD.app/Contents/Resources/mdopener-mcp",
+    "claude mcp add --scope user ashlr-md '/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp'",
   );
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
 

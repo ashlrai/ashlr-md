@@ -439,7 +439,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Trigger an export of the currently open document. Returns as soon as the app accepts the request, not when the file is written. A `theme` value is validated, but the app does not yet receive it, so exports always use the app's current theme.",
+            description: "Export the currently open document. With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. A `theme` value is validated, but the app does not yet receive it, so exports always use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -450,7 +450,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "output_path": {
                         "type": "string",
-                        "description": "Optional absolute path for the output file."
+                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
                     },
                     "theme": {
                         "type": "string",
@@ -1123,7 +1123,92 @@ pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// fall through to HTML there, so it is refused here before reaching the app.
 pub const EXPORT_FORMATS: [&str; 4] = ["pdf", "docx", "html", "epub"];
 
+/// How long `export` waits for the app to write `output_path`.
+pub const EXPORT_WRITE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    tool_export_with(id, args, ipc, EXPORT_WRITE_DEADLINE)
+}
+
+/// Resolve a caller path the way the agent means it: against this server's
+/// working directory (the agent's), following symlinks when the path exists.
+/// The app resolves relative paths against its own, unrelated working
+/// directory and compares paths against its canonical open-document path, so
+/// forwarding the raw string misses for `plan.md`, `./plan.md`, or `/tmp/x`
+/// vs `/private/tmp/x` on macOS.
+pub fn agent_path(raw: &str) -> String {
+    std::fs::canonicalize(raw)
+        .or_else(|_| std::path::absolute(raw))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+/// File extensions `output_path` may carry for each headless export format.
+fn export_extensions(format: &str) -> &'static [&'static str] {
+    match format {
+        "html" => &["html", "htm"],
+        "docx" => &["docx"],
+        "epub" => &["epub"],
+        _ => &[],
+    }
+}
+
+/// Validate and resolve `output_path` for `format`. The app writes there
+/// without asking, so only a file with the format's own extension, not a
+/// dotfile, in an existing directory is accepted. Errors are argument errors.
+pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
+    if format == "pdf" {
+        return Err("`output_path` is not supported for pdf: pdf export goes through the \
+                    system print dialog. Use html, docx or epub with `output_path`, or omit \
+                    `output_path` to print to PDF."
+            .to_string());
+    }
+    let abs = std::path::absolute(raw).map_err(|e| format!("`output_path` '{raw}': {e}"))?;
+    let name = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let allowed = export_extensions(format);
+    if name.starts_with('.') || !allowed.contains(&ext.as_str()) {
+        return Err(format!(
+            "`output_path` '{}' must name a {format} file ({}), not a dotfile",
+            abs.display(),
+            allowed.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    let dir = abs.parent().filter(|d| !d.as_os_str().is_empty());
+    let dir = dir
+        .and_then(|d| std::fs::canonicalize(d).ok())
+        .filter(|d| d.is_dir())
+        .ok_or_else(|| {
+            format!(
+                "`output_path` '{}': the directory does not exist; create it first",
+                abs.display()
+            )
+        })?;
+    let out = dir.join(name);
+    if out.is_dir() {
+        return Err(format!("`output_path` '{}' is a directory", out.display()));
+    }
+    Ok(out)
+}
+
+/// What identifies one version of a file on disk: size and modification time
+/// (the app writes a temp file and renames it over the target).
+fn file_fingerprint(p: &std::path::Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+    let m = std::fs::metadata(p).ok()?;
+    m.is_file().then(|| (m.len(), m.modified().ok()))
+}
+
+/// [`tool_export`] with the write deadline injected, so tests do not wait 30s.
+pub fn tool_export_with(
+    id: Value,
+    args: &Value,
+    ipc: &dyn IpcClient,
+    write_deadline: std::time::Duration,
+) -> Response {
     let format = match args["format"].as_str() {
         Some(f) if EXPORT_FORMATS.contains(&f) => f.to_string(),
         Some(other) => {
@@ -1151,14 +1236,61 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
         }
     }
 
-    let output_path = args["output_path"].as_str().map(str::to_string);
+    let output_path = match args["output_path"].as_str() {
+        None => None,
+        Some(raw) => match export_output_path(raw, &format) {
+            Ok(p) => Some(p),
+            Err(e) => return Response::err(id, -32602, e),
+        },
+    };
+    let before = output_path.as_deref().and_then(file_fingerprint);
 
-    match ipc.post(
+    if let Err(e) = ipc.post(
         "/export",
-        json!({ "format": format, "outputPath": output_path, "theme": theme }),
+        json!({
+            "format": format,
+            "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
+            "theme": theme,
+        }),
     ) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        return tool_error(id, app_not_running_msg(&e));
+    }
+
+    let Some(out) = output_path else {
+        // No destination: the app shows its export dialog to the human.
+        return tool_result(id, json!({ "ok": true, "format": format, "dialog": true }));
+    };
+
+    // The app accepts the request before it renders, and reports nothing back,
+    // so the export only counts as done once a new version of the file exists.
+    let deadline = std::time::Instant::now() + write_deadline;
+    loop {
+        if let Some(now) = file_fingerprint(&out) {
+            if Some(now) != before {
+                return tool_result(
+                    id,
+                    json!({
+                        "ok": true,
+                        "format": format,
+                        "path": out.to_string_lossy(),
+                        "bytes": now.0,
+                    }),
+                );
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return tool_error(
+                id,
+                format!(
+                    "Ashlr MD accepted the {format} export but did not write {} within {}s. \
+                     Headless export renders the Read view: open the document, switch it to \
+                     Read view, check the app for an error message, then retry.",
+                    out.display(),
+                    write_deadline.as_secs()
+                ),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
@@ -1238,7 +1370,9 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         Some(p) => p,
         None => return Response::err(id, -32602, "`path` is required"),
     };
-    let encoded = urlencoding::encode(path);
+    // request_review stores the canonical path, so look it up the same way.
+    let path = agent_path(path);
+    let encoded = urlencoding::encode(&path);
     match ipc.get(&format!("/annotations?path={encoded}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -1260,7 +1394,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
 
     let mut body = json!({ "find": find, "replace": replace, "save": save });
     if let Some(p) = args["path"].as_str() {
-        body["path"] = json!(p);
+        body["path"] = json!(agent_path(p));
     }
 
     match ipc.post("/edit", body) {
@@ -3026,7 +3160,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
     let preview_lines = args["preview_lines"].as_u64().unwrap_or(5).clamp(0, 20) as u32;
-    let path = args["path"].as_str().map(str::to_string);
+    let path = args["path"].as_str().map(agent_path);
 
     let body = json!({
         "find": find,
@@ -3068,7 +3202,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
     };
     let match_index = args["match_index"].as_u64().unwrap_or(0) as u32;
     let save = args["save"].as_bool().unwrap_or(false);
-    let path = args["path"].as_str().map(str::to_string);
+    let path = args["path"].as_str().map(agent_path);
 
     let body = json!({
         "editId": edit_id,

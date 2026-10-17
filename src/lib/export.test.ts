@@ -296,6 +296,15 @@ describe("exportHtml", () => {
     );
   });
 
+  it("writes to an agent-supplied outputPath without opening the dialog", async () => {
+    await exportHtml("My Doc", "/out/agent.html");
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+      path: "/out/agent.html",
+      content: expect.stringContaining("<!doctype html>"),
+    });
+  });
+
   it("does nothing (no invoke, no toast) when the user cancels the dialog", async () => {
     saveMock.mockResolvedValue(null);
     await exportHtml("Cancelled");

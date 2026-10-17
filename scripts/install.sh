@@ -16,7 +16,8 @@
 #   # Skip the app build (CLI + MCP only, useful for CI agents):
 #   SKIP_APP_BUILD=1 bash scripts/install.sh
 #
-# Requirements: Rust (rustup), Bun, Xcode CLT (macOS), git
+# Requirements: Rust (rustup), Bun, git. Full macOS app: Xcode 26 / Swift 6.2+
+# with macOS 26 SDK for the declared Swift sidecars; CLI/MCP-only skips Swift.
 # =============================================================================
 
 set -euo pipefail
@@ -92,11 +93,24 @@ info "Installing JS dependencies (bun install)…"
 bun install --frozen-lockfile
 
 # ── 4. Build the sidecar binaries ─────────────────────────────────────────────
-info "Building sidecar binaries (mdopen + mdopener-mcp)…"
-cargo build --release \
-  --manifest-path src-tauri/Cargo.toml \
-  -p mdopen \
-  -p mdopener-mcp
+if [[ "$(uname -s)" == "Darwin" && "$SKIP_APP_BUILD" != "1" ]]; then
+  info "Building the Rust and Swift sidecars required by the macOS app…"
+  bash scripts/build-sidecars.sh
+
+  # The shared helper is best-effort for Swift; the full macOS app's overlay
+  # still declares both resources. Refuse before packaging if one did not
+  # build, without creating stubs or silently changing release resources.
+  [[ -f "src-tauri/target/release/mdopener-afm" ]] || \
+    die "The macOS app requires mdopener-afm. Install Xcode 26 / Swift 6.2+ with the macOS 26 SDK, then run: bash src-tauri/bins/mdopener-afm/build.sh. Retry this installer, or use SKIP_APP_BUILD=1 for Rust CLI/MCP only."
+  [[ -f "src-tauri/target/release/mdopener-setdefault" ]] || \
+    die "The macOS app requires mdopener-setdefault. Install a compatible Xcode/macOS SDK (see src-tauri/bins/mdopener-setdefault/build.sh), then run: bash src-tauri/bins/mdopener-setdefault/build.sh. Retry this installer, or use SKIP_APP_BUILD=1 for Rust CLI/MCP only."
+else
+  info "Building sidecar binaries (mdopen + mdopener-mcp)…"
+  cargo build --release \
+    --manifest-path src-tauri/Cargo.toml \
+    -p mdopen \
+    -p mdopener-mcp
+fi
 
 MCP_BIN="$REPO_ROOT/src-tauri/target/release/mdopener-mcp"
 MDOPEN_BIN="$REPO_ROOT/src-tauri/target/release/mdopen"
