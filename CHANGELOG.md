@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` checks every op field's type, and `add_node` refuses nodes
+  the app drops.** A mistyped field was misreported (`"x": "5"` gave
+  "`x` required") or written as given (`"color": 3`), a misspelled field
+  (`colour`) was ignored, and `add_node` checked only `node.id`, so a node
+  without `x` or with an unknown `type` was saved, reported as added, and
+  never appeared. All are now `-32602` naming the op index and field.
 - **Required MCP arguments are checked before a tool runs.** Each tool
   checked its own required arguments only when it reached them, so
   `edit_canvas` without `ops` read and parsed the canvas file first and a

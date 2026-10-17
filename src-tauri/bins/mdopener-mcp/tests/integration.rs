@@ -5706,6 +5706,170 @@ fn edit_canvas_reports_the_ids_left_and_the_edges_delete_node_removed() {
     assert_eq!(v["removed_edge_ids"], json!(["ab", "bc"]), "{v}");
 }
 
+/// Every `edit_canvas` op field is type-checked before the canvas is read, and
+/// the refusal names the op index and the field. `"x": "5"` used to be
+/// reported as "`x` required", and `"color": 3` or `"label": {}` was written
+/// into the canvas as given (where the app's parser then ignored it).
+#[test]
+fn edit_canvas_op_fields_of_the_wrong_type_name_the_op_and_field() {
+    let path = "/nonexistent/board.canvas";
+    let mv = json!({ "type": "move_node", "id": "a", "x": 1, "y": 2 });
+    let cases = [
+        (
+            json!([mv, { "type": "move_node", "id": "a", "x": "5", "y": 2 }]),
+            "`ops[1].x` must be a number, got a string (\"5\")",
+        ),
+        (
+            json!([{ "type": 5 }]),
+            "`ops[0].type` must be a string, got a number (5)",
+        ),
+        (
+            json!([{ "type": "move_node", "id": 7, "x": 1, "y": 2 }]),
+            "`ops[0].id` must be a string, got a number (7)",
+        ),
+        (
+            json!([{ "type": "set_node_color", "id": "a", "color": 3 }]),
+            "`ops[0].color` must be a string, got a number (3)",
+        ),
+        (
+            json!([{ "type": "edit_edge_label", "id": "e", "label": {} }]),
+            "`ops[0].label` must be a string, got an object",
+        ),
+        (
+            json!([{ "type": "resize_node", "id": "a", "width": true, "height": 1 }]),
+            "`ops[0].width` must be a number, got a boolean (true)",
+        ),
+        (
+            json!([{ "type": "reorder_edges", "ids": ["e", 2] }]),
+            "`ops[0].ids[1]` must be a string, got a number (2)",
+        ),
+        (
+            json!([{ "type": "add_node", "node": "n" }]),
+            "`ops[0].node` must be an object, got a string (\"n\")",
+        ),
+        (
+            json!([{ "type": "add_edge", "edge": [] }]),
+            "`ops[0].edge` must be an object, got an array",
+        ),
+        (json!([mv, { "id": "a" }]), "`ops[1].type` is required"),
+        (json!([5]), "`ops[0]` must be an object, got a number (5)"),
+    ];
+    for (ops, want) in cases {
+        let msg = refused_before_the_tool("edit_canvas", json!({ "path": path, "ops": ops }));
+        assert_eq!(msg, want);
+    }
+    // A field no op takes is named, with the closest one.
+    let msg = refused_before_the_tool(
+        "edit_canvas",
+        json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "colour": "1" }] }),
+    );
+    assert!(
+        msg.starts_with("Unknown field `colour` in `ops[0]`: it takes "),
+        "{msg}"
+    );
+    assert!(msg.ends_with("Did you mean `color`?"), "{msg}");
+    // null still means "not given": set_node_color without a colour clears it.
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "edit_canvas")
+        .unwrap();
+    let args =
+        json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": null }] });
+    assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+}
+
+/// `add_node` used to check only `node.id`, so a node the app's canvas parser
+/// drops (no `x`, an unknown `type`, a link without `url`) was written and
+/// reported as added, and then never appeared in the app.
+#[test]
+fn edit_canvas_add_node_refuses_a_node_the_app_would_drop() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let full =
+        json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 });
+    let with = |k: &str, v: Value| {
+        let mut n = full.clone();
+        n[k] = v;
+        n
+    };
+    let without = |k: &str| {
+        let mut n = full.clone();
+        n.as_object_mut().unwrap().remove(k);
+        n
+    };
+    let cases = [
+        (without("x"), "op[0] add_node: node.x required"),
+        (
+            with("y", json!("1")),
+            "op[0] add_node: node.y must be a number, got a string (\"1\")",
+        ),
+        (without("type"), "op[0] add_node: node.type required"),
+        (
+            with("type", json!("card")),
+            "op[0] add_node: node.type must be 'text', 'file', 'link' or 'group', got \"card\"",
+        ),
+        (
+            with("id", json!("")),
+            "op[0] add_node: node.id must not be empty",
+        ),
+        (
+            with("id", json!(3)),
+            "op[0] add_node: node.id must be a string, got a number (3)",
+        ),
+        (
+            with("width", json!(0)),
+            "op[0] add_node: node width and height must be positive",
+        ),
+        (
+            with("type", json!("link")),
+            "op[0] add_node: a link node needs a string node.url",
+        ),
+        (
+            with("type", json!("file")),
+            "op[0] add_node: a file node needs a string node.file",
+        ),
+        (
+            with("color", json!(2)),
+            "op[0] add_node: node.color must be a string, got a number (2)",
+        ),
+    ];
+    for (node, want) in cases {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "add_node", "node": node }] }),
+        );
+        assert_eq!(resp.error.as_ref().map(|e| e.message.as_str()), Some(want));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            raw,
+            "file untouched"
+        );
+    }
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "add_edge", "edge": { "id": "", "fromNode": "a", "toNode": "a" } }] }),
+    );
+    assert_eq!(
+        resp.error.as_ref().map(|e| e.message.as_str()),
+        Some("op[0] add_edge: edge.id must not be empty")
+    );
+    // A complete node of every kind is still added.
+    let ops = json!([
+        { "type": "add_node", "node": full },
+        { "type": "add_node", "node": { "id": "f", "type": "file", "file": "a.md", "x": 1, "y": 1, "width": 5, "height": 5 } },
+        { "type": "add_node", "node": { "id": "l", "type": "link", "url": "https://x", "x": 1, "y": 1, "width": 5, "height": 5 } },
+        { "type": "add_node", "node": { "id": "g", "type": "group", "x": 1.5, "y": -1, "width": 5, "height": 5 } }
+    ]);
+    let resp = mdopener_mcp::tool_edit_canvas(id(1), &json!({ "path": path, "ops": ops }));
+    assert!(!is_error(&resp), "{resp:?}");
+    assert_eq!(
+        content_text(&resp)["node_ids"],
+        json!(["a", "n", "f", "l", "g"])
+    );
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]
@@ -6476,6 +6640,32 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                 args.insert(k.clone(), json!([sample_of(items).1]));
                 let msg = refused_before_the_tool(name, Value::Object(args));
                 assert!(msg.starts_with(&format!("`{k}[0]")), "{name}.{k}: {msg}");
+            }
+            // Fields of an array of objects (edit_canvas ops) are probed the
+            // same way, named `ops[0].field`.
+            if let Some(fields) = prop["items"]["properties"].as_object() {
+                let mut item = serde_json::Map::new();
+                for (f, fprop) in fields {
+                    item.insert(f.clone(), sample_of(fprop).0);
+                }
+                for (f, fprop) in fields {
+                    let mut bad = item.clone();
+                    bad.insert(f.clone(), sample_of(fprop).1);
+                    let mut args = valid.clone();
+                    args.insert(k.clone(), json!([bad]));
+                    let msg = refused_before_the_tool(name, Value::Object(args));
+                    let want = format!("`{k}[0].{f}` must be ");
+                    assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                }
+                for req in prop["items"]["required"].as_array().into_iter().flatten() {
+                    let req = req.as_str().unwrap();
+                    let mut missing = item.clone();
+                    missing.remove(req);
+                    let mut args = valid.clone();
+                    args.insert(k.clone(), json!([missing]));
+                    let msg = refused_before_the_tool(name, Value::Object(args));
+                    assert_eq!(msg, format!("`{k}[0].{req}` is required"), "{name}");
+                }
             }
         }
     }

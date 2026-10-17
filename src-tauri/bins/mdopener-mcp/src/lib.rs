@@ -965,15 +965,15 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "height": { "type": "number", "description": "New height (resize_node)." },
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
-                                "label": { "type": "string", "description": "New label (edit_group_label) or edge label (edit_edge_label). Omit to clear." },
+                                "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
                                 "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RRGGBB'. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
-                                    "description": "Full node object to insert (add_node). Must include id, type, x, y, width, height."
+                                    "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include id, fromNode, toNode."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes."
                                 },
                                 "ids": {
                                     "type": "array",
@@ -1348,6 +1348,13 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                 ));
             }
         }
+        if let (Some(fields), Some(items)) =
+            (prop["items"]["properties"].as_object(), value.as_array())
+        {
+            for (i, item) in items.iter().enumerate() {
+                check_item_fields(&format!("{key}[{i}]"), &prop["items"], fields, item)?;
+            }
+        }
     }
     let present = |name: &str| given.get(name).is_some_and(|v| !v.is_null());
     let required_names = |schema: &Value| -> Vec<String> {
@@ -1384,6 +1391,78 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                 _ => names.join(""),
             };
             return Err(format!("`{tool}` needs one of {shown}"));
+        }
+    }
+    Ok(())
+}
+
+/// Check one element of an array argument whose `items` schema declares
+/// `properties` (an `edit_canvas` op): a field it does not declare, a field of
+/// the wrong JSON type (or an array field with an element of the wrong type),
+/// and a missing `required` field are refused, named as `` `ops[2].x` `` so
+/// the agent knows which element and field. A field the tool reads with
+/// `as_f64`/`as_str` used to be reported as missing when mistyped (`"x": "5"`
+/// gave "`x` required"), or written to the canvas as given (`"color": 3`).
+/// `null` counts as not given, as at the top level.
+fn check_item_fields(
+    at: &str,
+    schema: &Value,
+    fields: &serde_json::Map<String, Value>,
+    item: &Value,
+) -> Result<(), String> {
+    let Some(given) = item.as_object() else {
+        return Ok(());
+    };
+    for (k, v) in given {
+        let Some(field) = fields.get(k) else {
+            let mut names: Vec<&str> = fields.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let hint = closest_name(k, &names)
+                .map(|n| format!(" Did you mean `{n}`?"))
+                .unwrap_or_default();
+            return Err(format!(
+                "Unknown field `{k}` in `{at}`: it takes {}.{hint}",
+                names
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        };
+        if v.is_null() {
+            continue;
+        }
+        if let Some(want) = field["type"].as_str() {
+            if !json_type_matches(want, v) {
+                return Err(format!(
+                    "`{at}.{k}` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(v)
+                ));
+            }
+        }
+        if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
+            if let Some((j, bad)) = elems
+                .iter()
+                .enumerate()
+                .find(|(_, e)| !json_type_matches(want, e))
+            {
+                return Err(format!(
+                    "`{at}.{k}[{j}]` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(bad)
+                ));
+            }
+        }
+    }
+    for req in schema["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if given.get(req).is_none_or(Value::is_null) {
+            return Err(format!("`{at}.{req}` is required"));
         }
     }
     Ok(())
@@ -4360,6 +4439,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
+                if let Some(problem) = canvas_node_problem(new_node) {
+                    return Response::err(id, -32602, format!("op[{i}] add_node: {problem}"));
+                }
                 let new_id = match new_node.get("id").and_then(Value::as_str) {
                     Some(s) => s,
                     None => {
@@ -4414,6 +4496,13 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     }
                 };
                 let new_id = match new_edge.get("id").and_then(Value::as_str) {
+                    Some("") => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: edge.id must not be empty"),
+                        )
+                    }
                     Some(s) => s,
                     None => {
                         return Response::err(
@@ -4672,6 +4761,77 @@ fn take_canvas_items(
             other => Err(format!("{key}[{i}] must be an object, got {other}")),
         })
         .collect()
+}
+
+/// Why `node` is not a node the app can show, or `None` when it is. The app's
+/// canvas parser (`parseNode` in src/lib/canvas.ts) drops, without a word, a
+/// node with an empty or non-string `id`, a `type` other than text, file,
+/// link or group, a non-number `x`/`y`/`width`/`height`, a file node without a
+/// string `file` or a link node without a string `url`. `add_node` used to
+/// write such a node and report success, and it then never appeared.
+fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> {
+    match node.get("id") {
+        Some(Value::String(s)) if !s.is_empty() => {}
+        Some(Value::String(_)) => return Some("node.id must not be empty".into()),
+        None | Some(Value::Null) => return Some("node.id required".into()),
+        Some(other) => {
+            return Some(format!(
+                "node.id must be a string, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    }
+    let kind = match node.get("type") {
+        Some(Value::String(t)) => t.as_str(),
+        None | Some(Value::Null) => return Some("node.type required".into()),
+        Some(other) => {
+            return Some(format!(
+                "node.type must be a string, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    };
+    if !matches!(kind, "text" | "file" | "link" | "group") {
+        return Some(format!(
+            "node.type must be 'text', 'file', 'link' or 'group', got {kind:?}"
+        ));
+    }
+    for field in ["x", "y", "width", "height"] {
+        match node.get(field) {
+            Some(v) if v.is_number() => {}
+            None | Some(Value::Null) => return Some(format!("node.{field} required")),
+            Some(other) => {
+                return Some(format!(
+                    "node.{field} must be a number, got {}",
+                    json_type_phrase(other)
+                ))
+            }
+        }
+    }
+    for field in ["width", "height"] {
+        if node[field].as_f64().is_some_and(|n| n <= 0.0) {
+            return Some("node width and height must be positive".into());
+        }
+    }
+    let needs = match kind {
+        "file" => Some("file"),
+        "link" => Some("url"),
+        _ => None,
+    };
+    if let Some(field) = needs {
+        if !node.get(field).is_some_and(Value::is_string) {
+            return Some(format!("a {kind} node needs a string node.{field}"));
+        }
+    }
+    for field in ["text", "label", "color", "subpath", "background"] {
+        if let Some(v) = node.get(field).filter(|v| !v.is_null() && !v.is_string()) {
+            return Some(format!(
+                "node.{field} must be a string, got {}",
+                json_type_phrase(v)
+            ));
+        }
+    }
+    None
 }
 
 fn find_node_mut<'a>(
