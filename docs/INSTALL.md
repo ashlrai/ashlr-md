@@ -16,7 +16,7 @@ There are no Homebrew, winget or AUR packages yet.
    the README).
 3. Open the DMG, drag **Ashlr MD.app** to `/Applications`.
 4. On first launch, right-click the app and choose **Open** to bypass Gatekeeper
-   (required for unsigned/unnotarized builds — see note below).
+   (required for unsigned/unnotarized builds; see note below).
 
 > **Note on Gatekeeper:** Current releases are not notarized with an Apple
 > Developer ID, so macOS shows a warning. Right-click → Open bypasses this one
@@ -32,7 +32,7 @@ There are no Homebrew, winget or AUR packages yet.
 
 ## Windows
 
-### Option A — NSIS Installer (recommended)
+### Option A: NSIS Installer (recommended)
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
 2. Download `Ashlr_MD_X.Y.Z_x64-setup.exe`.
@@ -46,7 +46,7 @@ There are no Homebrew, winget or AUR packages yet.
 > Ashlr_MD_X.Y.Z_x64-setup.exe /S
 > ```
 
-### Option B — MSI Package
+### Option B: MSI Package
 
 Download `Ashlr_MD_X.Y.Z_x64_en-US.msi` from the same release page.
 Double-click to install, or deploy silently via Group Policy / MDM.
@@ -63,7 +63,7 @@ file associations automatically. To change the default:
 
 ## Linux
 
-### Option A — Debian / Ubuntu (.deb)
+### Option A: Debian / Ubuntu (.deb)
 
 ```bash
 # Download the .deb from the latest release
@@ -96,7 +96,7 @@ and other XDG-compliant file managers.
 Download `Ashlr_MD_X.Y.Z_x86_64.rpm` from the latest release and install it with
 `sudo dnf install ./Ashlr_MD_X.Y.Z_x86_64.rpm`.
 
-### Option B — AppImage (portable, any distro)
+### Option B: AppImage (portable, any distro)
 
 ```bash
 # Download the AppImage

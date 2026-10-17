@@ -3,10 +3,10 @@
 Ashlr MD reads [Obsidian](https://obsidian.md) vaults and notes natively. Point
 it at a `.md` file in your vault and your wikilinks, embeds, highlights,
 comments, math, and `.canvas` files all render the way they do in Obsidian's
-Reading View — no plugins, no export step.
+Reading View, with no plugins and no export step.
 
 It is a **respectful guest** in your vault: Ashlr MD resolves links vault-wide,
-opens linked notes in tabs, and can hand a note back to Obsidian in one click —
+opens linked notes in tabs, and can hand a note back to Obsidian in one click,
 but it **never writes into your `.obsidian/` config folder** (see
 [Vault setup](#vault-setup)).
 
@@ -102,7 +102,7 @@ can't loop forever.
 | Syntax | What it does |
 |---|---|
 | `![[note]]` | Transclude the **entire** note inline, under a title bar. |
-| `![[note#heading]]` | Transclude just that **heading's section** — the heading plus everything under it up to the next same-or-higher-level heading. |
+| `![[note#heading]]` | Transclude just that **heading's section**: the heading plus everything under it up to the next same-or-higher-level heading. |
 | `![[note#^block]]` | Transclude just the **single block** (paragraph / list item) tagged with that `^block` id; the `^id` marker is stripped from the output. |
 | `![[image.png]]` | Embed the image inline. |
 | `![[image.png\|300]]` | Embed the image at **300px wide**. |
@@ -121,7 +121,7 @@ the embed still shows something useful.
 | Syntax | Rendering |
 |---|---|
 | `==highlight==` | Rendered as a highlighted `<mark>`. Empty / whitespace-only delimiters (`== ==`) are left as plain text. |
-| `%%comment%%` | **Hidden** in the reading view, matching Obsidian — the delimiters and their content are removed. Inline comments only; comments that span paragraph boundaries are left as-is. |
+| `%%comment%%` | **Hidden** in the reading view, matching Obsidian: the delimiters and their content are removed. Inline comments only; comments that span paragraph boundaries are left as-is. |
 | `$inline math$` | Inline math via KaTeX. |
 | `$$display math$$` | Display (block) math via KaTeX. |
 
@@ -142,7 +142,7 @@ on open.
 | Node | Rendering |
 |---|---|
 | `text` | The node's Markdown, rendered through the same renderer. |
-| `file` | A titled card embedding the linked file's Markdown — or, for an image file, the inline image. The title is a button that opens the file in a tab. |
+| `file` | A titled card embedding the linked file's Markdown or, for an image file, the inline image. The title is a button that opens the file in a tab. |
 | `link` | A card showing the external URL. Only `http(s):` and `mailto:` URLs are clickable; anything else (e.g. `javascript:`) is shown as inert text. |
 | `group` | A labelled rectangle drawn behind its member nodes. |
 
@@ -182,12 +182,12 @@ The following are intentionally absent today:
 - **Block-reference jump targets.** A `[[note#^block]]` link opens the note but
   doesn't scroll to the block (heading anchors *do* scroll). Block *embeds*
   (`![[note#^block]]`) do work.
-- **Multi-line / block `%%comments%%`** that span paragraph boundaries — only
+- **Multi-line / block `%%comments%%`** that span paragraph boundaries; only
   inline comments are hidden.
 - **Obsidian-specific frontmatter behaviors** (aliases-as-link-targets, custom
   link-resolution settings, per-vault Markdown extension config). Link resolution
   follows the rules documented above, not your vault's individual settings.
 
 If something in your vault doesn't render the way Obsidian's Reading View shows
-it — and it isn't in this list — please
+it, and it isn't in this list, please
 [open an issue](https://github.com/ashlrai/ashlr-md/issues).

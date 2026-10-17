@@ -11,7 +11,9 @@
 // app loads), the landing page (landing/index.html: its title, meta and
 // social descriptions and body copy, HTML comments aside), the top-level
 // Markdown docs (README, CONTRIBUTING, ROADMAP, SECURITY, AGENTS; not the
-// historical CHANGELOG), every string in
+// historical CHANGELOG), the Markdown under docs/ and integrations/ (the
+// install, Obsidian, release, vision and agent guides and the plugin and
+// extension READMEs; again not a CHANGELOG), every string in
 // the Tauri configs (window titles, bundle descriptions, file association
 // names) and the string literals of the Rust
 // crates (dialog, menu, tray and notification text, and the errors the
@@ -35,7 +37,31 @@ const topDocs = import.meta.glob<string>(["../*.md", "!../CHANGELOG.md"], {
   eager: true,
 });
 
+// The guides under docs/ and the editor integrations' READMEs. A changelog
+// there keeps its history as written too.
+const nestedDocs = import.meta.glob<string>(
+  [
+    "../docs/**/*.md",
+    "../integrations/**/*.md",
+    "!../**/CHANGELOG.md",
+    "!../**/node_modules/**",
+  ],
+  { query: "?raw", import: "default", eager: true },
+);
+
 const DASH = /[–—]/;
+const DASH_ENTITY = /&(?:[mn]dash|#821[12]|#x201[34]);/i;
+
+/** "file:line: text" for each line of a Markdown doc with a dash or entity. */
+function dashedDocLines(docs: Record<string, string>): string[] {
+  return Object.entries(docs).flatMap(([file, src]) =>
+    src
+      .split("\n")
+      .map((l, k) => [k + 1, l] as const)
+      .filter(([, l]) => DASH.test(l) || DASH_ENTITY.test(l))
+      .map(([k, l]) => `${file.slice(3)}:${k}: ${l.trim().slice(0, 120)}`),
+  );
+}
 
 const sources = import.meta.glob<string>(
   ["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./test-setup.ts"],
@@ -265,7 +291,7 @@ describe("no em or en dashes in user-facing strings", () => {
     const found = text
       .split("\n")
       .map((l, k) => [k + 1, l] as const)
-      .filter(([, l]) => DASH.test(l) || /&(?:[mn]dash|#821[12]|#x201[34]);/i.test(l))
+      .filter(([, l]) => DASH.test(l) || DASH_ENTITY.test(l))
       .map(([k, l]) => `landing/index.html:${k}: ${l.trim().slice(0, 120)}`);
     expect(found).toEqual([]);
   });
@@ -282,14 +308,24 @@ describe("no em or en dashes in user-facing strings", () => {
       expect(files).toContain(`../${f}`);
     }
     expect(files).not.toContain("../CHANGELOG.md");
-    const found = Object.entries(topDocs).flatMap(([file, src]) =>
-      src
-        .split("\n")
-        .map((l, k) => [k + 1, l] as const)
-        .filter(([, l]) => DASH.test(l) || /&(?:[mn]dash|#821[12]|#x201[34]);/i.test(l))
-        .map(([k, l]) => `${file.slice(3)}:${k}: ${l.trim().slice(0, 120)}`),
-    );
-    expect(found).toEqual([]);
+    expect(dashedDocLines(topDocs)).toEqual([]);
+  });
+
+  it("the docs/ guides and integration READMEs have none, as characters or entities", () => {
+    const files = Object.keys(nestedDocs);
+    for (const f of [
+      "docs/AGENTS.md",
+      "docs/INSTALL.md",
+      "docs/OBSIDIAN.md",
+      "docs/RELEASING.md",
+      "docs/VISION.md",
+      "integrations/obsidian/README.md",
+      "integrations/vscode/README.md",
+    ]) {
+      expect(files).toContain(`../${f}`);
+    }
+    expect(files).not.toContain("../integrations/vscode/CHANGELOG.md");
+    expect(dashedDocLines(nestedDocs)).toEqual([]);
   });
 
   it("strings in the Tauri configs have none", () => {

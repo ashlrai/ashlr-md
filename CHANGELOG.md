@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The guides under `docs/` and the integration READMEs have no em or en
+  dashes.** INSTALL, OBSIDIAN, RELEASING and VISION and the Obsidian plugin
+  and VS Code extension READMEs use colons, semicolons, commas and
+  parentheses instead (the RELEASING table's empty cells say "no"). The dash
+  guard test now covers all Markdown under `docs/` and `integrations/`
+  except a changelog.
 - **`present_document` refuses a missing file itself.** A `path` that does
   not exist was sent to the app, so with the app closed the agent heard only
   "not running" and learned the path was wrong after starting it. It is now
