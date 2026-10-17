@@ -757,6 +757,45 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
 }
 
 /// Parse GFM task-list checkboxes (`- [ ]` / `- [x]`, also `*`/`+` bullets).
+/// True when `a` and `b` name the same file: canonical paths when both
+/// resolve, else the raw strings.
+fn same_path(a: &str, b: &str) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// The GFM task checkboxes of the file `requested`: from the live buffer when
+/// it is the open document, else read from disk when it is a Markdown file
+/// (not a dotfile, checked after resolving symlinks), else none. Never the
+/// open document's tasks for some other path.
+fn annotation_tasks(
+    requested: &str,
+    open_path: Option<&str>,
+    open_content: &str,
+) -> Vec<serde_json::Value> {
+    if open_path.is_some_and(|o| same_path(requested, o)) {
+        return parse_tasks(open_content);
+    }
+    let Ok(canon) = std::fs::canonicalize(requested) else {
+        return vec![];
+    };
+    let markdown = canon.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["md", "markdown", "mdown", "mkd", "mdx"].contains(&e.to_ascii_lowercase().as_str())
+    });
+    let hidden = canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_none_or(|n| n.starts_with('.'));
+    if !markdown || hidden || !canon.is_file() {
+        return vec![];
+    }
+    std::fs::read_to_string(&canon)
+        .map(|c| parse_tasks(&c))
+        .unwrap_or_default()
+}
+
 fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
     content
         .lines()
@@ -787,16 +826,21 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
         .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
         .unwrap_or_default();
 
-    let content = app.state::<DocMirror>().0.lock().unwrap().content.clone();
-    let tasks = parse_tasks(&content);
+    let (open_path, open_content) = {
+        let mirror = app.state::<DocMirror>();
+        let inner = mirror.0.lock().unwrap();
+        (inner.path.clone(), inner.content.clone())
+    };
+    let tasks = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
 
     // Resolve the latest matching verdict/comments, then drop the lock before
-    // the blocking send_json response.
+    // the blocking send_json response. Reviews store the canonical path, so a
+    // relative or symlinked `path` still finds them.
     let (verdict, comments) = {
         let review_state = app.state::<ReviewState>();
         let map = review_state.0.lock().unwrap();
         map.values()
-            .filter(|r| r.path.as_deref() == Some(raw_path.as_str()))
+            .filter(|r| r.path.as_deref().is_some_and(|p| same_path(p, &raw_path)))
             .max_by_key(|r| r.created_at)
             .map(|r| (r.verdict.clone(), r.comments.clone()))
             .unwrap_or((None, None))
@@ -1245,7 +1289,10 @@ fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_unique_edit, parse_tasks, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS};
+    use super::{
+        annotation_tasks, apply_unique_edit, parse_tasks, same_path, InflightEdit, INFLIGHT_EDITS,
+        MAX_INFLIGHT_EDITS,
+    };
     use std::sync::atomic::Ordering;
 
     #[test]
@@ -1373,5 +1420,60 @@ mod tests {
     #[test]
     fn empty_input_yields_no_tasks() {
         assert!(parse_tasks("").is_empty());
+    }
+
+    #[test]
+    fn annotation_tasks_belong_to_the_requested_file() {
+        struct Dir(std::path::PathBuf);
+        impl Dir {
+            fn path(&self) -> &std::path::Path {
+                &self.0
+            }
+        }
+        impl Drop for Dir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Dir(std::env::temp_dir().join(format!("ipc-annot-{}", std::process::id())));
+        let _ = std::fs::remove_dir_all(dir.path());
+        std::fs::create_dir_all(dir.path()).unwrap();
+        let other = dir.path().join("other.md");
+        std::fs::write(&other, "- [x] on disk\n").unwrap();
+        let open = dir.path().join("open.md");
+        std::fs::write(&open, "- [ ] stale\n").unwrap();
+        let open_s = open.to_str().unwrap();
+        let live = "- [ ] live task\n";
+
+        // The open document: its live buffer, also via a non-canonical path.
+        let via_dots = format!("{}/./open.md", dir.path().display());
+        for p in [open_s, via_dots.as_str()] {
+            let t = annotation_tasks(p, Some(open_s), live);
+            assert_eq!(t.len(), 1);
+            assert_eq!(t[0]["text"], "live task", "{p}");
+        }
+        assert!(same_path(&via_dots, open_s));
+
+        // Another Markdown file: its own tasks from disk, not the open doc's.
+        let t = annotation_tasks(other.to_str().unwrap(), Some(open_s), live);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0]["text"], "on disk");
+        assert_eq!(t[0]["checked"], true);
+
+        // Missing, non-Markdown, and dotfile paths: no tasks.
+        let txt = dir.path().join("x.txt");
+        std::fs::write(&txt, "- [ ] not md\n").unwrap();
+        let dot = dir.path().join(".hidden.md");
+        std::fs::write(&dot, "- [ ] hidden\n").unwrap();
+        for p in [
+            txt.as_path(),
+            dot.as_path(),
+            dir.path().join("nope.md").as_path(),
+        ] {
+            assert!(
+                annotation_tasks(p.to_str().unwrap(), Some(open_s), live).is_empty(),
+                "{p:?}"
+            );
+        }
     }
 }
