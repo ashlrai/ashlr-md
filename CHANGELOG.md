@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` says when a file does not exist, and where it looked.** A
+  missing file read `cannot resolve path "nope.md": No such file or
+  directory (os error 2)`. It is now `"nope.md" does not exist (looked for
+  /abs/path/nope.md)`; other resolution failures keep the OS reason.
 - **`export_text`, `export_metadata` and `diff_documents` say when a file is
   missing.** A relative path to a missing file was reported as "Cannot read
   'nope.md': No such file or directory (os error 2)". The error now names the

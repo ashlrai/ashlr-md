@@ -262,8 +262,7 @@ fn version_line() -> String {
 /// Markdown document and not a dotfile (checked after resolving symlinks),
 /// the only files the app opens.
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
-    let p = std::fs::canonicalize(target)
-        .map_err(|e| format!("cannot resolve path {target:?}: {e}"))?;
+    let p = std::fs::canonicalize(target).map_err(|e| missing_or_unresolved(target, &e))?;
     if p.is_dir() {
         return Err(format!(
             "{target:?} is a directory, not a file; pass a Markdown file in it"
@@ -279,6 +278,22 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
         ));
     }
     Ok(p)
+}
+
+/// The error for a `target` that does not resolve. A missing file used to read
+/// `cannot resolve path "nope.md": No such file or directory (os error 2)`,
+/// which did not say where mdopen looked; it now says the file does not exist
+/// and names the absolute path. Other failures keep the OS reason.
+fn missing_or_unresolved(target: &str, e: &std::io::Error) -> String {
+    if e.kind() != std::io::ErrorKind::NotFound {
+        return format!("cannot resolve path {target:?}: {e}");
+    }
+    match std::path::absolute(target) {
+        Ok(abs) if abs.as_os_str() != target => {
+            format!("{target:?} does not exist (looked for {})", abs.display())
+        }
+        _ => format!("{target:?} does not exist"),
+    }
 }
 
 /// Whether the (resolved) path's file name is one the app opens: a Markdown
@@ -852,9 +867,22 @@ mod tests {
         assert!(resolve_file(dir_md.to_str().unwrap())
             .unwrap_err()
             .contains("is a directory"));
-        assert!(resolve_file(s.0.join("nope.md").to_str().unwrap())
-            .unwrap_err()
-            .contains("cannot resolve path"));
+        let missing = s.0.join("nope.md");
+        let err = resolve_file(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.ends_with("does not exist"), "{err}");
+        assert!(!err.contains("os error"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_relative_path_names_where_mdopen_looked() {
+        let name = format!("mdopen-missing-{}.md", std::process::id());
+        let abs = std::env::current_dir().unwrap().join(&name);
+        assert!(!abs.exists());
+        let err = resolve_file(&name).unwrap_err();
+        assert_eq!(
+            err,
+            format!("{name:?} does not exist (looked for {})", abs.display())
+        );
     }
 
     #[test]
