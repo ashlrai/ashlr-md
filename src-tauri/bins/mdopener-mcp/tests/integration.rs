@@ -8913,6 +8913,51 @@ fn edit_tool_descriptions_name_their_results_and_refusals() {
     }
 }
 
+/// stream_edit's description said it returns diffs but not the fields, and
+/// docs/AGENTS.md said "the app's diff preview". The named shape is the
+/// reply the app's `/stream-edit` sends, with the tool's own `applied`.
+#[test]
+fn stream_edit_description_names_its_result_and_refusals() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    for want in [
+        "{ ok, editId, diff, candidates, matchCount, applied }",
+        "[{ matchIndex, startLine, diff, rank }]",
+        "null for a single match",
+        "`find` is not found",
+        "not the open",
+        "not unique",
+        "two edits are already waiting on the app",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let candidate =
+        |i: u32| json!({ "matchIndex": i, "startLine": i + 1, "diff": "@@", "rank": i + 1 });
+    let reply = json!({
+        "ok": true,
+        "editId": "stream_1",
+        "diff": "@@",
+        "candidates": [candidate(0), candidate(1)],
+        "matchCount": 2,
+    });
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply.clone()));
+    let v = content_text(&call(
+        "stream_edit",
+        json!({ "find": "a", "replace": "b" }),
+        &ipc,
+    ));
+    let mut want = reply;
+    want["applied"] = json!(false);
+    assert_eq!(v, want);
+    let refusal = "`find` string not found in the document.";
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": false, "error": refusal })));
+    let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+    assert_eq!(tool_error_text(&resp), refusal);
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

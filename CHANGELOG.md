@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`stream_edit` names its result and refusals.** Its description said it
+  returns diffs but not the fields, and docs/AGENTS.md gave "the app's diff
+  preview". Both now give `{ ok, editId, diff, candidates, matchCount,
+  applied }`, with `candidates` null for a single match and otherwise
+  `[{ matchIndex, startLine, diff, rank }]`, and name the not-found,
+  not-unique (with `preview: false`), wrong-`path`, timeout and busy
+  refusals.
 - **`set_content`, `replace_document`, `edit_document` and
   `stream_edit_apply` name their results and refusals.** Their descriptions
   said what they change but not what comes back. They now give

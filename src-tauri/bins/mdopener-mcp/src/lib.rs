@@ -1196,7 +1196,12 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
-                confirm correctness before committing.",
+                confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
+                otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
+                Refused (isError, document unchanged) when `find` is not found, when `path` is not the open \
+                document, with preview=false when `find` is not unique, when the window does not answer \
+                within 4 s, or when two edits are already waiting on the app (retry in a moment).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -6616,8 +6621,10 @@ pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
 /// Returns the preview result including:
 ///  - `diff`       — unified diff string for the first/only match
 ///  - `candidates` — ranked list of diffs when find matches multiple times
-///  - `match_count`— total occurrences of find in the document
-///  - `ok`         — false when find is empty or not found
+///  - `matchCount` — total occurrences of find in the document
+///  - `editId`     — the app's id for this preview
+///  - `applied`    — true only when `preview` was false (the edit is applied)
+///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error
 pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
