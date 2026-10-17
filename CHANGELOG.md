@@ -40,6 +40,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   that is not the open document, the app's `/annotations` read the file
   whole however large it was. Past 16 MiB (or for text that is not UTF-8)
   it is not read, and the reply's `tasksNote` says why `tasks` is empty.
+- **`mdopen --hook` reads at most 64 MiB of stdin.** The hook read its
+  payload to the end however long it was, so a runaway producer grew its
+  memory without bound. Past 64 MiB it stops reading and opens nothing,
+  still silently and with exit 0.
 - **The app's IPC server answers a wrong method with 405.** A route it
   has, asked for with another method (`GET /open`), got the same 404 "No
   such endpoint" as a path that does not exist. It is now a 405 with an

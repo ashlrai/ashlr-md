@@ -507,7 +507,8 @@ edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
 silent and always succeeds, so it never disrupts Claude's tool flow — it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
 read mode: through the running app's loopback IPC channel, or via the
-`mdopener://` scheme when the app is not running.
+`mdopener://` scheme when the app is not running. It reads at most 64 MiB of
+stdin; a longer payload opens nothing (still silently, exit `0`).
 
 ### One-click install
 
