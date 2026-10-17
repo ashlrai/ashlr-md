@@ -4100,21 +4100,38 @@ pub fn tcp_roundtrip_within(
         .map_err(|e| format!("IPC write error: {e}"))?;
 
     let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|e| {
-        if matches!(
-            e.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ) {
-            format!(
-                "IPC read error: Ashlr MD did not answer within {} s",
-                read_timeout.as_secs()
-            )
-        } else {
-            format!("IPC read error: {e}")
-        }
-    })?;
+    // Bounded: the read timeout applies to each read, not the whole answer,
+    // so a peer that keeps sending (whatever listens on the port, e.g. a
+    // stray server on Ollama's) was read into memory without end.
+    (&mut stream)
+        .take(MAX_HTTP_RESPONSE_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| {
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) {
+                format!(
+                    "IPC read error: Ashlr MD did not answer within {} s",
+                    read_timeout.as_secs()
+                )
+            } else {
+                format!("IPC read error: {e}")
+            }
+        })?;
+    if buf.len() as u64 > MAX_HTTP_RESPONSE_BYTES {
+        return Err(format!(
+            "IPC read error: the answer from {addr} is more than {} MiB, so it was not read",
+            MAX_HTTP_RESPONSE_BYTES / (1024 * 1024)
+        ));
+    }
     Ok(buf)
 }
+
+/// Largest HTTP answer (headers and body) the server reads from the app or
+/// Ollama: room for a 16 MiB document ([`MAX_DOCUMENT_BYTES`]) JSON-escaped
+/// several times over, far above any real answer.
+pub const MAX_HTTP_RESPONSE_BYTES: u64 = 4 * MAX_DOCUMENT_BYTES;
 
 pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
     let sep = b"\r\n\r\n";

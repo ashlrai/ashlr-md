@@ -7984,3 +7984,38 @@ fn recent_documents_without_the_app_is_an_error_not_an_empty_list() {
     let body: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(body["count"], 0);
 }
+
+/// An HTTP answer was read to its end however long it was (the read timeout
+/// is per read), so a peer that kept sending grew the server's memory
+/// without bound. Past MAX_HTTP_RESPONSE_BYTES it is now refused.
+#[test]
+fn an_http_answer_past_the_cap_is_refused() {
+    use mdopener_mcp::MAX_HTTP_RESPONSE_BYTES;
+    use std::io::{Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut req = [0u8; 1024];
+        let _ = conn.read(&mut req);
+        let _ = conn.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n\"");
+        let chunk = vec![b'x'; 1024 * 1024];
+        // A little past the cap, then stop, so a client without one returns.
+        for _ in 0..=(MAX_HTTP_RESPONSE_BYTES / chunk.len() as u64) {
+            if conn.write_all(&chunk).is_err() {
+                return;
+            }
+        }
+        let _ = conn.write_all(b"\"");
+    });
+    let err = match mdopener_mcp::http_get(&format!("http://127.0.0.1:{port}/content"), "t") {
+        Ok(v) => panic!("an answer of {} bytes was read whole", v.to_string().len()),
+        Err(e) => e,
+    };
+    assert!(
+        err.contains("more than 64 MiB"),
+        "{}",
+        &err[..err.len().min(200)]
+    );
+    server.join().unwrap();
+}

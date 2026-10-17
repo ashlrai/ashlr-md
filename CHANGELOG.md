@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The MCP server reads at most 64 MiB of an HTTP answer.** Answers from the
+  app's IPC server and from Ollama were read to their end however long they
+  were (the 5 s timeout applies to each read), so a peer that kept sending
+  grew the server's memory without bound. Past 64 MiB the request now fails,
+  saying so.
 - **`mdopener://recent-documents` says when the app is not running.** It
   answered an empty list, the same as an app with no recents. It is now
   `-32000`, as `mdopener://current` is.

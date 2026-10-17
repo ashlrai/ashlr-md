@@ -686,7 +686,10 @@ The integration is **local-only and token-authenticated**:
   blocking the server. Each also refuses (or, for search and the
   recent-documents resource, skips) a file larger than 16 MiB, the most the
   app accepts in one request, instead of reading it whole into memory and
-  into the reply.
+  into the reply. Session files are read up to 16 MiB too.
+- An answer from the app's IPC server (or from Ollama) is read up to 64 MiB,
+  headers included; a longer one is refused ("more than 64 MiB") instead of
+  being read into memory for as long as the peer keeps sending.
 - The token and port files are **removed on clean app exit**, so a stale process
   can't authenticate against a new session.
 
