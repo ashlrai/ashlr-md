@@ -36,6 +36,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Negative MCP integer arguments are refused.** The schemas declared no
+  minimum and the tools read integers as unsigned, so `list_recent` with
+  `"limit": -5` listed the default 10, `request_review` with
+  `"timeout_ms": -1` gave the human 5 minutes, and `stream_edit_apply` with
+  `"match_index": -1` applied the first occurrence. Every integer argument now
+  declares a `minimum` (`0`; `1` for `get_conversation_context`'s `limit`,
+  where `0` was silently raised to `1`) and a value below it returns `-32602`
+  naming the argument and the minimum.
+- **An unknown MCP prompt or resource says what to ask for instead.**
+  `prompts/get` answered `Unknown prompt: Summarize` and `resources/read`
+  with no `uri` answered `Unknown resource URI: ` with nothing after it. Both
+  now name the closest prompt or URI (`summarize`, `mdopener://current`), say
+  when the name or URI is missing, and list the prompts or point to
+  `resources/list`.
+- **`mdopener-mcp` names an argument it ignores.** Unknown command-line
+  arguments are still ignored so older client configs keep working, but a
+  line on stderr now names them, so a typo such as `--verison` no longer
+  starts the server without a word. Stdout stays JSON-RPC only.
+- **`mdopen` says what to do when it cannot open a file.** With the app not
+  running and no launcher able to start it, the error was
+  `no URL launcher found (...) (Ashlr MD is not running (no ...))`. It now
+  names the file, what the running-app and `mdopener://` routes each hit, and
+  ends with "Start Ashlr MD, then run mdopen again." The exit code is still 1.
 - **MCP tools refuse arguments they do not declare or cannot use.** Every tool
   read only the arguments it knew and defaulted any of the wrong type, so a
   typo (`export_metadata` with `pth`, `list_ai_actions` with

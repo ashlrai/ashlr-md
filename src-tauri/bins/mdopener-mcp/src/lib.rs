@@ -595,6 +595,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "limit": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Maximum number of entries to return. Defaults to 10."
                     }
                 }
@@ -644,8 +645,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min), min 5000, max 600000." },
-                    "wait_ms": { "type": "integer", "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
+                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min), min 5000, max 600000." },
+                    "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
@@ -727,7 +728,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "description": "Max number of results to return. Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 0, "description": "Max number of results to return. Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." }
                 },
                 "required": ["query"]
@@ -792,7 +793,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, max 200."
+                        "minimum": 1,
+                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, min 1, max 200."
                     }
                 },
                 "required": ["session_id"]
@@ -852,6 +854,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path_b": { "type": "string", "description": "Absolute path to the second (modified) document." },
                     "context_lines": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Number of unchanged context lines surrounding each change hunk. Defaults to 3."
                     }
                 },
@@ -964,6 +967,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "preview_lines": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Context lines on each side of the diff hunk. Defaults to 5."
                     },
                     "path": {
@@ -1004,6 +1008,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "match_index": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "0-based index of the candidate to apply. Defaults to 0 (first occurrence)."
                     },
                     "save": {
@@ -1196,7 +1201,9 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - `arguments` that is not an object (absent or `null` means no arguments);
 /// - an argument the schema does not declare (the message lists those it does);
 /// - an argument whose JSON type differs from the declared `type`, or an array
-///   element whose type differs from the declared `items.type`.
+///   element whose type differs from the declared `items.type`;
+/// - an integer below the declared `minimum` (a negative `limit` used to fall
+///   back to the default, since the tools read it with `as_u64`).
 ///
 /// A `null` value counts as "not given", as the tools already treat it.
 pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
@@ -1249,6 +1256,11 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     type_phrase(want),
                     json_type_phrase(value)
                 ));
+            }
+        }
+        if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_i64()) {
+            if n < min {
+                return Err(format!("`{key}` must be at least {min}, got {n}"));
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -2487,7 +2499,28 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Err(e) => Response::err(id, -32002, format!("Cannot read {p}: {e}")),
         };
     }
-    Response::err(id, -32602, format!("Unknown resource URI: {uri}"))
+    Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// Resource URIs `resources/read` serves besides advertised `file://` paths.
+const FIXED_RESOURCE_URIS: &[&str] = &[
+    "mdopener://current",
+    "mdopener://recent-documents",
+    "text://vault-search",
+];
+
+/// The `-32602` message for a URI `resources/read` does not serve: the
+/// closest served URI when there is one, and where the list is.
+pub fn unknown_resource_msg(uri: &str) -> String {
+    let shown = if uri.trim().is_empty() {
+        "Unknown resource: `uri` is missing or blank.".to_string()
+    } else {
+        format!("Unknown resource URI: {uri}.")
+    };
+    let hint = closest_name(uri, FIXED_RESOURCE_URIS)
+        .map(|u| format!(" Did you mean `{u}`?"))
+        .unwrap_or_default();
+    format!("{shown}{hint} Call resources/list for the resources this server provides.")
 }
 
 /// True if `path` is one of the files the app currently advertises as part of
@@ -2517,6 +2550,28 @@ pub fn prompts_list() -> Value {
     ])
 }
 
+/// The prompts `prompts/get` serves, in `prompts/list` order.
+pub const PROMPT_NAMES: &[&str] = &["summarize", "review_plan", "improve_writing"];
+
+/// The `-32602` message for a `prompts/get` name that is not a prompt: the
+/// closest prompt when there is one, and every prompt name (there are few).
+pub fn unknown_prompt_msg(name: &str) -> String {
+    let shown = if name.trim().is_empty() {
+        "Unknown prompt: `name` is missing or blank.".to_string()
+    } else {
+        format!("Unknown prompt: {name}.")
+    };
+    let hint = closest_name(name, PROMPT_NAMES)
+        .map(|n| format!(" Did you mean `{n}`?"))
+        .unwrap_or_default();
+    let all = PROMPT_NAMES
+        .iter()
+        .map(|n| format!("`{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{shown}{hint} The prompts are {all} (see prompts/list).")
+}
+
 pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response {
     let instruction = match name {
         "summarize" => {
@@ -2528,7 +2583,7 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
         "improve_writing" => {
             "Improve the writing of the following Markdown document — tighten prose and fix grammar without changing its meaning or structure:"
         }
-        other => return Response::err(id, -32602, format!("Unknown prompt: {other}")),
+        other => return Response::err(id, -32602, unknown_prompt_msg(other)),
     };
     // Without the live document the prompt would ask the model to work on an
     // empty string, so a missing app or document is an error, not "".
@@ -2770,7 +2825,11 @@ impl SemanticHits {
         let e = self.skip_error.as_deref()?;
         let n = self.skipped;
         let total = n + self.compared;
-        let docs = if n == 1 { "document was" } else { "documents were" };
+        let docs = if n == 1 {
+            "document was"
+        } else {
+            "documents were"
+        };
         Some(format!(
             "{n} of {total} {docs} left out of these semantic results because \
              embedding failed ({e})."

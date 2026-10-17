@@ -178,3 +178,36 @@ fn opens_through_the_running_app_without_a_url_launcher() {
     assert_eq!(body["path"], canon.to_str().unwrap());
     assert_eq!(body["mode"], "edit");
 }
+
+/// When the app is not running and no launcher can start it, the error names
+/// the file, what each route hit, and what to do next. Before, it read
+/// `no URL launcher found (...) (Ashlr MD is not running (no ...))`, with no
+/// next step.
+#[cfg(unix)]
+#[test]
+fn failed_open_names_the_file_both_routes_and_the_next_step() {
+    let s = Scratch::new("open-fail");
+    let file = s.0.join("plan.md");
+    std::fs::write(&file, "# plan\n").unwrap();
+    let out = headless(&s).arg(&file).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    let canon = std::fs::canonicalize(&file).unwrap();
+    assert!(
+        err.contains(&format!("could not open {} in Ashlr MD", canon.display())),
+        "{err}"
+    );
+    assert!(
+        err.contains("The running app: Ashlr MD is not running"),
+        "{err}"
+    );
+    assert!(
+        err.contains("The mdopener:// URL: no URL launcher found"),
+        "{err}"
+    );
+    assert!(
+        err.trim_end()
+            .ends_with("Start Ashlr MD, then run mdopen again."),
+        "{err}"
+    );
+}

@@ -170,3 +170,36 @@ fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
     assert_eq!(out[3]["error"]["code"], -32700);
     assert_eq!(out[4], json!({"jsonrpc":"2.0","id":10,"result":{}}));
 }
+
+/// An unknown command-line argument is still ignored (old client configs may
+/// pass one) but named on stderr, and stdout stays JSON-RPC only. Before, a
+/// typo such as `--verison` started the server without a word.
+#[test]
+fn unknown_argument_is_named_on_stderr_and_the_server_still_serves() {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .args(["--verison", "--stdio"])
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(
+        child.stdin.as_mut().unwrap(),
+        r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout.trim(), r#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("ignoring unknown arguments `--verison`, `--stdio`"),
+        "stderr: {stderr:?}"
+    );
+    assert!(stderr.contains("--help"), "stderr: {stderr:?}");
+}
