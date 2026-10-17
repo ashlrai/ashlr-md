@@ -5315,6 +5315,22 @@ fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
     );
 }
 
+/// A list inside a nested mapping belongs to the nested key, not to the
+/// top-level one: `owner:` / `  roles:` / `    - admin` came back as
+/// `owner: ["admin"]`, as if owner were a list of roles.
+#[test]
+fn frontmatter_list_inside_a_nested_mapping_does_not_fill_its_parent() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               owner:\n  name: Sam\n  roles:\n    - admin\n    - editor\n\
+               tags:\n  - a\n\
+               ---\nBody\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({ "owner": "", "tags": ["a"] })
+    );
+}
+
 // ── file:// resource URIs are percent-decoded ─────────────────────────────────
 
 /// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server

@@ -4478,7 +4478,13 @@ pub fn extract_frontmatter(content: &str) -> Value {
             continue;
         }
         if line.starts_with([' ', '\t']) {
-            // Part of a nested value: not a top-level key.
+            // Part of a nested value: not a top-level key. When it comes
+            // before any `- item`, the empty key holds a nested mapping, so
+            // a list deeper inside that mapping (`owner:` / `  roles:` /
+            // `    - admin`) must not fill it.
+            if list_key.as_ref().and_then(|k| map.get(k)) == Some(&json!("")) {
+                list_key = None;
+            }
             continue;
         }
         list_key = None;
