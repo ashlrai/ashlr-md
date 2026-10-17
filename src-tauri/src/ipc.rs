@@ -919,7 +919,7 @@ fn handle_open(mut req: Request, app: &AppHandle) {
             let payload = serde_json::json!({ "path": abs, "mode": b.mode });
             let reply = match window_round_trip(app, "open", "mcp://open", payload) {
                 Some(outcome) => window_open_reply(outcome, &abs, "open"),
-                None => editor_busy(),
+                None => window_busy("open", &abs),
             };
             send_json(req, reply);
         }
@@ -1071,7 +1071,7 @@ fn review_open_refusal(
 ) -> Option<serde_json::Value> {
     let reply = match outcome {
         Some(outcome) => window_open_reply(outcome, path, "open"),
-        None => editor_busy(),
+        None => window_busy("open", path),
     };
     (reply["ok"] != true).then_some(reply)
 }
@@ -1393,6 +1393,20 @@ fn editor_busy() -> serde_json::Value {
     })
 }
 
+/// The `/open`, `/present` or `/review` reply when [`MAX_INFLIGHT_EDITS`]
+/// round-trips are already parked: worded for what was refused (`doing` the
+/// document at `path`), not as an edit.
+fn window_busy(doing: &str, path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "path": path,
+        "error": format!(
+            "The app is busy finishing other agent requests, so it did not {doing} \
+             {path} — retry in a moment."
+        ),
+    })
+}
+
 /// POST /edit — exact-string find/replace on the LIVE document.
 ///
 /// The find/replace is applied on the FRONTEND, against `documentStore`'s current
@@ -1681,7 +1695,7 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     let payload = serde_json::json!({ "path": requested });
     let reply = match window_round_trip(app, "present", "mcp://present", payload) {
         Some(outcome) => window_open_reply(outcome, &path, "present"),
-        None => editor_busy(),
+        None => window_busy("present", &path),
     };
     send_json(req, reply);
 }
@@ -2117,6 +2131,22 @@ mod tests {
 
         let v = review_open_refusal(None, "/d/a.md").unwrap();
         assert_eq!(v["ok"], false);
+        let e = v["error"].as_str().unwrap();
+        assert!(e.contains("did not open /d/a.md"), "{e}");
+    }
+
+    /// At the in-flight cap, `/open` and `/present` say what they did not
+    /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn a_busy_open_or_present_names_what_was_refused() {
+        use super::window_busy;
+        for doing in ["open", "present"] {
+            let v = window_busy(doing, "/d/a.md");
+            assert_eq!(v["ok"], false);
+            let e = v["error"].as_str().unwrap();
+            assert!(e.contains(&format!("did not {doing} /d/a.md")), "{e}");
+            assert!(!e.contains("edit"), "{e}");
+        }
     }
 
     // ── Review retention ─────────────────────────────────────────────────────
