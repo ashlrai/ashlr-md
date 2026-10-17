@@ -52,6 +52,10 @@ futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
+# Unix: O_NOFOLLOW / O_NONBLOCK for document reads (already in the tree).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Windows-only: read/write HKCU registry keys for default-app association.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

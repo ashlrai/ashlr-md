@@ -25,6 +25,10 @@ urlencoding = "2"
 # Resolve ~ in paths.
 dirs = "5"
 
+# O_NOFOLLOW / O_NONBLOCK for document reads (already in the tree via dirs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Create temporary files in integration tests without touching the filesystem
 # after the test completes.

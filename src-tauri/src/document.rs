@@ -14,10 +14,15 @@ pub struct MarkdownFile {
 }
 
 /// Read a Markdown file from disk and return its content plus light metadata.
+/// Only a regular file of at most 16 MiB is read
+/// ([`crate::doc_read::MAX_DOCUMENT_BYTES`]): a FIFO named `x.md` blocked the
+/// thread running the command forever, and a multi-gigabyte file (or a link
+/// to `/dev/zero`) was read whole into memory and sent to the webview.
 #[tauri::command]
 pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
     let p = Path::new(&path);
-    let content = std::fs::read_to_string(p).map_err(|e| format!("Could not read {path}: {e}"))?;
+    let content = crate::doc_read::read_document_following(p, crate::doc_read::MAX_DOCUMENT_BYTES)
+        .map_err(|e| format!("Could not read {path}: {e}"))?;
     let size = content.len() as u64;
     let file_name = p
         .file_name()
@@ -360,11 +365,13 @@ pub fn read_image_data_url(path: String) -> Result<String, String> {
     };
     // Cap so a hostile/huge file can't balloon webview memory.
     const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
-    let meta = std::fs::metadata(p).map_err(|e| format!("Cannot stat {path}: {e}"))?;
-    if meta.len() > MAX_IMAGE_BYTES {
-        return Err("Image too large to embed (>25 MiB).".into());
-    }
-    let bytes = std::fs::read(p).map_err(|e| format!("Cannot read {path}: {e}"))?;
+    // Regular files only, opened without blocking: a FIFO named `x.png`
+    // hung the read, and an `x.png` link to `/dev/zero` (which reports a
+    // length of 0, so passed the size check) was read until memory ran out.
+    // A file that grows past the cap while read is refused too.
+    let bytes = crate::doc_read::read_bytes_following(p, MAX_IMAGE_BYTES)
+        .map_err(|e| format!("Cannot read {path}: {e}"))?
+        .ok_or("Image too large to embed (>25 MiB).")?;
     Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
 }
 
@@ -468,8 +475,11 @@ pub fn apply_file_patch(
         return Err("Refusing to patch inside an Obsidian .obsidian/ config folder.".into());
     }
 
-    let content = std::fs::read_to_string(&resolved)
-        .map_err(|e| format!("Could not read {resolved_str}: {e}"))?;
+    // A regular file of at most 16 MiB, opened without blocking: a FIFO
+    // named by the diff hung the command, and any size was read whole.
+    let content =
+        crate::doc_read::read_document_following(&resolved, crate::doc_read::MAX_DOCUMENT_BYTES)
+            .map_err(|e| format!("Could not read {resolved_str}: {e}"))?;
     let new_content = match content.matches(find.as_str()).count() {
         0 => return Err("Patch context not found in the target file.".into()),
         1 => content.replacen(find.as_str(), replace.as_str(), 1),
@@ -629,6 +639,106 @@ pub fn open_in_obsidian(app: tauri::AppHandle, path: String) -> Result<(), Strin
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// Image embeds checked the size from `stat` and then read the file
+    /// whole: an `x.png` link to `/dev/zero` (length 0) was read until memory
+    /// ran out, and a FIFO hung the read. "Apply hunk" read its target the
+    /// same way. Both now read regular files only, without blocking.
+    #[cfg(unix)]
+    #[test]
+    fn image_embeds_and_patches_refuse_devices_and_fifos() {
+        let root = make_tree();
+        let zero = root.join("zero.png");
+        std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+        let fifo = root.join("pipe.png");
+        let fifo_md = root.join("pipe.md");
+        for f in [&fifo, &fifo_md] {
+            let ok = std::process::Command::new("mkfifo")
+                .arg(f)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "mkfifo failed");
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (z, f, base) = (
+            zero.to_string_lossy().into_owned(),
+            fifo.to_string_lossy().into_owned(),
+            root.to_string_lossy().into_owned(),
+        );
+        std::thread::spawn(move || {
+            let _ = tx.send((
+                read_image_data_url(z).err(),
+                read_image_data_url(f).err(),
+                apply_file_patch(base, "pipe.md".into(), "a".into(), "b".into()).err(),
+            ));
+        });
+        let (zero_err, fifo_err, patch_err) = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("a read blocked on a device or FIFO");
+        for err in [zero_err, fifo_err, patch_err] {
+            let err = err.expect("a device or FIFO was read");
+            assert!(err.contains("not a regular file"), "{err}");
+        }
+        // A real image is still embedded.
+        let png = root.join("ok.png");
+        std::fs::write(&png, b"\x89PNG").unwrap();
+        let url = read_image_data_url(png.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(url, "data:image/png;base64,iVBORw==");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// `read_markdown_file` read whatever the path named, whole: a FIFO
+    /// named `x.md` blocked it forever, and a file of any size went into
+    /// memory. It now reads regular files of at most 16 MiB only.
+    #[test]
+    fn read_markdown_file_refuses_a_fifo_and_a_file_over_16_mib() {
+        let root = make_tree();
+        let big = root.join("big.md");
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        let err = read_markdown_file(big.to_string_lossy().into_owned())
+            .err()
+            .expect("an oversized file was read");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let at_cap = root.join("at-cap.md");
+        std::fs::File::create(&at_cap)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES)
+            .unwrap();
+        let file = read_markdown_file(at_cap.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(file.size, crate::doc_read::MAX_DOCUMENT_BYTES);
+        // A missing file still says "(os error 2)", which the frontend
+        // relies on to drop a recent that is gone.
+        let err = read_markdown_file(root.join("gone.md").to_string_lossy().into_owned())
+            .err()
+            .unwrap();
+        assert!(err.contains("(os error 2)"), "{err}");
+
+        #[cfg(unix)]
+        {
+            let fifo = root.join("pipe.md");
+            let ok = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "mkfifo failed");
+            let (tx, rx) = std::sync::mpsc::channel();
+            let path = fifo.to_string_lossy().into_owned();
+            std::thread::spawn(move || {
+                let _ = tx.send(read_markdown_file(path).err());
+            });
+            let err = rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("reading a FIFO blocked")
+                .expect("a FIFO was read");
+            assert!(err.contains("not a regular file"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     fn make_tree() -> std::path::PathBuf {
         // Unique dir per call so the (parallel) tests don't race on a shared path.

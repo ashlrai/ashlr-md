@@ -5,6 +5,7 @@
 //! file into memory. Case-insensitive substring match; returns per-file line
 //! matches with a trimmed snippet around each hit.
 
+use crate::doc_read::{read_document_following, CheckedDocument, MAX_DOCUMENT_BYTES};
 use serde::Serialize;
 use std::path::Path;
 
@@ -31,12 +32,50 @@ const MAX_MATCHES_PER_FILE: usize = 8;
 const SNIPPET_RADIUS: usize = 48;
 
 /// Search `paths` for `query` (case-insensitive). Missing/unreadable files are
-/// skipped. `limit` caps the number of files returned (default 200).
+/// skipped, and so are files that are not regular files or are larger than
+/// 16 MiB ([`MAX_DOCUMENT_BYTES`]): a FIFO in the list blocked the search
+/// forever, and a huge file was read whole into memory. `limit` caps the
+/// number of files returned (default 200).
 #[tauri::command]
 pub fn search_files(
     paths: Vec<String>,
     query: String,
     limit: Option<usize>,
+) -> Vec<FileSearchResult> {
+    search_with(
+        paths,
+        query,
+        limit,
+        |p| p.as_str(),
+        |p| read_document_following(Path::new(p), MAX_DOCUMENT_BYTES).ok(),
+    )
+}
+
+/// [`search_files`] for an agent (`/search`): each document is read only if
+/// it is still the file its path check saw, so a link swapped in after the
+/// check is not followed (see [`crate::doc_read`]).
+pub(crate) fn search_checked(
+    docs: Vec<CheckedDocument>,
+    query: String,
+    limit: Option<usize>,
+) -> Vec<FileSearchResult> {
+    search_with(
+        docs,
+        query,
+        limit,
+        |d| d.path.as_str(),
+        |d| d.read_capped(MAX_DOCUMENT_BYTES).ok(),
+    )
+}
+
+/// The search itself: `read` gives an item's text, or `None` to skip it
+/// (moved, deleted, binary or refused).
+fn search_with<T>(
+    items: Vec<T>,
+    query: String,
+    limit: Option<usize>,
+    path_of: impl Fn(&T) -> &str,
+    read: impl Fn(&T) -> Option<String>,
 ) -> Vec<FileSearchResult> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
@@ -45,11 +84,11 @@ pub fn search_files(
     let cap = limit.unwrap_or(200);
     let mut results = Vec::new();
 
-    for path in paths {
+    for item in items {
         if results.len() >= cap {
             break;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else {
+        let Some(content) = read(&item) else {
             continue; // moved/deleted/binary — skip silently
         };
 
@@ -67,6 +106,7 @@ pub fn search_files(
         }
 
         if !matches.is_empty() {
+            let path = path_of(&item).to_string();
             let file_name = Path::new(&path)
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -133,6 +173,45 @@ mod tests {
         assert_eq!(res[0].matches.len(), 1);
         assert_eq!(res[0].matches[0].line_no, 2);
         assert!(res[0].matches[0].snippet.contains("Beta"));
+    }
+
+    /// The search panel read every listed file whole: a FIFO in the list
+    /// blocked the search forever, and a huge file went into memory. Both
+    /// are now skipped.
+    #[test]
+    fn skips_a_fifo_and_a_file_over_16_mib() {
+        let dir = std::env::temp_dir().join(format!("mdopener-search-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("big.md");
+        let mut f = std::fs::File::create(&big).unwrap();
+        f.write_all(b"needle\n").unwrap();
+        f.set_len(MAX_DOCUMENT_BYTES + 1).unwrap();
+        let small = dir.join("small.md");
+        std::fs::write(&small, "needle").unwrap();
+        let mut paths = vec![big.to_string_lossy().into_owned()];
+        #[cfg(unix)]
+        {
+            let fifo = dir.join("pipe.md");
+            let ok = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "mkfifo failed");
+            paths.push(fifo.to_string_lossy().into_owned());
+        }
+        paths.push(small.to_string_lossy().into_owned());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(search_files(paths, "needle".into(), None));
+        });
+        let res = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the search blocked on a FIFO");
+        let found: Vec<_> = res.iter().map(|r| r.file_name.as_str()).collect();
+        assert_eq!(found, vec!["small.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

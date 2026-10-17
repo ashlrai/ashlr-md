@@ -36,6 +36,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Image embeds, "Apply hunk" and the semantic index never hang on a FIFO
+  or read a device.** An embed checked the image's size and then read it
+  whole, so a vault `pic.png` link to `/dev/zero` (which reports a size of
+  0) was read until memory ran out, and a FIFO hung the read. "Apply hunk"
+  read its target, and semantic indexing every library file, the same way.
+  They now read regular files only, opened without blocking, and stop at
+  their cap (25 MiB for an image, 16 MiB for a document).
+- **Opening and searching read regular files of at most 16 MiB.** Opening a
+  document (and every read the window makes through `read_markdown_file`:
+  embeds, link previews, the digest) and the search panel read whatever the
+  path named, whole. A FIFO named `x.md` hung the read forever, and a
+  multi-gigabyte file, or a `notes.md` link to `/dev/zero`, was read into
+  memory until it ran out. Both now read only regular files, opened without
+  blocking, and refuse (or, for search, skip) a file larger than 16 MiB, the
+  most an agent read or an IPC request takes.
+- **Agent reads take the file that was checked.** Every agent read from disk
+  (the MCP tools that read a path, `file://` resources, recent-document
+  previews, the grep fallback, and the app's `/search` and `/annotations`)
+  resolved the path, checked it was a Markdown document, and then opened it
+  again, so a `notes.md` swapped for a link to `~/.ssh/id_rsa` in between, or
+  the folder above it swapped for a link to another folder, was followed. On
+  Unix the read now refuses a link in the file's own name (`O_NOFOLLOW`) and
+  any file that is not the one the check saw (same device and inode).
 - **"Apply hunk" never patches hidden files or follows a link out of the
   folder.** A diff block names its target file, and an agent writes the diff:
   one naming `.git/config` (git runs `core.fsmonitor` as a command) or `.env`
