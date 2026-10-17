@@ -403,6 +403,24 @@ describe("handlers integration — edits with save: true", () => {
     }
   });
 
+  it("edit: a reply that fails to send is not followed by a contradicting one", async () => {
+    // The edit was applied; a second "Edit failed" reply would tell the agent
+    // it was not, and a retry would apply it twice.
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "mcp_edit_result"
+        ? Promise.reject("window closing")
+        : Promise.resolve(undefined),
+    );
+    await fireEvent("mcp://edit", { editId: "e1", find: "hello", replace: "hi" });
+    expect(useDocumentStore.getState().content).toBe("hi world");
+    const replies = invokeMock.mock.calls.filter((c) => c[0] === "mcp_edit_result");
+    expect(replies).toHaveLength(1);
+    expect(replies[0][1]).toMatchObject({ editId: "e1", ok: true, replaced: 1 });
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   it("stream-edit-apply: a failed save is not reported as ok", async () => {
     failWrites();
     await fireEvent("mcp://stream-edit-apply", {

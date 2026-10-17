@@ -85,6 +85,7 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
 export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
   return listen<EditPayload>("mcp://edit", async (e) => {
     const { editId, find, replace, save } = e.payload;
+    let reply: { ok: boolean; replaced: number; error: string | null };
     try {
       const liveContent = useDocumentStore.getState().content;
       const outcome = applyUniqueEdit(liveContent, find, replace);
@@ -96,22 +97,20 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
         }
         syncNow();
       }
-      await invoke("mcp_edit_result", {
-        editId,
+      reply = {
         ok: outcome.ok && saveError === null,
         replaced: outcome.replaced,
         error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
-      });
+      };
     } catch (err) {
-      await invoke("mcp_edit_result", {
-        editId,
-        ok: false,
-        replaced: 0,
-        error: `Edit failed in app: ${String(err)}`,
-      }).catch((e2) => {
-        console.error("[mcp bridge] mcp_edit_result recovery reply failed:", e2);
-      });
+      reply = { ok: false, replaced: 0, error: `Edit failed in app: ${String(err)}` };
     }
+    // One reply only. When sending it fails, a second "Edit failed" reply
+    // would tell the agent an edit that was applied did not happen, and a
+    // retry would apply it twice.
+    await invoke("mcp_edit_result", { editId, ...reply }).catch((e2) => {
+      console.error("[mcp bridge] mcp_edit_result reply for edit failed:", e2);
+    });
   });
 }
 
