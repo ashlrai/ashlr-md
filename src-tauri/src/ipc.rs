@@ -1463,12 +1463,27 @@ fn handle_present(mut req: Request, app: &AppHandle) {
         Ok(b) => b,
         Err((code, e)) => return send_error(req, code, &e),
     };
-    let abs = match body.path.as_deref().map(checked_agent_path).transpose() {
+    let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+    let path = match present_target(body.path.as_deref(), open.as_deref()) {
         Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
     };
-    let _ = app.emit("mcp://present", serde_json::json!({ "path": abs }));
-    send_json(req, serde_json::json!({ "ok": true, "path": abs }));
+    // The frontend opens `path` only when one was asked for, else presents
+    // the open document.
+    let requested = body.path.is_some().then_some(&path);
+    let _ = app.emit("mcp://present", serde_json::json!({ "path": requested }));
+    send_json(req, serde_json::json!({ "ok": true, "path": path }));
+}
+
+/// The document `/present` shows: the requested one (checked like `/open`),
+/// else the open document. With neither, the window has nothing to present
+/// and would ignore the request, so it is an error.
+fn present_target(requested: Option<&str>, open: Option<&str>) -> Result<String, String> {
+    match (requested, open) {
+        (Some(p), _) => checked_agent_path(p),
+        (None, Some(o)) => Ok(o.to_string()),
+        (None, None) => Err("No document is open; pass `path` to present a document.".to_string()),
+    }
 }
 
 // ── HTTP response helpers ─────────────────────────────────────────────────────
@@ -1716,6 +1731,28 @@ mod tests {
     // ── Paths an agent may open, present or send for review ─────────────────
 
     use super::checked_agent_path;
+
+    use super::present_target;
+
+    #[test]
+    fn present_without_a_path_needs_an_open_document() {
+        let d = Scratch::new("present");
+        let md = d.0.join("talk.md");
+        std::fs::write(&md, "# Talk").unwrap();
+        let md_s = md.to_str().unwrap();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(
+            present_target(Some(md_s), None).unwrap(),
+            canon.to_str().unwrap()
+        );
+        assert_eq!(
+            present_target(None, Some("/open/doc.md")).unwrap(),
+            "/open/doc.md"
+        );
+        // Nothing to present: the window would do nothing, so say so.
+        let err = present_target(None, None).unwrap_err();
+        assert!(err.contains("No document is open"), "{err}");
+    }
 
     // ── Request bodies ───────────────────────────────────────────────────────
 
