@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`resources/templates/list` offers the vault search.** The method was
+  unknown (`-32601`), so a client that discovers parameterised resources
+  through it never saw `text://vault-search`, and the bare URI that
+  `resources/list` shows cannot be read without a query. It now returns the
+  template `text://vault-search?q={query}`.
 - **`get_user_annotations` reads a task list up to 16 MiB.** For a file
   that is not the open document, the app's `/annotations` read the file
   whole however large it was. Past 16 MiB (or for text that is not UTF-8)

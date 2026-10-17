@@ -19,7 +19,7 @@
 //!   batches         → one array reply (2025-03-26 requires accepting them)
 //!   ping            → {"result":{}}
 //!   tools/list, tools/call
-//!   resources/list, resources/read
+//!   resources/list, resources/templates/list, resources/read
 //!   prompts/list, prompts/get   (summarize, review_plan, improve_writing)
 //!
 //! ## Tools

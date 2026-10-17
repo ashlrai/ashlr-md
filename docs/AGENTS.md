@@ -329,7 +329,10 @@ See the dedicated [Human review loop](#human-review-loop) section.
 
 ## Resources reference
 
-The server implements `resources/list` and `resources/read`.
+The server implements `resources/list`, `resources/templates/list` and
+`resources/read`. `resources/templates/list` offers one template,
+`text://vault-search?q={query}` (`mimeType: application/json`), the search
+below; it needs no app.
 
 - **`mdopener://current`** — the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content; an open

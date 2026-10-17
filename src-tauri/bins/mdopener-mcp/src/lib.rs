@@ -127,6 +127,9 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
         }
 
         "resources/list" => handle_resources_list(id, ipc),
+        "resources/templates/list" => {
+            Response::ok(id, json!({ "resourceTemplates": resource_templates() }))
+        }
         "resources/read" => {
             let params = req.params.unwrap_or(Value::Null);
             let uri = params["uri"].as_str().unwrap_or("").to_string();
@@ -3305,6 +3308,20 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         result["_meta"] = meta;
     }
     Response::ok(id, result)
+}
+
+/// The `resources/templates/list` entries: `text://vault-search`, which is
+/// read with a query (`?q=…`) and so is a URI template, not a fixed resource.
+/// The method used to be unknown (`-32601`), so a client that discovers
+/// parameterised resources through it never saw the search, and the bare
+/// URI `resources/list` shows cannot be read without a query.
+pub fn resource_templates() -> Value {
+    json!([{
+        "uriTemplate": "text://vault-search?q={query}",
+        "name": "Vault semantic search",
+        "description": "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: { results, mode, query, note? }.",
+        "mimeType": "application/json"
+    }])
 }
 
 /// The `_meta` key a `resources/list` result carries when the vault's

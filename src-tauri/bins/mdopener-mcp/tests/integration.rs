@@ -2127,6 +2127,36 @@ fn dispatch_req(method: &str, params: Value) -> Request {
     }
 }
 
+/// `text://vault-search` takes a query, so it is a resource template; the
+/// templates method used to be unknown (`-32601`).
+#[test]
+fn resources_templates_list_offers_the_vault_search_template() {
+    let no_app = MockIpc::new();
+    let resp = dispatch(dispatch_req("resources/templates/list", json!({})), &no_app).unwrap();
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    assert!(no_app.calls().is_empty(), "listing templates needs no app");
+    let templates = resp.result.as_ref().unwrap()["resourceTemplates"]
+        .as_array()
+        .expect("resourceTemplates array")
+        .clone();
+    assert_eq!(templates.len(), 1, "{templates:?}");
+    let t = &templates[0];
+    assert_eq!(t["uriTemplate"], "text://vault-search?q={query}");
+    assert_eq!(t["mimeType"], "application/json");
+    assert!(t["name"].as_str().is_some_and(|n| !n.is_empty()));
+    // The template, filled in, is a URI resources/read serves.
+    let ipc = MockIpc::new()
+        .on_get("/search", Ok(json!({ "query": "plan", "results": [] })))
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let uri = t["uriTemplate"]
+        .as_str()
+        .unwrap()
+        .replace("{query}", "plan")
+        + "&semantic=false";
+    let read = dispatch(dispatch_req("resources/read", json!({ "uri": uri })), &ipc).unwrap();
+    assert!(read.error.is_none(), "{:?}", read.error);
+}
+
 #[test]
 fn resources_list_omits_export_current() {
     let ipc = MockIpc::new();
