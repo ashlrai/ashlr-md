@@ -273,8 +273,13 @@ pub struct MdFileScan {
     /// [`MAX_SCAN_ENTRIES`], or skipped a folder more than [`MAX_DEPTH`]
     /// levels down. So `files` are the newest of the files it reached, not
     /// necessarily the folder's newest. Deep folders used to be skipped
-    /// without a word.
+    /// without a word. Kept meaning "either limit" for older consumers.
     pub scan_cut: bool,
+    /// A folder more than [`MAX_DEPTH`] levels down was skipped (`scan_cut`
+    /// is then set too). `scan_cut` without `depth_cut` means the entry
+    /// budget alone cut the walk; with it, the depth limit did (and the
+    /// entry budget may have as well).
+    pub depth_cut: bool,
 }
 
 /// Recursively scan `path` for Markdown files (same extensions + skip rules),
@@ -345,6 +350,7 @@ fn scan_newest(root: &Path, limit: usize, max_entries: usize) -> MdFileScan {
     MdFileScan {
         files,
         scan_cut: walk.cut || walk.too_deep,
+        depth_cut: walk.too_deep,
     }
 }
 
@@ -519,6 +525,7 @@ mod tests {
         assert_eq!(names, ["f9.md", "f8.md", "f7.md", "f6.md", "f5.md"]);
         let cut = scan_newest(&tmp.0, 5, 4);
         assert!(cut.scan_cut);
+        assert!(!cut.depth_cut, "the entry budget is not the depth limit");
         assert!(cut.files.len() <= 3, "only 3 of the 4 entries are files");
         // Exactly the budget is not a cut: every entry was read.
         assert!(!scan_newest(&tmp.0, 5, 11).scan_cut);
@@ -543,13 +550,15 @@ mod tests {
         write_md(&below, "missed.md", 20);
         let cut = scan_newest(&tmp.0, 5, 1000);
         assert!(cut.scan_cut, "a skipped folder must be reported");
+        assert!(cut.depth_cut, "and reported as a depth cut");
         let names: Vec<&str> = cut.files.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["deepest-read.md"], "the depth limit is unchanged");
         // Hidden folders and node_modules are skipped by rule, not depth.
         std::fs::remove_dir_all(&below).unwrap();
         std::fs::create_dir(dir.join(".git")).unwrap();
         std::fs::create_dir(dir.join("node_modules")).unwrap();
-        assert!(!scan_newest(&tmp.0, 5, 1000).scan_cut);
+        let skipped = scan_newest(&tmp.0, 5, 1000);
+        assert!(!skipped.scan_cut && !skipped.depth_cut);
     }
 
     #[test]

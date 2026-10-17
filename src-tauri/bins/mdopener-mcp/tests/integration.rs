@@ -2718,6 +2718,39 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         note.contains("the 200 most recently changed of the files it scanned"),
         "{text}"
     );
+    // An older app does not say which limit cut the walk: no `depthCut`.
+    assert!(text.get("depthCut").is_none(), "{text}");
+    // An app that says which: the entry budget alone, or the depth limit.
+    for (depth_cut, want) in [
+        (false, "too large for Ashlr MD to scan in full"),
+        (true, "too deeply nested for Ashlr MD to scan in full"),
+    ] {
+        let ipc = MockIpc::new()
+            .on_get(
+                "/vault",
+                Ok(json!({
+                    "files": [{ "path": path }], "recents": [],
+                    "truncated": false, "limit": 200, "scanCut": true,
+                    "depthCut": depth_cut
+                })),
+            )
+            .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+        let text = content_text(&tool_search_vault(
+            id(5),
+            &json!({ "query": "target topic", "semantic": false }),
+            &ipc,
+        ));
+        assert_eq!(text["truncated"], true, "{text}");
+        let note = text["note"].as_str().unwrap();
+        assert!(note.contains(want), "{text}");
+        assert!(!note.contains("too large or too deeply"), "{text}");
+        if depth_cut {
+            assert_eq!(text["depthCut"], true, "{text}");
+            assert!(note.contains("at most 8 levels down"), "{text}");
+        } else {
+            assert!(text.get("depthCut").is_none(), "{text}");
+        }
+    }
     // A complete list says nothing.
     let ipc = MockIpc::new()
         .on_get(

@@ -113,7 +113,8 @@ export function useMcpBridge(): void {
     };
 
     const syncVaultNow = () => {
-      const { watchedDir, files, truncated, scanCut } = useActivityStore.getState();
+      const { watchedDir, files, truncated, scanCut, depthCut } =
+        useActivityStore.getState();
       invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
@@ -122,6 +123,9 @@ export function useMcpBridge(): void {
         limit: MAX_FILES,
         // The folder was too large to walk in full: the list is not its newest.
         scanCut,
+        // Of those, the depth limit cut it (folders too deep were skipped), so
+        // agents can tell "too deep" from "too large".
+        depthCut: depthCut === true,
       }).catch((e) => {
         console.warn("[mcp bridge] mcp_sync_vault failed:", e);
       });

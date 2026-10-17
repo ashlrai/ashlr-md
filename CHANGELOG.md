@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A vault scan says which limit cut it.** The depth limit (folders more
+  than 8 levels down) shared `scanCut` with the 50,000-entry budget, so the
+  Activity drawer, `/search` and `search_vault` could not say whether the
+  folder was too large or too deeply nested. `scanCut` still means either;
+  a new `depthCut` flag (on the scan, `/vault`, `/search` and the
+  `search_vault` result) says the depth limit did, and the notices name the
+  limit that applied.
 - **The MCP server reads at most 64 MiB of an HTTP answer.** Answers from the
   app's IPC server and from Ollama were read to their end however long they
   were (the 5 s timeout applies to each read), so a peer that kept sending

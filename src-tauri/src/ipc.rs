@@ -235,6 +235,9 @@ pub struct VaultInner {
     /// in full, so
     /// `files` are the newest of the files it reached, not the folder's newest.
     pub scan_cut: bool,
+    /// Of those, a folder below the walk's depth limit was skipped (`scan_cut`
+    /// is set too); `scan_cut` alone means the entry budget stopped it.
+    pub depth_cut: bool,
 }
 
 #[derive(Default)]
@@ -382,6 +385,7 @@ pub fn mcp_sync_vault(
     truncated: Option<bool>,
     limit: Option<usize>,
     scan_cut: Option<bool>,
+    depth_cut: Option<bool>,
     vault: tauri::State<VaultMirror>,
 ) {
     *vault.0.lock_recover() = VaultInner {
@@ -389,7 +393,8 @@ pub fn mcp_sync_vault(
         files,
         truncated: truncated.unwrap_or(false),
         limit,
-        scan_cut: scan_cut.unwrap_or(false),
+        scan_cut: scan_cut.unwrap_or(false) || depth_cut.unwrap_or(false),
+        depth_cut: depth_cut.unwrap_or(false),
     };
 }
 
@@ -1536,6 +1541,7 @@ fn handle_vault(req: Request, app: &AppHandle) {
         "truncated": vault.truncated,
         "limit": vault.limit,
         "scanCut": vault.scan_cut,
+        "depthCut": vault.depth_cut,
         "recents": recents,
     }));
 }
@@ -1558,13 +1564,14 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let (truncated, vault_limit, scan_cut);
+    let (truncated, vault_limit, scan_cut, depth_cut);
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
         truncated = vault.truncated;
         vault_limit = vault.limit;
         scan_cut = vault.scan_cut;
+        depth_cut = vault.depth_cut;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1582,22 +1589,29 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut));
+    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut));
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
-/// the files left out were not searched.
+/// the files left out were not searched. `depthCut` says the walk skipped
+/// folders below its depth limit, so a consumer can tell that from the entry
+/// budget (`scanCut` alone).
 fn search_body(
     q: &str,
     results: impl Serialize,
     vault_truncated: bool,
     vault_limit: Option<usize>,
     scan_cut: bool,
+    depth_cut: bool,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({ "query": q, "results": results });
-    if vault_truncated || scan_cut {
+    if vault_truncated || scan_cut || depth_cut {
         body["truncated"] = serde_json::json!(true);
-        body["note"] = serde_json::json!(vault_truncated_note(vault_limit, scan_cut));
+        body["note"] =
+            serde_json::json!(vault_truncated_note(vault_limit, scan_cut || depth_cut, depth_cut));
+    }
+    if depth_cut {
+        body["depthCut"] = serde_json::json!(true);
     }
     body
 }
@@ -1605,17 +1619,25 @@ fn search_body(
 /// Said by `/search` when the watched folder has more Markdown files than the
 /// app lists. `limit` is the frontend's own cap, synced with the file list, so
 /// the number stated is the one in force; without it no number is claimed.
-/// When the folder was too large or too deep to walk in full (`scan_cut`), the files
-/// searched are the newest of those the walk reached, and it says that.
-fn vault_truncated_note(limit: Option<usize>, scan_cut: bool) -> String {
+/// When the folder was too large or too deep to walk in full (`scan_cut`), the
+/// files searched are the newest of those the walk reached, and it says that,
+/// naming the depth limit when it was that one (`depth_cut`).
+fn vault_truncated_note(limit: Option<usize>, scan_cut: bool, depth_cut: bool) -> String {
     let n = limit.map(|n| format!("{n} ")).unwrap_or_default();
+    if depth_cut {
+        return format!(
+            "The watched folder is too deeply nested for Ashlr MD to scan in full (it \
+             enters folders at most 8 levels down, and reads at most 50,000 entries), so \
+             only the {n}most recently changed of the files it scanned (and the recent \
+             documents) were searched; files in deeper folders were not searched."
+        );
+    }
     if scan_cut {
         return format!(
-            "The watched folder is too large or too deeply nested for Ashlr MD to \
-             scan in full (it reads at most 50,000 entries, and folders at most 8 levels \
-             down), so only the {n}most recently changed of the files it scanned (and the \
-             recent documents) were searched; files elsewhere in the folder may have been \
-             missed."
+            "The watched folder is too large for Ashlr MD to scan in full (it reads at \
+             most 50,000 entries), so only the {n}most recently changed of the files it \
+             scanned (and the recent documents) were searched; newer files elsewhere in \
+             the folder may have been missed."
         );
     }
     format!(
@@ -2191,14 +2213,14 @@ mod tests {
     /// frontend's synced cap, not one hard-coded here.
     #[test]
     fn search_body_says_when_the_vault_list_is_truncated() {
-        let full = search_body("q", Vec::<String>::new(), false, Some(150), false);
+        let full = search_body("q", Vec::<String>::new(), false, Some(150), false, false);
         assert!(full.get("truncated").is_none(), "{full}");
-        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false);
+        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false, false);
         assert_eq!(cut["truncated"], true);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its 150 most recently changed files"), "{cut}");
         // An older frontend that sends no cap: no number is claimed.
-        let cut = search_body("q", Vec::<String>::new(), true, None, false);
+        let cut = search_body("q", Vec::<String>::new(), true, None, false, false);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its most recently changed files"), "{cut}");
         assert!(!note.contains("200"), "{cut}");
@@ -2208,11 +2230,25 @@ mod tests {
     /// walk reached, which need not be the folder's newest: `/search` says so.
     #[test]
     fn search_body_says_when_the_vault_walk_was_cut() {
-        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true);
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true, false);
         assert_eq!(cut["truncated"], true, "{cut}");
+        assert!(cut.get("depthCut").is_none(), "the entry budget, not depth: {cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(!note.contains("deeply nested"), "{cut}");
+        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
+    }
+
+    /// The depth limit used to share `scanCut` (and its note) with the entry
+    /// budget, so a consumer could not tell which one cut the walk.
+    #[test]
+    fn search_body_says_when_the_depth_limit_cut_the_walk() {
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true, true);
+        assert_eq!(cut["truncated"], true, "{cut}");
+        assert_eq!(cut["depthCut"], true, "{cut}");
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("too deeply nested for Ashlr MD to scan in full"), "{cut}");
-        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
+        assert!(note.contains("at most 8 levels down"), "{cut}");
     }
 
     #[test]

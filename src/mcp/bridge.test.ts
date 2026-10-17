@@ -108,6 +108,7 @@ vi.mock("../store/activityStore", () => ({
       ],
       truncated: true,
       scanCut: true,
+      depthCut: true,
     }),
     subscribe: vi.fn(() => vi.fn()),
   },
@@ -263,6 +264,7 @@ describe("useMcpBridge — mount", () => {
       truncated: true,
       limit: 150,
       scanCut: true,
+      depthCut: true,
     });
   });
 

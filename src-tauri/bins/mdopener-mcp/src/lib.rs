@@ -880,7 +880,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note?, vault?, truncated?, depthCut? }; `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2596,9 +2596,7 @@ pub fn search_vault_in(
                 if let Some(dir) = &f.disk_vault {
                     v["vault"] = json!(dir);
                 }
-                if f.truncated {
-                    v["truncated"] = json!(true);
-                }
+                f.mark_cut(&mut v);
                 return Ok(v);
             }
             Err(e) => {
@@ -2651,9 +2649,7 @@ pub fn search_vault_in(
                         "vault": f.disk_vault,
                         "note": note
                     });
-                    if f.truncated {
-                        v["truncated"] = json!(true);
-                    }
+                    f.mark_cut(&mut v);
                     Ok(v)
                 }
                 Ok(f) => {
@@ -2673,9 +2669,7 @@ pub fn search_vault_in(
                         "mode": "grep-local",
                         "note": note
                     });
-                    if f.truncated {
-                        v["truncated"] = json!(true);
-                    }
+                    f.mark_cut(&mut v);
                     Ok(v)
                 }
                 Err(_) if refused => Err(ipc_err),
@@ -2792,6 +2786,10 @@ struct VaultFiles {
     /// budget, or folders too deep), so its list is the newest of the files
     /// reached.
     app_scan_cut: bool,
+    /// Of those, the app's walk skipped folders below its depth limit (8
+    /// levels): `Some(false)` is the entry budget alone, `None` an older app
+    /// that does not say which.
+    app_depth_cut: Option<bool>,
 }
 
 impl VaultFiles {
@@ -2801,14 +2799,35 @@ impl VaultFiles {
         let Some(dir) = self.disk_vault.as_deref() else {
             return self.truncated.then(|| {
                 let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
-                if self.app_scan_cut {
-                    return format!(
-                        "The watched folder is too large or too deeply nested for Ashlr \
-                         MD to scan in full (it reads at most 50,000 entries, and folders at \
-                         most 8 levels down), so only the {n}most recently changed of the files \
-                         it scanned (and the recent documents) were searched; files elsewhere \
-                         in the folder may have been missed."
-                    );
+                match (self.app_scan_cut, self.app_depth_cut) {
+                    (true, Some(true)) => {
+                        return format!(
+                            "The watched folder is too deeply nested for Ashlr MD to scan \
+                             in full (it enters folders at most 8 levels down, and reads at \
+                             most 50,000 entries), so only the {n}most recently changed of \
+                             the files it scanned (and the recent documents) were searched; \
+                             files in deeper folders were not searched."
+                        );
+                    }
+                    (true, Some(false)) => {
+                        return format!(
+                            "The watched folder is too large for Ashlr MD to scan in full \
+                             (it reads at most 50,000 entries), so only the {n}most recently \
+                             changed of the files it scanned (and the recent documents) were \
+                             searched; newer files elsewhere in the folder may have been \
+                             missed."
+                        );
+                    }
+                    (true, None) => {
+                        return format!(
+                            "The watched folder is too large or too deeply nested for Ashlr \
+                             MD to scan in full (it reads at most 50,000 entries, and folders \
+                             at most 8 levels down), so only the {n}most recently changed of \
+                             the files it scanned (and the recent documents) were searched; \
+                             files elsewhere in the folder may have been missed."
+                        );
+                    }
+                    (false, _) => {}
                 }
                 format!(
                     "The watched folder has more Markdown files than Ashlr MD lists, so \
@@ -2830,6 +2849,22 @@ impl VaultFiles {
         }
         Some(note)
     }
+
+    /// Mark `result` as cut short when the file list was: `truncated`, and
+    /// `depthCut` when the depth limit is what cut the walk.
+    fn mark_cut(&self, result: &mut Value) {
+        if self.truncated {
+            result["truncated"] = json!(true);
+        }
+        if self.depth_cut() {
+            result["depthCut"] = json!(true);
+        }
+    }
+
+    /// The walk that listed the files skipped folders below its depth limit.
+    fn depth_cut(&self) -> bool {
+        self.app_depth_cut == Some(true)
+    }
 }
 
 /// The vault file list from the app, or from walking `vault` on disk when the
@@ -2843,6 +2878,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
             truncated: listing.truncated || listing.scan_cut,
             app_limit: listing.limit,
             app_scan_cut: listing.scan_cut,
+            app_depth_cut: listing.depth_cut,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -2853,6 +2889,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
                 truncated,
                 app_limit: None,
                 app_scan_cut: false,
+                app_depth_cut: None,
             })
         }
         (Err(e), _) => Err(e),
@@ -3760,13 +3797,17 @@ struct VaultListing {
     truncated: bool,
     limit: Option<u64>,
     scan_cut: bool,
+    /// The walk skipped folders below its depth limit; `None` from an older
+    /// app that does not tell the two limits apart.
+    depth_cut: Option<bool>,
 }
 
 fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
     let v = ipc.get("/vault")?;
     let truncated = v["truncated"].as_bool() == Some(true);
     let limit = v["limit"].as_u64();
-    let scan_cut = v["scanCut"].as_bool() == Some(true);
+    let depth_cut = v["depthCut"].as_bool();
+    let scan_cut = v["scanCut"].as_bool() == Some(true) || depth_cut == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3790,6 +3831,7 @@ fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
         truncated,
         limit,
         scan_cut,
+        depth_cut,
     })
 }
 
