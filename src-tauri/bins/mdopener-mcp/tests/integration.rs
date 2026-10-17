@@ -8674,13 +8674,41 @@ fn relative_to_cwd(abs: &std::path::Path) -> std::path::PathBuf {
     rel.join(abs.strip_prefix("/").unwrap())
 }
 
+/// `text` without its `{ ... }` spans: the result shapes a description
+/// names (`{ ok: true, replaced: 1, matchIndex }`), whose camelCase fields
+/// are what the app returns, not options an agent passes.
+fn outside_result_shapes(text: &str) -> String {
+    let mut depth = 0usize;
+    text.chars()
+        .filter(|&c| match c {
+            '{' => {
+                depth += 1;
+                false
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                false
+            }
+            _ => depth == 0,
+        })
+        .collect()
+}
+
 /// The schemas said "Absolute path" for arguments that take relative paths
 /// too, and `stream_edit` named the app-internal `mcp_stream_edit_preview`
 /// and camelCase options (`previewLines`, `matchIndex`) agents cannot pass.
+/// A result field of that name inside a named result shape is allowed.
 #[test]
 fn tool_descriptions_match_the_arguments_and_path_rules() {
+    assert_eq!(
+        outside_result_shapes("Returns { ok, matchIndex } or [{ a }], a matchIndex"),
+        "Returns  or [], a matchIndex"
+    );
     for def in tool_registry() {
-        let mut texts = vec![("description".to_string(), def.description.to_string())];
+        let mut texts = vec![(
+            "description".to_string(),
+            outside_result_shapes(def.description),
+        )];
         for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
             texts.push((k.clone(), prop["description"].as_str().unwrap_or("").into()));
         }
@@ -8802,6 +8830,86 @@ fn tool_descriptions_name_their_result_shapes() {
         for want in wants {
             assert!(d.contains(want), "{tool} missing {want:?}: {d}");
         }
+    }
+}
+
+/// set_content, replace_document, edit_document and stream_edit_apply said
+/// what they change but not what comes back or when they are refused, so an
+/// agent learned `{ ok: true }`, `replaced` and `matchIndex`, and that a
+/// failed save leaves the change applied, by calling them. Each named shape
+/// is the reply the app's IPC sends (`set_content_reply`, `handle_edit`,
+/// `handle_stream_edit_apply`), passed through unchanged, and a refusal is a
+/// tool error carrying the app's reason.
+#[test]
+fn edit_tool_descriptions_name_their_results_and_refusals() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let busy = "two edits are already waiting on the app";
+    let cases = [
+        (
+            "set_content",
+            &["{ ok: true }", "no document is open", "4 s", busy, "replaced but not saved"][..],
+            "/content",
+            json!({ "content": "# New\n" }),
+            json!({ "ok": true }),
+            "No document is open in Ashlr MD; open one first (open_file).",
+        ),
+        (
+            "replace_document",
+            &["{ ok: true }", "no document is open", "4 s", busy, "replaced but not saved"][..],
+            "/content",
+            json!({ "content": "# New\n", "save": true }),
+            json!({ "ok": true }),
+            "Content replaced in the open document but not saved: the write failed",
+        ),
+        (
+            "edit_document",
+            &[
+                "{ ok: true, replaced: 1 }",
+                "not found",
+                "not unique (the error gives the match count)",
+                "not the open document",
+                busy,
+                "applied but not saved",
+            ][..],
+            "/edit",
+            json!({ "find": "a", "replace": "b" }),
+            json!({ "ok": true, "replaced": 1 }),
+            "`find` string is not unique (2 matches): include more surrounding context to disambiguate.",
+        ),
+        (
+            "stream_edit_apply",
+            &[
+                "{ ok: true, replaced: 1, matchIndex }",
+                "no longer in the live document",
+                "past its last occurrence",
+                "not the open document",
+                busy,
+                "applied but not saved",
+            ][..],
+            "/stream-edit-apply",
+            json!({ "find": "a", "replace": "b", "match_index": 1 }),
+            json!({ "ok": true, "replaced": 1, "matchIndex": 1 }),
+            "matchIndex 3 out of bounds: document has 2 occurrence(s).",
+        ),
+    ];
+    for (tool, wants, route, args, reply, refusal) in cases {
+        let d = desc(tool);
+        for want in wants {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+        let ipc = MockIpc::new().on_post(route, Ok(reply.clone()));
+        let resp = call(tool, args.clone(), &ipc);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        assert_eq!(content_text(&resp), reply, "{tool}");
+        let ipc = MockIpc::new().on_post(route, Ok(json!({ "ok": false, "error": refusal })));
+        let resp = call(tool, args, &ipc);
+        assert_eq!(tool_error_text(&resp), refusal, "{tool}");
     }
 }
 

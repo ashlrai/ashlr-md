@@ -36,6 +36,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`set_content`, `replace_document`, `edit_document` and
+  `stream_edit_apply` name their results and refusals.** Their descriptions
+  said what they change but not what comes back. They now give
+  `{ ok: true }`, `{ ok: true, replaced: 1 }` and
+  `{ ok: true, replaced: 1, matchIndex }`, and name when each is refused:
+  no document open, `find` not found or not unique, a `match_index` past the
+  last occurrence, a `path` that is not the open document, a window that
+  does not answer within 4 s, two edits already waiting, and a failed save
+  that leaves the change applied. docs/AGENTS.md's rows give the same, and
+  its quote of the not-unique error now matches the app's.
 - **`stream_edit_apply`'s `match_index` declares its 32-bit maximum.** The
   schema gave only `minimum: 0`, so a client validating against it let
   `4294967296` through and the tool then answered "`match_index` is too

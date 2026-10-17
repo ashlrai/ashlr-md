@@ -800,7 +800,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -920,7 +920,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -942,7 +942,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document. Use edit_document for targeted changes; use this only when rewriting the whole document.",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1240,7 +1240,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "stream_edit_apply",
             description: "Apply a previously previewed stream_edit. Send the same find/replace plus \
                 a `match_index` (0-based, default 0) to select which occurrence to edit when the preview \
-                returned multiple candidates. The edit is applied atomically against the live document.",
+                returned multiple candidates. The edit is applied atomically against the live document. \
+                Returns { ok: true, replaced: 1, matchIndex } once the window has applied it (and written \
+                it to disk, with `save: true`). Refused (isError, document unchanged) when `find` is no \
+                longer in the live document, when `match_index` is past its last occurrence (the error \
+                says how many there are), when `path` is not the open document, when the window does not \
+                answer within 4 s, or when two edits are already waiting on the app (retry in a moment); \
+                with `save: true`, a failed save, or a document with no file yet, is an error saying the \
+                edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
