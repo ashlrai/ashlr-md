@@ -427,7 +427,9 @@ loopback IPC channel, so it works even where the `mdopener://` scheme is not
 registered (an AppImage or dev build on Linux). Otherwise it opens the
 `mdopener://` URL, which launches the app. It exits `1` when neither works;
 for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
-exits `1`, opening nothing, when stdin is empty or only whitespace.
+exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
+terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
+stderr.
 
 ### Install
 
