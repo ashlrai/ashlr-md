@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Source-only MCP setup checks; never run the installer or agent CLIs.
 
-Compiles only the dependency-free command formatter and sidecar path lookup.
+Compiles only the dependency-free command formatters, sidecar path lookup and
+agent CLI PATH search.
 Installer branch fixtures evaluate only its sidecar-build section, with all build commands mocked and an
 isolated, empty PATH. No app, Swift build, or MCP registration is executed.
 """
@@ -29,7 +30,11 @@ class CommandTests(unittest.TestCase):
         wrapper = cls.directory / "formatter.rs"
         wrapper.write_text(
             f"#[path = {json.dumps(str(module))}] mod mcp_command;\n"
-            "fn main() { println!(\"{}\", mcp_command::mcp_command(&std::env::args().nth(1).unwrap())); }\n"
+            "fn main() {\n"
+            "    let args: Vec<String> = std::env::args().collect();\n"
+            "    if args[1] == \"--hook\" { println!(\"{}\", mcp_command::hook_command(&args[2])); }\n"
+            "    else { println!(\"{}\", mcp_command::mcp_command(&args[1])); }\n"
+            "}\n"
         )
         cls.binary = cls.directory / "formatter"
         subprocess.run(["rustc", str(wrapper), "-o", str(cls.binary)], check=True)
@@ -52,12 +57,51 @@ class CommandTests(unittest.TestCase):
                 command = subprocess.check_output([str(self.binary), path], text=True).removesuffix("\n")
                 self.assertEqual(shlex.split(command), ["claude", "mcp", "add", "--scope", "user", "ashlr-md", path])
 
+    @unittest.skipIf(os.name == "nt", "POSIX independent tokenizer")
+    def test_actual_hook_command_round_trips_paths_without_shell_execution(self):
+        for path in [
+            "/Applications/Ashlr MD.app/Contents/Resources/mdopen",
+            "/tmp/O'Brien/$HOME/`whoami`/$(id)/mdopen",
+            "C:\\Users\\me\\AppData\\Local\\Ashlr MD\\mdopen.exe",
+        ]:
+            with self.subTest(path=path):
+                command = subprocess.check_output([str(self.binary), "--hook", path], text=True).removesuffix("\n")
+                self.assertEqual(shlex.split(command), [path, "--hook"])
+
+    def test_hook_installer_writes_the_quoted_command(self):
+        agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
+        self.assertIn("mcp_command::hook_command(mdopen)", agent)
+        self.assertNotIn('format!("{mdopen} --hook")', agent)
+
     def test_runtime_and_ui_fallback_use_same_quoted_user_scope(self):
         agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
         self.assertIn("mcp_command::mcp_command(&path)", agent)
         path = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
         expected = f"claude mcp add --scope user ashlr-md '{path}'"
         self.assertIn(expected, (ROOT / "src/components/settings/sections/McpSection.tsx").read_text())
+
+
+class AgentCliPathTests(unittest.TestCase):
+    def test_path_search_unit_tests_cover_pathext_and_execute_bits(self):
+        # Pure std-only module: fixtures are synthetic files that are never run.
+        module = ROOT / "src-tauri/src/path_search.rs"
+        with tempfile.TemporaryDirectory(prefix="md-path-search-") as directory:
+            unit = Path(directory) / "path-search-tests"
+            subprocess.run(["rustc", "--edition", "2021", "-A", "dead_code", "--test", str(module), "-o", str(unit)], check=True)
+            subprocess.run([str(unit)], check=True)
+
+    def test_detection_and_connect_no_longer_shell_out_to_which(self):
+        agent = (ROOT / "src-tauri/src/agent_setup.rs").read_text()
+        self.assertNotIn('Command::new("which")', agent)
+        self.assertIn('Command::new(agent_cli_program("claude"))', agent)
+        self.assertIn('Command::new(agent_cli_program("codex"))', agent)
+
+    def test_cli_install_uses_the_suffix_aware_lookup(self):
+        source = (ROOT / "src-tauri/src/cli_install.rs").read_text()
+        self.assertIn('resolve_sidecar_binary(&app, "mdopen")', source)
+        self.assertIn('sidecar_file_name("mdopen")', source)
+        self.assertNotIn('resource_dir.join("mdopen")', source)
+        self.assertNotIn('dir.join("mdopen")', source)
 
 
 class SidecarPathTests(unittest.TestCase):
