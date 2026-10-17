@@ -30,12 +30,10 @@
  * ## Architecture
  *
  * Handler implementations live in src/mcp/handlers/:
- *   - export.ts      — PDF/DOCX/HTML/EPUB/outline/batch-export/profiles
- *   - edit.ts        — set-content, edit, batch-edit, atomic-edits, stream-edit, stream-edit-apply
- *   - search.ts      — batch-read, semantic-search, diff-docs
+ *   - export.ts      — PDF/DOCX/HTML/EPUB
+ *   - edit.ts        — set-content, edit, stream-edit, stream-edit-apply
  *   - review.ts      — request_review
- *   - canvas.ts      — edit-canvas
- *   - conversation.ts — open, present, ot-op, copy-rich-text, lint-document, apply-diff-hunk
+ *   - conversation.ts — open, present
  *
  * This file is responsible only for:
  *   1. PUSH sync subscriptions (documentStore → Rust, vault → Rust, session → Rust)
@@ -50,47 +48,20 @@ import { useDocumentStore } from "../store/documentStore";
 import { useConversationStore } from "../store/memoryStore";
 import { useRecentStore } from "../store/recentStore";
 import { syncDocToSession } from "../store/sessionPersistenceStore";
-import { handleEditCanvas } from "./handlers/canvas";
-import {
-  handleApplyDiffHunk,
-  handleCopyRichText,
-  handleLintDocument,
-  handleOpen,
-  handleOtOp,
-  handlePresent,
-} from "./handlers/conversation";
+// ── Handler modules ───────────────────────────────────────────────────────────
+import { handleOpen, handlePresent } from "./handlers/conversation";
 import {
   handleAtomicEdit,
-  handleAtomicEdits,
-  handleBatchEdit,
   handleSetContent,
   handleStreamEdit,
   handleStreamEditApply,
 } from "./handlers/edit";
-// ── Handler modules ───────────────────────────────────────────────────────────
-import {
-  handleBatchExport,
-  handleBatchExportProfiles,
-  handleExportPayload,
-  handleOutlineExport,
-} from "./handlers/export";
+import { handleExportPayload } from "./handlers/export";
 import { handleRequestReview } from "./handlers/review";
-import {
-  handleBatchRead,
-  handleDiffDocs,
-  handleSemanticSearch,
-} from "./handlers/search";
 
 // ── Re-exports (public API surface unchanged) ─────────────────────────────────
 
 export type {
-  AtomicEditEntry,
-  AtomicEditFileResult,
-  BatchEditOpResult,
-  BatchExportEntry,
-  BatchExportFileResult,
-  BatchExportProfileResult,
-  BatchReadFileResult,
   StreamEditApplyPayload,
   StreamEditCandidateResult,
   StreamEditPayload,
@@ -232,10 +203,6 @@ export function useMcpBridge(): void {
     // conversation / navigation
     unlisteners.push(handleOpen());
     unlisteners.push(handlePresent());
-    unlisteners.push(handleOtOp(syncNow));
-    unlisteners.push(handleCopyRichText());
-    unlisteners.push(handleLintDocument(syncNow));
-    unlisteners.push(handleApplyDiffHunk(syncNow));
 
     // review
     unlisteners.push(handleRequestReview());
@@ -243,24 +210,11 @@ export function useMcpBridge(): void {
     // edit
     unlisteners.push(handleSetContent(syncNow));
     unlisteners.push(handleAtomicEdit(syncNow));
-    unlisteners.push(handleBatchEdit(syncNow));
-    unlisteners.push(handleAtomicEdits(syncNow));
     unlisteners.push(handleStreamEdit(syncNow));
     unlisteners.push(handleStreamEditApply(syncNow));
 
-    // search
-    unlisteners.push(handleBatchRead());
-    unlisteners.push(handleSemanticSearch());
-    unlisteners.push(handleDiffDocs());
-
     // export
     unlisteners.push(handleExportPayload());
-    unlisteners.push(handleOutlineExport());
-    unlisteners.push(handleBatchExport());
-    unlisteners.push(handleBatchExportProfiles());
-
-    // canvas
-    unlisteners.push(handleEditCanvas());
 
     // Track each listener's unlisten fn as it resolves (or unlisten on the spot
     // if we've already been disposed).

@@ -3,7 +3,7 @@
  * integrate correctly with bridge.ts.
  *
  * These tests verify that:
- *  1. All 19 mcp:// listeners are registered when bridge mounts (handlers are wired)
+ *  1. Every mcp:// listener is registered when bridge mounts (handlers are wired)
  *  2. Each handler module's exported function is callable and registers the right event
  *  3. The bridge remains a thin wiring layer — no handler logic leaks back into it
  *
@@ -76,66 +76,9 @@ vi.mock("../lib/export", () => ({
   exportDocx: vi.fn().mockResolvedValue(undefined),
   exportHtml: vi.fn().mockResolvedValue(undefined),
   exportEpub: vi.fn().mockResolvedValue(undefined),
-  exportOutline: vi.fn().mockResolvedValue("/out/outline.json"),
-  buildBatchExportProfiles: vi.fn().mockResolvedValue([]),
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
   cloneWithoutInjectedChrome: vi.fn((el: Element) => el),
-}));
-
-vi.mock("../lib/exportTemplates", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../lib/exportTemplates")>();
-  return {
-    ...actual,
-    ALL_PROFILE_IDS: [],
-  };
-});
-
-vi.mock("../lib/crossSearch", () => ({
-  searchFiles: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock("../lib/embedSearch", () => ({
-  embedSearch: vi.fn().mockResolvedValue([]),
-  embedAvailable: vi.fn().mockResolvedValue(null),
-  embedIndex: vi.fn().mockResolvedValue(null),
-  embedStatus: vi.fn().mockResolvedValue(null),
-  invalidateEmbedAvailable: vi.fn(),
-}));
-
-vi.mock("../lib/copyRichText", () => ({
-  copyAsRichText: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../lib/mdlint", () => ({
-  lintDocument: vi.fn().mockReturnValue([]),
-  applyAllFixes: vi.fn((doc: string) => doc),
-  BUILTIN_RULES: [],
-}));
-
-vi.mock("../lib/canvas", () => ({
-  parseCanvas: vi.fn().mockReturnValue({ ok: false, error: "mock" }),
-  buildCanvasEditor: vi.fn(),
-  canvasEditorToCanvas: vi.fn(),
-  serializeCanvas: vi.fn().mockReturnValue("{}"),
-  applyCanvasOp: vi.fn().mockReturnValue({ ok: true }),
-  undoCanvasOp: vi.fn(),
-  redoCanvasOp: vi.fn(),
-}));
-
-vi.mock("../lib/diff", () => ({
-  parseDiffHunks: vi.fn().mockReturnValue([]),
-}));
-
-vi.mock("../lib/ot", () => ({
-  summarise: vi.fn().mockReturnValue("summary"),
-}));
-
-vi.mock("../components/viewer/DiffBlock", () => ({
-  buildHunkOp: vi.fn().mockReturnValue(null),
-  buildInverseHunkOp: vi.fn().mockReturnValue(null),
-  buildHunkLines: vi.fn().mockReturnValue([]),
-  DiffBlock: vi.fn(),
 }));
 
 // ─── Import bridge after mocks ────────────────────────────────────────────────
@@ -199,118 +142,32 @@ afterEach(() => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// Wiring: all 19 listeners registered from handler modules
+// Wiring: every listener registered from handler modules
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("handlers integration — bridge wires all handler modules", () => {
-  it("registers all 19 mcp:// event listeners on mount", () => {
+  it("registers every mcp:// event listener on mount", () => {
     mountBridge();
 
     const expected = [
       // conversation
       "mcp://open",
       "mcp://present",
-      "mcp://ot-op",
-      "mcp://copy-rich-text",
-      "mcp://lint-document",
-      "mcp://apply-diff-hunk",
       // review
       "mcp://review",
       // edit
       "mcp://set-content",
       "mcp://edit",
-      "mcp://batch-edit",
-      "mcp://atomic-edits",
       "mcp://stream-edit",
       "mcp://stream-edit-apply",
-      // search
-      "mcp://batch-read",
-      "mcp://semantic-search",
-      "mcp://diff-docs",
       // export
       "mcp://export",
-      "mcp://export-outline",
-      "mcp://batch-export",
-      "mcp://batch-export-profiles",
-      // canvas
-      "mcp://edit-canvas",
     ];
 
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
     }
-  });
-
-  it("each handler is registered exactly once", () => {
-    // listenHandlers is a Map so duplicate registrations would overwrite;
-    // verify count matches expected number of unique event names.
-    mountBridge();
-    expect(listenHandlers.size).toBeGreaterThanOrEqual(19);
-  });
-
-  it("export module registers 4 listeners", () => {
-    mountBridge();
-    const exportEvents = [
-      "mcp://export",
-      "mcp://export-outline",
-      "mcp://batch-export",
-      "mcp://batch-export-profiles",
-    ];
-    for (const ev of exportEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("edit module registers 6 listeners", () => {
-    mountBridge();
-    const editEvents = [
-      "mcp://set-content",
-      "mcp://edit",
-      "mcp://batch-edit",
-      "mcp://atomic-edits",
-      "mcp://stream-edit",
-      "mcp://stream-edit-apply",
-    ];
-    for (const ev of editEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("search module registers 3 listeners", () => {
-    mountBridge();
-    const searchEvents = [
-      "mcp://batch-read",
-      "mcp://semantic-search",
-      "mcp://diff-docs",
-    ];
-    for (const ev of searchEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("conversation module registers 6 listeners", () => {
-    mountBridge();
-    const convEvents = [
-      "mcp://open",
-      "mcp://present",
-      "mcp://ot-op",
-      "mcp://copy-rich-text",
-      "mcp://lint-document",
-      "mcp://apply-diff-hunk",
-    ];
-    for (const ev of convEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("review module registers 1 listener", () => {
-    mountBridge();
-    expect(listenHandlers.has("mcp://review")).toBe(true);
-  });
-
-  it("canvas module registers 1 listener", () => {
-    mountBridge();
-    expect(listenHandlers.has("mcp://edit-canvas")).toBe(true);
+    expect(listenHandlers.size).toBe(expected.length);
   });
 });
 
@@ -388,23 +245,6 @@ describe("handlers integration — smoke tests per module", () => {
     expect(result![1]).toMatchObject({ ok: true });
   });
 
-  // search module
-  it("search handler: batch-read invokes read_batch_files", async () => {
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-    mountBridge();
-    invokeMock.mockClear();
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-    await fireEvent("mcp://batch-read", { batchId: "br1", paths: ["/a.md"] });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "read_batch_files");
-    expect(call).toBeDefined();
-  });
-
   // review module
   it("review handler: registers review in store", async () => {
     mountBridge();
@@ -415,21 +255,6 @@ describe("handlers integration — smoke tests per module", () => {
       timeoutMs: 30000,
     });
     expect(useReviewStore.getState().pending?.reviewId).toBe("rev1");
-  });
-
-  // canvas module
-  it("canvas handler: replies with error for invalid canvas path", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    invokeMock.mockImplementation(() => Promise.reject(new Error("not found")));
-    await fireEvent("mcp://edit-canvas", {
-      editId: "c1",
-      path: "/missing.canvas",
-      ops: [{ type: "add-node" }],
-    });
-    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
-    expect(result).toBeDefined();
-    expect(result![1].ok).toBe(false);
   });
 
   // conversation module

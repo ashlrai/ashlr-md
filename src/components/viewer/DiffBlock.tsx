@@ -22,9 +22,6 @@
  *   Alt+N  — reject focused hunk
  *
  * Falls back to a plain <CodeBlock lang="diff"> when parse yields 0 hunks.
- *
- * MCP integration: agents can call apply_diff_hunk(diffId, hunkIndex) via the
- * MCP bridge (mcp://apply-diff-hunk event) to patch docs programmatically.
  */
 
 import { invoke } from "@tauri-apps/api/core";

@@ -896,10 +896,9 @@ export interface BatchProfileResult {
  * Export a single document to all (or a subset of) profiles in parallel,
  * returning all 5/6 HTML outputs in a single result object.
  *
- * This is the pure computation counterpart to the `mcp://batch-export-profiles`
- * MCP bridge tool.  It accepts the optional `content` parameter so agents can
- * pass a pre-captured body HTML fragment (for testing without a live DOM), or
- * omit it to capture the live `.markdown-body` element.
+ * It accepts the optional `content` parameter to take a pre-captured body
+ * HTML fragment (for testing without a live DOM), or omit it to capture the
+ * live `.markdown-body` element.
  *
  * The `profileIds` parameter defaults to ALL_PROFILE_IDS so agents get every
  * profile in one call.  Pass a subset to restrict the output.

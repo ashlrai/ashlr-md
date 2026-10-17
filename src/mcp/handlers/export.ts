@@ -1,6 +1,5 @@
 /**
- * MCP export handlers — PDF, DOCX, HTML, EPUB, outline, batch-export, and
- * batch-export-profiles.
+ * MCP export handler — PDF, DOCX, HTML and EPUB.
  *
  * Each exported function registers a single `listen()` call and returns the
  * resulting Promise<UnlistenFn> so the bridge can collect them for cleanup.
@@ -8,28 +7,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  type BatchProfileResult,
-  buildBatchExportProfiles,
-  exportDocx,
-  exportEpub,
-  exportHtml,
-  exportOutline,
-  exportPdf,
-} from "../../lib/export";
-import { ALL_PROFILE_IDS, type ExportProfileId } from "../../lib/exportTemplates";
+import { exportDocx, exportEpub, exportHtml, exportPdf } from "../../lib/export";
 import { useDocumentStore } from "../../store/documentStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { toast } from "../../store/toastStore";
 import { useUiStore } from "../../store/uiStore";
-import type {
-  BatchExportFileResult,
-  BatchExportPayload,
-  BatchExportProfileResult,
-  BatchExportProfilesPayload,
-  ExportPayload,
-  OutlineExportPayload,
-} from "./types";
+import type { ExportPayload } from "./types";
 
 // ── mcp://export ─────────────────────────────────────────────────────────────
 
@@ -94,178 +76,4 @@ export function handleExportPayload(): Promise<UnlistenFn> {
       useUiStore.getState().openExport(format);
     }
   });
-}
-
-// ── mcp://export-outline ──────────────────────────────────────────────────────
-
-export function handleOutlineExport(): Promise<UnlistenFn> {
-  return listen<OutlineExportPayload>("mcp://export-outline", async (e) => {
-    const { format = "json", outputPath } = e.payload;
-    try {
-      const resultPath = await exportOutline({
-        format,
-        outputPath: outputPath ?? undefined,
-      });
-      if (outputPath) {
-        await invoke("mcp_outline_result", {
-          ok: true,
-          path: resultPath || outputPath,
-          format,
-          error: null,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    } catch (err) {
-      const errStr =
-        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-      if (outputPath) {
-        await invoke("mcp_outline_result", {
-          ok: false,
-          path: null,
-          format,
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    }
-  });
-}
-
-// ── mcp://batch-export ────────────────────────────────────────────────────────
-
-export function handleBatchExport(): Promise<UnlistenFn> {
-  return listen<BatchExportPayload>("mcp://batch-export", async (e) => {
-    const { batchId, exports: entries } = e.payload;
-
-    if (!entries || entries.length === 0) {
-      await invoke("mcp_batch_export_result", {
-        batchId,
-        ok: false,
-        results: [],
-        error: "`exports` array must not be empty",
-      }).catch(() => {
-        /* non-fatal */
-      });
-      return;
-    }
-
-    const results: BatchExportFileResult[] = await Promise.all(
-      entries.map(async (entry): Promise<BatchExportFileResult> => {
-        const { path: filePath, format, outputDir } = entry;
-        try {
-          const fileName = filePath.split("/").pop() ?? filePath;
-          const title =
-            fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
-
-          if (format === "pdf") {
-            await exportPdf(title);
-          } else if (format === "docx") {
-            await exportDocx(title);
-          } else if (format === "epub") {
-            await exportEpub(title);
-          } else {
-            await exportHtml(title);
-          }
-
-          const ext =
-            format === "docx"
-              ? "docx"
-              : format === "pdf"
-                ? "pdf"
-                : format === "epub"
-                  ? "epub"
-                  : "html";
-          const dir =
-            outputDir ?? filePath.substring(0, filePath.lastIndexOf("/")) ?? ".";
-          const outputPath = `${dir}/${title}.${ext}`;
-
-          return { path: filePath, format, ok: true, outputPath };
-        } catch (err) {
-          const errStr =
-            typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-          return { path: filePath, format, ok: false, error: errStr };
-        }
-      }),
-    );
-
-    const allOk = results.every((r) => r.ok);
-    await invoke("mcp_batch_export_result", {
-      batchId,
-      ok: allOk,
-      results,
-      error: allOk ? null : "One or more exports failed — see per-file results.",
-    }).catch(() => {
-      /* non-fatal */
-    });
-  });
-}
-
-// ── mcp://batch-export-profiles ───────────────────────────────────────────────
-
-export function handleBatchExportProfiles(): Promise<UnlistenFn> {
-  return listen<BatchExportProfilesPayload>(
-    "mcp://batch-export-profiles",
-    async (e) => {
-      const { batchId, profileIds: requestedIds, content } = e.payload;
-
-      let targetIds: readonly ExportProfileId[];
-      if (requestedIds && requestedIds.length > 0) {
-        targetIds = requestedIds;
-      } else {
-        const { disabledProfileIds } = useSettingsStore.getState();
-        targetIds = ALL_PROFILE_IDS.filter((id) => !disabledProfileIds.includes(id));
-      }
-
-      if (targetIds.length === 0) {
-        await invoke("mcp_batch_export_profiles_result", {
-          batchId,
-          ok: false,
-          results: [],
-          error: "No profiles selected — all profiles may be disabled in Settings.",
-        }).catch(() => {
-          /* non-fatal */
-        });
-        return;
-      }
-
-      try {
-        const rawResults: BatchProfileResult[] = await buildBatchExportProfiles(
-          targetIds,
-          content,
-        );
-
-        const results: BatchExportProfileResult[] = rawResults.map((r) => ({
-          profileId: r.profileId,
-          ok: r.ok,
-          html: r.html,
-          error: r.error,
-        }));
-
-        const allOk = results.every((r) => r.ok);
-        await invoke("mcp_batch_export_profiles_result", {
-          batchId,
-          ok: allOk,
-          results,
-          error: allOk
-            ? null
-            : "One or more profile exports failed — see per-profile results.",
-        }).catch(() => {
-          /* non-fatal */
-        });
-      } catch (err) {
-        const errStr =
-          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-        await invoke("mcp_batch_export_profiles_result", {
-          batchId,
-          ok: false,
-          results: [],
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    },
-  );
 }
