@@ -2646,6 +2646,71 @@ fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
     assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
 }
 
+/// The resource falls back the way `search_vault` does and says so: a grep
+/// of the files on disk carries the app's own reason for not searching.
+#[test]
+fn resource_read_vault_search_says_when_it_fell_back() {
+    use std::io::Write;
+    // Only meaningful when nothing listens on Ollama's port.
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Project notes\nThis has the query term inside.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    for (reason, verb) in [
+        (
+            "IPC server returned HTTP 403: search is disabled",
+            "refused",
+        ),
+        ("IPC read error: connection reset", "failed"),
+    ] {
+        let ipc = MockIpc::new()
+            .on_get(
+                "/vault",
+                Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+            )
+            .on_get("/search", Err(reason.into()));
+        let resp = handle_resource_read(id(1), "text://vault-search?q=query+term", &ipc);
+        assert!(resp.error.is_none(), "{:?}", resp.error);
+        let payload: Value = serde_json::from_str(
+            resp.result.as_ref().unwrap()["contents"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["mode"], "grep-local");
+        assert_eq!(payload["query"], "query term");
+        let note = payload["note"].as_str().expect("the fallback is said");
+        assert!(note.contains(verb), "{note}");
+        assert!(note.contains(reason), "{note}");
+    }
+}
+
+/// A refusal from the app is the resource's error too, not "is it running?".
+#[test]
+fn resource_read_vault_search_reports_the_apps_refusal() {
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Err("IPC server returned HTTP 403: vault is disabled".into()),
+        )
+        .on_get(
+            "/search",
+            Err("IPC server returned HTTP 403: search is disabled".into()),
+        );
+    let resp = handle_resource_read(id(1), "text://vault-search?q=x", &ipc);
+    let err = resp.error.expect("a refusal is an error");
+    assert!(
+        err.message.contains("search is disabled"),
+        "{}",
+        err.message
+    );
+}
+
 #[test]
 fn resource_read_vault_search_custom_limit_respected() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));

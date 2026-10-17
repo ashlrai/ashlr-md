@@ -274,7 +274,8 @@ The server implements `resources/list` and `resources/read`.
   (`mimeType: text/markdown`). Reading it returns the live content.
 - **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`). Returns
-  `{ results, mode, query }`; an error when the app is not running.
+  `{ results, mode, query, note? }`, with the same `note` as `search_vault`
+  when it fell back; an error when the app is not running.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`).

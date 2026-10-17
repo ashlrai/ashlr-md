@@ -1748,21 +1748,32 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => ollama_available(),
     };
 
+    match search_vault(&query, limit, use_semantic, ipc) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => tool_error(id, e),
+    }
+}
+
+/// The search behind both `search_vault` and the `text://vault-search`
+/// resource: `{ results, mode, note? }`, or the error the agent should see.
+///
+/// Semantic search (when `use_semantic`) falls back to the app's own search,
+/// and that to grepping the vault files on disk; each fallback is said in
+/// `note`, so keyword hits are never read as meaning matches and the app's
+/// refusal is never papered over.
+pub fn search_vault(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    ipc: &dyn IpcClient,
+) -> Result<Value, String> {
     // Why semantic search was tried but not used, said in words so an agent
     // that asked for it does not read keyword hits as meaning matches.
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_search_vault(&query, limit, ipc) {
-            Ok(results) => {
-                return tool_result(
-                    id,
-                    json!({
-                        "results": results,
-                        "mode": "semantic"
-                    }),
-                );
-            }
+        match semantic_search_vault(query, limit, ipc) {
+            Ok(results) => return Ok(json!({ "results": results, "mode": "semantic" })),
             Err(e) => {
                 // Embedding failed — fall through to grep, and say so.
                 semantic_note = Some(format!(
@@ -1776,14 +1787,14 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
 
     // Grep fallback: ask the app's IPC layer (which does its own grep), or
     // grep the vault files on disk if that route fails.
-    let encoded = urlencoding::encode(&query);
+    let encoded = urlencoding::encode(query);
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
             v["mode"] = json!("grep");
             if let Some(note) = semantic_note {
                 v["note"] = json!(note);
             }
-            tool_result(id, v)
+            Ok(v)
         }
         Err(ipc_err) => {
             // The app's search failed: grep the vault files on disk. The file
@@ -1791,7 +1802,7 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
             // Keep the app's reason: a refusal is the agent's to see, not
             // something an on-disk grep should paper over.
             let refused = app_refused(&ipc_err);
-            match grep_vault(&query, limit, ipc) {
+            match grep_vault(query, limit, ipc) {
                 Ok(results) => {
                     let verb = if refused { "refused" } else { "failed" };
                     let search_note = format!(
@@ -1802,15 +1813,14 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
                         Some(n) => format!("{n} {search_note}"),
                         None => search_note,
                     };
-                    let out = json!({
+                    Ok(json!({
                         "results": results,
                         "mode": "grep-local",
                         "note": note
-                    });
-                    tool_result(id, out)
+                    }))
                 }
-                Err(_) if refused => tool_error(id, ipc_err),
-                Err(e) => tool_error(id, app_not_running_msg(&e)),
+                Err(_) if refused => Err(ipc_err),
+                Err(e) => Err(app_not_running_msg(&e)),
             }
         }
     }
@@ -2101,7 +2111,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback. Returns JSON: { results: [{ path, snippet, lineNumber, score }], mode }.",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
         "mimeType": "application/json"
     }));
 
@@ -2182,31 +2192,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             );
         }
 
-        // Try semantic search, fall back to grep. Every path needs the app
-        // (it supplies the vault file list), so failing to reach it is an
-        // error rather than an empty result set.
-        let searched = if ollama_available() {
-            match semantic_search_vault(&query, limit, ipc) {
-                Ok(r) => Ok((r, "semantic")),
-                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
-            }
-        } else {
-            // Try IPC grep first.
-            let encoded = urlencoding::encode(&query);
-            match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
-                Ok(v) => {
-                    let results = v["results"].as_array().cloned().unwrap_or_default();
-                    Ok((results, "grep"))
-                }
-                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
-            }
+        // The same search as `search_vault`, notes included. Every path needs
+        // the app (it supplies the vault file list), so failing to reach it is
+        // an error rather than an empty result set.
+        let mut payload = match search_vault(&query, limit, ollama_available(), ipc) {
+            Ok(v) => v,
+            Err(e) => return Response::err(id, -32000, e),
         };
-        let (results, mode) = match searched {
-            Ok(found) => found,
-            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
-        };
-
-        let payload = json!({ "results": results, "mode": mode, "query": query });
+        payload["query"] = json!(query);
         return Response::ok(
             id,
             json!({
