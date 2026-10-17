@@ -2877,6 +2877,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
     let mut edges: Vec<serde_json::Map<String, Value>> = parsed.edges;
+    let mut output = parsed.rest;
 
     // ── Apply ops ────────────────────────────────────────────────────────────
     let ops = match args["ops"].as_array() {
@@ -3167,7 +3168,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Serialise ────────────────────────────────────────────────────────────
-    let output = json!({ "nodes": nodes, "edges": edges });
+    output.insert("nodes".into(), json!(nodes));
+    output.insert("edges".into(), json!(edges));
     let serialised = match serde_json::to_string_pretty(&output) {
         Ok(s) => s,
         Err(e) => return tool_error(id, format!("Serialisation error: {e}")),
@@ -3197,21 +3199,41 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 struct RawCanvas {
     nodes: Vec<serde_json::Map<String, Value>>,
     edges: Vec<serde_json::Map<String, Value>>,
+    /// Every other top-level key, written back unchanged on save.
+    rest: serde_json::Map<String, Value>,
 }
 
 fn parse_canvas_json(raw: &str) -> Result<RawCanvas, String> {
     let v: Value = serde_json::from_str(raw)
         .map_err(|e| format!("Invalid JSON: {e}"))?;
-    let obj = v.as_object().ok_or("Canvas must be a JSON object")?;
-    let nodes = obj.get("nodes")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    let edges = obj.get("edges")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    Ok(RawCanvas { nodes, edges })
+    let Value::Object(mut rest) = v else {
+        return Err("Canvas must be a JSON object".into());
+    };
+    let nodes = take_canvas_items(&mut rest, "nodes")?;
+    let edges = take_canvas_items(&mut rest, "edges")?;
+    Ok(RawCanvas { nodes, edges, rest })
+}
+
+/// Remove `key` (`nodes` or `edges`) from the canvas object as a list of
+/// objects. A missing key is an empty list; anything that is not an array of
+/// objects is an error, since saving would otherwise drop it.
+fn take_canvas_items(
+    obj: &mut serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Vec<serde_json::Map<String, Value>>, String> {
+    let items = match obj.remove(key) {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(format!("`{key}` must be an array")),
+    };
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(i, item)| match item {
+            Value::Object(m) => Ok(m),
+            other => Err(format!("{key}[{i}] must be an object, got {other}")),
+        })
+        .collect()
 }
 
 fn find_node_mut<'a>(

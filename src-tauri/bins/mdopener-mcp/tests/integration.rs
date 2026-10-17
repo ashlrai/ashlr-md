@@ -3912,3 +3912,54 @@ fn save_message_reports_a_failed_session_write() {
     assert!(store_get_context(&sid, 20).unwrap().is_empty());
     std::fs::remove_dir(&path).unwrap();
 }
+
+// ── edit_canvas keeps what it does not edit ───────────────────────────────────
+
+/// Saving used to rewrite the file as `{ nodes, edges }` only, dropping any
+/// other top-level key (format extensions, plugin metadata).
+#[test]
+fn edit_canvas_preserves_unknown_top_level_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let canvas = json!({
+        "nodes": [{ "id": "a", "type": "text", "text": "hi", "x": 0, "y": 0,
+                    "width": 10, "height": 10, "pluginData": { "k": 1 } }],
+        "edges": [],
+        "version": "1.0-1.0",
+        "metadata": { "frontmatter": { "tags": ["x"] } }
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["version"], canvas["version"]);
+    assert_eq!(saved["metadata"], canvas["metadata"]);
+    assert_eq!(saved["nodes"][0]["x"].as_f64(), Some(5.0));
+    assert_eq!(saved["nodes"][0]["pluginData"], json!({ "k": 1 }));
+}
+
+/// A node or edge that is not a JSON object used to vanish silently on save;
+/// now the edit is refused and the file is left as it was.
+#[test]
+fn edit_canvas_refuses_non_object_nodes_instead_of_dropping_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    for raw in [
+        r#"{"nodes":[{"id":"a","x":0,"y":0},"stray"],"edges":[]}"#,
+        r#"{"nodes":[{"id":"a","x":0,"y":0}],"edges":[42]}"#,
+        r#"{"nodes":{"id":"a"},"edges":[]}"#,
+    ] {
+        std::fs::write(&path, raw).unwrap();
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }] }),
+        );
+        let err = tool_error_text(&resp);
+        assert!(err.contains("Canvas parse error"), "{raw}: {err}");
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(on_disk, raw, "file must be untouched");
+    }
+}
