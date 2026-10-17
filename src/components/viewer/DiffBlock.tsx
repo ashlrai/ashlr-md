@@ -209,15 +209,15 @@ function DiffHunkActions({
           // Ambiguous or not found.
           const occurrences = content.split(hunk.find).length - 1;
           if (occurrences === 0) {
-            toast.error("Patch not found — the document may have already changed.");
+            toast.error("Patch not found: the document may have already changed.");
           } else {
-            toast.error("Patch anchor is ambiguous — include more context lines.");
+            toast.error("Patch anchor is ambiguous: include more context lines.");
           }
           return;
         }
         const ok = store.applyOp(op);
         if (!ok) {
-          toast.error("Apply failed — OT op was inconsistent with document state.");
+          toast.error("Apply failed: OT op was inconsistent with document state.");
           return;
         }
         await store.save();
@@ -262,12 +262,12 @@ function DiffHunkActions({
         nextSeq(),
       );
       if (!op) {
-        toast.error("Undo failed — could not locate the applied text in the document.");
+        toast.error("Undo failed: could not locate the applied text in the document.");
         return;
       }
       const ok = store.applyOp(op);
       if (!ok) {
-        toast.error("Undo failed — OT op was inconsistent with document state.");
+        toast.error("Undo failed: OT op was inconsistent with document state.");
         return;
       }
       await store.save();

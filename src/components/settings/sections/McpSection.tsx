@@ -144,7 +144,7 @@ export function McpSection() {
         style={{ marginTop: "14px" }}
       >
         Auto-open: when Claude Code writes or edits a Markdown file, open it here for
-        review — installs a PostToolUse hook in <code>~/.claude/settings.json</code>.
+        review. Installs a PostToolUse hook in <code>~/.claude/settings.json</code>.
       </p>
       <div className="settings-cli-row">
         <button
@@ -165,7 +165,7 @@ export function McpSection() {
         className="settings-description settings-description-muted"
         style={{ marginTop: "14px" }}
       >
-        For manual Claude Code setup — run once in your terminal:
+        For manual Claude Code setup, run once in your terminal:
       </p>
       <div className="settings-mcp-command-row">
         <code className="settings-mcp-command">{mcpCmd}</code>

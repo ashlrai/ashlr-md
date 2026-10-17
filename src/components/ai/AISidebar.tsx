@@ -28,12 +28,12 @@ import { RelatedNotes } from "./RelatedNotes";
 
 /** Per-DocType prompt suggestion shown in the empty-state of the sidebar. */
 const DOC_TYPE_HINTS: Record<DocType, string | null> = {
-  PLAN: "This looks like a project plan — I can help you refine goals, check task completeness, or identify missing milestones.",
+  PLAN: "This looks like a project plan. I can help you refine goals, check task completeness, or identify missing milestones.",
   REVIEW:
-    "This looks like a review document — I can help you structure feedback, identify blocking vs. non-blocking issues, or draft a summary.",
-  SPEC: "This looks like a specification — I can help you check requirement completeness, clarify acceptance criteria, or suggest edge cases.",
+    "This looks like a review document. I can help you structure feedback, identify blocking vs. non-blocking issues, or draft a summary.",
+  SPEC: "This looks like a specification. I can help you check requirement completeness, clarify acceptance criteria, or suggest edge cases.",
   RUNBOOK:
-    "This looks like a runbook — I can help you verify step completeness, add rollback steps, or improve troubleshooting coverage.",
+    "This looks like a runbook. I can help you verify step completeness, add rollback steps, or improve troubleshooting coverage.",
   GENERIC: null,
 };
 

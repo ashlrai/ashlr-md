@@ -64,7 +64,7 @@ async function summarize(files: MdFileInfo[], signal: AbortSignal): Promise<stri
 
   const prompt =
     "These Markdown files changed in the user's watched folder since they last " +
-    "looked. Write a concise briefing (3–5 short lines) of what changed and what " +
+    "looked. Write a concise briefing (3 to 5 short lines) of what changed and what " +
     "needs their review. Be specific, lead with the most important change, and " +
     "skip any preamble.\n\n" +
     parts.join("\n\n");

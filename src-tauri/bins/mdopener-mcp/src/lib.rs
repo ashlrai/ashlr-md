@@ -1144,7 +1144,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                     ],
                                     "description": "Operation type."
                                 },
-                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty one is refused before the file is read." },
+                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty or blank one is refused before the file is read." },
                                 "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
                                 "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
                                 "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
@@ -1164,7 +1164,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "ids": {
                                     "type": "array",
                                     "items": { "type": "string", "minLength": 1 },
-                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty id is refused."
+                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty or blank id is refused."
                                 }
                             },
                             "required": ["type"]
@@ -1247,7 +1247,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "edit_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: the editId of the stream_edit preview, for correlation only; an empty one is refused. The app re-finds `find` in the live document and applies occurrence `match_index`."
+                        "description": "Optional: the editId of the stream_edit preview, for correlation only; an empty or blank one is refused. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -1640,7 +1640,9 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
 /// `properties` (an `edit_canvas` op): a field it does not declare, a field of
 /// the wrong JSON type (or an array field with an element of the wrong type),
 /// and a missing `required` field are refused, named as `` `ops[2].x` `` so
-/// the agent knows which element and field. A field the tool reads with
+/// the agent knows which element and field. A declared `minLength` (on the
+/// field or on its array elements), `minimum` and `maximum` are checked as at
+/// the top level. A field the tool reads with
 /// `as_f64`/`as_str` used to be reported as missing when mistyped (`"x": "5"`
 /// gave "`x` required"), or written to the canvas as given (`"color": 3`).
 /// `null` counts as not given, as at the top level.
@@ -1684,6 +1686,26 @@ fn check_item_fields(
         if let Some(msg) = enum_problem(&format!("{at}.{k}"), field, v) {
             return Err(msg);
         }
+        // The bounds the top level checks, so a declared `minLength` on an
+        // op's `id` is enforced here too and not only by the tool.
+        if let (Some(min), Some(n)) = (field["minimum"].as_i64(), v.as_f64()) {
+            if n < min as f64 {
+                return Err(format!("`{at}.{k}` must be at least {min}, got {v}"));
+            }
+        }
+        if let (Some(max), Some(n)) = (field["maximum"].as_i64(), v.as_f64()) {
+            if n > max as f64 {
+                return Err(format!("`{at}.{k}` must be at most {max}, got {v}"));
+            }
+        }
+        if let (Some(min), Some(text)) = (field["minLength"].as_u64(), v.as_str()) {
+            if (text.chars().count() as u64) < min {
+                return Err(format!(
+                    "`{at}.{k}` must be at least {min} character{} long, got {v}",
+                    if min == 1 { "" } else { "s" }
+                ));
+            }
+        }
         if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
             if let Some((j, bad)) = elems
                 .iter()
@@ -1694,6 +1716,18 @@ fn check_item_fields(
                     "`{at}.{k}[{j}]` must be {}, got {}",
                     type_phrase(want),
                     json_type_phrase(bad)
+                ));
+            }
+        }
+        if let (Some(min), Some(elems)) = (field["items"]["minLength"].as_u64(), v.as_array()) {
+            if let Some((j, bad)) = elems
+                .iter()
+                .enumerate()
+                .find(|(_, e)| e.as_str().is_some_and(|t| (t.chars().count() as u64) < min))
+            {
+                return Err(format!(
+                    "`{at}.{k}[{j}]` must be at least {min} character{} long, got {bad}",
+                    if min == 1 { "" } else { "s" }
                 ));
             }
         }
@@ -6377,11 +6411,11 @@ fn canvas_op_field_problem(op: &Value) -> Option<String> {
 /// The first id-like field of `op` that is an empty string, as
 /// "move_node: `id` must not be empty": the op's `id`, an element of
 /// `reorder_edges`' `ids`, `add_node`'s `node.id`, and `add_edge`'s
-/// `edge.id`, `edge.fromNode` and `edge.toNode`. A field of another type is
-/// refused by the type checks.
+/// `edge.id`, `edge.fromNode` and `edge.toNode`. Only whitespace counts as
+/// empty. A field of another type is refused by the type checks.
 fn canvas_op_empty_id(op: &Value) -> Option<String> {
     let kind = op["type"].as_str().unwrap_or("op");
-    let empty = |v: &Value| v.as_str() == Some("");
+    let empty = |v: &Value| v.as_str().is_some_and(|s| s.trim().is_empty());
     if empty(&op["id"]) {
         return Some(format!("{kind}: `id` must not be empty"));
     }
@@ -6563,9 +6597,12 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
     // Only correlates with a preview: the app re-finds `find` in the live
     // document, so the apply does not depend on it. An empty one named no
     // preview and used to be accepted; it is refused as an empty `path` is.
-    let edit_id = match non_empty_str(args, "edit_id") {
-        Ok(e) => e.unwrap_or("").to_string(),
-        Err(e) => return Response::err(id, -32602, e),
+    // Only whitespace names no preview either.
+    let edit_id = match args["edit_id"].as_str() {
+        Some(e) if e.trim().is_empty() => {
+            return Response::err(id, -32602, "`edit_id` must not be empty")
+        }
+        e => e.unwrap_or("").to_string(),
     };
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),

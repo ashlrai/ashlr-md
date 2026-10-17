@@ -70,7 +70,7 @@ export function applyUniqueEdit(
     return {
       ok: false,
       replaced: 0,
-      error: `\`find\` string is not unique (${n} matches) — include more surrounding context to disambiguate.`,
+      error: `\`find\` string is not unique (${n} matches): include more surrounding context to disambiguate.`,
     };
   }
   // Replace only the first (and only) occurrence.
@@ -305,7 +305,7 @@ export function applyEditAtOccurrence(
     return {
       ok: false,
       replaced: 0,
-      error: `matchIndex ${matchIndex} out of bounds — document has ${offsets.length} occurrence(s).`,
+      error: `matchIndex ${matchIndex} out of bounds: document has ${offsets.length} occurrence(s).`,
     };
   }
 

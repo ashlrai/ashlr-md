@@ -189,7 +189,7 @@ export function ActivityDrawer() {
               type="button"
               className="activity-drawer__folder"
               onClick={pickFolder}
-              title={`Watching ${watchedDir} — click to change folder`}
+              title={`Watching ${watchedDir}. Click to change folder`}
             >
               <FolderIcon />
               <span className="activity-drawer__folder-name">
@@ -224,8 +224,8 @@ export function ActivityDrawer() {
           <div className="activity-empty__icon">📡</div>
           <p className="activity-empty__title">Watch your agent’s folder</p>
           <p className="activity-empty__body">
-            Point Ashlr at the folder your AI agent writes to and new Markdown —
-            PLAN.md, research dumps, notes — shows up here instantly, newest first.
+            Point Ashlr at the folder your AI agent writes to and new Markdown (PLAN.md,
+            research dumps, notes) shows up here instantly, newest first.
           </p>
           <button type="button" className="activity-empty__cta" onClick={pickFolder}>
             Watch a folder…

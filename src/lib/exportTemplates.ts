@@ -867,7 +867,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "notion-html",
     name: "Notion",
     description:
-      "Optimised HTML for pasting into Notion — clean semantic markup, no absolute positioning, Notion-compatible table layout.",
+      "Optimised HTML for pasting into Notion: clean semantic markup, no absolute positioning, Notion-compatible table layout.",
     extension: "html",
     css: NOTION_PROFILE_CSS,
   },
@@ -883,7 +883,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "email-html",
     name: "Email HTML",
     description:
-      "Fully inlined HTML for email clients — responsive, dark-mode aware, no external refs, supports embedded PNG images.",
+      "Fully inlined HTML for email clients: responsive, dark-mode aware, no external refs, supports embedded PNG images.",
     extension: "html",
     css: EMAIL_PROFILE_CSS,
   },
@@ -891,7 +891,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "github-markdown",
     name: "GitHub Markdown",
     description:
-      "Renders to GitHub's markdown style — GFM tables, task lists, callout blocks, Shiki syntax highlighting, 980px column.",
+      "Renders to GitHub's markdown style: GFM tables, task lists, callout blocks, Shiki syntax highlighting, 980px column.",
     extension: "html",
     css: GITHUB_MARKDOWN_PROFILE_CSS,
   },
@@ -899,7 +899,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "confluence-wiki",
     name: "Confluence Wiki",
     description:
-      "Atlassian Confluence page style — panel macros, Confluence code macro appearance, ADS typography, 760px column.",
+      "Atlassian Confluence page style: panel macros, Confluence code macro appearance, ADS typography, 760px column.",
     extension: "html",
     css: CONFLUENCE_WIKI_PROFILE_CSS,
   },
@@ -907,7 +907,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "slack-rich-markdown",
     name: "Slack Rich Markdown",
     description:
-      "Slack Canvas / Slack Docs rich HTML — Block Kit visual language, coloured callout panels, snippet card code blocks.",
+      "Slack Canvas / Slack Docs rich HTML: Block Kit visual language, coloured callout panels, snippet card code blocks.",
     extension: "html",
     css: SLACK_RICH_MARKDOWN_PROFILE_CSS,
   },

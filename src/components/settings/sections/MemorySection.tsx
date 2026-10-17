@@ -18,7 +18,7 @@ export function MemorySection() {
   return (
     <div className="settings-memory">
       <p className="settings-description">
-        Facts the AI remembers about you and your projects — injected into every chat so
+        Facts the AI remembers about you and your projects, injected into every chat so
         it gets more useful over time. Stored locally; never leaves your device.
       </p>
       <div className="settings-cli-row">

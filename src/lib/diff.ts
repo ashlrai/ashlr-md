@@ -255,7 +255,7 @@ export function applyHunkToContent(
     return {
       ok: false,
       error:
-        "Patch anchor is ambiguous (appears more than once) — include more context lines",
+        "Patch anchor is ambiguous (appears more than once): include more context lines",
     };
   }
   return { ok: true, newContent: content.replace(hunk.find, hunk.replace) };

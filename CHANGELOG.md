@@ -36,6 +36,28 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **No em or en dashes in what the app shows.** Toasts (such as "Patch not
+  found: the document may have already changed."), tooltips, dialog and
+  settings text, export format descriptions, the welcome screen, the AI
+  sidebar hints, the status bar, the edit errors the window reports and the
+  package descriptions shown in app metadata used em dashes (and two en
+  dashes). They now use plain punctuation. A test parses the UI sources and
+  fails on a dash in a string literal, template text or JSX text.
+- **The app saves a path cited twice in one message once.** The window's
+  session writer stored a message's `citedDocs` as given, so a path cited
+  twice was written twice, while `save_conversation_message` keeps it once.
+  The app now keeps each path once, in the order first given, too.
+- **Fields inside array items honour their declared bounds.** The argument
+  check enforced `minLength`, `minimum` and `maximum` on top-level arguments
+  only; inside an `edit_canvas` op they were declared but not checked there.
+  An op's empty `id` or `ids` element is now refused by `tools/call` with
+  `-32602` naming the field (`` `ops[0].id` must be at least 1 character
+  long ``), as a top-level argument is.
+- **A whitespace-only `edit_id` or canvas id is refused like an empty one.**
+  `stream_edit_apply`'s `edit_id: " "` and an `edit_canvas` op `id`,
+  `reorder_edges` `ids` element, `node.id`, `edge.id`, `edge.fromNode` or
+  `edge.toNode` of only whitespace passed the empty checks. They are now
+  `-32602` saying the field must not be empty, as an empty one is.
 - **`edit_canvas` refuses an empty id before reading the file.** An op with
   `id: ""` read the canvas and came back as "node `` not found". An empty
   op `id`, `reorder_edges` `ids` element, `add_node` `node.id`, or

@@ -51,7 +51,7 @@ export function StatusBar() {
         </>
       )}
       <span className="spacer" />
-      <span className="status-item">{isDirty ? "Unsaved — ⌘S to save" : "Saved"}</span>
+      <span className="status-item">{isDirty ? "Unsaved (⌘S to save)" : "Saved"}</span>
       <span className="status-item">{themeLabel}</span>
     </footer>
   );
