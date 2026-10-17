@@ -800,7 +800,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the content of the currently open document in Ashlr MD.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -818,11 +818,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
             annotations: Some(json!({
                 "title": "Set Content",
                 "readOnlyHint": false,
-                "destructiveHint": false,
+                "destructiveHint": true,
                 "idempotentHint": false,
                 "openWorldHint": false
             })),
-            tier: ToolTier::Modifier,
+            tier: ToolTier::Destructive,
         },
         ToolDef {
             name: "list_recent",

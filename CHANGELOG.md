@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`set_content` is listed as destructive, as `replace_document` is.** Both
+  send the whole new text to the app and overwrite the open document, but
+  `tools/list` gave `set_content` `destructiveHint: false`, so a client that
+  asks before destructive tools let it replace a document unasked. It now
+  carries the same hints as `replace_document`, and its description says it
+  replaces the entire content and points to `edit_document`.
 - **`mdopen` says when the path is empty or a directory.** `mdopen "$FILE"`
   with an empty or blank variable answered `cannot resolve path "": No such
   file or directory`, and a directory (even one named `notes.md`) was "not a

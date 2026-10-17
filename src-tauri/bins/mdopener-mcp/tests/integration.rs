@@ -423,6 +423,34 @@ fn every_tool_states_all_four_annotation_hints() {
     }
 }
 
+/// `set_content` and `replace_document` both post the whole new text to the
+/// app's `/content`, so they overwrite the open document alike.
+/// `set_content` used to be listed as `destructiveHint: false` (a Modifier),
+/// so a client that confirms destructive tools let it replace a document
+/// unasked, while `replace_document` was asked about.
+#[test]
+fn set_content_is_as_destructive_as_replace_document() {
+    let reg = tool_registry();
+    let def = |name: &str| reg.iter().find(|d| d.name == name).unwrap();
+    let (set, replace) = (def("set_content"), def("replace_document"));
+    assert_eq!(set.tier, ToolTier::Destructive);
+    let mut a = set.annotations.clone().unwrap();
+    let mut b = replace.annotations.clone().unwrap();
+    a.as_object_mut().unwrap().remove("title");
+    b.as_object_mut().unwrap().remove("title");
+    assert_eq!(a, b);
+    assert!(set.description.contains("ENTIRE"), "{}", set.description);
+
+    // The same request reaches the app either way.
+    let args = json!({ "content": "# new", "save": true });
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
+    mdopener_mcp::tool_set_content(id(1), &args, &ipc);
+    mdopener_mcp::tool_replace_document(id(1), &args, &ipc);
+    let calls = ipc.calls();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls[0], calls[1]);
+}
+
 /// Non-destructive tools must NOT carry destructiveHint=true.
 #[test]
 fn non_destructive_tools_do_not_have_destructive_hint() {
