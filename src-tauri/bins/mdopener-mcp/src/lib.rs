@@ -698,7 +698,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode }. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1656,6 +1656,9 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => ollama_available(),
     };
 
+    // Why semantic search was tried but not used, said in words so an agent
+    // that asked for it does not read keyword hits as meaning matches.
+    let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
         match semantic_search_vault(&query, limit, ipc) {
@@ -1665,8 +1668,13 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
                     "mode": "semantic"
                 }));
             }
-            Err(_) => {
-                // Embedding failed — fall through to grep.
+            Err(e) => {
+                // Embedding failed — fall through to grep, and say so.
+                semantic_note = Some(format!(
+                    "Semantic search was unavailable ({e}), so these are keyword (grep) \
+                     results instead. Start Ollama with the nomic-embed-text model for \
+                     semantic search."
+                ));
             }
         }
     }
@@ -1677,16 +1685,25 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
             v["mode"] = json!("grep");
+            if let Some(note) = semantic_note {
+                v["note"] = json!(note);
+            }
             tool_result(id, v)
         }
         Err(_ipc_err) => {
             // The app's search failed: grep the vault files on disk. The file
             // list comes from the app too, so this errors if it is not running.
             match grep_vault(&query, limit, ipc) {
-                Ok(results) => tool_result(id, json!({
-                    "results": results,
-                    "mode": "grep-local"
-                })),
+                Ok(results) => {
+                    let mut out = json!({
+                        "results": results,
+                        "mode": "grep-local"
+                    });
+                    if let Some(note) = semantic_note {
+                        out["note"] = json!(note);
+                    }
+                    tool_result(id, out)
+                }
                 Err(e) => tool_error(id, app_not_running_msg(&e)),
             }
         }

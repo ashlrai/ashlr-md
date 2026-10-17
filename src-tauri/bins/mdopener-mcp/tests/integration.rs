@@ -2085,6 +2085,52 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
     assert!(!results.is_empty(), "local grep should find the match");
 }
 
+#[test]
+fn search_vault_semantic_true_with_ollama_down_says_it_fell_back() {
+    // Only meaningful when nothing listens on Ollama's port.
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })))
+        .on_get(
+            "/search",
+            Ok(json!({
+                "results": [
+                    { "path": "/vault/a.md", "score": 0.8, "snippet": "hello", "lineNumber": 1 }
+                ]
+            })),
+        );
+    let resp = tool_search_vault(
+        id(202),
+        &json!({ "query": "hello", "semantic": true }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str(), Some("grep"));
+    let note = text["note"]
+        .as_str()
+        .expect("a fallback must be explained in words");
+    assert!(
+        note.contains("Semantic search was unavailable"),
+        "note: {note}"
+    );
+    assert!(note.contains("keyword"), "note: {note}");
+}
+
+#[test]
+fn search_vault_semantic_false_has_no_fallback_note() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = tool_search_vault(
+        id(203),
+        &json!({ "query": "hello", "semantic": false }),
+        &ipc,
+    );
+    let text = content_text(&resp);
+    assert!(text.get("note").is_none(), "no fallback happened: {text}");
+}
+
 // ── text://vault-search resource ──────────────────────────────────────────────
 
 #[test]
