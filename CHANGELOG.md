@@ -36,6 +36,41 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The MCP server reads at most 64 MiB of an HTTP answer.** Answers from the
+  app's IPC server and from Ollama were read to their end however long they
+  were (the 5 s timeout applies to each read), so a peer that kept sending
+  grew the server's memory without bound. Past 64 MiB the request now fails,
+  saying so.
+- **`mdopener://recent-documents` says when the app is not running.** It
+  answered an empty list, the same as an app with no recents. It is now
+  `-32000`, as `mdopener://current` is.
+- **`mdopener://current` says when no document is open.** With nothing open
+  it answered an empty document, so an agent could not tell the two apart,
+  while the prompts already refused it. It is now `-32002` "No document is
+  open", the prompts' error; an open empty document is still `""`.
+- **`search_vault` refuses an empty query.** An empty or whitespace-only
+  `query` was sent to the app, so with the app closed the agent was told to
+  start it rather than that its query was empty. `query` now declares
+  `minLength: 1`, which the argument check enforces for any string property,
+  and a blank query is refused too: both are `-32602` before any IPC, as is a
+  blank `q` for `text://vault-search`.
+- **Folders too deep to scan are no longer skipped in silence.** The vault
+  walk enters folders at most 8 levels down and skipped deeper ones without
+  a word, so the Activity drawer, `/search` and `search_vault` presented the
+  rest as the whole folder. The depth limit is unchanged, but a skipped
+  folder now marks the scan as cut short (`scanCut`), so they say the list
+  is the newest of the files scanned and why.
+- **Session files are read up to 16 MiB.** `get_conversation_context` and
+  `save_conversation_message` read the session file whole however large it
+  was, and a file that could not be read answered as an empty session. A
+  file past 16 MiB is now not read: getting it is `isError: true` saying how
+  large it is and what to do, and saving refuses without touching it.
+  Appends keep the file within 16 MiB by dropping the oldest messages, and
+  the result says how many (`dropped`, `note`).
+- **`mdopen -` stops at 16 MiB.** It read all of stdin into memory and then
+  into a temp file, however much was piped in (`mdopen - < /dev/zero` never
+  finished). Past the 16 MiB a document may be it now exits `1`, saying so,
+  without writing a temp file or opening anything.
 - **Documents over 16 MiB are refused, not returned whole.** `export_text`,
   `export_metadata`, `diff_documents`, `edit_canvas` and `file://` resources
   read a document from disk whole and returned it whole, so a

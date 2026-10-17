@@ -2711,7 +2711,7 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     assert_eq!(text["truncated"], true, "{text}");
     let note = text["note"].as_str().unwrap();
     assert!(
-        note.contains("too large for Ashlr MD to scan in full"),
+        note.contains("too deeply nested for Ashlr MD to scan in full"),
         "{text}"
     );
     assert!(
@@ -6038,8 +6038,92 @@ fn save_message_reports_a_failed_session_write() {
     );
     let err = tool_error_text(&resp);
     assert!(err.contains("not saved"), "{err}");
-    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    // Nothing unsaved lingers, and the unreadable "file" is not passed off
+    // as an empty session either.
+    let err = store_get_context(&sid, 20).unwrap_err();
+    assert!(err.contains("Cannot read"), "{err}");
     std::fs::remove_dir(&path).unwrap();
+}
+
+/// A session file was read whole however large it was. Past 16 MiB it is
+/// now not read at all: getting the context is an error saying how large it
+/// is (not an empty session), and saving refuses without touching the file.
+#[test]
+fn a_session_file_past_the_cap_is_not_read() {
+    use mdopener_mcp::MAX_SESSION_FILE_BYTES;
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(MAX_SESSION_FILE_BYTES + 1)
+        .unwrap();
+    let err = tool_error_text(&tool_get_conversation_context(
+        id(1),
+        &json!({ "session_id": sid }),
+    ));
+    assert!(
+        err.contains("more than the 16 MiB a session file may be"),
+        "{err}"
+    );
+    assert!(err.contains("new `session_id`"), "{err}");
+    let err = tool_error_text(&tool_save_conversation_message(
+        id(2),
+        &json!({ "session_id": sid, "role": "agent", "content": "x" }),
+    ));
+    assert!(err.contains("not saved") && err.contains("16 MiB"), "{err}");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        MAX_SESSION_FILE_BYTES + 1
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+/// Appends keep the session file within the cap, dropping the oldest
+/// messages and saying how many, so a log this server writes stays readable.
+#[test]
+fn saving_past_the_session_cap_drops_the_oldest_and_says_so() {
+    use mdopener_mcp::{persist_session, ConversationMessage, SessionLog, MAX_SESSION_FILE_BYTES};
+    let sid = unique_session();
+    let old = ConversationMessage {
+        id: "msg-old".into(),
+        session_id: sid.clone(),
+        role: "agent".into(),
+        content: "o".repeat(MAX_SESSION_FILE_BYTES as usize - 512 * 1024),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    persist_session(
+        &sid,
+        &SessionLog {
+            messages: vec![old],
+        },
+    )
+    .unwrap();
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "n".repeat(1024 * 1024) }),
+    );
+    let body = content_text(&resp);
+    assert_eq!(body["ok"], true, "{body}");
+    assert_eq!(body["dropped"], 1, "{body}");
+    let note = body["note"].as_str().unwrap();
+    assert!(note.contains("1 oldest message(s) were dropped"), "{note}");
+    let path = session_file_path(&sid).unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() <= MAX_SESSION_FILE_BYTES);
+    let ctx = store_get_context(&sid, 20).unwrap();
+    assert_eq!(ctx.len(), 1);
+    assert!(ctx[0].content.starts_with('n'));
+    // A save that fits drops nothing and says nothing about it.
+    let body = content_text(&tool_save_conversation_message(
+        id(2),
+        &json!({ "session_id": sid, "role": "human", "content": "ok" }),
+    ));
+    assert!(
+        body.get("dropped").is_none() && body.get("note").is_none(),
+        "{body}"
+    );
+    std::fs::remove_file(&path).unwrap();
 }
 
 // ── edit_canvas keeps what it does not edit ───────────────────────────────────
@@ -7127,6 +7211,21 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                     assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}: {msg}");
                 }
             }
+            // A string shorter than its declared `minLength` is refused,
+            // and one exactly that long is not.
+            if let Some(min) = prop["minLength"].as_u64() {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("x".repeat(min as usize - 1)));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(
+                    msg.starts_with(&format!("`{k}` must be at least {min} character")),
+                    "{name}.{k}: {msg}"
+                );
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("é".repeat(min as usize)));
+                let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
+                assert!(r.is_ok(), "{name}.{k}: {min} characters refused: {r:?}");
+            }
             if let Some(items) = prop.get("items") {
                 let mut args = valid.clone();
                 args.insert(k.clone(), json!([sample_of(items).1]));
@@ -7783,4 +7882,140 @@ fn document_reads_refuse_a_file_larger_than_16_mib() {
         read_document_file(&at_cap).unwrap().len() as u64,
         MAX_DOCUMENT_BYTES
     );
+}
+
+/// `search_vault` with an empty or whitespace-only query reached the app, so
+/// with the app closed the agent was told "app not running" instead of that
+/// its query was empty. Both are now `-32602` before any IPC: an empty one by
+/// the schema's `minLength`, a blank one by the tool. The resource refuses a
+/// blank `q` the same way.
+#[test]
+fn search_vault_refuses_an_empty_or_blank_query_before_the_app() {
+    let schema = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "search_vault")
+        .unwrap()
+        .input_schema;
+    assert_eq!(schema["properties"]["query"]["minLength"], 1);
+    let msg = refused_before_the_tool("search_vault", json!({ "query": "" }));
+    assert!(
+        msg.starts_with("`query` must be at least 1 character"),
+        "{msg}"
+    );
+    for blank in [" ", "  \t\n "] {
+        let msg = refused_before_the_tool(
+            "search_vault",
+            json!({ "query": blank, "vault": "/nonexistent" }),
+        );
+        assert!(msg.contains("only whitespace"), "{blank:?}: {msg}");
+    }
+    let ipc = MockIpc::new();
+    for uri in ["text://vault-search?q=", "text://vault-search?q=+%20+"] {
+        let resp = mdopener_mcp::handle_resource_read(id(1), uri, &ipc);
+        let err = resp.error.expect(uri);
+        assert_eq!(err.code, -32602, "{uri}");
+        assert!(
+            err.message.contains("requires a query"),
+            "{uri}: {}",
+            err.message
+        );
+    }
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+}
+
+/// `mdopener://current` answered `""` when no document was open, so an agent
+/// could not tell "nothing open" from an empty document; the prompts already
+/// refused it. Both now refuse it the same way (-32002), an open empty
+/// document is still `""`, and an unreachable app is -32000.
+#[test]
+fn current_resource_with_no_document_open_is_an_error_like_the_prompts() {
+    let none_open =
+        || MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let resp = handle_resource_read(id(1), "mdopener://current", &none_open());
+    let err = resp.error.expect("no document open must be an error");
+    assert_eq!(err.code, -32002);
+    assert!(
+        err.message.contains("No document is open"),
+        "{}",
+        err.message
+    );
+    let prompt = mdopener_mcp::handle_prompt_get(id(2), "summarize", &none_open());
+    let perr = prompt.error.expect("prompt with no document");
+    assert_eq!((perr.code, perr.message), (err.code, err.message));
+
+    let no_content = MockIpc::new().on_get("/content", Ok(json!({ "path": "/a.md" })));
+    let err = handle_resource_read(id(3), "mdopener://current", &no_content)
+        .error
+        .expect("an answer without content must be an error");
+    assert_eq!(err.code, -32002, "{}", err.message);
+
+    let empty_doc =
+        MockIpc::new().on_get("/content", Ok(json!({ "path": "/a.md", "content": "" })));
+    let resp = handle_resource_read(id(4), "mdopener://current", &empty_doc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    assert_eq!(resp.result.unwrap()["contents"][0]["text"], "");
+
+    let resp = handle_resource_read(id(5), "mdopener://current", &MockIpc::new());
+    assert_eq!(resp.error.expect("app unreachable").code, -32000);
+}
+
+/// `mdopener://recent-documents` answered an empty list when the app could
+/// not be reached, the same as an app with no recents. It is now -32000 like
+/// `mdopener://current`; an app with no recents is still an empty list.
+#[test]
+fn recent_documents_without_the_app_is_an_error_not_an_empty_list() {
+    let ipc = MockIpc::new().on_get("/vault", Err("~/.mdopener/ipc-port not found".into()));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    let err = resp.error.expect("an unreachable app must be an error");
+    assert_eq!(err.code, -32000);
+    assert!(
+        err.message.contains("does not appear to be running"),
+        "{}",
+        err.message
+    );
+
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["count"], 0);
+}
+
+/// An HTTP answer was read to its end however long it was (the read timeout
+/// is per read), so a peer that kept sending grew the server's memory
+/// without bound. Past MAX_HTTP_RESPONSE_BYTES it is now refused.
+#[test]
+fn an_http_answer_past_the_cap_is_refused() {
+    use mdopener_mcp::MAX_HTTP_RESPONSE_BYTES;
+    use std::io::{Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut req = [0u8; 1024];
+        let _ = conn.read(&mut req);
+        let _ = conn.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n\"");
+        let chunk = vec![b'x'; 1024 * 1024];
+        // A little past the cap, then stop, so a client without one returns.
+        for _ in 0..=(MAX_HTTP_RESPONSE_BYTES / chunk.len() as u64) {
+            if conn.write_all(&chunk).is_err() {
+                return;
+            }
+        }
+        let _ = conn.write_all(b"\"");
+    });
+    let err = match mdopener_mcp::http_get(&format!("http://127.0.0.1:{port}/content"), "t") {
+        Ok(v) => panic!("an answer of {} bytes was read whole", v.to_string().len()),
+        Err(e) => e,
+    };
+    assert!(
+        err.contains("more than 64 MiB"),
+        "{}",
+        &err[..err.len().min(200)]
+    );
+    server.join().unwrap();
 }

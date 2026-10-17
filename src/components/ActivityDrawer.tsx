@@ -245,7 +245,7 @@ export function ActivityDrawer() {
           {truncated ? (
             <p className="activity-truncated" role="note">
               {scanCut
-                ? `This folder is too large to scan in full, so these are the ${MAX_FILES} most recently changed of the files scanned. Agents searching it see only these.`
+                ? `This folder is too large or too deeply nested to scan in full, so these are the ${MAX_FILES} most recently changed of the files scanned. Agents searching it see only these.`
                 : `Showing the ${MAX_FILES} most recently changed files. This folder has more, and agents searching it see only these.`}
             </p>
           ) : null}

@@ -317,6 +317,82 @@ fn session_file_stem(session_id: &str) -> String {
 /// `.json` and a `.<pid>-<seq>.tmp` suffix of up to 36 bytes to the stem.
 pub const MAX_SESSION_FILE_STEM: usize = 200;
 
+/// Largest session file the conversation tools read: the 16 MiB a document
+/// may be ([`MAX_DOCUMENT_BYTES`]). A session file was read whole however
+/// large it was (another process, or a hand edit, can make it any size), so
+/// one `get_conversation_context` could pull gigabytes into memory. Appends
+/// drop the oldest messages to keep the file under it (see
+/// [`fit_session_log`]), so a log this server writes is always readable.
+pub const MAX_SESSION_FILE_BYTES: u64 = MAX_DOCUMENT_BYTES;
+
+/// Read a session file, refusing one larger than [`MAX_SESSION_FILE_BYTES`]
+/// (before reading it, and if it grows while read) with a message that says
+/// how large it is and what to do.
+fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let meta = std::fs::metadata(path)?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let too_large = |len: u64| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "it is {:.1} MiB, more than the {} MiB a session file may be, so it was \
+                 not read; use a new `session_id`, or move the file aside",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ),
+        )
+    };
+    if meta.len() > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(meta.len()));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_SESSION_FILE_BYTES + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
+}
+
+/// Drop the oldest messages of `log` until it serialises (as
+/// [`persist_session`] writes it) within [`MAX_SESSION_FILE_BYTES`]. Returns
+/// how many were dropped; an error when even the newest message alone is too
+/// large.
+fn fit_session_log(log: &mut SessionLog) -> Result<usize, String> {
+    let mut dropped = 0;
+    loop {
+        let len = serde_json::to_string_pretty(log)
+            .map_err(|e| format!("Serialisation error: {e}"))?
+            .len() as u64;
+        if len <= MAX_SESSION_FILE_BYTES {
+            return Ok(dropped);
+        }
+        if log.messages.len() <= 1 {
+            return Err(format!(
+                "the message is too large: the session file would be {:.1} MiB, more \
+                 than the {} MiB a session file may be",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ));
+        }
+        // Drop about the share of messages that is over, at least one, and
+        // never the newest.
+        let n = log.messages.len() as u64;
+        let excess = len - MAX_SESSION_FILE_BYTES;
+        let cut =
+            (excess.saturating_mul(n).div_ceil(len) as usize).clamp(1, log.messages.len() - 1);
+        log.messages.drain(..cut);
+        dropped += cut;
+    }
+}
+
 /// The file name earlier builds used: every character other than an
 /// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
 /// Only read, as a fallback, so that history saved before the injective
@@ -359,7 +435,7 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
     };
     if path.exists() {
         let text =
-            read_regular_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+            read_session_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
         return parse_session_log(&text)
             .map(|log| Some(own(log)))
             .map_err(|e| format!("{} is not a session file: {e}", path.display()));
@@ -370,7 +446,7 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
     if legacy == path {
         return Ok(None);
     }
-    let Some(log) = read_regular_file(&legacy)
+    let Some(log) = read_session_file(&legacy)
         .ok()
         .and_then(|text| parse_session_log(&text).ok())
     else {
@@ -473,7 +549,7 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<(
 /// or cannot be parsed.
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
-    let text = read_regular_file(&path).ok()?;
+    let text = read_session_file(&path).ok()?;
     parse_session_log(&text).ok()
 }
 
@@ -485,6 +561,18 @@ pub fn store_append_message(
     content: &str,
     cited_docs: Vec<String>,
 ) -> Result<ConversationMessage, String> {
+    append_message(session_id, role, content, cited_docs).map(|(msg, _)| msg)
+}
+
+/// [`store_append_message`] that also returns how many of the oldest
+/// messages were dropped to keep the session file within
+/// [`MAX_SESSION_FILE_BYTES`].
+fn append_message(
+    session_id: &str,
+    role: &str,
+    content: &str,
+    cited_docs: Vec<String>,
+) -> Result<(ConversationMessage, usize), String> {
     let role = role.trim();
     match role {
         "agent" | "human" | "system" => {}
@@ -547,13 +635,15 @@ pub fn store_append_message(
         let excess = log.messages.len() - MAX_MESSAGES_PER_SESSION;
         log.messages.drain(..excess);
     }
+    // And bound the file, so every reader can read what was written.
+    let dropped = fit_session_log(&mut log).map_err(|e| format!("Message not saved: {e}"))?;
 
     // Only a log that reached disk replaces the cached one, so a failed
     // write leaves no unsaved message behind.
     persist_session(session_id, &log)
         .map_err(|e| format!("Message not saved to the session file: {e}"))?;
     store.insert(session_id.to_string(), log);
-    Ok(msg)
+    Ok((msg, dropped))
 }
 
 /// Retrieve the last `n` messages for `session_id`.
@@ -565,9 +655,16 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
         .map_err(|e| format!("Lock error: {e}"))?;
 
     // The persisted log is authoritative (other processes append to it); the
-    // in-process copy only answers when it cannot be read.
-    if let Ok(Some((log, _))) = load_own_session(session_id) {
-        store.insert(session_id.to_string(), log);
+    // in-process copy only answers when it cannot be read. With no copy, an
+    // unreadable file (one past MAX_SESSION_FILE_BYTES, say) is an error: an
+    // empty list would claim the session has no messages.
+    match load_own_session(session_id) {
+        Ok(Some((log, _))) => {
+            store.insert(session_id.to_string(), log);
+        }
+        Ok(None) => {}
+        Err(e) if !store.contains_key(session_id) => return Err(e),
+        Err(_) => {}
     }
 
     let messages = store
@@ -787,7 +884,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
+                    "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
@@ -844,7 +941,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet.",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -871,7 +968,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name).",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1338,6 +1435,15 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
                 return Err(format!("`{key}` must be at least {min}, got {value}"));
+            }
+        }
+        // JSON Schema counts characters (code points), not bytes.
+        if let (Some(min), Some(text)) = (prop["minLength"].as_u64(), value.as_str()) {
+            if (text.chars().count() as u64) < min {
+                return Err(format!(
+                    "`{key}` must be at least {min} character{} long, got {value}",
+                    if min == 1 { "" } else { "s" }
+                ));
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -2376,7 +2482,18 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
 }
 
 pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty query is refused by the schema's `minLength`; a whitespace-only
+    // one is refused here, before Ollama or the app is asked. Both used to
+    // reach the app, so with it closed the agent was told to start it rather
+    // than that the query was empty.
     let query = match args["query"].as_str() {
+        Some(q) if q.trim().is_empty() => {
+            return Response::err(
+                id,
+                -32602,
+                "`query` must not be empty or only whitespace: pass the words to search for",
+            )
+        }
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
@@ -2671,8 +2788,9 @@ struct VaultFiles {
     /// The app's own cap on its vault list, as `/vault` reports it (the
     /// frontend's `MAX_FILES`). `None` from an older app that does not say.
     app_limit: Option<u64>,
-    /// The app's walk of the watched folder stopped before reading all of
-    /// it, so its list is the newest of the files reached.
+    /// The app's walk of the watched folder did not read all of it (entry
+    /// budget, or folders too deep), so its list is the newest of the files
+    /// reached.
     app_scan_cut: bool,
 }
 
@@ -2685,10 +2803,11 @@ impl VaultFiles {
                 let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
                 if self.app_scan_cut {
                     return format!(
-                        "The watched folder is too large for Ashlr MD to scan in full, so \
-                         only the {n}most recently changed of the files it scanned (and the \
-                         recent documents) were searched; newer files elsewhere in the folder \
-                         may have been missed."
+                        "The watched folder is too large or too deeply nested for Ashlr \
+                         MD to scan in full (it reads at most 50,000 entries, and folders at \
+                         most 8 levels down), so only the {n}most recently changed of the files \
+                         it scanned (and the recent documents) were searched; files elsewhere \
+                         in the folder may have been missed."
                     );
                 }
                 format!(
@@ -2859,17 +2978,25 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         })
         .unwrap_or_default();
 
-    match store_append_message(&session_id, role, &content, cited_docs) {
-        Ok(msg) => tool_result(
-            id,
-            json!({
+    match append_message(&session_id, role, &content, cited_docs) {
+        Ok((msg, dropped)) => {
+            let mut body = json!({
                 "ok": true,
                 "messageId": msg.id,
                 "sessionId": msg.session_id,
                 "role": msg.role,
                 "timestampMs": msg.timestamp_ms,
-            }),
-        ),
+            });
+            if dropped > 0 {
+                body["dropped"] = json!(dropped);
+                body["note"] = json!(format!(
+                    "The session file may be at most {} MiB, so its {dropped} oldest \
+                     message(s) were dropped to make room for this one.",
+                    MAX_SESSION_FILE_BYTES / (1024 * 1024)
+                ));
+            }
+            tool_result(id, body)
+        }
         // The arguments were valid (checked above); this is a failure to
         // store the message, e.g. the session file could not be written.
         Err(e) => tool_error(id, e),
@@ -3034,7 +3161,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD.",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running.",
         "mimeType": "text/markdown"
     })];
 
@@ -3053,7 +3180,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the vault is empty or the app has no recents. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -3074,22 +3201,44 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, json!({ "resources": resources }))
 }
 
+/// The live document's text for `mdopener://current` and the prompts, or the
+/// JSON-RPC error: `-32002` when no document is open (the app answers
+/// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
+/// `-32000` when the app cannot be reached. An open document that is empty
+/// is `""`. The resource used to answer `""` with no document open, so an
+/// agent could not tell "nothing open" from "an empty document", while the
+/// prompts already refused it.
+fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
+    let v = ipc
+        .get("/content")
+        .map_err(|e| (-32000, app_not_running_msg(&e)))?;
+    let no_document = v["path"].is_null();
+    match v["content"].as_str() {
+        Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
+        _ if no_document => Err((
+            -32002,
+            "No document is open in Ashlr MD. Open one first (open_file).".to_string(),
+        )),
+        _ => Err((
+            -32002,
+            "Ashlr MD did not return the current document's content.".to_string(),
+        )),
+    }
+}
+
 /// The query parameters `text://vault-search` takes.
 const VAULT_SEARCH_PARAMS: &[&str] = &["q", "limit", "semantic", "vault"];
 
 pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Response {
     if uri == "mdopener://current" {
-        return match ipc.get("/content") {
-            Ok(v) => {
-                let text = v["content"].as_str().unwrap_or("").to_string();
-                Response::ok(
-                    id,
-                    json!({
-                        "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
-                    }),
-                )
-            }
-            Err(e) => Response::err(id, -32000, app_not_running_msg(&e)),
+        return match current_document(ipc) {
+            Ok(text) => Response::ok(
+                id,
+                json!({
+                    "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
+                }),
+            ),
+            Err((code, msg)) => Response::err(id, code, msg),
         };
     }
 
@@ -3187,11 +3336,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 );
             }
         }
-        if query.is_empty() {
+        if query.trim().is_empty() {
             return Response::err(
                 id,
                 -32602,
-                "text://vault-search requires a query: text://vault-search?q=your+query",
+                "text://vault-search requires a query that is not only whitespace: \
+                 text://vault-search?q=your+query",
             );
         }
 
@@ -3397,19 +3547,9 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
     };
     // Without the live document the prompt would ask the model to work on an
     // empty string, so a missing app or document is an error, not "".
-    let content = match ipc.get("/content") {
-        // The app answers `{ "path": null, "content": "" }` when nothing is open.
-        Ok(v) => match v["content"].as_str() {
-            Some(c) if !(c.is_empty() && v["path"].is_null()) => c.to_string(),
-            _ => {
-                return Response::err(
-                    id,
-                    -32002,
-                    "No document is open in Ashlr MD. Open one first (open_file).",
-                )
-            }
-        },
-        Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
+    let content = match current_document(ipc) {
+        Ok(c) => c,
+        Err((code, msg)) => return Response::err(id, code, msg),
     };
     let text = format!("{instruction}\n\n---\n\n{content}");
 
@@ -3960,21 +4100,38 @@ pub fn tcp_roundtrip_within(
         .map_err(|e| format!("IPC write error: {e}"))?;
 
     let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|e| {
-        if matches!(
-            e.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ) {
-            format!(
-                "IPC read error: Ashlr MD did not answer within {} s",
-                read_timeout.as_secs()
-            )
-        } else {
-            format!("IPC read error: {e}")
-        }
-    })?;
+    // Bounded: the read timeout applies to each read, not the whole answer,
+    // so a peer that keeps sending (whatever listens on the port, e.g. a
+    // stray server on Ollama's) was read into memory without end.
+    (&mut stream)
+        .take(MAX_HTTP_RESPONSE_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| {
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) {
+                format!(
+                    "IPC read error: Ashlr MD did not answer within {} s",
+                    read_timeout.as_secs()
+                )
+            } else {
+                format!("IPC read error: {e}")
+            }
+        })?;
+    if buf.len() as u64 > MAX_HTTP_RESPONSE_BYTES {
+        return Err(format!(
+            "IPC read error: the answer from {addr} is more than {} MiB, so it was not read",
+            MAX_HTTP_RESPONSE_BYTES / (1024 * 1024)
+        ));
+    }
     Ok(buf)
 }
+
+/// Largest HTTP answer (headers and body) the server reads from the app or
+/// Ollama: room for a 16 MiB document ([`MAX_DOCUMENT_BYTES`]) JSON-escaped
+/// several times over, far above any real answer.
+pub const MAX_HTTP_RESPONSE_BYTES: u64 = 4 * MAX_DOCUMENT_BYTES;
 
 pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
     let sep = b"\r\n\r\n";
@@ -4090,9 +4247,10 @@ pub fn app_not_running_msg(err: &str) -> String {
 /// of raw content (including front-matter).  Files that no longer exist on
 /// disk are silently omitted so the list stays consistent.
 pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Response {
-    // Fetch the recent paths from the app.  When the app is not running, fall
-    // back gracefully to an empty list rather than returning an error — the
-    // resource contract says "empty list when vault is empty".
+    // Fetch the recent paths from the app. An app that cannot be reached (or
+    // refuses) is an error, as for `mdopener://current`: it used to answer an
+    // empty list, the same as an app with no recents, so the agent was told
+    // there were none when it could not know.
     let recent_paths: Vec<String> = match ipc.get("/vault") {
         Ok(v) => v["recents"]
             .as_array()
@@ -4102,7 +4260,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
                     .collect()
             })
             .unwrap_or_default(),
-        Err(_) => vec![],
+        Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
     };
 
     let mut documents: Vec<Value> = Vec::new();

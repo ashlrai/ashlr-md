@@ -64,7 +64,8 @@ export interface MdFileScan {
   /** The newest files found, newest first. */
   files: MdFileInfo[];
   /**
-   * The folder was too large to walk in full, so `files` are the newest of
+   * The folder was too large (50,000 entries) or too deep (folders more than
+   * 8 levels down) to walk in full, so `files` are the newest of
    * the files the walk reached, not necessarily the folder's newest.
    */
   scanCut: boolean;
