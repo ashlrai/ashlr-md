@@ -3267,7 +3267,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents, count, skipped: { missing, notDocument, tooLarge, unreadable } }: recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4360,8 +4360,12 @@ pub fn app_not_running_msg(err: &str) -> String {
 ///
 /// `title` is derived from the first `# Heading` line if present, otherwise
 /// the file's base name without extension.  `preview` is the first 200 chars
-/// of raw content (including front-matter).  Files that no longer exist on
-/// disk are silently omitted so the list stays consistent.
+/// of raw content (including front-matter).  Recents that cannot be listed
+/// are left out, and `skipped` counts them by reason: `missing` (no longer
+/// on disk), `notDocument` (not a Markdown non-dotfile regular file),
+/// `tooLarge` (past [`MAX_DOCUMENT_BYTES`]) and `unreadable` (any other read
+/// failure, such as text that is not UTF-8). They used to be dropped without
+/// a count, so a short list could not be told from a short recents list.
 pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Response {
     // Fetch the recent paths from the app. An app that cannot be reached (or
     // refuses) is an error, as for `mdopener://current`: it used to answer an
@@ -4380,18 +4384,29 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     };
 
     let mut documents: Vec<Value> = Vec::new();
+    let (mut missing, mut not_document, mut too_large, mut unreadable) = (0u64, 0u64, 0u64, 0u64);
     for path in &recent_paths {
         // Skip a recent that is (or now links to) something other than a
         // Markdown non-dotfile, as `file://` reads do: its preview would
         // otherwise show the first 200 characters of the link's target.
         let Ok(checked) = checked_document_path(path, "path") else {
+            not_document += 1;
             continue;
         };
         // Skip paths that no longer exist on disk. The checked (canonical)
         // path is read, so a link re-pointed after the check is not followed.
         let content = match read_document_file(&checked) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    missing += 1;
+                } else if std::fs::metadata(&checked).is_ok_and(|m| m.len() > MAX_DOCUMENT_BYTES) {
+                    too_large += 1;
+                } else {
+                    unreadable += 1;
+                }
+                continue;
+            }
         };
 
         // mtime in milliseconds since the Unix epoch.
@@ -4425,7 +4440,16 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         }));
     }
 
-    let payload = json!({ "documents": documents, "count": documents.len() });
+    let payload = json!({
+        "documents": documents,
+        "count": documents.len(),
+        "skipped": {
+            "missing": missing,
+            "notDocument": not_document,
+            "tooLarge": too_large,
+            "unreadable": unreadable,
+        },
+    });
     Response::ok(
         id,
         json!({

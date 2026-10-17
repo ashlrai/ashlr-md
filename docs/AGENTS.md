@@ -347,7 +347,12 @@ The server implements `resources/list` and `resources/read`.
   no `vault` is given.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
-  (`mimeType: application/json`). An app with no recents gives an empty list;
+  (`mimeType: application/json`), as `{ documents, count, skipped }`.
+  Recents that cannot be listed are left out and counted in `skipped` by
+  reason: `missing` (no longer on disk), `notDocument` (a dotfile, not
+  Markdown, or not a regular file), `tooLarge` (past 16 MiB) and
+  `unreadable` (any other read failure, such as text that is not UTF-8).
+  An app with no recents gives an empty list;
   an app that cannot be reached is `-32000`, as for `mdopener://current` (it
   used to be an empty list too).
 - **`file://<path>` (vault files)** — every file the app advertises as part of

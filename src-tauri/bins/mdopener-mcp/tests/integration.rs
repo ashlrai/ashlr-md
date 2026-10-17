@@ -8122,6 +8122,63 @@ fn recent_documents_without_the_app_is_an_error_not_an_empty_list() {
     assert_eq!(body["count"], 0);
 }
 
+/// `mdopener://recent-documents` left out oversized, dotfile and missing
+/// recents without counting them, so a short list could not be told from a
+/// short recents list. `skipped` now counts each reason.
+#[test]
+fn recent_documents_counts_the_recents_it_skips() {
+    use mdopener_mcp::MAX_DOCUMENT_BYTES;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    std::fs::write(dir.join("ok.md"), "# Fine\n").unwrap();
+    std::fs::write(dir.join(".secret.md"), "# Hidden\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "plain\n").unwrap();
+    std::fs::File::create(dir.join("huge.md"))
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+    std::fs::write(dir.join("latin1.md"), [0x23u8, 0x20, 0xe9, 0xff]).unwrap();
+    let recents = json!([
+        path("ok.md"),
+        path(".secret.md"),
+        path("notes.txt"),
+        path("huge.md"),
+        path("gone.md"),
+        path("latin1.md"),
+    ]);
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": recents })));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["count"], 1, "{body}");
+    assert_eq!(
+        body["skipped"],
+        json!({ "missing": 1, "notDocument": 2, "tooLarge": 1, "unreadable": 1 }),
+        "{body}"
+    );
+
+    // Nothing skipped: every count is zero.
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [], "recents": [path("ok.md")] })),
+    );
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        body["skipped"],
+        json!({ "missing": 0, "notDocument": 0, "tooLarge": 0, "unreadable": 0 })
+    );
+}
+
 /// An HTTP answer was read to its end however long it was (the read timeout
 /// is per read), so a peer that kept sending grew the server's memory
 /// without bound. Past MAX_HTTP_RESPONSE_BYTES it is now refused.

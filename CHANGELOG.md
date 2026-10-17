@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://recent-documents` counts the recents it leaves out.**
+  Missing, oversized, dotfile and non-Markdown recents were dropped without
+  a count. The reply now has `skipped: { missing, notDocument, tooLarge,
+  unreadable }`.
 - **`resources/list` says when it could not list the vault's files.** When
   the app could not be asked for its vault list, the `file://` entries were
   left out without a word, so a client read it as a vault with no files.
