@@ -801,20 +801,45 @@ fn get_current_content_returns_path_and_markdown() {
     assert_eq!(text["content"], "# Hello\nworld");
 }
 
+/// With no document open the app answers `{ path: null, content: "" }`. The
+/// tool used to return that as a success, the same as an empty document; it
+/// is an error now, as `mdopener://current` and `export_text` report it.
 #[test]
-fn get_current_content_no_doc_open_returns_null_path() {
-    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
-    let resp = tool_get_content(id(1), &ipc);
-    assert!(resp.error.is_none());
-    assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
-    let text = content_text(&resp);
-    assert!(text["path"].is_null());
-    assert_eq!(text["content"], "");
+fn get_current_content_no_doc_open_is_a_tool_error() {
+    for body in [
+        json!({ "path": null, "content": "" }),
+        json!({ "path": null }),
+        json!({}),
+    ] {
+        let ipc = MockIpc::new().on_get("/content", Ok(body.clone()));
+        let resp = tool_get_content(id(1), &ipc);
+        let err = tool_error_text(&resp);
+        assert!(
+            err.contains("No document is open in Ashlr MD"),
+            "{body}: {err}"
+        );
+        assert!(err.contains("open_file"), "{err}");
+    }
 }
 
-/// The description said nothing of a null `path` or of what comes back with
-/// no document open, though `mdopener://current` and `export_text` call that
-/// an error and this tool answers it as a success.
+/// An unsaved document with text, and a saved document that is empty, are
+/// still successes: only a null path with no content means nothing is open.
+#[test]
+fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
+    for (path, content) in [(Value::Null, "# Draft"), (json!("/docs/empty.md"), "")] {
+        let ipc =
+            MockIpc::new().on_get("/content", Ok(json!({ "path": path, "content": content })));
+        let resp = tool_get_content(id(1), &ipc);
+        assert!(resp.error.is_none());
+        assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
+        let text = content_text(&resp);
+        assert_eq!(text["path"], path);
+        assert_eq!(text["content"], content);
+    }
+}
+
+/// The description says what a null `path` means and that no open document
+/// is an error, as `mdopener://current` and `export_text` report it.
 #[test]
 fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     let reg = tool_registry();
@@ -824,12 +849,10 @@ fn get_current_content_description_says_what_null_path_and_no_document_mean() {
         .unwrap();
     let d = def.description;
     assert!(d.contains("`path` is null for an unsaved document"), "{d}");
-    assert!(
-        d.contains("With no document open this is not an error"),
-        "{d}"
-    );
-    assert!(d.contains(r#"{ path: null, content: "" }"#), "{d}");
+    assert!(d.contains("With no document open this is an error"), "{d}");
+    assert!(d.contains("isError: true"), "{d}");
     assert!(d.contains("mdopener://current and export_text"), "{d}");
+    assert!(!d.contains("not an error"), "{d}");
 }
 
 #[test]

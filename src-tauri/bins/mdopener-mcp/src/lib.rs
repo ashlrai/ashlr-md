@@ -787,7 +787,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is not an error: it returns { path: null, content: \"\" }, the same as an empty unsaved document (mdopener://current and export_text report no open document as an error instead).",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD\"), as for mdopener://current and export_text; the app reports an unsaved document that is still empty the same way, so an error here never hides content.",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",
@@ -1982,12 +1982,25 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
     }
 }
 
+/// `get_current_content`: the app's `{ path, content }`, or a tool error. With
+/// no document open the app answers `{ "path": null, "content": "" }`, which
+/// this tool used to return as a success, so an agent could not tell "nothing
+/// open" from an empty document. It is an error now, the one
+/// `mdopener://current` and `export_text` give; an empty unsaved document
+/// reads the same at the IPC and is reported the same way.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
+        Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
+            tool_error(id, NO_DOCUMENT_OPEN.to_string())
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
+
+/// The error `get_current_content` and `mdopener://current` give when no
+/// document is open in the app.
+const NO_DOCUMENT_OPEN: &str = "No document is open in Ashlr MD. Open one first (open_file).";
 
 pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let content = match args["content"].as_str() {
@@ -3758,10 +3771,7 @@ fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
     let no_document = v["path"].is_null();
     match v["content"].as_str() {
         Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
-        _ if no_document => Err((
-            -32002,
-            "No document is open in Ashlr MD. Open one first (open_file).".to_string(),
-        )),
+        _ if no_document => Err((-32002, NO_DOCUMENT_OPEN.to_string())),
         _ => Err((
             -32002,
             "Ashlr MD did not return the current document's content.".to_string(),

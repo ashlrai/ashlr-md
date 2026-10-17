@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_current_content` reports no open document as an error.** With
+  nothing open it returned `{ "path": null, "content": "" }` as a success,
+  the same as an empty document, so an agent could not tell the two apart.
+  It is now an `isError` result ("No document is open in Ashlr MD. Open one
+  first (open_file)."), the one `mdopener://current` and `export_text`
+  give. An unsaved document with text, or an empty saved one, is unchanged.
 - **README, CONTRIBUTING, ROADMAP and SECURITY have no em or en dashes.**
   Their prose, feature lists and tables use colons, semicolons and commas
   instead, and the dash guard test now covers every top-level Markdown file
