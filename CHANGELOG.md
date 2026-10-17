@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The app starts with a launch argument that is not valid UTF-8.** Such an
+  argument (a file name in a legacy encoding, passed by a file manager or a
+  script) made the app panic at startup, before its window opened. It is now
+  skipped and named on stderr, and the other files on the command line still
+  open.
 - **`mdopener-mcp` starts with an argument that is not valid UTF-8.** Such an
   argument in a client config made the server panic before it read a request
   (exit `101`), so the client reported that it failed to start. It is now
