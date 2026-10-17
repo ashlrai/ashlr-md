@@ -6138,6 +6138,27 @@ fn stream_edit_apply_does_not_need_an_edit_id() {
     assert_eq!(required, json!(["find", "replace"]));
 }
 
+/// An empty `edit_id` names no preview: it is refused with -32602, through
+/// tools/call (the schema's minLength) and when the handler is called
+/// directly, and the app is not asked to apply anything.
+#[test]
+fn stream_edit_apply_refuses_an_empty_edit_id() {
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let args = json!({ "edit_id": "", "find": "a", "replace": "b" });
+    let msg = param_error(&call("stream_edit_apply", args.clone(), &ipc));
+    assert!(msg.contains("`edit_id`"), "{msg}");
+    let msg = param_error(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(msg, "`edit_id` must not be empty");
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let schema = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap()
+        .to_json()["inputSchema"]["properties"]["edit_id"]["minLength"]
+        .clone();
+    assert_eq!(schema, json!(1));
+}
+
 /// The frontend checks a stream edit's `path` against the open document's
 /// path as a string, and a document opened by drag and drop, a dialog or the
 /// file tree keeps the (symlinked) path it was opened by. Naming that file,

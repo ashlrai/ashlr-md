@@ -1246,7 +1246,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "edit_id": {
                         "type": "string",
-                        "description": "Optional: the editId of the stream_edit preview, for correlation only. The app re-finds `find` in the live document and applies occurrence `match_index`."
+                        "minLength": 1,
+                        "description": "Optional: the editId of the stream_edit preview, for correlation only; an empty one is refused. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -6527,8 +6528,12 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// `match_index` selects which candidate to apply when there are multiple matches.
 pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     // Only correlates with a preview: the app re-finds `find` in the live
-    // document, so the apply does not depend on it.
-    let edit_id = args["edit_id"].as_str().unwrap_or("").to_string();
+    // document, so the apply does not depend on it. An empty one named no
+    // preview and used to be accepted; it is refused as an empty `path` is.
+    let edit_id = match non_empty_str(args, "edit_id") {
+        Ok(e) => e.unwrap_or("").to_string(),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
         Some(_) => return Response::err(id, -32602, "`find` must not be empty"),

@@ -36,6 +36,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`stream_edit_apply` refuses an empty `edit_id`.** `edit_id: ""` named no
+  preview and was accepted. The schema now declares `minLength: 1` and an
+  empty one is `-32602`, as an empty `path` is; leaving it out still works.
 - **`edit_canvas` writes whole coordinates as integers.** `move_node` and
   `resize_node` wrote `"x": 5` as `"x": 5.0`, while JSON Canvas positions and
   sizes are integers. A whole-number `x`, `y`, `width` or `height` is now
