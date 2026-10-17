@@ -716,13 +716,18 @@ percent-decoded once. `mode` is `read` or `edit` and switches the document
 to that view once it is open, also when the link starts the app (so does
 `mdopen --edit` with the app closed); a link with any other `mode` is
 ignored, as `open_file` refuses one. `mode` used to be dropped, so the file
-opened in whatever view it was.
+opened in whatever view it was. Other parameters are ignored, by open and
+export links alike, and of a parameter given twice the first counts.
 
 `mdopener://export?path=<path>&format=pdf|docx|html|epub` opens the file and,
 once it has loaded (also when the link starts the app), the export dialog
 with that format selected (`format` defaults to `pdf`). The export request
 used to be sent with the open, so a link that started the app only opened
-the file. A link with any other `format` (`PDF`, `md`) is ignored, as the
+the file. An export link always switches the file to Read view, which
+exporting needs: `mode` may be left out or be `read`, and a link with
+`mode=edit` (or any value an open link refuses) is ignored. It used to
+ignore `mode` and export from whatever view the file was in, which fails in
+Edit view. A link with any other `format` (`PDF`, `md`) is ignored, as the
 `export` tool refuses one; it used to open the dialog with no format
 selected.
 

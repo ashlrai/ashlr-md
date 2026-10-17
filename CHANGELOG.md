@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://export` links open the file in Read view.** An export link
+  ignored `mode` and opened the file in whatever view it was, and an export
+  from Edit view fails. It now switches the file to Read view before the
+  dialog opens; `mode=read` is accepted, and `mode=edit` or an unknown mode
+  ignores the link with a logged reason, as an open link refuses an unknown
+  mode. docs/AGENTS.md says so, and that other parameters are ignored by both
+  kinds of link.
 - **Files opened while the app runs no longer pile up.** Every
   `mdopener://` link, second launch and Finder open appended its path to the
   buffer of files opened before the window was ready, which the window
