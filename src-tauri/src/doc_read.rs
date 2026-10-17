@@ -161,6 +161,29 @@ pub(crate) fn read_document_following(path: &Path, max: u64) -> Result<String, S
     read_open_file(file, &meta, max)
 }
 
+/// The bytes of the regular file `path` names (following links), at most
+/// `max` of them: [`read_document_following`] for a file that is not text
+/// (an embedded image). `Ok(None)` when it is larger than `max`.
+pub(crate) fn read_bytes_following(path: &Path, max: u64) -> Result<Option<Vec<u8>>, String> {
+    let before = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !before.is_file() {
+        return Err("it is not a regular file".into());
+    }
+    let file = open_for_read(path, false).map_err(|e| e.to_string())?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("it is not a regular file".into());
+    }
+    if meta.len() > max {
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    file.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    Ok((bytes.len() as u64 <= max).then_some(bytes))
+}
+
 fn read_no_follow(path: &Path, expected: Option<FileIdentity>, max: u64) -> Result<String, String> {
     let before = checked_metadata(path).map_err(|e| e.to_string())?;
     if before.file_type().is_symlink() {

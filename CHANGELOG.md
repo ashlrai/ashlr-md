@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Image embeds, "Apply hunk" and the semantic index never hang on a FIFO
+  or read a device.** An embed checked the image's size and then read it
+  whole, so a vault `pic.png` link to `/dev/zero` (which reports a size of
+  0) was read until memory ran out, and a FIFO hung the read. "Apply hunk"
+  read its target, and semantic indexing every library file, the same way.
+  They now read regular files only, opened without blocking, and stop at
+  their cap (25 MiB for an image, 16 MiB for a document).
 - **Opening and searching read regular files of at most 16 MiB.** Opening a
   document (and every read the window makes through `read_markdown_file`:
   embeds, link previews, the digest) and the search panel read whatever the

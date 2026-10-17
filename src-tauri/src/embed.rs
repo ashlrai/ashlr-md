@@ -180,6 +180,14 @@ fn is_markdown(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// The text of a library file to index, or `None` to skip it: a regular
+/// file of at most 16 MiB, opened without blocking. A FIFO named `x.md` in the
+/// watched folder hung the indexing, and a huge file (or a `notes.md` link to
+/// `/dev/zero`) was read whole into memory.
+fn index_source(path: &std::path::Path) -> Option<String> {
+    crate::doc_read::read_document_following(path, crate::doc_read::MAX_DOCUMENT_BYTES).ok()
+}
+
 fn mtime_ms(path: &std::path::Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -385,7 +393,7 @@ async fn embed_index_inner(
             skipped += 1;
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(p) else {
+        let Some(content) = index_source(p) else {
             continue;
         };
         let chunks = chunk_markdown(&content);
@@ -557,6 +565,42 @@ pub async fn embed_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Indexing read every library file whole: a FIFO hung it, and a link to
+    /// `/dev/zero` or a huge file was read until memory ran out.
+    #[cfg(unix)]
+    #[test]
+    fn index_source_skips_fifos_devices_and_files_over_16_mib() {
+        let dir = std::env::temp_dir().join(format!("mdopener-embed-src-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("pipe.md");
+        let ok = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "mkfifo failed");
+        let zero = dir.join("zero.md");
+        std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+        let big = dir.join("big.md");
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        let ok_md = dir.join("ok.md");
+        std::fs::write(&ok_md, "# ok").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let paths = [fifo, zero, big, ok_md];
+        std::thread::spawn(move || {
+            let _ = tx.send(paths.iter().map(|p| index_source(p)).collect::<Vec<_>>());
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("indexing blocked on a FIFO");
+        assert_eq!(got, vec![None, None, None, Some("# ok".to_string())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn cosine_identical_is_one() {
