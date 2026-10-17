@@ -15,6 +15,44 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Which jobs a PR needs. The macOS job only compiles and lints the Rust
+  # workspace against a placeholder frontend, so a PR that touches none of its
+  # inputs (frontend, landing page, most docs) has nothing for it to check and
+  # skips it instead of waiting for a shared macOS runner. Anything not on the
+  # list below counts as a Rust input. Pushes to main always run everything,
+  # and if this job fails the macOS job runs anyway.
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-22.04
+    outputs:
+      macos: ${{ steps.classify.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files="$(git diff --name-only "$BASE...$HEAD")"
+          printf '%s\n' "$files"
+          # Paths the macOS Rust check never reads. docs/AGENTS.md is
+          # include_str!'d by an mdopener-mcp test, so it stays a Rust input.
+          not_rust='^(src/|landing/|samples/|integrations/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig(\.node)?\.json$|package\.json$|bun\.lockb?$|[^/]*\.md$|docs/)'
+          macos=false
+          if printf '%s\n' "$files" | grep -v '^docs/AGENTS\.md$' | grep -Ev "$not_rust" | grep -q .; then macos=true; fi
+          if printf '%s\n' "$files" | grep -qx 'docs/AGENTS.md'; then macos=true; fi
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
+          echo "macos=$macos"
+
+  # ---------------------------------------------------------------------------
   # Linux: the fast gate. All OS-agnostic JS quality gates (typecheck, Biome,
   # unit tests, frontend build), dependency audits, and a Linux Rust check.
   # Moved here from macOS: identical coverage on a runner ~10x cheaper, and
@@ -110,6 +148,9 @@ jobs:
   # ---------------------------------------------------------------------------
   check-macos:
     name: Check (macOS)
+    needs: changes
+    # A skipped job satisfies the required check; a failed classifier runs it.
+    if: ${{ always() && (needs.changes.result != 'success' || needs.changes.outputs.macos == 'true') }}
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
