@@ -12,7 +12,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
-const IO_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long to wait for the app's answer. `/open` answers only once the
+/// window has opened the document or given up (`EDIT_ROUNDTRIP_TIMEOUT`, 4 s,
+/// in src-tauri/src/ipc.rs), so this must outlast that: hanging up first
+/// reports a slow open as an unreachable app and retries it through the URL
+/// scheme, opening the file a second time.
+const IO_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// The user's home directory, as the app (via `dirs::home_dir`) sees it.
 pub fn home_dir() -> Option<PathBuf> {
@@ -87,14 +92,26 @@ fn send_open(
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| "IPC server sent no HTTP status".to_string())?;
+    let reply = || {
+        text.split_once("\r\n\r\n")
+            .and_then(|(_, body)| serde_json::from_str::<serde_json::Value>(body).ok())
+    };
     match status {
-        200..=299 => Ok(Ok(())),
+        // A 200 says what the window did: `{"ok": false, "error": ...}` when
+        // it could not open the file, timed out, or the editor was busy.
+        200..=299 => match reply() {
+            Some(v) if v["ok"].as_bool() == Some(false) => Ok(Err(Failure::Refused(
+                v["error"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "Ashlr MD could not open the file".to_string()),
+            ))),
+            _ => Ok(Ok(())),
+        },
         401 => Err("IPC auth failed (stale ~/.mdopener/ipc-token)".to_string()),
         code @ 400..=499 => {
             // The app's error bodies are `{"error": "<reason>"}`.
-            let reason = text
-                .split_once("\r\n\r\n")
-                .and_then(|(_, body)| serde_json::from_str::<serde_json::Value>(body).ok())
+            let reason = reply()
                 .and_then(|v| v["error"].as_str().map(str::to_string))
                 .unwrap_or_else(|| format!("Ashlr MD refused the file (HTTP {code})"));
             Ok(Err(Failure::Refused(reason)))
@@ -137,6 +154,16 @@ mod tests {
     }
 
     fn fake_app_with(status: &str, reply: &str) -> (u16, std::thread::JoinHandle<String>) {
+        fake_app_after(status, reply, Duration::ZERO)
+    }
+
+    /// [`fake_app_with`] that waits `delay` after reading the request before
+    /// answering, like the app waiting on its window.
+    fn fake_app_after(
+        status: &str,
+        reply: &str,
+        delay: Duration,
+    ) -> (u16, std::thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let status = status.to_string();
@@ -165,6 +192,7 @@ mod tests {
                     }
                 }
             }
+            std::thread::sleep(delay);
             let _ = s.write_all(
                 format!(
                     "HTTP/1.1 {status}\r\nContent-Length: {}\r\n\r\n{reply}",
@@ -240,5 +268,44 @@ mod tests {
             err,
             Failure::Refused("Cannot open '/a.md': the file does not exist.".to_string())
         );
+    }
+
+    #[test]
+    fn a_window_that_could_not_open_the_file_is_a_refusal() {
+        // `/open` waits on the window and answers 200 with ok:false when it
+        // could not open the file; that is not an open.
+        let s = Scratch::new("window-failed");
+        let (port, app) = fake_app_with(
+            "200 OK",
+            r#"{"ok":false,"path":"/a.md","error":"Could not read /a.md: stream did not contain valid UTF-8"}"#,
+        );
+        s.write("ipc-port", &port.to_string());
+        s.write("ipc-token", "tok");
+        let err = open(&s.0, "/a.md", None).unwrap_err();
+        app.join().unwrap();
+        assert_eq!(
+            err,
+            Failure::Refused(
+                "Could not read /a.md: stream did not contain valid UTF-8".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn waits_for_a_window_that_takes_most_of_the_round_trip() {
+        // The app answers `/open` only after the window reports back (up to
+        // its 4 s round-trip timeout). Hanging up sooner would report the app
+        // as unreachable and reopen the file through the URL scheme.
+        let s = Scratch::new("slow-window");
+        let (port, app) = fake_app_after(
+            "200 OK",
+            r#"{"ok":true,"path":"/a.md"}"#,
+            Duration::from_millis(3_600),
+        );
+        s.write("ipc-port", &port.to_string());
+        s.write("ipc-token", "tok");
+        let got = open(&s.0, "/a.md", None);
+        app.join().unwrap();
+        assert_eq!(got, Ok(()));
     }
 }
