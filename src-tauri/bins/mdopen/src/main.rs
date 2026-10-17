@@ -343,7 +343,13 @@ fn open_in_app(
     match &outcome {
         launch::Launch::Opened { .. } => Ok(Opened::Confirmed),
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
-        _ => Err(format!("{} ({ipc_error})", outcome.describe())),
+        // Both routes failed: say what each one hit, then what to do. Before,
+        // this was `<launcher error> (<ipc error>)` with no next step.
+        _ => Err(format!(
+            "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
+             The mdopener:// URL: {}. Start Ashlr MD, then run mdopen again.",
+            outcome.describe()
+        )),
     }
 }
 
