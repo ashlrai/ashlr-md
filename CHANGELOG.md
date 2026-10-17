@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`stream_edit` refuses a `preview_lines` above 20.** It was read as 20 in
+  silence, and the schema declared no maximum. It is now refused with
+  `-32602` naming the range, as `diff_documents` refuses a `context_lines`,
+  and the schema declares `maximum: 20`.
 - **Empty arguments are refused before the app is asked.** An empty inline
   `content` in `request_review` registered a review of no text; an empty
   `path` in `edit_document`, `stream_edit` and `stream_edit_apply` came back

@@ -1205,7 +1205,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "preview_lines": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Context lines on each side of the diff hunk. Defaults to 5; values above 20 are read as 20."
+                        "maximum": STREAM_EDIT_MAX_PREVIEW_LINES,
+                        "description": "Context lines on each side of the diff hunk, a whole number from 0 to 20 (a value outside that range is refused, not clamped). Defaults to 5."
                     },
                     "path": {
                         "type": "string",
@@ -6147,6 +6148,9 @@ pub struct StreamEditPayload {
     pub path: Option<String>,
 }
 
+/// Most context lines `stream_edit` shows on each side of a diff hunk.
+pub const STREAM_EDIT_MAX_PREVIEW_LINES: u64 = 20;
+
 fn default_preview() -> bool {
     true
 }
@@ -6194,7 +6198,24 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
-    let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
+    // A `preview_lines` above STREAM_EDIT_MAX_PREVIEW_LINES used to be read
+    // as that many in silence; it is refused like the other limits.
+    let preview_lines = match &args["preview_lines"] {
+        Value::Null => 5,
+        v => match whole_number_value(v).filter(|n| *n <= STREAM_EDIT_MAX_PREVIEW_LINES) {
+            Some(n) => n as u32,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`preview_lines` must be a whole number from 0 to \
+                         {STREAM_EDIT_MAX_PREVIEW_LINES}, got {v}; omit it for the default of 5"
+                    ),
+                )
+            }
+        },
+    };
     let path = match non_empty_str(args, "path") {
         Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
         Err(e) => return Response::err(id, -32602, e),

@@ -5923,6 +5923,49 @@ fn stream_edit_reports_whether_it_applied_the_edit() {
     assert_eq!(applied["applied"], true, "{applied}");
 }
 
+/// `stream_edit` read a `preview_lines` above 20 as 20 in silence, and its
+/// schema declared no maximum. The schema now declares 20 and the tool
+/// refuses a larger value before the app is asked, like the other limits.
+#[test]
+fn stream_edit_refuses_preview_lines_above_20() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit")
+        .unwrap();
+    assert_eq!(def.input_schema["properties"]["preview_lines"]["maximum"], 20);
+    let msg = param_error(&call_tool(
+        "stream_edit",
+        json!({ "find": "a", "replace": "b", "preview_lines": 21 }),
+    ));
+    assert_eq!(msg, "`preview_lines` must be at most 20, got 21");
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": true })));
+    for bad in [json!(21), json!(u64::MAX), json!(2.5)] {
+        let resp = tool_stream_edit(
+            id(1),
+            &json!({ "find": "a", "replace": "b", "preview_lines": bad }),
+            &ipc,
+        );
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`preview_lines` must be a whole number from 0 to 20, got {bad}; \
+                 omit it for the default of 5"
+            )
+        );
+    }
+    assert!(ipc.calls().is_empty(), "the app was asked");
+    // 20 itself still passes, and an omitted one is the default of 5.
+    for (args, want) in [
+        (json!({ "find": "a", "replace": "b", "preview_lines": 20 }), 20),
+        (json!({ "find": "a", "replace": "b" }), 5),
+    ] {
+        let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": true })));
+        assert!(!is_error(&tool_stream_edit(id(1), &args, &ipc)));
+        let body = ipc.calls()[0].2.clone().unwrap();
+        assert_eq!(body["previewLines"], want);
+    }
+}
+
 /// The app re-finds `find` in the live document, so `edit_id` only
 /// correlates with a preview; applying without one is allowed.
 #[test]
