@@ -54,11 +54,21 @@ pub fn write_markdown_file(path: String, content: String) -> Result<(), String> 
 /// written with `std::fs::write`, which follows a symlink: a vault (a cloned
 /// repository, a shared folder) that ships `notes.md.mdopener.tmp ->
 /// ~/.bashrc` had the next save of `notes.md` written into `~/.bashrc`.
+///
+/// The new file takes the permissions of the file it replaces, set before any
+/// byte is written: a fresh temp file gets the default mode (`0644` under the
+/// usual umask), so saving a private `0600` note used to leave it readable by
+/// every user on the machine.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
+    let keep = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.permissions());
     let (tmp, mut file) = create_temp_sibling(path)?;
-    let written = file
-        .write_all(bytes)
+    let written = keep
+        .map_or(Ok(()), |p| file.set_permissions(p))
+        .and_then(|()| file.write_all(bytes))
         .and_then(|()| file.sync_all())
         .and_then(|()| {
             drop(file);
@@ -730,6 +740,29 @@ mod tests {
             })
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    /// A save replaced the file with a new one in the default mode, so a
+    /// private `0600` note became world-readable.
+    #[cfg(unix)]
+    #[test]
+    fn saves_keep_the_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = make_tree();
+        let doc = root.join("private.md");
+        std::fs::write(&doc, "old").unwrap();
+        std::fs::set_permissions(&doc, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_markdown_file(s(&doc), "new".into()).unwrap();
+        let mode = std::fs::metadata(&doc).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{mode:o}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
+
+        let out = root.join("private.docx");
+        std::fs::write(&out, "old").unwrap();
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o640)).unwrap();
+        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640, "{mode:o}");
     }
 
     #[test]

@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Saving keeps the file's permissions.** A save (or an export over an
+  existing file) replaced the file with a new one in the default mode, so a
+  private `0600` note became readable by every user on the machine after its
+  first save, including one an agent made with `save: true`. The new file now
+  takes the old one's permissions before anything is written to it.
 - **Saves never write through a planted temp-file symlink.** Every app
   write (saving a document, an export, a pasted image) went to the fixed
   `<path>.mdopener.tmp` with a write that follows symlinks, so a vault (a
