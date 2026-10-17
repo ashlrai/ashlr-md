@@ -23,33 +23,43 @@ use std::sync::Mutex;
 
 /// File paths opened before the frontend was ready, buffered for it to drain.
 ///
-/// The window drains it once, on mount ([`file_handler::take_pending_files`]);
-/// files opened after that reach it through the live `file-opened` event
-/// only, so they are not queued. Every link, second launch and Finder open
-/// used to be appended for as long as the app ran, though nothing read them.
+/// The window drains it on mount ([`file_handler::take_pending_files`]),
+/// registers its `file-opened` listener, then says so and drains it once
+/// more ([`file_handler::pending_files_listening`]); files opened after that
+/// reach it through the live `file-opened` event only, so they are not
+/// queued. Buffering used to stop at the first drain, so a file opened
+/// between that drain and the listener being registered was lost.
 #[derive(Default)]
 pub struct PendingFiles(Mutex<PendingBuf>);
 
 #[derive(Default)]
 struct PendingBuf {
     files: Vec<String>,
-    drained: bool,
+    listening: bool,
 }
 
 impl PendingFiles {
-    /// Buffer `paths` for the window, unless it has already drained the
-    /// buffer (then the `file-opened` event sent with them is what opens them).
+    /// Buffer `paths` for the window, unless its `file-opened` listener is
+    /// registered (then the event sent with them is what opens them).
     pub fn queue(&self, paths: impl IntoIterator<Item = String>) {
         let mut buf = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if !buf.drained {
+        if !buf.listening {
             buf.files.extend(paths);
         }
     }
 
-    /// The buffered paths, emptied; from now on nothing is queued.
+    /// The buffered paths, emptied. Later paths are still buffered until
+    /// [`PendingFiles::listening`].
     pub fn take(&self) -> Vec<String> {
         let mut buf = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        buf.drained = true;
+        std::mem::take(&mut buf.files)
+    }
+
+    /// The window's listener is registered: the paths buffered since the last
+    /// [`PendingFiles::take`], emptied; from now on nothing is queued.
+    pub fn listening(&self) -> Vec<String> {
+        let mut buf = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        buf.listening = true;
         std::mem::take(&mut buf.files)
     }
 }
@@ -99,6 +109,7 @@ pub fn run() {
             document::save_pasted_image_to_downloads,
             export::write_file_bytes,
             file_handler::take_pending_files,
+            file_handler::pending_files_listening,
             deep_link::take_link_view_mode,
             deep_link::take_link_export,
             watcher::watch_file,
@@ -174,14 +185,29 @@ mod tests {
     use super::PendingFiles;
 
     /// Paths opened while the app ran used to pile up in the buffer, which
-    /// the window drains only once at startup.
+    /// the window drains only at startup.
     #[test]
-    fn pending_files_queue_only_until_the_window_drains_them() {
+    fn pending_files_queue_only_until_the_window_listens() {
         let p = PendingFiles::default();
         p.queue(["/a.md".to_string()]);
         p.queue(["/b.md".to_string(), "/c.md".to_string()]);
         assert_eq!(p.take(), ["/a.md", "/b.md", "/c.md"]);
+        assert!(p.listening().is_empty());
         p.queue(["/d.md".to_string()]);
         assert!(p.take().is_empty());
+        assert!(p.listening().is_empty());
+    }
+
+    /// A file opened after the window drained the buffer but before its
+    /// `file-opened` listener was registered was neither buffered nor heard.
+    #[test]
+    fn pending_files_keep_what_opens_before_the_listener_is_registered() {
+        let p = PendingFiles::default();
+        p.queue(["/a.md".to_string()]);
+        assert_eq!(p.take(), ["/a.md"]);
+        p.queue(["/b.md".to_string()]);
+        assert_eq!(p.listening(), ["/b.md"]);
+        p.queue(["/c.md".to_string()]);
+        assert!(p.listening().is_empty());
     }
 }

@@ -6,6 +6,7 @@ import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
 import { getShortcutCommands } from "./lib/commands";
 import { classify } from "./lib/docClassifier";
+import { listenForOpenedFiles } from "./lib/fileOpens";
 import { matchShortcut } from "./lib/keymap";
 import { applyLinkExport } from "./lib/linkExport";
 import { applyLinkViewMode } from "./lib/linkViewMode";
@@ -86,14 +87,9 @@ export default function App() {
           s.tabs.find((t) => t.id === s.activeId)?.path ?? null,
         );
       });
-      unlisten = await listen<string[]>("file-opened", (e) => {
-        const paths = e.payload;
-        const last = paths[paths.length - 1];
-        if (last)
-          void openPath(last)
-            .then(() => applyLinkViewMode(last))
-            .then(() => applyLinkExport(last));
-      });
+      // Listen for live opens, then open what arrived between the drain
+      // above and the listener being registered.
+      unlisten = await listenForOpenedFiles(openPath);
     })();
     return () => {
       unlisten?.();

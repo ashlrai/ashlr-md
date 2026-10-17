@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A file opened while the window starts up is no longer lost.** The window
+  drained the buffer of files opened before it was ready and only then
+  registered its listener for live opens, and buffering stopped at that
+  drain, so a file, second launch or `mdopener://` link that arrived in
+  between was neither buffered nor heard. Files are now buffered until the
+  listener is registered, and the window drains the buffer once more then.
 - **The VS Code extension's `mdopen` fallback reports a killed CLI.** It
   counted a `mdopen` that ended without an exit status (killed by a signal)
   as having opened the file, so no error was shown. Only exit status `0`
