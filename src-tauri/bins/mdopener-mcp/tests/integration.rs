@@ -1,4 +1,4 @@
-//! Integration tests for all 12 mdopener-mcp tools.
+//! Integration tests for every mdopener-mcp tool (`ALL_TOOL_NAMES`).
 //!
 //! Uses a `MockIpc` struct that intercepts IPC calls and returns scripted
 //! fixtures — no running Ashlr MD app required.  Both success and failure
@@ -5254,6 +5254,124 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     );
 }
 
+/// A resumed call (`review_id`) cannot change the review, so it used to
+/// ignore `path`, `content` and `timeout_ms` without a word: an agent that
+/// edited its plan and resent it with the old id got the verdict on the old
+/// text. Resending the first call's arguments still works; a value that
+/// differs is refused, naming it, and nothing is polled.
+#[test]
+fn request_review_resumed_with_different_arguments_is_refused() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.md");
+    let other = dir.path().join("other.md");
+    std::fs::write(&plan, "# Plan\n").unwrap();
+    std::fs::write(&other, "# Other\n").unwrap();
+    let register = |args: Value| {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let mut a = args;
+        a["blocking"] = json!(false);
+        let v = content_text(&tool_request_review_with(id(1), &a, &ipc, Duration::ZERO));
+        v["reviewId"].as_str().unwrap().to_string()
+    };
+    let resume = |args: Value| {
+        let ipc = MockIpc::new().on_get(
+            "/review/result",
+            Ok(json!({ "status": "done", "verdict": "approved", "comments": "" })),
+        );
+        let resp = tool_request_review_with(id(2), &args, &ipc, Duration::from_millis(1));
+        (resp, ipc.calls().len())
+    };
+
+    let by_content = register(json!({ "content": "v1", "timeout_ms": 60_000 }));
+    let by_path = register(json!({ "path": plan }));
+
+    // The same arguments again, or none, resume the review.
+    for args in [
+        json!({ "review_id": by_content, "content": "v1", "timeout_ms": 60_000, "blocking": false }),
+        json!({ "review_id": by_content }),
+        json!({ "review_id": by_path, "path": plan, "timeout_ms": 300_000 }),
+    ] {
+        let (resp, _) = resume(args.clone());
+        let v = content_text(&resp);
+        assert_eq!(v["verdict"], "approved", "{args}: {v}");
+        assert!(v.get("ignored").is_none(), "{v}");
+    }
+    // A relative spelling of the same file is the same path.
+    let cwd = std::env::current_dir().unwrap();
+    if let Ok(rel) = plan.strip_prefix(&cwd) {
+        let (resp, _) = resume(json!({ "review_id": by_path, "path": rel }));
+        assert_eq!(content_text(&resp)["verdict"], "approved");
+    }
+
+    for (args, field) in [
+        (
+            json!({ "review_id": by_content, "content": "v2" }),
+            "content",
+        ),
+        (
+            json!({ "review_id": by_content, "timeout_ms": 90_000 }),
+            "timeout_ms",
+        ),
+        (json!({ "review_id": by_content, "path": plan }), "path"),
+        (json!({ "review_id": by_path, "path": other }), "path"),
+        (
+            json!({ "review_id": by_path, "content": "# Plan\n" }),
+            "content",
+        ),
+    ] {
+        let (resp, polls) = resume(args.clone());
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with(&format!("`{field}` differs from what review `")),
+            "{args}: {msg}"
+        );
+        assert!(msg.contains("without `review_id`"), "{msg}");
+        assert_eq!(polls, 0, "a refused resume does not poll");
+    }
+}
+
+/// A review this server did not register (it was restarted, or another
+/// server registered it) cannot be compared: resending the arguments still
+/// resumes it, and the result says they were not checked.
+#[test]
+fn request_review_resumed_from_another_server_reports_ignored_arguments() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "done", "verdict": "approved", "comments": "" })),
+    );
+    let foreign = format!("rev_1_00000001_{}", u64::MAX / 2);
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign, "content": "plan", "timeout_ms": 60_000 }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["ignored"], json!(["content", "timeout_ms"]), "{v}");
+    assert!(v["note"].as_str().unwrap().contains("not checked"), "{v}");
+    // A path that is not even a document is only compared, never opened.
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign, "path": "/nonexistent/x.md" }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    assert_eq!(content_text(&resp)["ignored"], json!(["path"]));
+    // Without them there is nothing to report.
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    assert!(content_text(&resp).get("ignored").is_none());
+}
+
 /// A resumed review stops at the end of its window: the app keeps a review
 /// replaced in its panel by a newer one as `pending` forever, so resuming it
 /// by `review_id` must end with `timeout` once the window the id records has
@@ -5704,6 +5822,170 @@ fn edit_canvas_reports_the_ids_left_and_the_edges_delete_node_removed() {
     assert_eq!(v["node_ids"], json!(["a", "c", "d"]), "{v}");
     assert_eq!(v["edge_ids"], json!(["ca"]), "{v}");
     assert_eq!(v["removed_edge_ids"], json!(["ab", "bc"]), "{v}");
+}
+
+/// Every `edit_canvas` op field is type-checked before the canvas is read, and
+/// the refusal names the op index and the field. `"x": "5"` used to be
+/// reported as "`x` required", and `"color": 3` or `"label": {}` was written
+/// into the canvas as given (where the app's parser then ignored it).
+#[test]
+fn edit_canvas_op_fields_of_the_wrong_type_name_the_op_and_field() {
+    let path = "/nonexistent/board.canvas";
+    let mv = json!({ "type": "move_node", "id": "a", "x": 1, "y": 2 });
+    let cases = [
+        (
+            json!([mv, { "type": "move_node", "id": "a", "x": "5", "y": 2 }]),
+            "`ops[1].x` must be a number, got a string (\"5\")",
+        ),
+        (
+            json!([{ "type": 5 }]),
+            "`ops[0].type` must be a string, got a number (5)",
+        ),
+        (
+            json!([{ "type": "move_node", "id": 7, "x": 1, "y": 2 }]),
+            "`ops[0].id` must be a string, got a number (7)",
+        ),
+        (
+            json!([{ "type": "set_node_color", "id": "a", "color": 3 }]),
+            "`ops[0].color` must be a string, got a number (3)",
+        ),
+        (
+            json!([{ "type": "edit_edge_label", "id": "e", "label": {} }]),
+            "`ops[0].label` must be a string, got an object",
+        ),
+        (
+            json!([{ "type": "resize_node", "id": "a", "width": true, "height": 1 }]),
+            "`ops[0].width` must be a number, got a boolean (true)",
+        ),
+        (
+            json!([{ "type": "reorder_edges", "ids": ["e", 2] }]),
+            "`ops[0].ids[1]` must be a string, got a number (2)",
+        ),
+        (
+            json!([{ "type": "add_node", "node": "n" }]),
+            "`ops[0].node` must be an object, got a string (\"n\")",
+        ),
+        (
+            json!([{ "type": "add_edge", "edge": [] }]),
+            "`ops[0].edge` must be an object, got an array",
+        ),
+        (json!([mv, { "id": "a" }]), "`ops[1].type` is required"),
+        (json!([5]), "`ops[0]` must be an object, got a number (5)"),
+    ];
+    for (ops, want) in cases {
+        let msg = refused_before_the_tool("edit_canvas", json!({ "path": path, "ops": ops }));
+        assert_eq!(msg, want);
+    }
+    // A field no op takes is named, with the closest one.
+    let msg = refused_before_the_tool(
+        "edit_canvas",
+        json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "colour": "1" }] }),
+    );
+    assert!(
+        msg.starts_with("Unknown field `colour` in `ops[0]`: it takes "),
+        "{msg}"
+    );
+    assert!(msg.ends_with("Did you mean `color`?"), "{msg}");
+    // null still means "not given": set_node_color without a colour clears it.
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "edit_canvas")
+        .unwrap();
+    let args =
+        json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": null }] });
+    assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+}
+
+/// `add_node` used to check only `node.id`, so a node the app's canvas parser
+/// drops (no `x`, an unknown `type`, a link without `url`) was written and
+/// reported as added, and then never appeared in the app.
+#[test]
+fn edit_canvas_add_node_refuses_a_node_the_app_would_drop() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let full =
+        json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 });
+    let with = |k: &str, v: Value| {
+        let mut n = full.clone();
+        n[k] = v;
+        n
+    };
+    let without = |k: &str| {
+        let mut n = full.clone();
+        n.as_object_mut().unwrap().remove(k);
+        n
+    };
+    let cases = [
+        (without("x"), "op[0] add_node: node.x required"),
+        (
+            with("y", json!("1")),
+            "op[0] add_node: node.y must be a number, got a string (\"1\")",
+        ),
+        (without("type"), "op[0] add_node: node.type required"),
+        (
+            with("type", json!("card")),
+            "op[0] add_node: node.type must be 'text', 'file', 'link' or 'group', got \"card\"",
+        ),
+        (
+            with("id", json!("")),
+            "op[0] add_node: node.id must not be empty",
+        ),
+        (
+            with("id", json!(3)),
+            "op[0] add_node: node.id must be a string, got a number (3)",
+        ),
+        (
+            with("width", json!(0)),
+            "op[0] add_node: node width and height must be positive",
+        ),
+        (
+            with("type", json!("link")),
+            "op[0] add_node: a link node needs a string node.url",
+        ),
+        (
+            with("type", json!("file")),
+            "op[0] add_node: a file node needs a string node.file",
+        ),
+        (
+            with("color", json!(2)),
+            "op[0] add_node: node.color must be a string, got a number (2)",
+        ),
+    ];
+    for (node, want) in cases {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "add_node", "node": node }] }),
+        );
+        assert_eq!(resp.error.as_ref().map(|e| e.message.as_str()), Some(want));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            raw,
+            "file untouched"
+        );
+    }
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "add_edge", "edge": { "id": "", "fromNode": "a", "toNode": "a" } }] }),
+    );
+    assert_eq!(
+        resp.error.as_ref().map(|e| e.message.as_str()),
+        Some("op[0] add_edge: edge.id must not be empty")
+    );
+    // A complete node of every kind is still added.
+    let ops = json!([
+        { "type": "add_node", "node": full },
+        { "type": "add_node", "node": { "id": "f", "type": "file", "file": "a.md", "x": 1, "y": 1, "width": 5, "height": 5 } },
+        { "type": "add_node", "node": { "id": "l", "type": "link", "url": "https://x", "x": 1, "y": 1, "width": 5, "height": 5 } },
+        { "type": "add_node", "node": { "id": "g", "type": "group", "x": 1.5, "y": -1, "width": 5, "height": 5 } }
+    ]);
+    let resp = mdopener_mcp::tool_edit_canvas(id(1), &json!({ "path": path, "ops": ops }));
+    assert!(!is_error(&resp), "{resp:?}");
+    assert_eq!(
+        content_text(&resp)["node_ids"],
+        json!(["a", "n", "f", "l", "g"])
+    );
 }
 
 /// A node or edge that is not a JSON object used to vanish silently on save;
@@ -6363,6 +6645,261 @@ fn every_declared_argument_passes_the_check() {
         let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
         assert!(r.is_ok(), "{}: {:?}", def.name, r);
     }
+}
+
+/// A value of the JSON type `prop` declares (its first `enum` value when it has
+/// one), and a value of some other type.
+fn sample_of(prop: &Value) -> (Value, Value) {
+    if let Some(first) = prop["enum"].as_array().and_then(|e| e.first()) {
+        return (first.clone(), json!(7));
+    }
+    match prop["type"].as_str() {
+        Some("string") => (json!("x"), json!(5)),
+        Some("boolean") => (json!(true), json!("yes")),
+        Some("integer") => (json!(prop["minimum"].as_i64().unwrap_or(0)), json!("1")),
+        Some("number") => (json!(1.5), json!("1.5")),
+        Some("array") => (json!([]), json!({})),
+        Some("object") => (json!({}), json!([])),
+        other => panic!("property without a type: {other:?} in {prop}"),
+    }
+}
+
+/// Call `name` through `tools/call` with an IPC that fails every request, and
+/// return the `-32602` message. Asserts the refusal came before the tool did
+/// anything (no IPC call), i.e. from the argument check.
+fn refused_before_the_tool(name: &str, args: Value) -> String {
+    let ipc = MockIpc::new();
+    let resp = dispatch(
+        dispatch_req("tools/call", json!({ "name": name, "arguments": args })),
+        &ipc,
+    )
+    .unwrap();
+    assert!(
+        ipc.calls().is_empty(),
+        "{name}: reached the app before refusing {args}: {:?}",
+        ipc.calls()
+    );
+    param_error(&resp)
+}
+
+#[test]
+fn every_tool_schema_matches_what_the_argument_check_enforces() {
+    // Drive the advertised schemas (tools/list), not the registry, so what an
+    // agent reads is what is enforced: every `required` argument left out,
+    // every `anyOf` alternative left out, and every property (and array
+    // element) given the wrong JSON type is refused with -32602 naming it,
+    // before the tool runs.
+    let ipc = MockIpc::new();
+    let resp = dispatch(dispatch_req("tools/list", json!({})), &ipc).unwrap();
+    let tools = resp.result.unwrap()["tools"].as_array().unwrap().clone();
+    assert_eq!(tools.len(), ALL_TOOL_NAMES.len());
+    for tool in &tools {
+        let name = tool["name"].as_str().unwrap();
+        let schema = &tool["inputSchema"];
+        let props = schema["properties"].as_object().unwrap();
+        let mut valid = serde_json::Map::new();
+        for (k, prop) in props {
+            valid.insert(k.clone(), sample_of(prop).0);
+        }
+        let def = tool_registry()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap();
+        let ok = mdopener_mcp::check_tool_arguments(&def, &Value::Object(valid.clone()));
+        assert!(ok.is_ok(), "{name}: well-typed arguments refused: {ok:?}");
+
+        for req in schema["required"].as_array().into_iter().flatten() {
+            let req = req.as_str().unwrap();
+            assert!(
+                props.contains_key(req),
+                "{name}: `{req}` required, undeclared"
+            );
+            for absent in [None, Some(Value::Null)] {
+                let mut args = valid.clone();
+                match absent {
+                    None => args.remove(req),
+                    Some(v) => args.insert(req.to_string(), v),
+                };
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert_eq!(msg, format!("`{req}` is required"), "{name}");
+            }
+        }
+        if let Some(alternatives) = schema["anyOf"].as_array() {
+            let mut args = valid.clone();
+            for alt in alternatives {
+                for req in alt["required"].as_array().unwrap() {
+                    args.remove(req.as_str().unwrap());
+                }
+            }
+            let msg = refused_before_the_tool(name, Value::Object(args));
+            assert!(msg.starts_with(&format!("`{name}` needs one of")), "{msg}");
+            // Any one alternative is enough.
+            for alt in alternatives {
+                let mut one = serde_json::Map::new();
+                for req in alt["required"].as_array().unwrap() {
+                    let req = req.as_str().unwrap();
+                    one.insert(req.to_string(), valid[req].clone());
+                }
+                let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(one));
+                assert!(r.is_ok(), "{name}: {alt} not enough: {r:?}");
+            }
+        }
+
+        for (k, prop) in props {
+            let mut args = valid.clone();
+            args.insert(k.clone(), sample_of(prop).1);
+            let msg = refused_before_the_tool(name, Value::Object(args));
+            assert!(
+                msg.starts_with(&format!("`{k}` must be ")),
+                "{name}.{k}: {msg}"
+            );
+            if let Some(items) = prop.get("items") {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!([sample_of(items).1]));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(msg.starts_with(&format!("`{k}[0]")), "{name}.{k}: {msg}");
+            }
+            // Fields of an array of objects (edit_canvas ops) are probed the
+            // same way, named `ops[0].field`.
+            if let Some(fields) = prop["items"]["properties"].as_object() {
+                let mut item = serde_json::Map::new();
+                for (f, fprop) in fields {
+                    item.insert(f.clone(), sample_of(fprop).0);
+                }
+                for (f, fprop) in fields {
+                    let mut bad = item.clone();
+                    bad.insert(f.clone(), sample_of(fprop).1);
+                    let mut args = valid.clone();
+                    args.insert(k.clone(), json!([bad]));
+                    let msg = refused_before_the_tool(name, Value::Object(args));
+                    let want = format!("`{k}[0].{f}` must be ");
+                    assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                }
+                for req in prop["items"]["required"].as_array().into_iter().flatten() {
+                    let req = req.as_str().unwrap();
+                    let mut missing = item.clone();
+                    missing.remove(req);
+                    let mut args = valid.clone();
+                    args.insert(k.clone(), json!([missing]));
+                    let msg = refused_before_the_tool(name, Value::Object(args));
+                    assert_eq!(msg, format!("`{k}[0].{req}` is required"), "{name}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn optional_string_of_the_wrong_type_is_not_read_as_absent() {
+    // `path: 5` must not fall back to "the open document".
+    for (tool, args) in [
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": "b", "path": 5 }),
+        ),
+        ("present_document", json!({ "path": 5 })),
+        ("export_text", json!({ "path": false })),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "path": ["a.md"] }),
+        ),
+    ] {
+        let msg = refused_before_the_tool(tool, args);
+        assert!(
+            msg.starts_with("`path` must be a string, got "),
+            "{tool}: {msg}"
+        );
+    }
+}
+
+#[test]
+fn edit_canvas_without_ops_is_refused_before_reading_the_file() {
+    // It used to read (and parse) the canvas first, so a missing file hid the
+    // missing `ops`.
+    let msg = refused_before_the_tool("edit_canvas", json!({ "path": "/nonexistent/x.canvas" }));
+    assert_eq!(msg, "`ops` is required");
+    let msg = refused_before_the_tool("request_review", json!({ "blocking": false }));
+    assert_eq!(
+        msg,
+        "`request_review` needs one of `path`, `content` or `review_id`"
+    );
+}
+
+/// `rel` spelled relative to this test's working directory (the tools resolve
+/// relative paths against the server's).
+fn relative_to_cwd(abs: &std::path::Path) -> std::path::PathBuf {
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    let abs = std::fs::canonicalize(abs).unwrap();
+    let up = cwd.components().count() - 1;
+    let mut rel = std::path::PathBuf::new();
+    for _ in 0..up {
+        rel.push("..");
+    }
+    rel.join(abs.strip_prefix("/").unwrap())
+}
+
+/// The schemas said "Absolute path" for arguments that take relative paths
+/// too, and `stream_edit` named the app-internal `mcp_stream_edit_preview`
+/// and camelCase options (`previewLines`, `matchIndex`) agents cannot pass.
+#[test]
+fn tool_descriptions_match_the_arguments_and_path_rules() {
+    for def in tool_registry() {
+        let mut texts = vec![("description".to_string(), def.description.to_string())];
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            texts.push((k.clone(), prop["description"].as_str().unwrap_or("").into()));
+        }
+        for (k, text) in texts {
+            for stale in [
+                "Absolute path",
+                "mcp_stream_edit_preview",
+                "previewLines",
+                "matchIndex",
+            ] {
+                assert!(
+                    !text.contains(stale),
+                    "{}.{k} says {stale:?}: {text}",
+                    def.name
+                );
+            }
+        }
+    }
+    // And relative paths do work for those tools.
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.md");
+    let b = dir.path().join("b.md");
+    let board = dir.path().join("board.canvas");
+    std::fs::write(&a, "x\n").unwrap();
+    std::fs::write(&b, "y\n").unwrap();
+    std::fs::write(&board, r#"{"nodes":[],"edges":[]}"#).unwrap();
+    let (ra, rb, rboard) = (
+        relative_to_cwd(&a),
+        relative_to_cwd(&b),
+        relative_to_cwd(&board),
+    );
+    assert!(ra.is_relative());
+    let resp = mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": ra, "path_b": rb }));
+    assert_eq!(content_text(&resp)["hunks"], 1, "{resp:?}");
+    let resp = mdopener_mcp::tool_export_text(id(1), &json!({ "path": ra }), &MockIpc::new());
+    assert_eq!(
+        content_text(&resp)["text"].as_str().map(str::trim),
+        Some("x")
+    );
+    let resp = mdopener_mcp::tool_export_metadata(id(1), &json!({ "path": rb }), &MockIpc::new());
+    assert_eq!(content_text(&resp)["word_count"], 1, "{resp:?}");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": rboard, "save": false, "ops": [{ "type": "add_node", "node":
+            { "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 } }] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let canon_a = std::fs::canonicalize(&a).unwrap();
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
+    let _ = tool_present_document(id(1), &json!({ "path": ra }), &ipc);
+    assert_eq!(ipc.calls()[0].2.as_ref().unwrap()["path"], json!(canon_a));
+    let ipc = MockIpc::new().on_get("/annotations", Ok(json!({ "tasks": [] })));
+    let _ = tool_get_annotations(id(1), &json!({ "path": ra }), &ipc);
+    let want = urlencoding::encode(canon_a.to_str().unwrap()).into_owned();
+    assert_eq!(ipc.calls()[0].1, format!("/annotations?path={want}"));
 }
 
 #[test]

@@ -8,8 +8,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 // Isolate the document store from the persisted recents store.
 const recentAdd = vi.fn();
-vi.mock("./recentStore", () => ({
-  useRecentStore: { getState: () => ({ add: recentAdd }) },
+const recentRemove = vi.fn();
+vi.mock("./recentStore", async (importOriginal) => ({
+  isMissingFileError: (await importOriginal<typeof import("./recentStore")>())
+    .isMissingFileError,
+  useRecentStore: { getState: () => ({ add: recentAdd, remove: recentRemove }) },
 }));
 
 import { useDocumentStore } from "./documentStore";
@@ -730,5 +733,30 @@ describe("documentStore — getOpLog / clearOpLog", () => {
       opLog: [],
     });
     expect(useDocumentStore.getState().getOpLog("/missing.md")).toEqual([]);
+  });
+});
+
+describe("openPath of a file that is gone", () => {
+  beforeEach(() => {
+    reset();
+    recentRemove.mockReset();
+    invokeMock.mockReset();
+  });
+
+  it("drops it from the recents, so list_recent stops offering it", async () => {
+    invokeMock.mockRejectedValueOnce(
+      "Could not read /gone.md: No such file or directory (os error 2)",
+    );
+    await useDocumentStore.getState().openPath("/gone.md");
+    expect(useDocumentStore.getState().error).toContain("os error 2");
+    expect(recentRemove).toHaveBeenCalledWith("/gone.md");
+  });
+
+  it("keeps it when the read failed for another reason", async () => {
+    invokeMock.mockRejectedValueOnce(
+      "Could not read /locked.md: Permission denied (os error 13)",
+    );
+    await useDocumentStore.getState().openPath("/locked.md");
+    expect(recentRemove).not.toHaveBeenCalled();
   });
 });

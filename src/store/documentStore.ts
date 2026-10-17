@@ -12,7 +12,7 @@ import {
   transformCursor,
 } from "../lib/ot";
 import { useOtLogStore } from "./memoryStore";
-import { useRecentStore } from "./recentStore";
+import { isMissingFileError, useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
 
 export type ViewMode = "read" | "edit" | "source";
@@ -287,6 +287,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       invoke("watch_file", { path: file.path }).catch(() => {});
     } catch (e) {
       set({ isLoading: false, error: String(e) });
+      // A recent that is gone stays gone: drop it rather than keep offering it.
+      if (isMissingFileError(e)) useRecentStore.getState().remove(path);
     }
   },
 

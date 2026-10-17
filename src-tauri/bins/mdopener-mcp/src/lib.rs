@@ -702,12 +702,12 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
+                    "path": { "type": "string", "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
-                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
+                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
             }),
@@ -726,7 +726,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path to the Markdown file." }
+                    "path": { "type": "string", "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -809,7 +809,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Optional absolute path to open before presenting. Omit to present the current document." }
+                    "path": { "type": "string", "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -871,7 +871,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{sessionId}.json.",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -911,8 +911,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "description": "Absolute path to the first (original) document." },
-                    "path_b": { "type": "string", "description": "Absolute path to the second (modified) document." },
+                    "path_a": { "type": "string", "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -938,7 +938,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the .canvas file to edit."
+                        "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
                     },
                     "ops": {
                         "type": "array",
@@ -965,15 +965,15 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "height": { "type": "number", "description": "New height (resize_node)." },
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
-                                "label": { "type": "string", "description": "New label (edit_group_label) or edge label (edit_edge_label). Omit to clear." },
+                                "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
                                 "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RRGGBB'. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
-                                    "description": "Full node object to insert (add_node). Must include id, type, x, y, width, height."
+                                    "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include id, fromNode, toNode."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes."
                                 },
                                 "ids": {
                                     "type": "array",
@@ -1003,11 +1003,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "stream_edit",
             description: "Preview a find/replace edit as a unified diff before committing. \
-                When `preview` is true (default), returns a minimal unified diff (±previewLines context) \
-                via mcp_stream_edit_preview so the agent can verify the change before applying. \
+                When `preview` is true (default), returns a minimal unified diff with `preview_lines` \
+                lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
-                by occurrence order (rank 1 = first match) — the agent selects a matchIndex and confirms \
-                via stream_edit_apply. With preview=false the app applies the edit at once (unsaved; \
+                by occurrence order (rank 1 = first match) — the agent picks one and confirms it via \
+                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing.",
@@ -1050,7 +1050,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "stream_edit_apply",
             description: "Apply a previously previewed stream_edit. Send the same find/replace plus \
-                a matchIndex (0-based, default 0) to select which occurrence to edit when the preview \
+                a `match_index` (0-based, default 0) to select which occurrence to edit when the preview \
                 returned multiple candidates. The edit is applied atomically against the live document.",
             input_schema: json!({
                 "type": "object",
@@ -1106,7 +1106,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1134,7 +1134,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1269,11 +1269,19 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`).
 ///
+/// - a `required` argument that is missing, as "`name` is required" (the first
+///   missing one in the schema's `required` order), and a call that gives none
+///   of the alternatives of the schema's `anyOf` of `required` lists. A tool
+///   used to check its own required arguments only once it reached them, so
+///   `edit_canvas` without `ops` read the canvas file first, and the schema's
+///   `required` list and the tool's checks could drift apart.
+///
 /// A `null` value counts as "not given", as the tools already treat it.
 pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
     let tool = def.name;
+    let no_args = serde_json::Map::new();
     let given = match args {
-        Value::Null => return Ok(()),
+        Value::Null => &no_args,
         Value::Object(map) => map,
         other => {
             return Err(format!(
@@ -1339,6 +1347,122 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     json_type_phrase(bad)
                 ));
             }
+        }
+        if let (Some(fields), Some(items)) =
+            (prop["items"]["properties"].as_object(), value.as_array())
+        {
+            for (i, item) in items.iter().enumerate() {
+                check_item_fields(&format!("{key}[{i}]"), &prop["items"], fields, item)?;
+            }
+        }
+    }
+    let present = |name: &str| given.get(name).is_some_and(|v| !v.is_null());
+    let required_names = |schema: &Value| -> Vec<String> {
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    };
+    if let Some(missing) = required_names(&def.input_schema)
+        .into_iter()
+        .find(|n| !present(n))
+    {
+        return Err(format!("`{missing}` is required"));
+    }
+    if let Some(alternatives) = def.input_schema["anyOf"].as_array() {
+        let lists: Vec<Vec<String>> = alternatives.iter().map(required_names).collect();
+        if !lists.is_empty() && !lists.iter().any(|l| l.iter().all(|n| present(n))) {
+            let names: Vec<String> = lists
+                .iter()
+                .map(|l| {
+                    l.iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                })
+                .collect();
+            let shown = match names.split_last() {
+                Some((last, rest)) if !rest.is_empty() => {
+                    format!("{} or {last}", rest.join(", "))
+                }
+                _ => names.join(""),
+            };
+            return Err(format!("`{tool}` needs one of {shown}"));
+        }
+    }
+    Ok(())
+}
+
+/// Check one element of an array argument whose `items` schema declares
+/// `properties` (an `edit_canvas` op): a field it does not declare, a field of
+/// the wrong JSON type (or an array field with an element of the wrong type),
+/// and a missing `required` field are refused, named as `` `ops[2].x` `` so
+/// the agent knows which element and field. A field the tool reads with
+/// `as_f64`/`as_str` used to be reported as missing when mistyped (`"x": "5"`
+/// gave "`x` required"), or written to the canvas as given (`"color": 3`).
+/// `null` counts as not given, as at the top level.
+fn check_item_fields(
+    at: &str,
+    schema: &Value,
+    fields: &serde_json::Map<String, Value>,
+    item: &Value,
+) -> Result<(), String> {
+    let Some(given) = item.as_object() else {
+        return Ok(());
+    };
+    for (k, v) in given {
+        let Some(field) = fields.get(k) else {
+            let mut names: Vec<&str> = fields.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let hint = closest_name(k, &names)
+                .map(|n| format!(" Did you mean `{n}`?"))
+                .unwrap_or_default();
+            return Err(format!(
+                "Unknown field `{k}` in `{at}`: it takes {}.{hint}",
+                names
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        };
+        if v.is_null() {
+            continue;
+        }
+        if let Some(want) = field["type"].as_str() {
+            if !json_type_matches(want, v) {
+                return Err(format!(
+                    "`{at}.{k}` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(v)
+                ));
+            }
+        }
+        if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
+            if let Some((j, bad)) = elems
+                .iter()
+                .enumerate()
+                .find(|(_, e)| !json_type_matches(want, e))
+            {
+                return Err(format!(
+                    "`{at}.{k}[{j}]` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(bad)
+                ));
+            }
+        }
+    }
+    for req in schema["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if given.get(req).is_none_or(Value::is_null) {
+            return Err(format!("`{at}.{req}` is required"));
         }
     }
     Ok(())
@@ -1836,6 +1960,99 @@ fn review_timeout_arg(v: &Value) -> Result<u64, String> {
     }
 }
 
+/// What a review was registered with, kept by this server so a resumed call
+/// (`review_id`) that also sends `path`, `content` or `timeout_ms` can be
+/// checked against it. The content is kept as a hash, not the text.
+#[derive(Clone, PartialEq, Debug)]
+struct RegisteredReview {
+    path: Option<String>,
+    content: Option<u64>,
+    timeout_ms: u64,
+}
+
+/// Most registered reviews remembered for that check (the oldest go first).
+const MAX_REMEMBERED_REVIEWS: usize = 256;
+
+fn registered_reviews() -> &'static Mutex<Vec<(String, RegisteredReview)>> {
+    static REVIEWS: OnceLock<Mutex<Vec<(String, RegisteredReview)>>> = OnceLock::new();
+    REVIEWS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn content_hash(content: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut h);
+    h.finish()
+}
+
+fn remember_review(review_id: &str, review: RegisteredReview) {
+    let mut reviews = registered_reviews()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    reviews.push((review_id.to_string(), review));
+    let excess = reviews.len().saturating_sub(MAX_REMEMBERED_REVIEWS);
+    reviews.drain(..excess);
+}
+
+fn remembered_review(review_id: &str) -> Option<RegisteredReview> {
+    registered_reviews()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == review_id)
+        .map(|(_, r)| r.clone())
+}
+
+/// For a resumed `request_review` (one with `review_id`), the review-defining
+/// arguments it also sent. Resuming never re-registers, so they cannot change
+/// the review. Resending the arguments of the first call is fine, so for a
+/// review this server registered each one given is compared with what it was
+/// registered with, and one that differs is refused (`Err`, a `-32602`
+/// message naming it): an agent that changed `content` and sent the old
+/// `review_id` would otherwise read the human's verdict on the old text as a
+/// verdict on the new. For a review this server did not register (it was
+/// restarted, or another server registered it) nothing can be compared, so the
+/// call goes ahead and `Ok` lists the arguments that went unchecked, which the
+/// result reports as `ignored`.
+fn resumed_review_arguments(
+    review_id: &str,
+    args: &Value,
+    timeout_ms: u64,
+) -> Result<Vec<&'static str>, String> {
+    let given: Vec<&'static str> = ["path", "content", "timeout_ms"]
+        .into_iter()
+        .filter(|k| !args[*k].is_null())
+        .collect();
+    if given.is_empty() {
+        return Ok(given);
+    }
+    let Some(original) = remembered_review(review_id) else {
+        return Ok(given);
+    };
+    let differs = |what: &str| {
+        Err(format!(
+            "`{what}` differs from what review `{review_id}` was requested with. A call with \
+             `review_id` keeps waiting on that review as it was requested and cannot change it; \
+             resend the same `path`, `content` and `timeout_ms` or leave them out, or call \
+             request_review without `review_id` to request a new review."
+        ))
+    };
+    if let Some(p) = args["path"].as_str() {
+        if original.path.as_deref() != Some(agent_path(p).as_str()) {
+            return differs("path");
+        }
+    }
+    if let Some(c) = args["content"].as_str() {
+        if original.content != Some(content_hash(c)) {
+            return differs("content");
+        }
+    }
+    if !args["timeout_ms"].is_null() && original.timeout_ms != timeout_ms {
+        return differs("timeout_ms");
+    }
+    Ok(Vec::new())
+}
+
 /// [`tool_request_review`] with the poll interval injected for tests.
 pub fn tool_request_review_with(
     id: Value,
@@ -1847,8 +2064,21 @@ pub fn tool_request_review_with(
         .as_str()
         .filter(|r| !r.is_empty())
         .map(str::to_string);
+    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
+        Ok(t) => t,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    // A resumed review opens nothing, so its `path` is only compared.
+    let ignored = match &resume {
+        Some(r) => match resumed_review_arguments(r, args, timeout_ms) {
+            Ok(ignored) => ignored,
+            Err(e) => return Response::err(id, -32602, e),
+        },
+        None => Vec::new(),
+    };
     let path = match args["path"]
         .as_str()
+        .filter(|_| resume.is_none())
         .map(openable_document_path)
         .transpose()
     {
@@ -1857,15 +2087,28 @@ pub fn tool_request_review_with(
     };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
-        Ok(t) => t,
-        Err(e) => return Response::err(id, -32602, e),
-    };
     let wait_ms = whole_number(args, "wait_ms")
         .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
         .clamp(1_000, 600_000);
 
     let resumed = resume.is_some();
+    let respond = |id: Value, mut out: Value| -> Response {
+        if !ignored.is_empty() {
+            out["ignored"] = json!(ignored);
+            out["note"] = json!(format!(
+                "{} not checked: this server did not register review `{}` (it was restarted, \
+                 or another server registered it), so a resumed call cannot compare them with \
+                 the review's and they did not change it.",
+                ignored
+                    .iter()
+                    .map(|k| format!("`{k}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                out["reviewId"].as_str().unwrap_or("")
+            ));
+        }
+        tool_result(id, out)
+    };
     let review_id = match resume {
         Some(r) => r,
         None => {
@@ -1903,6 +2146,14 @@ pub fn tool_request_review_with(
                 Ok(_) => {}
                 Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
+            remember_review(
+                &review_id,
+                RegisteredReview {
+                    path: path.clone(),
+                    content: content.as_deref().map(content_hash),
+                    timeout_ms,
+                },
+            );
             if !blocking {
                 return tool_result(
                     id,
@@ -1940,7 +2191,7 @@ pub fn tool_request_review_with(
         let now = std::time::Instant::now();
         if now >= deadline {
             if window_ends {
-                return tool_result(
+                return respond(
                     id,
                     json!({
                         "verdict": "timeout",
@@ -1949,7 +2200,7 @@ pub fn tool_request_review_with(
                     }),
                 );
             }
-            return tool_result(
+            return respond(
                 id,
                 json!({
                     "status": "pending",
@@ -1964,7 +2215,7 @@ pub fn tool_request_review_with(
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
                 "timeout" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "timeout",
@@ -1976,7 +2227,7 @@ pub fn tool_request_review_with(
                 // A newer review took the panel before the human decided, so
                 // no verdict will come for this one.
                 "superseded" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "superseded",
@@ -1987,7 +2238,7 @@ pub fn tool_request_review_with(
                     )
                 }
                 "not_found" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "timeout",
@@ -1996,7 +2247,7 @@ pub fn tool_request_review_with(
                         }),
                     )
                 }
-                _ => return tool_result(id, decided_review(&resp, &review_id)),
+                _ => return respond(id, decided_review(&resp, &review_id)),
             },
         }
     }
@@ -4315,6 +4566,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
+                if let Some(problem) = canvas_node_problem(new_node) {
+                    return Response::err(id, -32602, format!("op[{i}] add_node: {problem}"));
+                }
                 let new_id = match new_node.get("id").and_then(Value::as_str) {
                     Some(s) => s,
                     None => {
@@ -4369,6 +4623,13 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     }
                 };
                 let new_id = match new_edge.get("id").and_then(Value::as_str) {
+                    Some("") => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!("op[{i}] add_edge: edge.id must not be empty"),
+                        )
+                    }
                     Some(s) => s,
                     None => {
                         return Response::err(
@@ -4627,6 +4888,77 @@ fn take_canvas_items(
             other => Err(format!("{key}[{i}] must be an object, got {other}")),
         })
         .collect()
+}
+
+/// Why `node` is not a node the app can show, or `None` when it is. The app's
+/// canvas parser (`parseNode` in src/lib/canvas.ts) drops, without a word, a
+/// node with an empty or non-string `id`, a `type` other than text, file,
+/// link or group, a non-number `x`/`y`/`width`/`height`, a file node without a
+/// string `file` or a link node without a string `url`. `add_node` used to
+/// write such a node and report success, and it then never appeared.
+fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> {
+    match node.get("id") {
+        Some(Value::String(s)) if !s.is_empty() => {}
+        Some(Value::String(_)) => return Some("node.id must not be empty".into()),
+        None | Some(Value::Null) => return Some("node.id required".into()),
+        Some(other) => {
+            return Some(format!(
+                "node.id must be a string, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    }
+    let kind = match node.get("type") {
+        Some(Value::String(t)) => t.as_str(),
+        None | Some(Value::Null) => return Some("node.type required".into()),
+        Some(other) => {
+            return Some(format!(
+                "node.type must be a string, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    };
+    if !matches!(kind, "text" | "file" | "link" | "group") {
+        return Some(format!(
+            "node.type must be 'text', 'file', 'link' or 'group', got {kind:?}"
+        ));
+    }
+    for field in ["x", "y", "width", "height"] {
+        match node.get(field) {
+            Some(v) if v.is_number() => {}
+            None | Some(Value::Null) => return Some(format!("node.{field} required")),
+            Some(other) => {
+                return Some(format!(
+                    "node.{field} must be a number, got {}",
+                    json_type_phrase(other)
+                ))
+            }
+        }
+    }
+    for field in ["width", "height"] {
+        if node[field].as_f64().is_some_and(|n| n <= 0.0) {
+            return Some("node width and height must be positive".into());
+        }
+    }
+    let needs = match kind {
+        "file" => Some("file"),
+        "link" => Some("url"),
+        _ => None,
+    };
+    if let Some(field) = needs {
+        if !node.get(field).is_some_and(Value::is_string) {
+            return Some(format!("a {kind} node needs a string node.{field}"));
+        }
+    }
+    for field in ["text", "label", "color", "subpath", "background"] {
+        if let Some(v) = node.get(field).filter(|v| !v.is_null() && !v.is_string()) {
+            return Some(format!(
+                "node.{field} must be a string, got {}",
+                json_type_phrase(v)
+            ));
+        }
+    }
+    None
 }
 
 fn find_node_mut<'a>(

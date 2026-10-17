@@ -36,6 +36,51 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Session files the app writes are private too.** The window persisted a
+  conversation session with a `0644` file in a `0755` directory, undoing the
+  `0700`/`0600` that `save_conversation_message` sets. The app now makes the
+  directory owner-only and writes each session file `0600`.
+- **Recent files that are gone leave the list.** A recent whose file was
+  deleted or moved stayed in the Recent list and in what `list_recent` gives
+  agents for good, and opening it only failed. Recents are checked on launch,
+  and one that fails to open because the file is not there is dropped.
+- **The watched-folder list (and what `search_vault` searches) follows the
+  folder.** Switching folders kept the old folder's files until the new
+  listing arrived, kept them for good when it failed, and a slow listing of
+  the old folder could land after the switch. The listing also asked for the
+  backend's default 100 files while the list holds 200, so half of a large
+  folder was never searched. Each folder now starts empty, a stale listing is
+  discarded, and up to 200 files are listed.
+- **The canvas view says when it cannot show part of a canvas.** Malformed
+  nodes and edges, edges to a missing node, and a `nodes` or `edges` that is
+  not a list were left out without a word, so a canvas written badly by an
+  agent or another tool looked complete. A notice now says what is missing.
+- **MCP tool schemas describe the arguments as they work.** Path arguments
+  of `request_review`, `get_user_annotations`, `present_document`,
+  `diff_documents`, `edit_canvas`, `export_text` and `export_metadata` said
+  "Absolute path" though relative paths resolve against the server's working
+  directory, and `stream_edit` / `stream_edit_apply` named the app-internal
+  `mcp_stream_edit_preview` and the options `previewLines` / `matchIndex`
+  instead of `preview_lines` / `match_index`.
+- **`request_review` with `review_id` no longer ignores a changed review.**
+  `path`, `content` and `timeout_ms` were silently ignored on a resumed call,
+  so an agent that edited its plan and resent it with the old id got the
+  verdict on the old text. Resending the same values still works; a value
+  that differs is now refused (`-32602`) naming it. For a review the server
+  did not register (after a restart) the result lists them as `ignored`.
+- **`edit_canvas` checks every op field's type, and `add_node` refuses nodes
+  the app drops.** A mistyped field was misreported (`"x": "5"` gave
+  "`x` required") or written as given (`"color": 3`), a misspelled field
+  (`colour`) was ignored, and `add_node` checked only `node.id`, so a node
+  without `x` or with an unknown `type` was saved, reported as added, and
+  never appeared. All are now `-32602` naming the op index and field.
+- **Required MCP arguments are checked before a tool runs.** Each tool
+  checked its own required arguments only when it reached them, so
+  `edit_canvas` without `ops` read and parsed the canvas file first and a
+  missing file hid the real mistake. The argument check now enforces every
+  tool's schema `required` list (and `request_review`'s one-of), and a test
+  probes every advertised schema with a missing required argument and a
+  wrong-typed one, so the schema and what is enforced cannot drift apart.
 - **`diff_documents` no longer calls different files identical.** Lines were
   compared without their endings, so a CRLF file against its LF copy, or a
   file against the same text without a final newline, returned `hunks: 0`

@@ -50,8 +50,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 // ─── Store stubs ──────────────────────────────────────────────────────────────
 
 vi.mock("../store/recentStore", () => ({
+  isMissingFileError: (e: unknown) => /\(os error 2\)/.test(String(e)),
   useRecentStore: {
-    getState: () => ({ recents: [], add: vi.fn() }),
+    getState: () => ({ recents: [], add: vi.fn(), remove: vi.fn() }),
     subscribe: vi.fn(() => vi.fn()),
   },
 }));

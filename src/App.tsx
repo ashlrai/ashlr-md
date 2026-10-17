@@ -14,6 +14,7 @@ import { useActivationStore } from "./store/activationStore";
 import { useAIStore } from "./store/aiStore";
 import { useDigestStore } from "./store/digestStore";
 import { useDocumentStore } from "./store/documentStore";
+import { useRecentStore } from "./store/recentStore";
 import { useSessionStore } from "./store/sessionStore";
 import { useSettingsStore } from "./store/settingsStore";
 import { toast } from "./store/toastStore";
@@ -66,6 +67,9 @@ export default function App() {
           );
         }
       }
+      // Recents whose file was deleted or moved since are dropped, so the
+      // Recent list and the agents' `list_recent` only offer real files.
+      void useRecentStore.getState().pruneMissing();
       // Persist the live tab set from here on — AFTER restore, so the initial
       // empty state can't clobber the saved session before it's restored.
       unsubSave = useDocumentStore.subscribe((s) => {
@@ -183,7 +187,6 @@ export default function App() {
       void (async () => {
         const { embedAvailable, embedIndex } = await import("./lib/embedSearch");
         if (!(await embedAvailable())) return;
-        const { useRecentStore } = await import("./store/recentStore");
         const { useActivityStore } = await import("./store/activityStore");
         // Ensure the watched-folder file list is populated before indexing.
         await useActivityStore.getState().loadFiles();

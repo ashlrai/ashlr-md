@@ -534,6 +534,16 @@ fn load_own_session(
 /// write back a stale copy over each other's appends.
 fn lock_sessions_dir(dir: &std::path::Path) -> Result<std::fs::File, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
+    // Owner-only, as mdopener-mcp makes it (`create_private_dir`): session
+    // files hold the agent's actions and the human's verdicts. The window
+    // created the directory `0755` and its files `0644`, so persisting a
+    // session from the app undid the server's `0700`/`0600`.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Cannot make the sessions dir private: {e}"))?;
+    }
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -582,12 +592,23 @@ fn write_session_file(
     // a torn file.
     let target = dir.join(&name);
     let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
+    write_private_new(&tmp, json.as_bytes()).map_err(|e| format!("Write failed: {e}"))?;
     std::fs::rename(&tmp, &target).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("Rename failed: {e}")
     })?;
     Ok(merged)
+}
+
+/// Write `bytes` to `path`, readable by this user only (`0600` on Unix) from
+/// the moment it is created, and report a failure (unlike [`write_private`]).
+fn write_private_new(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)?.write_all(bytes)
 }
 
 /// Read `session_id`'s messages from `dir` (empty when it has none).
@@ -2923,6 +2944,21 @@ mod tests {
     /// What mdopener-mcp writes for one message (its `SessionLog`).
     fn mcp_file(messages: &[SessionMessage]) -> String {
         serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    /// Persisting from the window used to leave the session file `0644` in a
+    /// `0755` directory (mdopener-mcp makes them `0700`/`0600`), so any local
+    /// user could read the conversation once the app had saved it.
+    #[cfg(unix)]
+    #[test]
+    fn persisted_session_files_are_private() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let d = Scratch::new("private");
+        std::fs::set_permissions(&d.0, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&d.0), 0o700, "sessions dir");
+        assert_eq!(mode(&d.0.join("s1.json")), 0o600, "session file");
     }
 
     #[test]
