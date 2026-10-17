@@ -36,6 +36,40 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The app's IPC server answers an unknown route in JSON.** A request for
+  a route it does not have got the plain text `Not Found`, unlike every
+  other error. It is now a 404 with `{"error": "No such endpoint: <method>
+  <path>"}`.
+- **`mdopener://recent-documents` counts the recents it leaves out.**
+  Missing, oversized, dotfile and non-Markdown recents were dropped without
+  a count. The reply now has `skipped: { missing, notDocument, tooLarge,
+  unreadable }`.
+- **`resources/list` says when it could not list the vault's files.** When
+  the app could not be asked for its vault list, the `file://` entries were
+  left out without a word, so a client read it as a vault with no files.
+  The result now carries `_meta["mdopener/vaultFilesUnlisted"]` with the
+  reason (the MCP schema allows `_meta`), and stderr logs it.
+- **The app reads session files up to 16 MiB too.** The app read a
+  session file whole however large it was. Like the MCP server, it now
+  refuses one past 16 MiB, saying how large it is, and a write drops the
+  oldest messages to stay under the cap so the file stays readable.
+- **`mdopen` reads at most 64 MiB of the app's answer.** Opening a file
+  through the running app read the IPC answer to its end however long it
+  was, so a peer on the port that kept sending grew `mdopen`'s memory
+  without bound. Past 64 MiB (the cap the MCP server already applies) the
+  open fails, saying so.
+- **`search_vault` says when an on-disk `vault` is too deep.** With the
+  app unreachable, the walk of `vault` enters folders at most 16 levels down
+  and skipped deeper ones without a word. The limit is unchanged, but the
+  result now has `truncated: true`, `depthCut: true` and a `note` saying
+  folders below it were not searched.
+- **A vault scan says which limit cut it.** The depth limit (folders more
+  than 8 levels down) shared `scanCut` with the 50,000-entry budget, so the
+  Activity drawer, `/search` and `search_vault` could not say whether the
+  folder was too large or too deeply nested. `scanCut` still means either;
+  a new `depthCut` flag (on the scan, `/vault`, `/search` and the
+  `search_vault` result) says the depth limit did, and the notices name the
+  limit that applied.
 - **The MCP server reads at most 64 MiB of an HTTP answer.** Answers from the
   app's IPC server and from Ollama were read to their end however long they
   were (the 5 s timeout applies to each read), so a peer that kept sending

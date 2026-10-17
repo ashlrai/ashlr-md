@@ -67,8 +67,15 @@ export interface MdFileScan {
    * The folder was too large (50,000 entries) or too deep (folders more than
    * 8 levels down) to walk in full, so `files` are the newest of
    * the files the walk reached, not necessarily the folder's newest.
+   * Either limit sets it.
    */
   scanCut: boolean;
+  /**
+   * Of those, the depth limit cut the walk: a folder more than 8 levels down
+   * was skipped (`scanCut` is set too). `scanCut` without it means the entry
+   * budget alone stopped the walk. Absent from an older backend.
+   */
+  depthCut?: boolean;
 }
 
 /** List Markdown files under `path`, newest first, and say if the walk was cut. */

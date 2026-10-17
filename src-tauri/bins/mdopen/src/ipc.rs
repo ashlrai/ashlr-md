@@ -19,6 +19,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 /// is reported as [`Failure::Failed`], never retried through the URL scheme
 /// (which would open the file a second time).
 const IO_TIMEOUT: Duration = Duration::from_secs(6);
+/// Most bytes of the app's answer read: the 64 MiB `mdopener-mcp` reads of an
+/// HTTP answer (`MAX_HTTP_RESPONSE_BYTES`). `/open` answers a few bytes of
+/// JSON; without a cap a peer on the port that kept sending (the timeout
+/// applies to each read, not the whole answer) grew memory without bound.
+const MAX_REPLY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The user's home directory, as the app (via `dirs::home_dir`) sees it.
 pub fn home_dir() -> Option<PathBuf> {
@@ -91,7 +96,10 @@ fn send_open(
         ))));
     }
     let mut raw = Vec::new();
-    if let Err(e) = stream.read_to_end(&mut raw) {
+    if let Err(e) = (&mut stream)
+        .take(MAX_REPLY_BYTES + 1)
+        .read_to_end(&mut raw)
+    {
         let why = if matches!(
             e.kind(),
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
@@ -104,6 +112,13 @@ fn send_open(
             format!("the connection to Ashlr MD failed while waiting for its answer: {e}")
         };
         return Ok(Err(Failure::Failed(why)));
+    }
+    if raw.len() as u64 > MAX_REPLY_BYTES {
+        return Ok(Err(Failure::Failed(format!(
+            "the answer from {addr} is more than {} MiB, so it was not read; whatever \
+             listens there may not be Ashlr MD",
+            MAX_REPLY_BYTES / (1024 * 1024)
+        ))));
     }
 
     let text = String::from_utf8_lossy(&raw);
@@ -366,6 +381,24 @@ mod tests {
             matches!(&err, Failure::Failed(m) if m.contains("did not answer within 6 s")),
             "{err:?}"
         );
+    }
+
+    /// The answer was read to its end however long it was, so a peer that
+    /// kept sending grew mdopen's memory without bound. Past 64 MiB it is a
+    /// failure, saying so (not an open that went through).
+    #[test]
+    fn an_answer_past_the_cap_is_a_failure_not_read_whole() {
+        let s = Scratch::new("huge");
+        let huge = " ".repeat(MAX_REPLY_BYTES as usize + 1024);
+        let (port, app) = fake_app_with("200 OK", &huge);
+        drop(huge);
+        s.write("ipc-port", &format!("{port}\n"));
+        s.write("ipc-token", "tok\n");
+        match open(&s.0, "/notes/a.md", None) {
+            Err(Failure::Failed(why)) => assert!(why.contains("more than 64 MiB"), "{why}"),
+            other => panic!("expected a failure, got {other:?}"),
+        }
+        let _ = app.join();
     }
 
     #[test]

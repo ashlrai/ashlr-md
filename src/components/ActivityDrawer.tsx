@@ -105,6 +105,7 @@ export function ActivityDrawer() {
   const lastError = useActivityStore((s) => s.lastError);
   const truncated = useActivityStore((s) => s.truncated);
   const scanCut = useActivityStore((s) => s.scanCut);
+  const depthCut = useActivityStore((s) => s.depthCut);
   const setWatchedDir = useActivityStore((s) => s.setWatchedDir);
   const loadFiles = useActivityStore((s) => s.loadFiles);
   const applyEvent = useActivityStore((s) => s.applyEvent);
@@ -244,9 +245,11 @@ export function ActivityDrawer() {
         <>
           {truncated ? (
             <p className="activity-truncated" role="note">
-              {scanCut
-                ? `This folder is too large or too deeply nested to scan in full, so these are the ${MAX_FILES} most recently changed of the files scanned. Agents searching it see only these.`
-                : `Showing the ${MAX_FILES} most recently changed files. This folder has more, and agents searching it see only these.`}
+              {depthCut
+                ? `This folder is too deeply nested to scan in full (folders more than 8 levels down are skipped), so these are the ${MAX_FILES} most recently changed of the files scanned. Agents searching it see only these.`
+                : scanCut
+                  ? `This folder is too large to scan in full, so these are the ${MAX_FILES} most recently changed of the files scanned. Agents searching it see only these.`
+                  : `Showing the ${MAX_FILES} most recently changed files. This folder has more, and agents searching it see only these.`}
             </p>
           ) : null}
           <ul className="activity-list">

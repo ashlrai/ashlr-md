@@ -235,6 +235,9 @@ pub struct VaultInner {
     /// in full, so
     /// `files` are the newest of the files it reached, not the folder's newest.
     pub scan_cut: bool,
+    /// Of those, a folder below the walk's depth limit was skipped (`scan_cut`
+    /// is set too); `scan_cut` alone means the entry budget stopped it.
+    pub depth_cut: bool,
 }
 
 #[derive(Default)]
@@ -382,6 +385,7 @@ pub fn mcp_sync_vault(
     truncated: Option<bool>,
     limit: Option<usize>,
     scan_cut: Option<bool>,
+    depth_cut: Option<bool>,
     vault: tauri::State<VaultMirror>,
 ) {
     *vault.0.lock_recover() = VaultInner {
@@ -389,7 +393,8 @@ pub fn mcp_sync_vault(
         files,
         truncated: truncated.unwrap_or(false),
         limit,
-        scan_cut: scan_cut.unwrap_or(false),
+        scan_cut: scan_cut.unwrap_or(false) || depth_cut.unwrap_or(false),
+        depth_cut: depth_cut.unwrap_or(false),
     };
 }
 
@@ -506,15 +511,38 @@ struct SessionFileOut<'a> {
 /// `MAX_MESSAGES_PER_SESSION`.
 const MAX_SESSION_MESSAGES: usize = 200;
 
+/// Largest session file the app reads: mdopener-mcp's `MAX_SESSION_FILE_BYTES`
+/// (16 MiB). A session file was read whole however large it was (another
+/// process, or a hand edit, can make it any size). Writes drop the oldest
+/// messages to stay under it, so a file the app writes stays readable.
+const MAX_SESSION_FILE_BYTES: u64 = 16 * 1024 * 1024;
+
 fn parse_session_file(path: &std::path::Path) -> Result<Vec<SessionMessage>, String> {
-    if !std::fs::metadata(path)
-        .map(|m| m.is_file())
-        .unwrap_or(false)
-    {
+    use std::io::Read as _;
+    let meta = std::fs::metadata(path).ok().filter(|m| m.is_file());
+    let Some(meta) = meta else {
         return Err(format!("{} is not a regular file", path.display()));
+    };
+    let too_large = |len: u64| {
+        format!(
+            "Session file {} is {:.1} MiB, more than the {} MiB a session file may be, so \
+             it was not read; move it aside to start the session afresh.",
+            path.display(),
+            len as f64 / (1024.0 * 1024.0),
+            MAX_SESSION_FILE_BYTES / (1024 * 1024)
+        )
+    };
+    if meta.len() > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(meta.len()));
     }
-    let text = std::fs::read_to_string(path)
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(MAX_SESSION_FILE_BYTES + 1).read_to_string(&mut text))
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    // It grew while it was read.
+    if text.len() as u64 > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
     match serde_json::from_str::<SessionFile>(&text) {
         Ok(SessionFile::Log { messages } | SessionFile::Bare(messages)) => Ok(messages),
         Err(e) => Err(format!("{} is not a session file: {e}", path.display())),
@@ -606,8 +634,7 @@ fn write_session_file(
         merged.drain(..excess);
     }
 
-    let json = serde_json::to_string_pretty(&SessionFileOut { messages: &merged })
-        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+    let json = fit_session_json(&mut merged)?;
     // Write a temp file and rename it over the target, so a reader never sees
     // a torn file.
     let target = dir.join(&name);
@@ -618,6 +645,34 @@ fn write_session_file(
         format!("Rename failed: {e}")
     })?;
     Ok(merged)
+}
+
+/// Serialise `merged` as a session file, dropping its oldest messages until
+/// it fits in [`MAX_SESSION_FILE_BYTES`] (as mdopener-mcp does), so the file
+/// written is one [`parse_session_file`] will read back. An error when even
+/// the newest message alone is too large.
+fn fit_session_json(merged: &mut Vec<SessionMessage>) -> Result<String, String> {
+    loop {
+        let json = serde_json::to_string_pretty(&SessionFileOut { messages: merged })
+            .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+        let len = json.len() as u64;
+        if len <= MAX_SESSION_FILE_BYTES {
+            return Ok(json);
+        }
+        if merged.len() <= 1 {
+            return Err(format!(
+                "The message is too large: the session file would be {:.1} MiB, more than \
+                 the {} MiB a session file may be.",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ));
+        }
+        // Drop about the share that is over, at least one, never the newest.
+        let n = merged.len() as u64;
+        let excess = len - MAX_SESSION_FILE_BYTES;
+        let cut = (excess.saturating_mul(n).div_ceil(len) as usize).clamp(1, merged.len() - 1);
+        merged.drain(..cut);
+    }
 }
 
 /// Write `bytes` to `path`, readable by this user only (`0600` on Unix) from
@@ -893,9 +948,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
             (Method::Post, "/export") => handle_export(req, app),
 
-            _ => {
-                let _ = req.respond(Response::from_string("Not Found").with_status_code(404));
-            }
+            (method, path) => send_not_found(req, &method, path),
         }
 }
 
@@ -1536,6 +1589,7 @@ fn handle_vault(req: Request, app: &AppHandle) {
         "truncated": vault.truncated,
         "limit": vault.limit,
         "scanCut": vault.scan_cut,
+        "depthCut": vault.depth_cut,
         "recents": recents,
     }));
 }
@@ -1558,13 +1612,14 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let (truncated, vault_limit, scan_cut);
+    let (truncated, vault_limit, scan_cut, depth_cut);
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
         truncated = vault.truncated;
         vault_limit = vault.limit;
         scan_cut = vault.scan_cut;
+        depth_cut = vault.depth_cut;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1582,22 +1637,29 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut));
+    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut));
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
-/// the files left out were not searched.
+/// the files left out were not searched. `depthCut` says the walk skipped
+/// folders below its depth limit, so a consumer can tell that from the entry
+/// budget (`scanCut` alone).
 fn search_body(
     q: &str,
     results: impl Serialize,
     vault_truncated: bool,
     vault_limit: Option<usize>,
     scan_cut: bool,
+    depth_cut: bool,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({ "query": q, "results": results });
-    if vault_truncated || scan_cut {
+    if vault_truncated || scan_cut || depth_cut {
         body["truncated"] = serde_json::json!(true);
-        body["note"] = serde_json::json!(vault_truncated_note(vault_limit, scan_cut));
+        body["note"] =
+            serde_json::json!(vault_truncated_note(vault_limit, scan_cut || depth_cut, depth_cut));
+    }
+    if depth_cut {
+        body["depthCut"] = serde_json::json!(true);
     }
     body
 }
@@ -1605,17 +1667,25 @@ fn search_body(
 /// Said by `/search` when the watched folder has more Markdown files than the
 /// app lists. `limit` is the frontend's own cap, synced with the file list, so
 /// the number stated is the one in force; without it no number is claimed.
-/// When the folder was too large or too deep to walk in full (`scan_cut`), the files
-/// searched are the newest of those the walk reached, and it says that.
-fn vault_truncated_note(limit: Option<usize>, scan_cut: bool) -> String {
+/// When the folder was too large or too deep to walk in full (`scan_cut`), the
+/// files searched are the newest of those the walk reached, and it says that,
+/// naming the depth limit when it was that one (`depth_cut`).
+fn vault_truncated_note(limit: Option<usize>, scan_cut: bool, depth_cut: bool) -> String {
     let n = limit.map(|n| format!("{n} ")).unwrap_or_default();
+    if depth_cut {
+        return format!(
+            "The watched folder is too deeply nested for Ashlr MD to scan in full (it \
+             enters folders at most 8 levels down, and reads at most 50,000 entries), so \
+             only the {n}most recently changed of the files it scanned (and the recent \
+             documents) were searched; files in deeper folders were not searched."
+        );
+    }
     if scan_cut {
         return format!(
-            "The watched folder is too large or too deeply nested for Ashlr MD to \
-             scan in full (it reads at most 50,000 entries, and folders at most 8 levels \
-             down), so only the {n}most recently changed of the files it scanned (and the \
-             recent documents) were searched; files elsewhere in the folder may have been \
-             missed."
+            "The watched folder is too large for Ashlr MD to scan in full (it reads at \
+             most 50,000 entries), so only the {n}most recently changed of the files it \
+             scanned (and the recent documents) were searched; newer files elsewhere in \
+             the folder may have been missed."
         );
     }
     format!(
@@ -2142,6 +2212,13 @@ fn send_json(req: Request, value: serde_json::Value) {
     let _ = req.respond(resp);
 }
 
+/// The reply for a route the server does not have: a 404 with the JSON
+/// `{"error": ...}` body every other error has. It used to be the plain text
+/// `Not Found`, which clients parsing the error body could not read.
+fn send_not_found(req: Request, method: &Method, path: &str) {
+    send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+}
+
 fn send_error(req: Request, code: u16, msg: &str) {
     let body = serde_json::json!({"error": msg}).to_string();
     let resp = Response::from_string(body)
@@ -2191,14 +2268,14 @@ mod tests {
     /// frontend's synced cap, not one hard-coded here.
     #[test]
     fn search_body_says_when_the_vault_list_is_truncated() {
-        let full = search_body("q", Vec::<String>::new(), false, Some(150), false);
+        let full = search_body("q", Vec::<String>::new(), false, Some(150), false, false);
         assert!(full.get("truncated").is_none(), "{full}");
-        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false);
+        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false, false);
         assert_eq!(cut["truncated"], true);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its 150 most recently changed files"), "{cut}");
         // An older frontend that sends no cap: no number is claimed.
-        let cut = search_body("q", Vec::<String>::new(), true, None, false);
+        let cut = search_body("q", Vec::<String>::new(), true, None, false, false);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its most recently changed files"), "{cut}");
         assert!(!note.contains("200"), "{cut}");
@@ -2208,11 +2285,25 @@ mod tests {
     /// walk reached, which need not be the folder's newest: `/search` says so.
     #[test]
     fn search_body_says_when_the_vault_walk_was_cut() {
-        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true);
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true, false);
         assert_eq!(cut["truncated"], true, "{cut}");
+        assert!(cut.get("depthCut").is_none(), "the entry budget, not depth: {cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(!note.contains("deeply nested"), "{cut}");
+        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
+    }
+
+    /// The depth limit used to share `scanCut` (and its note) with the entry
+    /// budget, so a consumer could not tell which one cut the walk.
+    #[test]
+    fn search_body_says_when_the_depth_limit_cut_the_walk() {
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true, true);
+        assert_eq!(cut["truncated"], true, "{cut}");
+        assert_eq!(cut["depthCut"], true, "{cut}");
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("too deeply nested for Ashlr MD to scan in full"), "{cut}");
-        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
+        assert!(note.contains("at most 8 levels down"), "{cut}");
     }
 
     #[test]
@@ -2482,7 +2573,10 @@ mod tests {
 
     // ── Session files shared with mdopener-mcp ───────────────────────────────
 
-    use super::{read_session_file, write_session_file, SessionMessage};
+    use super::{
+        fit_session_json, parse_session_file, read_session_file, session_file_name,
+        write_session_file, SessionMessage, MAX_SESSION_FILE_BYTES,
+    };
 
     // ── Paths an agent may open, present or send for review ─────────────────
 
@@ -3108,6 +3202,82 @@ mod tests {
     /// What mdopener-mcp writes for one message (its `SessionLog`).
     fn mcp_file(messages: &[SessionMessage]) -> String {
         serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    /// An unknown route answered the plain text `Not Found`, unlike every
+    /// other error, which is a JSON `{"error": ...}` body.
+    #[test]
+    fn an_unknown_route_is_a_json_404() {
+        use std::io::{Read as _, Write as _};
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = std::thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(b"GET /nope?x=1 HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+                .unwrap();
+            let mut raw = String::new();
+            s.read_to_string(&mut raw).unwrap();
+            raw
+        });
+        let req = server.recv().unwrap();
+        let method = req.method().clone();
+        super::send_not_found(req, &method, "/nope");
+        let raw = client.join().unwrap();
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.0 404") || head.starts_with("HTTP/1.1 404"), "{head}");
+        assert!(
+            head.to_ascii_lowercase().contains("content-type: application/json"),
+            "{head}"
+        );
+        let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
+        assert_eq!(v["error"], "No such endpoint: GET /nope", "{v}");
+    }
+
+    /// The app read a session file whole however large it was. Past 16 MiB
+    /// it is now refused before reading, saying how large it is, and a
+    /// write over it is refused rather than replacing it.
+    #[test]
+    fn a_session_file_past_the_cap_is_not_read() {
+        let d = Scratch::new("huge");
+        let path = d.0.join(session_file_name("s1"));
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_SESSION_FILE_BYTES + 1)
+            .unwrap();
+        let err = parse_session_file(&path).err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let err = read_session_file(&d.0, "s1").err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let err = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            MAX_SESSION_FILE_BYTES + 1,
+            "left untouched"
+        );
+    }
+
+    /// A log too large for the cap drops its oldest messages when written,
+    /// so the file the app writes is one it can read back.
+    #[test]
+    fn a_session_written_past_the_cap_keeps_its_newest_messages() {
+        let d = Scratch::new("fit");
+        let big = |id: &str, ts: u64| SessionMessage {
+            content: "x".repeat(6 * 1024 * 1024),
+            ..msg(id, "s1", ts)
+        };
+        let kept = write_session_file(&d.0, "s1", &[big("a", 1), big("b", 2), big("c", 3)])
+            .unwrap();
+        assert_eq!(ids(&kept), ["b", "c"]);
+        let path = d.0.join(session_file_name("s1"));
+        assert!(std::fs::metadata(&path).unwrap().len() <= MAX_SESSION_FILE_BYTES);
+        assert_eq!(ids(&read_session_file(&d.0, "s1").unwrap()), ["b", "c"]);
+        let err = fit_session_json(&mut vec![SessionMessage {
+            content: "x".repeat(17 * 1024 * 1024),
+            ..msg("z", "s1", 9)
+        }])
+        .unwrap_err();
+        assert!(err.contains("too large"), "{err}");
     }
 
     /// Persisting from the window used to leave the session file `0644` in a

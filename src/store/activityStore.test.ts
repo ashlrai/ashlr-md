@@ -72,6 +72,7 @@ function reset() {
     lastError: null,
     truncated: false,
     scanCut: false,
+    depthCut: false,
   });
   toastInfoMock.mockClear();
   listMock.mockReset();
@@ -241,6 +242,28 @@ describe("activityStore", () => {
     await useActivityStore.getState().loadFiles();
     expect(useActivityStore.getState().truncated).toBe(false);
     expect(useActivityStore.getState().scanCut).toBe(false);
+  });
+
+  it("loadFiles tells a walk cut by the depth limit from one cut by the entry budget", async () => {
+    useActivityStore.setState({ watchedDir: "/watch" });
+    scanMock.mockResolvedValueOnce({ files: [makeFile("a.md")], scanCut: true });
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().scanCut).toBe(true);
+    expect(useActivityStore.getState().depthCut).toBe(false);
+
+    scanMock.mockResolvedValueOnce({
+      files: [makeFile("a.md")],
+      scanCut: true,
+      depthCut: true,
+    });
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().truncated).toBe(true);
+    expect(useActivityStore.getState().scanCut).toBe(true);
+    expect(useActivityStore.getState().depthCut).toBe(true);
+
+    // Switching folders forgets it.
+    useActivityStore.getState().setWatchedDir("/other");
+    expect(useActivityStore.getState().depthCut).toBe(false);
   });
 
   it("switching folders clears the old folder's files and badges", () => {

@@ -880,7 +880,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note?, vault?, truncated?, depthCut? }; `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2596,9 +2596,7 @@ pub fn search_vault_in(
                 if let Some(dir) = &f.disk_vault {
                     v["vault"] = json!(dir);
                 }
-                if f.truncated {
-                    v["truncated"] = json!(true);
-                }
+                f.mark_cut(&mut v);
                 return Ok(v);
             }
             Err(e) => {
@@ -2651,9 +2649,7 @@ pub fn search_vault_in(
                         "vault": f.disk_vault,
                         "note": note
                     });
-                    if f.truncated {
-                        v["truncated"] = json!(true);
-                    }
+                    f.mark_cut(&mut v);
                     Ok(v)
                 }
                 Ok(f) => {
@@ -2673,9 +2669,7 @@ pub fn search_vault_in(
                         "mode": "grep-local",
                         "note": note
                     });
-                    if f.truncated {
-                        v["truncated"] = json!(true);
-                    }
+                    f.mark_cut(&mut v);
                     Ok(v)
                 }
                 Err(_) if refused => Err(ipc_err),
@@ -2700,9 +2694,11 @@ fn app_unreachable(err: &str) -> bool {
         || err.starts_with("Could not connect to IPC server")
 }
 
-/// Most Markdown files a `vault` walk collects, and how deep it goes.
+/// Most Markdown files a `vault` walk collects, and how deep it goes (the
+/// vault itself is level 0; a folder deeper than this is not entered, and
+/// the result says so with `depthCut`).
 pub const DISK_VAULT_MAX_FILES: usize = 5_000;
-const DISK_VAULT_MAX_DEPTH: usize = 16;
+pub const DISK_VAULT_MAX_DEPTH: usize = 16;
 
 /// Resolve a `vault` argument (relative to the server's working directory)
 /// to the canonical directory to search on disk; anything that is not an
@@ -2734,12 +2730,37 @@ pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
+/// What [`disk_vault_scan`] found under a `vault` directory.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiskVaultScan {
+    /// The canonical paths of the documents found, sorted.
+    pub paths: Vec<String>,
+    /// [`DISK_VAULT_MAX_FILES`] stopped the walk.
+    pub file_cap: bool,
+    /// A folder more than [`DISK_VAULT_MAX_DEPTH`] levels below the vault was
+    /// not entered (the walk went on). Such folders used to be skipped
+    /// without a word.
+    pub depth_cut: bool,
+}
+
+/// [`disk_vault_scan`]'s paths, and whether [`DISK_VAULT_MAX_FILES`] cut the
+/// walk short.
+pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
+    let scan = disk_vault_scan(dir);
+    (scan.paths, scan.file_cap)
+}
+
 /// The Markdown documents under `dir` that a path-taking tool could read
 /// ([`checked_document_path`]), sorted, without entering hidden directories,
-/// `node_modules` or `target`, or following directory symlinks. Returns the
-/// canonical paths and whether [`DISK_VAULT_MAX_FILES`] cut the walk short.
-pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
-    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) -> bool {
+/// `node_modules` or `target`, or following directory symlinks, and whether
+/// the file cap or the depth limit cut the walk.
+pub fn disk_vault_scan(dir: &std::path::Path) -> DiskVaultScan {
+    fn walk(
+        dir: &std::path::Path,
+        depth: usize,
+        out: &mut Vec<String>,
+        depth_cut: &mut bool,
+    ) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return false;
         };
@@ -2757,7 +2778,14 @@ pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
             let path = entry.path();
             if kind.is_dir() {
                 let skip = name == "node_modules" || name == "target";
-                if !skip && depth < DISK_VAULT_MAX_DEPTH && walk(&path, depth + 1, out) {
+                if skip {
+                    continue;
+                }
+                if depth >= DISK_VAULT_MAX_DEPTH {
+                    *depth_cut = true;
+                    continue;
+                }
+                if walk(&path, depth + 1, out, depth_cut) {
                     return true;
                 }
             } else if let Ok(p) = checked_document_path(&path.to_string_lossy(), "vault") {
@@ -2772,8 +2800,13 @@ pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
         false
     }
     let mut out = Vec::new();
-    let truncated = walk(dir, 0, &mut out);
-    (out, truncated)
+    let mut depth_cut = false;
+    let file_cap = walk(dir, 0, &mut out, &mut depth_cut);
+    DiskVaultScan {
+        paths: out,
+        file_cap,
+        depth_cut,
+    }
 }
 
 /// The files a vault search reads, and where the list came from.
@@ -2792,6 +2825,13 @@ struct VaultFiles {
     /// budget, or folders too deep), so its list is the newest of the files
     /// reached.
     app_scan_cut: bool,
+    /// The walk that listed the files skipped folders below its depth limit
+    /// (the app's 8 levels, or [`DISK_VAULT_MAX_DEPTH`] on disk). From the
+    /// app, `Some(false)` with `app_scan_cut` is the entry budget alone, and
+    /// `None` an older app that does not say which.
+    depth_cut: Option<bool>,
+    /// The on-disk walk stopped at [`DISK_VAULT_MAX_FILES`].
+    disk_file_cap: bool,
 }
 
 impl VaultFiles {
@@ -2801,14 +2841,35 @@ impl VaultFiles {
         let Some(dir) = self.disk_vault.as_deref() else {
             return self.truncated.then(|| {
                 let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
-                if self.app_scan_cut {
-                    return format!(
-                        "The watched folder is too large or too deeply nested for Ashlr \
-                         MD to scan in full (it reads at most 50,000 entries, and folders at \
-                         most 8 levels down), so only the {n}most recently changed of the files \
-                         it scanned (and the recent documents) were searched; files elsewhere \
-                         in the folder may have been missed."
-                    );
+                match (self.app_scan_cut, self.depth_cut) {
+                    (true, Some(true)) => {
+                        return format!(
+                            "The watched folder is too deeply nested for Ashlr MD to scan \
+                             in full (it enters folders at most 8 levels down, and reads at \
+                             most 50,000 entries), so only the {n}most recently changed of \
+                             the files it scanned (and the recent documents) were searched; \
+                             files in deeper folders were not searched."
+                        );
+                    }
+                    (true, Some(false)) => {
+                        return format!(
+                            "The watched folder is too large for Ashlr MD to scan in full \
+                             (it reads at most 50,000 entries), so only the {n}most recently \
+                             changed of the files it scanned (and the recent documents) were \
+                             searched; newer files elsewhere in the folder may have been \
+                             missed."
+                        );
+                    }
+                    (true, None) => {
+                        return format!(
+                            "The watched folder is too large or too deeply nested for Ashlr \
+                             MD to scan in full (it reads at most 50,000 entries, and folders \
+                             at most 8 levels down), so only the {n}most recently changed of \
+                             the files it scanned (and the recent documents) were searched; \
+                             files elsewhere in the folder may have been missed."
+                        );
+                    }
+                    (false, _) => {}
                 }
                 format!(
                     "The watched folder has more Markdown files than Ashlr MD lists, so \
@@ -2823,12 +2884,34 @@ impl VaultFiles {
             self.app_error,
             self.paths.len()
         );
-        if self.truncated {
+        if self.disk_file_cap {
             note.push_str(&format!(
                 " Only the first {DISK_VAULT_MAX_FILES} files were searched."
             ));
         }
+        if self.depth_cut() {
+            note.push_str(&format!(
+                " Folders more than {DISK_VAULT_MAX_DEPTH} levels below it were not \
+                 searched."
+            ));
+        }
         Some(note)
+    }
+
+    /// Mark `result` as cut short when the file list was: `truncated`, and
+    /// `depthCut` when the depth limit is what cut the walk.
+    fn mark_cut(&self, result: &mut Value) {
+        if self.truncated {
+            result["truncated"] = json!(true);
+        }
+        if self.depth_cut() {
+            result["depthCut"] = json!(true);
+        }
+    }
+
+    /// The walk that listed the files skipped folders below its depth limit.
+    fn depth_cut(&self) -> bool {
+        self.depth_cut == Some(true)
     }
 }
 
@@ -2843,16 +2926,20 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
             truncated: listing.truncated || listing.scan_cut,
             app_limit: listing.limit,
             app_scan_cut: listing.scan_cut,
+            depth_cut: listing.depth_cut,
+            disk_file_cap: false,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
-            let (paths, truncated) = disk_vault_files(dir);
+            let scan = disk_vault_scan(dir);
             Ok(VaultFiles {
-                paths,
+                paths: scan.paths,
                 disk_vault: Some(dir.to_string_lossy().into_owned()),
                 app_error: e,
-                truncated,
+                truncated: scan.file_cap || scan.depth_cut,
                 app_limit: None,
                 app_scan_cut: false,
+                depth_cut: Some(scan.depth_cut),
+                disk_file_cap: scan.file_cap,
             })
         }
         (Err(e), _) => Err(e),
@@ -3180,26 +3267,50 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents, count, skipped: { missing, notDocument, tooLarge, unreadable } }: recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
         "mimeType": "application/json"
     }));
 
-    if let Ok(v) = ipc.get("/vault") {
-        if let Some(files) = v["files"].as_array() {
-            for f in files {
-                if let Some(p) = f["path"].as_str() {
-                    resources.push(json!({
-                        "uri": format!("file://{p}"),
-                        "name": f["name"].as_str().unwrap_or(p),
-                        "mimeType": "text/markdown"
-                    }));
+    // The vault's `file://` entries come from the app. When it cannot be
+    // asked they are missing, and that used to be silent, so a client read
+    // the list as a vault with no files. The result's `_meta` (which the MCP
+    // `ListResourcesResult` schema allows) now says why, and stderr logs it.
+    let mut meta = None;
+    match ipc.get("/vault") {
+        Ok(v) => {
+            if let Some(files) = v["files"].as_array() {
+                for f in files {
+                    if let Some(p) = f["path"].as_str() {
+                        resources.push(json!({
+                            "uri": format!("file://{p}"),
+                            "name": f["name"].as_str().unwrap_or(p),
+                            "mimeType": "text/markdown"
+                        }));
+                    }
                 }
             }
         }
+        Err(e) => {
+            let why = format!(
+                "The vault's file:// resources are not listed: {}",
+                app_not_running_msg(&e)
+            );
+            eprintln!("mdopener-mcp: resources/list: {why}");
+            meta = Some(json!({ VAULT_FILES_UNLISTED_META: why }));
+        }
     }
 
-    Response::ok(id, json!({ "resources": resources }))
+    let mut result = json!({ "resources": resources });
+    if let Some(meta) = meta {
+        result["_meta"] = meta;
+    }
+    Response::ok(id, result)
 }
+
+/// The `_meta` key a `resources/list` result carries when the vault's
+/// `file://` entries could not be listed (the app was unreachable or
+/// refused), with the reason in words.
+pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 
 /// The live document's text for `mdopener://current` and the prompts, or the
 /// JSON-RPC error: `-32002` when no document is open (the app answers
@@ -3760,13 +3871,17 @@ struct VaultListing {
     truncated: bool,
     limit: Option<u64>,
     scan_cut: bool,
+    /// The walk skipped folders below its depth limit; `None` from an older
+    /// app that does not tell the two limits apart.
+    depth_cut: Option<bool>,
 }
 
 fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
     let v = ipc.get("/vault")?;
     let truncated = v["truncated"].as_bool() == Some(true);
     let limit = v["limit"].as_u64();
-    let scan_cut = v["scanCut"].as_bool() == Some(true);
+    let depth_cut = v["depthCut"].as_bool();
+    let scan_cut = v["scanCut"].as_bool() == Some(true) || depth_cut == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3790,6 +3905,7 @@ fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
         truncated,
         limit,
         scan_cut,
+        depth_cut,
     })
 }
 
@@ -4244,8 +4360,12 @@ pub fn app_not_running_msg(err: &str) -> String {
 ///
 /// `title` is derived from the first `# Heading` line if present, otherwise
 /// the file's base name without extension.  `preview` is the first 200 chars
-/// of raw content (including front-matter).  Files that no longer exist on
-/// disk are silently omitted so the list stays consistent.
+/// of raw content (including front-matter).  Recents that cannot be listed
+/// are left out, and `skipped` counts them by reason: `missing` (no longer
+/// on disk), `notDocument` (not a Markdown non-dotfile regular file),
+/// `tooLarge` (past [`MAX_DOCUMENT_BYTES`]) and `unreadable` (any other read
+/// failure, such as text that is not UTF-8). They used to be dropped without
+/// a count, so a short list could not be told from a short recents list.
 pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Response {
     // Fetch the recent paths from the app. An app that cannot be reached (or
     // refuses) is an error, as for `mdopener://current`: it used to answer an
@@ -4264,18 +4384,29 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     };
 
     let mut documents: Vec<Value> = Vec::new();
+    let (mut missing, mut not_document, mut too_large, mut unreadable) = (0u64, 0u64, 0u64, 0u64);
     for path in &recent_paths {
         // Skip a recent that is (or now links to) something other than a
         // Markdown non-dotfile, as `file://` reads do: its preview would
         // otherwise show the first 200 characters of the link's target.
         let Ok(checked) = checked_document_path(path, "path") else {
+            not_document += 1;
             continue;
         };
         // Skip paths that no longer exist on disk. The checked (canonical)
         // path is read, so a link re-pointed after the check is not followed.
         let content = match read_document_file(&checked) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    missing += 1;
+                } else if std::fs::metadata(&checked).is_ok_and(|m| m.len() > MAX_DOCUMENT_BYTES) {
+                    too_large += 1;
+                } else {
+                    unreadable += 1;
+                }
+                continue;
+            }
         };
 
         // mtime in milliseconds since the Unix epoch.
@@ -4309,7 +4440,16 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         }));
     }
 
-    let payload = json!({ "documents": documents, "count": documents.len() });
+    let payload = json!({
+        "documents": documents,
+        "count": documents.len(),
+        "skipped": {
+            "missing": missing,
+            "notDocument": not_document,
+            "tooLarge": too_large,
+            "unreadable": unreadable,
+        },
+    });
     Response::ok(
         id,
         json!({

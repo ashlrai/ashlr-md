@@ -2718,6 +2718,39 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         note.contains("the 200 most recently changed of the files it scanned"),
         "{text}"
     );
+    // An older app does not say which limit cut the walk: no `depthCut`.
+    assert!(text.get("depthCut").is_none(), "{text}");
+    // An app that says which: the entry budget alone, or the depth limit.
+    for (depth_cut, want) in [
+        (false, "too large for Ashlr MD to scan in full"),
+        (true, "too deeply nested for Ashlr MD to scan in full"),
+    ] {
+        let ipc = MockIpc::new()
+            .on_get(
+                "/vault",
+                Ok(json!({
+                    "files": [{ "path": path }], "recents": [],
+                    "truncated": false, "limit": 200, "scanCut": true,
+                    "depthCut": depth_cut
+                })),
+            )
+            .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+        let text = content_text(&tool_search_vault(
+            id(5),
+            &json!({ "query": "target topic", "semantic": false }),
+            &ipc,
+        ));
+        assert_eq!(text["truncated"], true, "{text}");
+        let note = text["note"].as_str().unwrap();
+        assert!(note.contains(want), "{text}");
+        assert!(!note.contains("too large or too deeply"), "{text}");
+        if depth_cut {
+            assert_eq!(text["depthCut"], true, "{text}");
+            assert!(note.contains("at most 8 levels down"), "{text}");
+        } else {
+            assert!(text.get("depthCut").is_none(), "{text}");
+        }
+    }
     // A complete list says nothing.
     let ipc = MockIpc::new()
         .on_get(
@@ -2828,6 +2861,63 @@ fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
     let bad = json!({ "query": "target", "vault": dir.path().join("a.md") });
     let msg = tool_error_text(&tool_search_vault(id(3), &bad, &ipc));
     assert!(msg.contains("not a directory"), "{msg}");
+}
+
+/// The on-disk `vault` walk does not enter folders more than 16 levels down.
+/// It used to skip them silently, so a search presented the rest as the whole
+/// vault; it now says so with `depthCut` (and `truncated`) and a note.
+#[test]
+fn search_vault_on_disk_says_when_folders_were_too_deep() {
+    use mdopener_mcp::DISK_VAULT_MAX_DEPTH;
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deepest = dir.path().to_path_buf();
+    for level in 1..=DISK_VAULT_MAX_DEPTH {
+        deepest = deepest.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deepest).unwrap();
+    std::fs::write(deepest.join("read.md"), "the target topic\n").unwrap();
+    let vault = dir.path().to_str().unwrap();
+    let args = json!({ "query": "target", "semantic": false, "vault": vault });
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = || {
+        MockIpc::new()
+            .on_get("/vault", Err(down.into()))
+            .on_get("/search", Err(down.into()))
+    };
+
+    // Level 16 is still read, and nothing was cut.
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc()));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    assert!(v.get("depthCut").is_none(), "{v}");
+    assert!(v.get("truncated").is_none(), "{v}");
+
+    // A folder below it is not entered, and the result says so.
+    let below = deepest.join("too-deep");
+    std::fs::create_dir(&below).unwrap();
+    std::fs::write(below.join("missed.md"), "the target topic\n").unwrap();
+    let scan = mdopener_mcp::disk_vault_scan(dir.path());
+    assert!(scan.depth_cut && !scan.file_cap, "{scan:?}");
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc()));
+    assert_eq!(
+        v["results"].as_array().unwrap().len(),
+        1,
+        "unchanged limit: {v}"
+    );
+    assert_eq!(v["depthCut"], true, "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.contains("Folders more than 16 levels below it were not searched"),
+        "{note}"
+    );
+    assert!(!note.contains("Only the first"), "not the file cap: {note}");
+    // Semantic search over the same files says so too.
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v =
+        mdopener_mcp::search_vault_in("target", 5, true, Some(dir.path()), &ipc(), &embed).unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["depthCut"], true, "{v}");
 }
 
 /// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
@@ -2956,6 +3046,53 @@ fn resources_list_includes_vault_search_resource() {
         "resources/list must include text://vault-search, got: {:?}",
         uris
     );
+}
+
+/// When `/vault` failed, resources/list dropped the vault's `file://`
+/// entries without a word, so a client read it as a vault with no files.
+/// The result is still a valid `ListResourcesResult`, with the reason in
+/// `_meta`; a listing that worked has no such key.
+#[test]
+fn resources_list_says_when_the_vault_files_could_not_be_listed() {
+    use mdopener_mcp::VAULT_FILES_UNLISTED_META;
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new().on_get("/vault", Err(down.into()));
+    let resp = handle_resources_list(id(303), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    assert!(resources.iter().all(|r| r["uri"].is_string()), "{result}");
+    assert!(
+        !resources
+            .iter()
+            .any(|r| r["uri"].as_str().unwrap().starts_with("file://")),
+        "{result}"
+    );
+    let why = result["_meta"][VAULT_FILES_UNLISTED_META]
+        .as_str()
+        .unwrap_or_else(|| panic!("no _meta marker: {result}"));
+    assert!(why.contains("file:// resources are not listed"), "{why}");
+    assert!(why.contains(down), "{why}");
+    assert!(why.contains("does not appear to be running"), "{why}");
+
+    // A refusal is quoted as is.
+    let refused = "IPC server returned HTTP 403: vault is disabled";
+    let ipc = MockIpc::new().on_get("/vault", Err(refused.into()));
+    let result = handle_resources_list(id(304), &ipc).result.unwrap();
+    let why = result["_meta"][VAULT_FILES_UNLISTED_META].as_str().unwrap();
+    assert!(why.contains(refused), "{why}");
+
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [{ "path": "/v/a.md", "name": "a.md" }], "recents": [] })),
+    );
+    let result = handle_resources_list(id(305), &ipc).result.unwrap();
+    assert!(result.get("_meta").is_none(), "{result}");
+    assert!(result["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["uri"] == "file:///v/a.md"));
 }
 
 #[test]
@@ -7983,6 +8120,63 @@ fn recent_documents_without_the_app_is_an_error_not_an_empty_list() {
         .to_string();
     let body: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(body["count"], 0);
+}
+
+/// `mdopener://recent-documents` left out oversized, dotfile and missing
+/// recents without counting them, so a short list could not be told from a
+/// short recents list. `skipped` now counts each reason.
+#[test]
+fn recent_documents_counts_the_recents_it_skips() {
+    use mdopener_mcp::MAX_DOCUMENT_BYTES;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    std::fs::write(dir.join("ok.md"), "# Fine\n").unwrap();
+    std::fs::write(dir.join(".secret.md"), "# Hidden\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "plain\n").unwrap();
+    std::fs::File::create(dir.join("huge.md"))
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+    std::fs::write(dir.join("latin1.md"), [0x23u8, 0x20, 0xe9, 0xff]).unwrap();
+    let recents = json!([
+        path("ok.md"),
+        path(".secret.md"),
+        path("notes.txt"),
+        path("huge.md"),
+        path("gone.md"),
+        path("latin1.md"),
+    ]);
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": recents })));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["count"], 1, "{body}");
+    assert_eq!(
+        body["skipped"],
+        json!({ "missing": 1, "notDocument": 2, "tooLarge": 1, "unreadable": 1 }),
+        "{body}"
+    );
+
+    // Nothing skipped: every count is zero.
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [], "recents": [path("ok.md")] })),
+    );
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        body["skipped"],
+        json!({ "missing": 0, "notDocument": 0, "tooLarge": 0, "unreadable": 0 })
+    );
 }
 
 /// An HTTP answer was read to its end however long it was (the read timeout
