@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://export` links export once the file has loaded.** The link
+  sent its export request as an event right after the open, so when the link
+  started the app the window was not listening yet and the request was lost
+  (only the file opened), and with the app running the dialog could open
+  before the file had loaded. The app now keeps a link's format per file
+  until the window has opened it, as it does for `mode`, and the window then
+  opens the export dialog with that format.
 - **`mdopen`'s exit status docs cover an app that was reached but failed.**
   docs/PHANTOM.md's exit table (which Phantom reads) and docs/AGENTS.md left
   out that `mdopen` exits `1` without trying the URL scheme when the running

@@ -718,9 +718,11 @@ to that view once it is open, also when the link starts the app (so does
 ignored, as `open_file` refuses one. `mode` used to be dropped, so the file
 opened in whatever view it was.
 
-`mdopener://export?path=<path>&format=pdf|docx|html|epub` opens the file and
-then the export dialog with that format selected (`format` defaults to
-`pdf`). A link with any other `format` (`PDF`, `md`) is ignored, as the
+`mdopener://export?path=<path>&format=pdf|docx|html|epub` opens the file and,
+once it has loaded (also when the link starts the app), the export dialog
+with that format selected (`format` defaults to `pdf`). The export request
+used to be sent with the open, so a link that started the app only opened
+the file. A link with any other `format` (`PDF`, `md`) is ignored, as the
 `export` tool refuses one; it used to open the dialog with no format
 selected.
 

@@ -13,10 +13,11 @@
 //!              opened the file and takes it ([`take_link_view_mode`]), so it
 //!              applies on a cold start too.
 //!
-//! For `export`: queues the file for opening (as `open` does), then emits
-//!               `mcp://export` with `{ format, outputPath: null }`, which
-//!               opens the export dialog with that format selected. `format`
-//!               defaults to `pdf`; any other value than the four is refused.
+//! For `export`: queues the file for opening (as `open` does) and keeps the
+//!               format in [`LinkExports`] until the window has opened the
+//!               file and takes it ([`take_link_export`]), then opens the
+//!               export dialog with that format selected. `format` defaults
+//!               to `pdf`; any other value than the four is refused.
 
 use crate::PendingFiles;
 use std::collections::HashMap;
@@ -105,7 +106,37 @@ fn link_target(query: &str) -> Result<String, String> {
 /// listening yet (a cold start), so the mode waits here like the path waits
 /// in [`PendingFiles`].
 #[derive(Default)]
-pub struct LinkViewModes(pub Mutex<HashMap<String, &'static str>>);
+pub struct LinkViewModes(pub LinkRequests);
+
+/// The export format each `mdopener://export` link asked for, by the path it
+/// opened, until the window opens that path and takes it. The link used to
+/// emit `mcp://export` right after the open event: on a cold start nothing
+/// was listening yet, so the request was lost, and on a warm start it could
+/// open the dialog before the file had loaded (or for the document that was
+/// open before it).
+#[derive(Default)]
+pub struct LinkExports(pub LinkRequests);
+
+/// One value a link asked for per path, waiting for the window to take it.
+#[derive(Default)]
+pub struct LinkRequests(Mutex<HashMap<String, &'static str>>);
+
+impl LinkRequests {
+    /// Keep `value` for `path`, or with `None` drop what an earlier link left.
+    fn set(&self, path: &str, value: Option<&'static str>) {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match value {
+            Some(v) => map.insert(path.to_string(), v),
+            None => map.remove(path),
+        };
+    }
+
+    /// The value kept for `path`, removed so it applies once.
+    fn take(&self, path: &str) -> Option<&'static str> {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(path)
+    }
+}
 
 /// The `mode` of an `open` link: `None` without one, else `read` or `edit`.
 /// Any other value refuses the link, as `/open` refuses it for agents: the
@@ -134,16 +165,9 @@ fn handle_open(app: &AppHandle, query: &str) {
         Ok(m) => m,
         Err(e) => return eprintln!("[deep_link] open: {e}"),
     };
-    {
-        let state = app.state::<LinkViewModes>();
-        let mut modes = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        match mode {
-            Some(m) => modes.insert(abs.clone(), m),
-            // A link without `mode` keeps the view, even after an earlier
-            // link for the same file asked for one.
-            None => modes.remove(&abs),
-        };
-    }
+    // A link without `mode` keeps the view, even after an earlier link for
+    // the same file asked for one.
+    app.state::<LinkViewModes>().0.set(&abs, mode);
     open_path(app, abs);
 }
 
@@ -155,8 +179,15 @@ pub fn take_link_view_mode(
     path: String,
     state: tauri::State<LinkViewModes>,
 ) -> Option<&'static str> {
-    let mut modes = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    modes.remove(&path)
+    state.0.take(&path)
+}
+
+/// The export format an `mdopener://export` link asked for `path`, removed
+/// so it applies once, or `None`. The window calls this after opening a file
+/// from a link and opens the export dialog with that format.
+#[tauri::command]
+pub fn take_link_export(path: String, state: tauri::State<LinkExports>) -> Option<&'static str> {
+    state.0.take(&path)
 }
 
 /// [`link_target`], logging a refusal.
@@ -201,8 +232,9 @@ fn link_format(query: &str) -> Result<&'static str, String> {
 
 /// `mdopener://export?path=<enc>[&format=pdf|docx|html|epub]`
 ///
-/// Queues the file to open (same as `handle_open`) and then emits
-/// `mcp://export` so the frontend opens the export dialog.
+/// Queues the file to open (same as `handle_open`) with its format kept in
+/// [`LinkExports`], so the window opens the export dialog once the file has
+/// loaded, also when the link starts the app.
 fn handle_export(app: &AppHandle, query: &str) {
     let Ok(abs) = target_or_log("export", query) else {
         return;
@@ -212,14 +244,8 @@ fn handle_export(app: &AppHandle, query: &str) {
         Err(e) => return eprintln!("[deep_link] export: {e}"),
     };
 
-    // Open the file first.
+    app.state::<LinkExports>().0.set(&abs, Some(format));
     open_path(app, abs);
-
-    // Signal the frontend to start the export.
-    let _ = app.emit(
-        "mcp://export",
-        serde_json::json!({ "format": format, "outputPath": null }),
-    );
 }
 
 // ── Tiny query-string helpers ─────────────────────────────────────────────────
@@ -245,7 +271,25 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{link_format, link_mode, link_target};
+    use super::{link_format, link_mode, link_target, LinkRequests};
+
+    /// An export link's request used to be an event sent with the open, lost
+    /// on a cold start; it now waits per path until the window takes it, once.
+    #[test]
+    fn link_requests_wait_per_path_and_apply_once() {
+        let r = LinkRequests::default();
+        r.set("/a.md", Some("docx"));
+        r.set("/b.md", Some("pdf"));
+        assert_eq!(r.take("/c.md"), None);
+        assert_eq!(r.take("/a.md"), Some("docx"));
+        assert_eq!(r.take("/a.md"), None);
+        // A later link for the same file replaces or clears the request.
+        r.set("/b.md", Some("epub"));
+        r.set("/a.md", Some("html"));
+        r.set("/a.md", None);
+        assert_eq!(r.take("/a.md"), None);
+        assert_eq!(r.take("/b.md"), Some("epub"));
+    }
 
     /// An export link's `format` was passed on as given, so a misspelt one
     /// opened the dialog with nothing selected and no word of why.
