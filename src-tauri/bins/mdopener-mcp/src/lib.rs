@@ -1196,14 +1196,17 @@ pub fn tool_open_file_with(
     // A path that does not exist yet is allowed (the app opens it as a new
     // document), but it is still made absolute against this server's working
     // directory: the app resolves paths against its own, unrelated cwd.
-    let abs = std::fs::canonicalize(&raw_path)
-        .or_else(|_| std::path::absolute(&raw_path))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or(raw_path.clone());
+    let abs = match openable_document_path(&raw_path) {
+        Ok(abs) => abs,
+        Err(e) => return tool_error(id, e),
+    };
 
     // Try IPC first (app already running).
     let ipc_error = match ipc.post("/open", json!({ "path": abs, "mode": mode })) {
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
+        // The app is running and refused the request: say why, and do not
+        // retry it through the URL scheme.
+        Err(e) if app_refused(&e) => return tool_error(id, e),
         Err(e) => e,
     };
 
@@ -1285,6 +1288,23 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
 /// directory and compares paths against its canonical open-document path, so
 /// forwarding the raw string misses for `plan.md`, `./plan.md`, or `/tmp/x`
 /// vs `/private/tmp/x` on macOS.
+/// [`agent_path`] for a document the app is asked to open (`open_file`,
+/// `present_document`, `request_review` with a path), refused unless it is a
+/// Markdown document that is not a dotfile, checked like the tools that read
+/// a path from disk ([`checked_document_path`]). The app shows what it opens
+/// and `get_current_content` returns it, so opening `~/.ssh/id_rsa` would
+/// otherwise read it. The app makes the same check.
+pub fn openable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_path(&agent_path(raw), "path")
+}
+
+/// True when an IPC error is the running app refusing the request (an HTTP
+/// 4xx other than 401), as opposed to the app being unreachable.
+fn app_refused(err: &str) -> bool {
+    err.strip_prefix("IPC server returned HTTP 4")
+        .is_some_and(|rest| !rest.starts_with("01"))
+}
+
 pub fn agent_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
         .or_else(|_| std::path::absolute(raw))
@@ -1467,8 +1487,18 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
-    let resume = args["review_id"].as_str().filter(|r| !r.is_empty()).map(str::to_string);
-    let path = args["path"].as_str().map(agent_path);
+    let resume = args["review_id"]
+        .as_str()
+        .filter(|r| !r.is_empty())
+        .map(str::to_string);
+    let path = match args["path"]
+        .as_str()
+        .map(openable_document_path)
+        .transpose()
+    {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
     let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(300_000).clamp(5_000, 600_000);
@@ -1659,11 +1689,14 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
 }
 
 pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = args["path"].as_str().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    let path = match args["path"]
+        .as_str()
+        .map(openable_document_path)
+        .transpose()
+    {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
     match ipc.post("/present", json!({ "path": path })) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -2535,7 +2568,14 @@ pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
                 );
             }
             if code >= 400 {
-                return Err(format!("IPC server returned HTTP {code}"));
+                // The app's error responses are `{"error": "<reason>"}`.
+                let reason = serde_json::from_slice::<Value>(&raw[body_start..])
+                    .ok()
+                    .and_then(|v| v["error"].as_str().map(str::to_string));
+                return Err(match reason {
+                    Some(r) => format!("IPC server returned HTTP {code}: {r}"),
+                    None => format!("IPC server returned HTTP {code}"),
+                });
             }
         }
     }

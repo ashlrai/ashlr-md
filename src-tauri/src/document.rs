@@ -65,7 +65,7 @@ pub fn filter_existing(paths: Vec<String>) -> Vec<String> {
 // Vault detection + wikilink resolution ([[target]] / ![[target]])
 // ---------------------------------------------------------------------------
 
-const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
+pub(crate) const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// Cap the vault scan depth so resolution stays fast on big trees.
 const WIKILINK_MAX_DEPTH: usize = 12;
 /// Stop collecting candidates once we have this many — a safety valve on huge vaults.

@@ -436,7 +436,7 @@ fn open_file_ipc_success_returns_opened_path() {
     let ipc = MockIpc::new()
         .on_post("/open", Ok(json!({ "ok": true })));
     // Use /tmp which is guaranteed to exist for canonicalize
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp" }), &ipc);
+    let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
     assert!(!is_error(&resp));
     let text = content_text(&resp);
@@ -445,9 +445,12 @@ fn open_file_ipc_success_returns_opened_path() {
 
 #[test]
 fn open_file_mode_read_forwarded_in_post_body() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Ok(json!({ "ok": true })));
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp", "mode": "read" }), &ipc);
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "read" }),
+        &ipc,
+    );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let post = calls.iter().find(|(m, p, _)| m == "POST" && p == "/open");
@@ -458,9 +461,12 @@ fn open_file_mode_read_forwarded_in_post_body() {
 
 #[test]
 fn open_file_mode_edit_forwarded_in_post_body() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Ok(json!({ "ok": true })));
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp", "mode": "edit" }), &ipc);
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit" }),
+        &ipc,
+    );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let body = calls.iter()
@@ -476,11 +482,21 @@ fn open_file_ipc_failure_launches_url_scheme() {
     let ipc = MockIpc::new()
         .on_post("/open", Err("ipc-port not found".into()));
     let seen = Mutex::new(Vec::<String>::new());
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp", "mode": "edit" }), &ipc, &|url| {
-        seen.lock().unwrap().push(url.to_string());
-        Launch::Opened { launcher: "xdg-open".into() }
-    });
-    assert!(ipc.calls().iter().any(|(m, p, _)| m == "POST" && p == "/open"));
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit" }),
+        &ipc,
+        &|url| {
+            seen.lock().unwrap().push(url.to_string());
+            Launch::Opened {
+                launcher: "xdg-open".into(),
+            }
+        },
+    );
+    assert!(ipc
+        .calls()
+        .iter()
+        .any(|(m, p, _)| m == "POST" && p == "/open"));
     assert!(resp.error.is_none(), "{:?}", resp.error);
     let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
     assert!(text.contains("url-scheme"), "{text}");
@@ -492,11 +508,15 @@ fn open_file_ipc_failure_launches_url_scheme() {
 
 #[test]
 fn open_file_headless_reports_no_launcher_honestly() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::NoLauncher { tried: vec!["xdg-open".into(), "gio".into()] }
-    });
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::NoLauncher {
+            tried: vec!["xdg-open".into(), "gio".into()],
+        },
+    );
     let err = tool_error_text(&resp);
     assert!(err.contains("not running"), "{}", err);
     assert!(err.contains("xdg-open, gio"), "{}", err);
@@ -505,22 +525,31 @@ fn open_file_headless_reports_no_launcher_honestly() {
 
 #[test]
 fn open_file_launcher_failure_is_an_error() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::Failed { launcher: "xdg-open".into(), code: Some(4) }
-    });
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::Failed {
+            launcher: "xdg-open".into(),
+            code: Some(4),
+        },
+    );
     let err = tool_error_text(&resp);
     assert!(err.contains("status 4"), "{}", err);
 }
 
 #[test]
 fn open_file_pending_launcher_is_unconfirmed_success() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::Pending { launcher: "xdg-open".into() }
-    });
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::Pending {
+            launcher: "xdg-open".into(),
+        },
+    );
     assert!(resp.error.is_none());
     let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
     assert!(text.contains("\"confirmed\":false") || text.contains("\"confirmed\": false"), "{text}");
@@ -529,9 +558,12 @@ fn open_file_pending_launcher_is_unconfirmed_success() {
 #[test]
 fn open_file_rejects_unknown_mode_before_any_launch() {
     let ipc = MockIpc::new();
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp", "mode": "edit&path=/etc/passwd" }), &ipc, &|_| {
-        panic!("must not launch")
-    });
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit&path=/etc/passwd" }),
+        &ipc,
+        &|_| panic!("must not launch"),
+    );
     assert_eq!(resp.error.unwrap().code, -32602);
     assert!(ipc.calls().is_empty());
 }
@@ -1026,8 +1058,7 @@ fn present_document_no_path_uses_current_doc() {
 fn present_document_with_path_sends_canonicalized() {
     let ipc = MockIpc::new()
         .on_post("/present", Ok(json!({ "ok": true })));
-    // /tmp is a real path on macOS/Linux and will canonicalize successfully
-    let resp = tool_present_document(id(1), &json!({ "path": "/tmp" }), &ipc);
+    let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let body = calls.iter()
@@ -4152,4 +4183,72 @@ fn unparsable_session_file_is_not_overwritten() {
     std::fs::write(&path, "{ torn").unwrap();
     assert!(store_append_message(&sid, "agent", "x", vec![]).is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ torn");
+}
+
+/// The app answers a refused request with `{"error": …}`; that reason must
+/// reach the agent instead of a bare status code.
+#[test]
+fn parse_http_body_400_carries_the_apps_reason() {
+    let raw = b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{\"error\":\"Refusing to open '/x/id_rsa'\"}";
+    let err = mdopener_mcp::parse_http_body(raw).unwrap_err();
+    assert!(err.contains("400"), "{err}");
+    assert!(err.contains("Refusing to open '/x/id_rsa'"), "{err}");
+}
+
+/// open_file, present_document and request_review hand a path to the app,
+/// which opens it; get_current_content then returns whatever it read. The
+/// tools that read a path from disk accept Markdown only, so these refuse a
+/// non-Markdown file or a dotfile before the app (or the URL-scheme
+/// launcher) ever sees it.
+#[test]
+fn path_handing_tools_refuse_non_markdown_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let secret = dir.path().join("id_rsa");
+    std::fs::write(&secret, "PRIVATE KEY").unwrap();
+    let dotfile = dir.path().join(".env.md");
+    std::fs::write(&dotfile, "TOKEN=1").unwrap();
+    let mut refused = vec![
+        secret.to_string_lossy().into_owned(),
+        dotfile.to_string_lossy().into_owned(),
+        dir.path().to_string_lossy().into_owned(),
+    ];
+    #[cfg(unix)]
+    {
+        let link = dir.path().join("notes.md");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        refused.push(link.to_string_lossy().into_owned());
+    }
+    for path in &refused {
+        let ipc = MockIpc::new()
+            .on_post("/open", Ok(json!({ "ok": true })))
+            .on_post("/present", Ok(json!({ "ok": true })))
+            .on_post("/review", Ok(json!({ "ok": true })));
+        let open = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| {
+            panic!("must not launch")
+        });
+        let present = tool_present_document(id(2), &json!({ "path": path }), &ipc);
+        let review = tool_request_review(id(3), &json!({ "path": path, "blocking": false }), &ipc);
+        for resp in [open, present, review] {
+            let err = tool_error_text(&resp);
+            assert!(err.contains("Markdown"), "{path}: {err}");
+        }
+        assert!(ipc.calls().is_empty(), "{path}: {:?}", ipc.calls());
+    }
+}
+
+/// When the running app refuses `/open`, open_file reports the reason and
+/// does not retry through the URL scheme (which would bypass the refusal).
+#[test]
+fn open_file_does_not_relaunch_a_path_the_app_refused() {
+    let ipc = MockIpc::new().on_post(
+        "/open",
+        Err("IPC server returned HTTP 400: Refusing to open '/tmp/mdopener-notes.md'".into()),
+    );
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| panic!("must not launch"),
+    );
+    assert!(tool_error_text(&resp).contains("Refusing to open"));
 }

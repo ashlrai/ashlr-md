@@ -214,7 +214,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 
 | Tool | Parameters | Returns | Notes |
 |---|---|---|---|
-| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. |
+| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)). |
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
@@ -524,7 +524,12 @@ The integration is **local-only and token-authenticated**:
   `export_text` / `export_metadata` with `path`) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
-  refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
+  refused with `isError: true`. The tools that ask the app to open a path
+  (`open_file`, `present_document`, `request_review` with `path`) make the
+  same check, since the app would then show the file and
+  `get_current_content` would return it; the app's `/open`, `/present` and
+  `/review` endpoints refuse such a path too (HTTP 400, and the reason
+  reaches the agent). `edit_canvas` likewise re-checks `.canvas`
   after resolving symlinks.
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files

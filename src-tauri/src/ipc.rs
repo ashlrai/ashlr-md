@@ -732,6 +732,38 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
 // ── Individual handlers ───────────────────────────────────────────────────────
 
+/// Resolve a path an agent asked the app to open (`/open`, `/present`, or
+/// `/review` with a path), refusing anything but a Markdown document. Without
+/// this an agent could open `~/.ssh/id_rsa` and read it back through
+/// `/content`, `/recent` or the recents-backed MCP resources, though the
+/// MCP tools that read a path from disk accept Markdown only. The check runs
+/// on the canonical path, so a `notes.md` symlink to a secret is refused;
+/// dotfiles and anything that exists but is not a regular file are refused
+/// too. Returns the canonical path (or the given one when it does not exist,
+/// which the open then reports).
+fn checked_agent_path(raw: &str) -> Result<String, String> {
+    let abs = std::fs::canonicalize(raw)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw.to_string());
+    let p = std::path::Path::new(&abs);
+    let markdown = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| crate::document::MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    let hidden = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_none_or(|n| n.starts_with('.'));
+    let not_a_file = std::fs::metadata(p).is_ok_and(|m| !m.is_file());
+    if !markdown || hidden || not_a_file {
+        return Err(format!(
+            "Refusing to open '{abs}': agents can open only Markdown documents (.md, \
+             .markdown, .mdown, .mkd, .mdx) that are not dotfiles."
+        ));
+    }
+    Ok(abs)
+}
+
 fn handle_set_content(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {
@@ -764,10 +796,10 @@ fn handle_open(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
-            // Resolve to absolute path.
-            let abs = std::fs::canonicalize(&b.path)
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or(b.path.clone());
+            let abs = match checked_agent_path(&b.path) {
+                Ok(abs) => abs,
+                Err(e) => return send_error(req, 400, &e),
+            };
 
             let _ = app.emit("mcp://open", serde_json::json!({
                 "path": abs,
@@ -820,11 +852,10 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         return send_error(req, 400, "reviewId is required");
     }
     let timeout_ms = body.timeout_ms.unwrap_or(300_000).clamp(5_000, 600_000);
-    let abs_path = body.path.as_deref().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    let abs_path = match body.path.as_deref().map(checked_agent_path).transpose() {
+        Ok(p) => p,
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     {
         let state = app.state::<ReviewState>();
@@ -1375,11 +1406,10 @@ fn handle_present(mut req: Request, app: &AppHandle) {
         Ok(b) => b,
         Err(e) => return send_error(req, 400, &e),
     };
-    let abs = body.path.as_deref().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    let abs = match body.path.as_deref().map(checked_agent_path).transpose() {
+        Ok(p) => p,
+        Err(e) => return send_error(req, 400, &e),
+    };
     let _ = app.emit("mcp://present", serde_json::json!({ "path": abs }));
     send_json(req, serde_json::json!({ "ok": true, "path": abs }));
 }
@@ -1612,6 +1642,44 @@ mod tests {
     // ── Session files shared with mdopener-mcp ───────────────────────────────
 
     use super::{read_session_file, write_session_file, SessionMessage};
+
+    // ── Paths an agent may open, present or send for review ─────────────────
+
+    use super::checked_agent_path;
+
+    #[test]
+    fn agents_can_open_only_markdown_documents() {
+        let d = Scratch::new("agent-paths");
+        let md = d.0.join("notes.md");
+        std::fs::write(&md, "# hi").unwrap();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(
+            checked_agent_path(md.to_str().unwrap()).unwrap(),
+            canon.to_str().unwrap()
+        );
+        let upper = d.0.join("README.MD");
+        std::fs::write(&upper, "x").unwrap();
+        assert!(checked_agent_path(upper.to_str().unwrap()).is_ok());
+
+        let secret = d.0.join("id_rsa");
+        std::fs::write(&secret, "PRIVATE KEY").unwrap();
+        let env = d.0.join(".env.md");
+        std::fs::write(&env, "TOKEN=1").unwrap();
+        let dir_md = d.0.join("folder.md");
+        std::fs::create_dir_all(&dir_md).unwrap();
+        let mut refused = vec![secret.clone(), env, dir_md, d.0.join("x.txt")];
+        #[cfg(unix)]
+        {
+            // A Markdown-named link to a secret is judged by its target.
+            let link = d.0.join("innocent.md");
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            refused.push(link);
+        }
+        for p in refused {
+            let err = checked_agent_path(p.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("Markdown"), "{p:?}: {err}");
+        }
+    }
 
     /// A scratch directory removed on drop (the app crate has no tempfile).
     struct Scratch(std::path::PathBuf);
