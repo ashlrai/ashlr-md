@@ -13,7 +13,8 @@
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
-//!   notifications/* → no reply
+//!   notifications/* → no reply (as does any request without an `id`)
+//!   batches         → one array reply (2025-03-26 requires accepting them)
 //!   ping            → {"result":{}}
 //!   tools/list, tools/call
 //!   resources/list, resources/read
@@ -38,7 +39,8 @@
 
 use std::io::{self, BufRead, Write as _};
 
-use mdopener_mcp::{dispatch, Request, RealIpcClient};
+use mdopener_mcp::{dispatch, IpcClient, RealIpcClient, Request, Response};
+use serde_json::Value;
 
 const HELP: &str = "mdopener-mcp — MCP server for Ashlr MD (stdio JSON-RPC 2.0)
 
@@ -78,21 +80,69 @@ fn main() {
             Err(_) => break,
         };
 
-        let response = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => dispatch(req, &ipc),
-            Err(e) => Some(mdopener_mcp::Response::err(
-                serde_json::Value::Null,
-                -32700,
-                format!("Parse error: {e}"),
-            )),
-        };
-
-        // Notifications (dispatch returned None) get no reply.
-        if let Some(response) = response {
-            let mut out = serde_json::to_string(&response).unwrap_or_default();
+        // Notifications (and batches made only of notifications) get no reply.
+        if let Some(mut out) = handle_line(&line, &ipc) {
             out.push('\n');
             let _ = stdout.write_all(out.as_bytes());
             let _ = stdout.flush();
         }
     }
+}
+
+/// Answer one stdin line: a JSON-RPC request, a notification, or (protocol
+/// 2025-03-26, which servers MUST accept) a batch array of them. Returns the
+/// serialized reply, or `None` when nothing must be sent back.
+fn handle_line(line: &str, ipc: &dyn IpcClient) -> Option<String> {
+    let value: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(e) => {
+            return Some(to_line(&Response::err(
+                Value::Null,
+                -32700,
+                format!("Parse error: {e}"),
+            )))
+        }
+    };
+    match value {
+        Value::Array(items) if items.is_empty() => Some(to_line(&Response::err(
+            Value::Null,
+            -32600,
+            "Invalid Request: empty batch",
+        ))),
+        Value::Array(items) => {
+            let replies: Vec<Response> = items
+                .into_iter()
+                .filter_map(|m| handle_message(m, ipc))
+                .collect();
+            (!replies.is_empty()).then(|| serde_json::to_string(&replies).unwrap_or_default())
+        }
+        single => handle_message(single, ipc).map(|r| to_line(&r)),
+    }
+}
+
+/// Answer one JSON-RPC message. A well-formed message without an `id` is a
+/// notification and gets no reply; a malformed one gets `-32600` carrying its
+/// `id` when it has one, so the client waiting on that id is not left hanging.
+fn handle_message(message: Value, ipc: &dyn IpcClient) -> Option<Response> {
+    let id = message.get("id").cloned();
+    match serde_json::from_value::<Request>(message) {
+        Ok(req) => {
+            let is_notification = id.is_none();
+            let response = dispatch(req, ipc);
+            if is_notification {
+                None
+            } else {
+                response
+            }
+        }
+        Err(e) => Some(Response::err(
+            id.unwrap_or(Value::Null),
+            -32600,
+            format!("Invalid Request: {e}"),
+        )),
+    }
+}
+
+fn to_line(response: &Response) -> String {
+    serde_json::to_string(response).unwrap_or_default()
 }

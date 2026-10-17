@@ -3568,3 +3568,169 @@ fn edit_tools_assert_the_canonical_path() {
         assert_eq!(body.unwrap()["path"], json!(canonical), "{p}");
     }
 }
+
+// ── Agent-workflow regressions ────────────────────────────────────────────────
+
+/// `text://vault-search?q=my+topic` (the form resources/list documents) must
+/// search for "my topic", not the literal "my+topic"; `%2B` is a real plus.
+#[test]
+fn vault_search_resource_decodes_plus_as_space() {
+    use mdopener_mcp::handle_resource_read;
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    for (uri, want) in [
+        ("text://vault-search?q=my+topic", "my topic"),
+        ("text://vault-search?q=c%2B%2B+notes", "c++ notes"),
+    ] {
+        let resp = handle_resource_read(id(1), uri, &ipc);
+        let payload: Value = serde_json::from_str(
+            resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["query"], want, "{uri}");
+    }
+    assert!(ipc.calls().iter().any(|(_, p, _)| p.starts_with("/search?q=my%20topic")));
+}
+
+/// Plain text keeps comparisons, intraword underscores and spaced
+/// asterisks; tags and emphasis markers still go, autolinks keep the URL.
+#[test]
+fn export_text_keeps_literal_angle_brackets_underscores_and_asterisks() {
+    use mdopener_mcp::strip_markdown;
+    assert_eq!(
+        strip_markdown("if a < b and c > d then **stop**"),
+        "if a < b and c > d then stop"
+    );
+    assert_eq!(strip_markdown("set MAX_RETRY_COUNT in my_config"), "set MAX_RETRY_COUNT in my_config");
+    assert_eq!(strip_markdown("2 * 3 = 6, _emphasis_ and *it*"), "2 * 3 = 6, emphasis and it");
+    assert_eq!(strip_markdown("a <span>b</span> <!-- c --> d"), "a b  d");
+    assert_eq!(strip_markdown("see <https://example.com/x>"), "see https://example.com/x");
+}
+
+/// `#tag` lines (Obsidian tags) and shebangs are not headings.
+#[test]
+fn export_metadata_headings_need_a_space_after_the_hashes() {
+    use mdopener_mcp::extract_headings;
+    let h = extract_headings("# Title\n#project #todo\n##\tTabbed\n#!/bin/sh\n####### seven\n");
+    assert_eq!(
+        h,
+        vec![json!({"level": 1, "text": "Title"}), json!({"level": 2, "text": "Tabbed"})]
+    );
+}
+
+/// With zero context, an insertion's `-` range names the line it follows
+/// (and a deletion's `+` range likewise), so `patch` applies it in place,
+/// not at the top of the file.
+#[test]
+fn diff_zero_context_hunks_name_the_preceding_line() {
+    use mdopener_mcp::compute_unified_diff;
+    let (d, hunks, _, _) = compute_unified_diff("a", "b", "1\n2\n3\n", "1\n2\nnew\n3\n", 0);
+    assert_eq!(hunks, 1);
+    assert!(d.contains("@@ -2,0 +3,1 @@"), "{d}");
+    let (d, _, _, _) = compute_unified_diff("a", "b", "1\n2\n3\n", "1\n3\n", 0);
+    assert!(d.contains("@@ -2,1 +1,0 @@"), "{d}");
+    // With context the headers are unchanged.
+    let (d, _, _, _) = compute_unified_diff("a", "b", "1\n2\n3\n", "1\n2\nnew\n3\n", 1);
+    assert!(d.contains("@@ -2,2 +2,3 @@"), "{d}");
+}
+
+/// A huge `context_lines` must not overflow (a debug build panicked and took
+/// the whole MCP session down).
+#[test]
+fn diff_documents_huge_context_does_not_overflow() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.md");
+    let b = dir.path().join("b.md");
+    std::fs::File::create(&a).unwrap().write_all(b"x\ny\n").unwrap();
+    std::fs::File::create(&b).unwrap().write_all(b"x\nz\n").unwrap();
+    let resp = mdopener_mcp::tool_diff_documents(
+        id(1),
+        &json!({ "path_a": a, "path_b": b, "context_lines": u64::MAX }),
+    );
+    assert!(!is_error(&resp));
+    assert_eq!(content_text(&resp)["hunks"], 1);
+}
+
+/// Two server processes (two agents) appending to one session must not drop
+/// each other's messages: the cached copy is never written back over newer
+/// disk state, and reads see what the other process appended.
+#[test]
+fn conversation_store_keeps_messages_appended_by_another_process() {
+    use mdopener_mcp::persist_session;
+    let sess = format!("cross-process-{}-{:?}", std::process::id(), std::time::Instant::now())
+        .replace(|c: char| !c.is_alphanumeric(), "-");
+    store_append_message(&sess, "agent", "from this process", vec![]).unwrap();
+    // The "other process" appends straight to the persisted log.
+    let mut log = load_session_from_disk(&sess).unwrap();
+    let mut other = log.messages[0].clone();
+    other.id = "msg-other".into();
+    other.content = "from another process".into();
+    log.messages.push(other);
+    persist_session(&sess, &log);
+
+    let ctx = store_get_context(&sess, 20).unwrap();
+    assert_eq!(ctx.len(), 2, "reads must see the other process's message");
+    store_append_message(&sess, "agent", "again from this process", vec![]).unwrap();
+    let on_disk: Vec<String> = load_session_from_disk(&sess)
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    assert_eq!(
+        on_disk,
+        ["from this process", "from another process", "again from this process"]
+    );
+    if let Some(p) = session_file_path(&sess) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// get_user_annotations sends an absolute path: the app resolves relative
+/// ones against its own, unrelated working directory.
+#[test]
+fn get_user_annotations_sends_an_absolute_path() {
+    let ipc = MockIpc::new().on_get("/annotations", Ok(json!({ "tasks": [] })));
+    let _ = tool_get_annotations(id(1), &json!({ "path": "notes/plan.md" }), &ipc);
+    let calls = ipc.calls();
+    let cwd = std::env::current_dir().unwrap();
+    let want = urlencoding::encode(cwd.join("notes/plan.md").to_str().unwrap()).into_owned();
+    assert_eq!(calls[0].1, format!("/annotations?path={want}"));
+}
+
+/// A blocking review returns `pending` with its id once `wait_ms` passes,
+/// instead of blocking past the MCP client's request timeout, and the agent
+/// resumes it with `review_id` (no second registration).
+#[test]
+fn request_review_returns_pending_before_client_timeouts_and_resumes() {
+    use mdopener_mcp::{tool_request_review_with, DEFAULT_REVIEW_WAIT_MS};
+    use std::time::Duration;
+    const { assert!(DEFAULT_REVIEW_WAIT_MS < 60_000) };
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get("/review/result", Ok(json!({ "status": "pending" })));
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "wait_ms": 1000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["status"], "pending", "{v}");
+    let review_id = v["reviewId"].as_str().unwrap().to_string();
+
+    let done = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "done", "verdict": "approved", "comments": "ok" })),
+    );
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": review_id }),
+        &done,
+        Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["reviewId"], review_id.as_str());
+    assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
+}

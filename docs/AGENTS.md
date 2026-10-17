@@ -35,7 +35,9 @@ The MCP server understands the MCP lifecycle (`initialize` →
 `resources/*`, and `prompts/*`) and negotiates one of three protocol revisions:
 **`2024-11-05`**, **`2025-03-26`**, or **`2025-06-18`** (default). It echoes the
 client's requested `protocolVersion` when it's one of these, and otherwise
-advertises the latest, `2025-06-18`.
+advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
+which `2025-03-26` clients may send) gets one array reply; a message without
+an `id` is a notification and gets no reply.
 
 ---
 
@@ -217,8 +219,8 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
 | `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document. With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. |
-| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer` | `{ verdict, reviewId, comments }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path` or `content` is required. |
-| `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus GFM task-checkbox states parsed from the live document. Read-only. |
+| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. |
+| `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. |
 | `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
@@ -316,7 +318,11 @@ before proceeding.
    `reviewId` is generated) and, if a `path` was given, opens that file in read
    mode. The app shows its **review panel**.
 2. **The call BLOCKS** (when `blocking` is `true`, the default). Under the hood
-   the MCP binary polls the app every ~1.5s for a verdict, up to `timeout_ms`.
+   the MCP binary polls the app every ~1.5s for a verdict, for at most
+   `wait_ms` (default 50 s, below the 60 s request timeout of common MCP
+   clients). If the human has not decided by then it returns
+   `{ "status": "pending", "reviewId": "…" }`; call `request_review` again with
+   `review_id` to keep waiting on the same review.
 3. **The human acts in the app** — clicking **Approve**, **Request changes**, or
    **Dismiss** — optionally leaving comments.
 4. **The agent receives the verdict** as the tool result:
@@ -330,8 +336,12 @@ before proceeding.
   returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
   can later check the outcome via `get_user_annotations`.
 - `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  to wait for a verdict. On expiry the tool returns `{ "verdict": "timeout", … }`
-  rather than hanging forever.
+  the human has to decide (the review panel's window). When it fits within
+  `wait_ms` and expires, the tool returns `{ "verdict": "timeout", … }`.
+- `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
+  blocks. Raise it only if your client allows longer tool calls.
+- `review_id` — resume waiting on a review an earlier call returned as pending
+  (no new review is registered).
 
 ### Reading the result later
 
@@ -357,7 +367,8 @@ for a file, plus the current state of its GFM task checkboxes
 edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
 silent and always succeeds, so it never disrupts Claude's tool flow — it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
-read mode via the `mdopener://` scheme.
+read mode: through the running app's loopback IPC channel, or via the
+`mdopener://` scheme when the app is not running.
 
 ### One-click install
 
@@ -400,6 +411,11 @@ has not been verified on an installed Windows build.
 
 `mdopen` opens any Markdown file in Ashlr MD from a terminal, CI script, or agent
 tool call.
+When the app is running, `mdopen` hands it the file over the token-authenticated
+loopback IPC channel, so it works even where the `mdopener://` scheme is not
+registered (an AppImage or dev build on Linux). Otherwise it opens the
+`mdopener://` URL, which launches the app. It exits `1` when neither works;
+for `mdopen -` the temp file holding stdin is then removed.
 
 ### Install
 

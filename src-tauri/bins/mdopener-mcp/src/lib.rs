@@ -309,11 +309,15 @@ pub fn store_append_message(
     };
 
     let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
-    // A new server process (every agent restart) starts with an empty store:
-    // continue the persisted log instead of overwriting it with one message.
-    let log = store
-        .entry(session_id.to_string())
-        .or_insert_with(|| load_session_from_disk(session_id).unwrap_or_default());
+    // Continue the persisted log, re-read on every append: another server
+    // process (a second agent, or this agent after a restart) may have
+    // appended since this process cached it, and writing the cached copy
+    // back would drop those messages.
+    let fresh = load_session_from_disk(session_id);
+    let log = store.entry(session_id.to_string()).or_default();
+    if let Some(disk) = fresh {
+        *log = disk;
+    }
     log.messages.push(msg.clone());
 
     // Bound the in-process store.
@@ -332,11 +336,10 @@ pub fn store_append_message(
 pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationMessage>, String> {
     let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
 
-    // Cold-start: load from disk if not in memory.
-    if !store.contains_key(session_id) {
-        if let Some(log) = load_session_from_disk(session_id) {
-            store.insert(session_id.to_string(), log);
-        }
+    // The persisted log is authoritative (other processes append to it); the
+    // in-process copy only answers when it cannot be read.
+    if let Some(log) = load_session_from_disk(session_id) {
+        store.insert(session_id.to_string(), log);
     }
 
     let messages = store
@@ -478,9 +481,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "description": "Max milliseconds to wait for a verdict. Default 300000 (5 min), max 600000." }
+                    "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min), min 5000, max 600000." },
+                    "wait_ms": { "type": "integer", "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
+                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
                 },
-                "anyOf": [{ "required": ["path"] }, { "required": ["content"] }]
+                "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
             }),
             annotations: Some(json!({
                 "title": "Request Human Review",
@@ -1296,53 +1301,91 @@ pub fn tool_export_with(
 
 // ── Human-review loop ─────────────────────────────────────────────────────────
 
-/// Register a review with the app, then POLL for the human's verdict in a loop
-/// (each poll is a fresh request well within the 5s TCP timeout). Returns the
-/// verdict to the agent, or a timeout if no decision arrives in time.
+/// Longest a single `request_review` call blocks by default. MCP clients
+/// built on the official SDKs time a request out after 60 s, so a call that
+/// blocked for the whole review window (default 5 min) failed client-side
+/// and the verdict was lost. Past this the call returns `status: "pending"`
+/// and the agent calls again with `review_id` to keep waiting.
+pub const DEFAULT_REVIEW_WAIT_MS: u64 = 50_000;
+
+/// Register a review with the app (or resume one by `review_id`), then POLL
+/// for the human's verdict (each poll is a fresh request well within the 5s
+/// TCP timeout). Returns the verdict, `pending` when this call's wait ended
+/// first, or `timeout` when the review window closed with no decision.
 pub fn tool_request_review(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = args["path"].as_str().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    tool_request_review_with(id, args, ipc, std::time::Duration::from_millis(1_500))
+}
+
+/// [`tool_request_review`] with the poll interval injected for tests.
+pub fn tool_request_review_with(
+    id: Value,
+    args: &Value,
+    ipc: &dyn IpcClient,
+    poll: std::time::Duration,
+) -> Response {
+    let resume = args["review_id"].as_str().filter(|r| !r.is_empty()).map(str::to_string);
+    let path = args["path"].as_str().map(agent_path);
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
     let timeout_ms = args["timeout_ms"].as_u64().unwrap_or(300_000).clamp(5_000, 600_000);
+    let wait_ms = args["wait_ms"]
+        .as_u64()
+        .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
+        .clamp(1_000, 600_000);
 
-    if path.is_none() && content.is_none() {
-        return Response::err(id, -32602, "Either `path` or `content` is required");
-    }
+    let resumed = resume.is_some();
+    let review_id = match resume {
+        Some(r) => r,
+        None => {
+            if path.is_none() && content.is_none() {
+                return Response::err(
+                    id,
+                    -32602,
+                    "Either `path` or `content` is required (or `review_id` to keep waiting)",
+                );
+            }
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            let review_id = format!("rev_{nanos}_{:08x}", std::process::id());
+            let post_body = json!({
+                "reviewId": review_id,
+                "path": path,
+                "content": content,
+                "timeoutMs": timeout_ms,
+            });
+            if let Err(e) = ipc.post("/review", post_body) {
+                return tool_error(id, app_not_running_msg(&e));
+            }
+            if !blocking {
+                return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
+            }
+            review_id
+        }
+    };
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    let review_id = format!("rev_{nanos}_{:08x}", std::process::id());
-
-    let post_body = json!({
-        "reviewId": review_id,
-        "path": path,
-        "content": content,
-        "timeoutMs": timeout_ms,
-    });
-    if let Err(e) = ipc.post("/review", post_body) {
-        return tool_error(id, app_not_running_msg(&e));
-    }
-
-    if !blocking {
-        return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
-    }
-
-    let poll = std::time::Duration::from_millis(1_500);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
-    let endpoint = format!("/review/result?id={review_id}");
+    // A fresh review whose window fits in this call reports `timeout` when
+    // it closes. Otherwise (a longer window, or a resumed review whose window
+    // only the app knows) the call ends after `wait_ms` with `pending`.
+    let window_ends = !resumed && timeout_ms <= wait_ms;
+    let this_call = if window_ends { timeout_ms } else { wait_ms };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(this_call);
+    let endpoint = format!("/review/result?id={}", urlencoding::encode(&review_id));
     loop {
         let now = std::time::Instant::now();
         if now >= deadline {
+            if window_ends {
+                return tool_result(id, json!({
+                    "verdict": "timeout",
+                    "reviewId": review_id,
+                    "message": "No verdict received within the timeout period."
+                }));
+            }
             return tool_result(id, json!({
-                "verdict": "timeout",
+                "status": "pending",
                 "reviewId": review_id,
-                "message": "No verdict received within the timeout period."
+                "message": "No verdict yet. Call request_review again with this review_id to keep waiting."
             }));
         }
         std::thread::sleep(poll.min(deadline - now));
@@ -1791,9 +1834,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let mut limit: u64 = 50;
         for part in qs.split('&') {
             if let Some(val) = part.strip_prefix("q=") {
-                query = urlencoding::decode(val)
+                // Query-string encoding: `+` is a space (the listed example is
+                // `?q=my+topic`), and `%2B` a literal plus.
+                let val = val.replace('+', " ");
+                query = urlencoding::decode(&val)
                     .map(|s| s.into_owned())
-                    .unwrap_or_else(|_| val.replace('+', " "));
+                    .unwrap_or(val);
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = val.parse().unwrap_or(50);
             }
@@ -2450,7 +2496,8 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Some(p) => p.to_string(),
         None => return Response::err(id, -32602, "`path_b` is required"),
     };
-    let context_lines = args["context_lines"].as_u64().unwrap_or(3) as usize;
+    // Clamped: a huge value would overflow the hunk arithmetic.
+    let context_lines = args["context_lines"].as_u64().unwrap_or(3).min(10_000) as usize;
 
     let path_a = match checked_document_path(&raw_a, "path_a") {
         Ok(p) => p,
@@ -2504,13 +2551,11 @@ pub fn compute_unified_diff(
     // Build the edit script via LCS (longest common subsequence).
     let lcs = lcs_diff(&lines_a, &lines_b);
 
-    // Convert edit script into (kind, line_a, line_b, text) tuples.
+    // Convert edit script into (kind, text) lines.
     // kind: ' ' = context, '+' = added, '-' = removed
     #[derive(Clone)]
     struct EditLine {
         kind: char,
-        line_a: usize, // 1-based, 0 when not from A
-        line_b: usize, // 1-based, 0 when not from B
         text: String,
     }
 
@@ -2521,27 +2566,27 @@ pub fn compute_unified_diff(
     for op in &lcs {
         match op {
             DiffOp::Equal(na, nb) => {
-                edits.push(EditLine { kind: ' ', line_a: ia + 1, line_b: ib + 1, text: lines_a[*na].to_string() });
+                edits.push(EditLine { kind: ' ', text: lines_a[*na].to_string() });
                 ia = na + 1;
                 ib = nb + 1;
             }
             DiffOp::Delete(na) => {
-                edits.push(EditLine { kind: '-', line_a: ia + 1, line_b: 0, text: lines_a[*na].to_string() });
+                edits.push(EditLine { kind: '-', text: lines_a[*na].to_string() });
                 ia = na + 1;
             }
             DiffOp::Insert(nb) => {
-                edits.push(EditLine { kind: '+', line_a: 0, line_b: ib + 1, text: lines_b[*nb].to_string() });
+                edits.push(EditLine { kind: '+', text: lines_b[*nb].to_string() });
                 ib = nb + 1;
             }
         }
     }
     // Drain remaining lines from A (deletions) and B (insertions).
     while ia < lines_a.len() {
-        edits.push(EditLine { kind: '-', line_a: ia + 1, line_b: 0, text: lines_a[ia].to_string() });
+        edits.push(EditLine { kind: '-', text: lines_a[ia].to_string() });
         ia += 1;
     }
     while ib < lines_b.len() {
-        edits.push(EditLine { kind: '+', line_a: 0, line_b: ib + 1, text: lines_b[ib].to_string() });
+        edits.push(EditLine { kind: '+', text: lines_b[ib].to_string() });
         ib += 1;
     }
 
@@ -2581,15 +2626,16 @@ pub fn compute_unified_diff(
     for (start, end) in &hunk_ranges {
         let slice = &edits[*start..*end];
 
-        // Compute @@ header: line ranges in A and B.
-        let (first_a, first_b) = slice.iter().fold((0usize, 0usize), |acc, e| {
-            (
-                if acc.0 == 0 && e.line_a > 0 { e.line_a } else { acc.0 },
-                if acc.1 == 0 && e.line_b > 0 { e.line_b } else { acc.1 },
-            )
-        });
+        // Compute @@ header: line ranges in A and B. A side with no lines in
+        // the hunk (a pure insertion or deletion without context) names the
+        // line it follows, as unified diff requires: lines of that side
+        // before the hunk.
         let count_a = slice.iter().filter(|e| e.kind != '+').count();
         let count_b = slice.iter().filter(|e| e.kind != '-').count();
+        let before_a = edits[..*start].iter().filter(|e| e.kind != '+').count();
+        let before_b = edits[..*start].iter().filter(|e| e.kind != '-').count();
+        let first_a = if count_a == 0 { before_a } else { before_a + 1 };
+        let first_b = if count_b == 0 { before_b } else { before_b + 1 };
         diff_lines.push(format!(
             "@@ -{},{} +{},{} @@",
             first_a, count_a, first_b, count_b
@@ -3447,18 +3493,40 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // HTML tags: <…> — skip the tag, keep surrounding text.
+        // HTML tags and autolinks: `<tag …>`, `</tag>`, `<!-- … -->` are
+        // dropped, `<https://…>` keeps its URL. A `<` not followed by a tag
+        // name (`a < b`) is text.
         if chars[i] == '<' {
-            if let Some(close) = chars[i..].iter().position(|&c| c == '>') {
-                i += close + 1;
-                continue;
+            let starts_tag = chars
+                .get(i + 1)
+                .is_some_and(|&c| c.is_ascii_alphabetic() || c == '/' || c == '!');
+            if starts_tag {
+                if let Some(close) = chars[i..].iter().position(|&c| c == '>') {
+                    let inner: String = chars[i + 1..i + close].iter().collect();
+                    if inner.contains("://") || inner.starts_with("mailto:") {
+                        out.push_str(&inner);
+                    }
+                    i += close + 1;
+                    continue;
+                }
             }
         }
-        // Bold/italic markers: ***, **, __, *, _ — remove markers.
+        // Bold/italic markers: ***, **, __, *, _ — remove markers, but keep
+        // a run that cannot be emphasis: one between spaces (`2 * 3`) or an
+        // underscore inside a word (`snake_case`).
         if chars[i] == '*' || chars[i] == '_' {
             let marker = chars[i];
             let run = chars[i..].iter().take_while(|&&c| c == marker).count();
-            i += run; // skip the marker run
+            let before = i.checked_sub(1).map(|j| chars[j]);
+            let after = chars.get(i + run).copied();
+            let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
+            let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+            let literal =
+                (space(before) && space(after)) || (marker == '_' && word(before) && word(after));
+            if literal {
+                out.extend(&chars[i..i + run]);
+            }
+            i += run;
             continue;
         }
         // Default: copy character.
@@ -3651,8 +3719,11 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
         }
         if trimmed.starts_with('#') {
             let level = trimmed.chars().take_while(|&c| c == '#').count();
-            if level <= 6 {
-                let after = trimmed[level..].trim_start_matches(' ').trim();
+            let rest = &trimmed[level..];
+            // ATX headings need whitespace after the `#`s: `#tag` and
+            // `#!/bin/sh` are text, not headings.
+            if level <= 6 && rest.starts_with([' ', '\t']) {
+                let after = rest.trim();
                 if !after.is_empty() {
                     headings.push(json!({ "level": level, "text": after }));
                 }

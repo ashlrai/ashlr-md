@@ -8,10 +8,11 @@
 //!   mdopen --help             print this help text
 //!   mdopen --version          print the version
 //!
-//! The tool resolves the path to an absolute path, percent-encodes it, and
-//! invokes the OS-appropriate command to open the `mdopener://open?path=…` URL,
-//! which either brings the running Ashlr MD window to the front or cold-starts
-//! the app.
+//! The tool resolves the path to an absolute path. When Ashlr MD is running
+//! it asks the app to open it over the loopback IPC channel (`POST /open`, see
+//! [`ipc`]), which needs no URL-scheme registration. Otherwise it percent-
+//! encodes the path and invokes the OS-appropriate command to open the
+//! `mdopener://open?path=…` URL, which cold-starts the app.
 //!
 //! OS-specific URL launcher:
 //!   macOS   — `open <url>`
@@ -27,6 +28,7 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
 
+mod ipc;
 mod launch;
 
 /// How long the CLI waits for the OS launcher before reporting "not confirmed".
@@ -64,7 +66,8 @@ fn main() {
     };
 
     // Handle stdin mode: `-` reads from stdin and writes to a temp file.
-    let resolved: PathBuf = if target == "-" {
+    let from_stdin = target == "-";
+    let resolved: PathBuf = if from_stdin {
         read_stdin_to_temp()
     } else {
         match resolve_file(&target) {
@@ -76,7 +79,19 @@ fn main() {
         }
     };
 
-    open_in_app(&resolved.to_string_lossy(), mode);
+    match open_in_app(&resolved.to_string_lossy(), mode, CLI_DEADLINE, true) {
+        Ok(Opened::Confirmed) => {}
+        Ok(Opened::Unconfirmed(note)) => eprintln!("mdopen: {note}"),
+        Err(msg) => {
+            // Nothing will ever read the piped content: do not leave it behind
+            // in the temp dir.
+            if from_stdin {
+                let _ = std::fs::remove_file(&resolved);
+            }
+            eprintln!("mdopen: {msg}");
+            process::exit(1);
+        }
+    }
 }
 
 /// The arguments before a `--` end-of-flags marker (all of them if none).
@@ -216,15 +231,44 @@ fn write_exclusive(dir: &std::path::Path, stem: &str, content: &[u8]) -> std::io
     Err(last_err.unwrap_or_else(|| std::io::Error::other("no free temp file name")))
 }
 
-/// Build the `mdopener://open?…` URL and hand it off to the OS launcher.
-fn open_in_app(abs_path: &str, mode: Option<&str>) {
+/// How an open reached the app.
+#[derive(Debug, PartialEq, Eq)]
+enum Opened {
+    /// The running app accepted it over IPC, or the URL launcher exited 0.
+    Confirmed,
+    /// The URL launcher is still running at the deadline (carries a note).
+    Unconfirmed(String),
+}
+
+/// Open `abs_path` in Ashlr MD: through the running app's IPC server first,
+/// else by handing an `mdopener://open?…` URL to the OS launcher (see
+/// [`launch`]), which can also cold-start the app. `Err` means it definitely
+/// did not open.
+fn open_in_app(
+    abs_path: &str,
+    mode: Option<&str>,
+    deadline: Duration,
+    inherit_stderr: bool,
+) -> Result<Opened, String> {
+    let ipc_error = match ipc::home_dir() {
+        Some(home) => match ipc::open(&home, abs_path, mode) {
+            Ok(()) => return Ok(Opened::Confirmed),
+            Err(e) => e,
+        },
+        None => "no home directory".to_string(),
+    };
+
     let encoded = urlencoding::encode(abs_path);
     let mut url = format!("mdopener://open?path={encoded}");
     if let Some(m) = mode {
         url.push_str(&format!("&mode={m}"));
     }
-
-    launch_url(&url);
+    let outcome = launch::launch_url(&url, deadline, inherit_stderr);
+    match &outcome {
+        launch::Launch::Opened { .. } => Ok(Opened::Confirmed),
+        launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
+        _ => Err(format!("{} ({ipc_error})", outcome.describe())),
+    }
 }
 
 /// Claude Code `--hook` mode: parse the PostToolUse JSON from stdin and open the
@@ -240,14 +284,9 @@ fn run_hook() {
     let Some(abs) = hook_target(&input) else {
         return;
     };
-    let encoded = urlencoding::encode(&abs.to_string_lossy()).into_owned();
     // Silent either way: no stderr, never a non-zero exit (a headless box has
     // no launcher, which must not surface as a hook error in the agent).
-    let _ = launch::launch_url(
-        &format!("mdopener://open?path={encoded}&mode=read"),
-        HOOK_DEADLINE,
-        false,
-    );
+    let _ = open_in_app(&abs.to_string_lossy(), Some("read"), HOOK_DEADLINE, false);
 }
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
@@ -280,24 +319,6 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     abs.is_file().then_some(abs)
 }
 
-/// Hand the URL to the OS launcher (see [`launch`]) and exit non-zero when it
-/// definitely did not open: the launcher failed or none exists (headless).
-///
-/// - macOS   → `open <url>`
-/// - Linux   → `xdg-open <url>`, else `gio open <url>`
-/// - Windows → `rundll32 url.dll,FileProtocolHandler <url>`
-fn launch_url(url: &str) {
-    let outcome = launch::launch_url(url, CLI_DEADLINE, true);
-    match &outcome {
-        launch::Launch::Opened { .. } => {}
-        launch::Launch::Pending { .. } => eprintln!("mdopen: {}", outcome.describe()),
-        _ => {
-            eprintln!("mdopen: {}", outcome.describe());
-            process::exit(1);
-        }
-    }
-}
-
 const HELP: &str = "mdopen — open Markdown files in Ashlr MD
 
 USAGE:
@@ -317,15 +338,17 @@ EXAMPLES:
     mdopen --edit notes/todo.md
     echo '# Hello' | mdopen -
 
-The tool resolves the file path to absolute, then opens:
-    mdopener://open?path=<encoded-path>
-which forwards to the running Ashlr MD app (or launches it).
+The tool resolves the file path to absolute and asks the running Ashlr MD
+app to open it (over its loopback IPC channel). If the app is not running it
+opens mdopener://open?path=<encoded-path>, which launches it.
 
 EXIT STATUS:
-    0  the URL was handed to the OS launcher (if the launcher is still
-       running after 10s, a note is printed and the open is not confirmed)
-    1  bad usage, unresolvable path or not a file, launcher failed, or no
-       launcher (no desktop session); a message on stderr says which
+    0  the running app accepted the file, or the URL was handed to the OS
+       launcher (if the launcher is still running after 10s, a note is
+       printed and the open is not confirmed)
+    1  bad usage, unresolvable path or not a file, or the app is not running
+       and the launcher failed or is missing (no desktop session); a message
+       on stderr says which. A `-` temp file is removed in that case.
     --hook always exits 0 and prints nothing
 ";
 
