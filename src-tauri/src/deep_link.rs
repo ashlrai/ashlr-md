@@ -78,27 +78,37 @@ fn handle_url(app: &AppHandle, url: &str) {
     }
 }
 
+/// The file a `mdopener://open` or `mdopener://export` link may open: its
+/// percent-decoded `path`, resolved, when that is an existing Markdown
+/// document that is not a dotfile (the rule `/open` applies to agents,
+/// [`crate::ipc::checked_agent_path`]). Any web page or program can launch a
+/// `mdopener://` link, and the scheme used to open whatever it named
+/// (`~/.ssh/id_rsa`, `~/.bashrc`): the window then showed it, `/content`
+/// handed it to agents, and a save wrote over it. Errors say why.
+fn link_target(query: &str) -> Result<String, String> {
+    let params = parse_query(query);
+    let raw_path = params
+        .iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v.as_str())
+        .ok_or("missing `path` parameter")?;
+    crate::ipc::checked_agent_path(&percent_decode(raw_path))
+}
+
 /// `mdopener://open?path=<enc>&mode=read|edit`
 fn handle_open(app: &AppHandle, query: &str) {
-    let params = parse_query(query);
+    if let Ok(abs) = target_or_log("open", query) {
+        open_path(app, abs);
+    }
+}
 
-    let raw_path = match params.iter().find(|(k, _)| k == "path") {
-        Some((_, v)) => v.clone(),
-        None => {
-            eprintln!("[deep_link] open: missing `path` parameter");
-            return;
-        }
-    };
+/// [`link_target`], logging a refusal.
+fn target_or_log(command: &str, query: &str) -> Result<String, ()> {
+    link_target(query).map_err(|e| eprintln!("[deep_link] {command}: {e}"))
+}
 
-    let path = percent_decode(&raw_path);
-
-    // Resolve to absolute so the frontend receives a canonical path.
-    let abs = match std::fs::canonicalize(&path) {
-        Ok(p) => p.to_string_lossy().into_owned(),
-        // File may not exist yet (agent is about to create it); keep as-is.
-        Err(_) => path.clone(),
-    };
-
+/// Queue `abs` for the window and tell it to open it.
+fn open_path(app: &AppHandle, abs: String) {
     // Buffer the path — mirrors handle_opened() in file_handler.rs.
     {
         let state = app.state::<PendingFiles>();
@@ -115,16 +125,10 @@ fn handle_open(app: &AppHandle, query: &str) {
 /// Queues the file to open (same as `handle_open`) and then emits
 /// `mcp://export` so the frontend can trigger the export flow.
 fn handle_export(app: &AppHandle, query: &str) {
-    let params = parse_query(query);
-
-    let raw_path = match params.iter().find(|(k, _)| k == "path") {
-        Some((_, v)) => v.clone(),
-        None => {
-            eprintln!("[deep_link] export: missing `path` parameter");
-            return;
-        }
+    let Ok(abs) = target_or_log("export", query) else {
+        return;
     };
-
+    let params = parse_query(query);
     let format = params
         .iter()
         .find(|(k, _)| k == "format")
@@ -132,13 +136,8 @@ fn handle_export(app: &AppHandle, query: &str) {
         .unwrap_or("pdf")
         .to_string();
 
-    let path = percent_decode(&raw_path);
-    let abs = std::fs::canonicalize(&path)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or(path);
-
     // Open the file first.
-    handle_open(app, &format!("path={}", urlencoding::encode(&abs)));
+    open_path(app, abs);
 
     // Signal the frontend to start the export.
     let _ = app.emit(
@@ -166,4 +165,57 @@ fn percent_decode(s: &str) -> String {
     urlencoding::decode(s)
         .map(|c| c.into_owned())
         .unwrap_or_else(|_| s.replace('+', " "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::link_target;
+
+    /// A scratch directory removed on drop.
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn query(p: &std::path::Path) -> String {
+        format!("path={}", urlencoding::encode(&p.to_string_lossy()))
+    }
+
+    /// Any page or program can launch a `mdopener://` link, and it used to
+    /// open whatever path it named, for agents to read through `/content`.
+    #[test]
+    fn links_open_only_markdown_documents() {
+        let d = Scratch(std::env::temp_dir().join(format!("deep-link-{}", std::process::id())));
+        std::fs::create_dir_all(&d.0).unwrap();
+        let md = d.0.join("notes.md");
+        std::fs::write(&md, "# hi").unwrap();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(link_target(&query(&md)).unwrap(), canon.to_string_lossy());
+        // Encoded twice, the path is not decoded twice.
+        let twice = format!("path={}", urlencoding::encode(&query(&md)[5..]));
+        assert!(link_target(&twice).is_err());
+
+        let key = d.0.join("id_rsa");
+        std::fs::write(&key, "PRIVATE KEY").unwrap();
+        let env = d.0.join(".env.md");
+        std::fs::write(&env, "TOKEN=1").unwrap();
+        let mut refused = vec![
+            key.clone(),
+            env,
+            d.0.join("missing.md"),
+            d.0.join("..").join("x.txt"),
+        ];
+        #[cfg(unix)]
+        {
+            let link = d.0.join("link.md");
+            std::os::unix::fs::symlink(&key, &link).unwrap();
+            refused.push(link);
+        }
+        for p in refused {
+            assert!(link_target(&query(&p)).is_err(), "{p:?}");
+        }
+        assert!(link_target("mode=read").is_err());
+    }
 }

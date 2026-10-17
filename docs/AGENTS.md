@@ -650,6 +650,11 @@ From JavaScript / Electron:
 shell.openExternal(`mdopener://open?path=${encodeURIComponent(filePath)}`);
 ```
 
+Since any web page or program can launch these links, a link opens only an
+existing Markdown document that is not a dotfile (checked after resolving
+symlinks, as for `open_file`); anything else is ignored. The `path` is
+percent-decoded once.
+
 ---
 
 ## How it works: the IPC model

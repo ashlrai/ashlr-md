@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://` links open only Markdown documents.** Any web page or
+  program can launch the URL scheme, and `mdopener://open?path=` (and
+  `export`) opened whatever path it named, such as `~/.ssh/id_rsa`: the
+  window showed it, `/content` handed it to agents, and a save wrote over
+  it. A link now opens only an existing Markdown document that is not a
+  dotfile, judged after resolving symlinks, as `/open` already required.
 - **Vault search reads only Markdown documents.** The app's `/search` and
   the MCP server's grep and semantic searches read every vault file and
   recent, and recents hold whatever the human opened, so a dropped `.env`

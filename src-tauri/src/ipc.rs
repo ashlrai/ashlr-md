@@ -964,7 +964,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 /// too, and so is a path that does not exist: the window cannot open it, and
 /// the endpoint would otherwise answer `ok` for an open that never happens.
 /// Returns the canonical path.
-fn checked_agent_path(raw: &str) -> Result<String, String> {
+pub(crate) fn checked_agent_path(raw: &str) -> Result<String, String> {
     let abs = std::fs::canonicalize(raw)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| raw.to_string());
