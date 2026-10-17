@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The vault-cut notice states the app's own cap.** The 200-file limit lived
+  in the frontend (`MAX_FILES`) but the "only its 200 most recently changed
+  files were searched" notices in `/search` and `search_vault` hard-coded it.
+  The frontend now sends its cap with every vault sync, `/vault` reports it as
+  `limit`, and both notices quote that number (an older app that does not send
+  it gets a notice with no number).
 - **A badly encoded `file://` resource URI says so.** `resources/read` with
   `%ZZ`, a lone `%` or `%FF` (not UTF-8) in the path answered "Resource not
   in vault", as if the file were the problem. It is now `-32602` naming the

@@ -2646,6 +2646,9 @@ struct VaultFiles {
     /// Why the app was not asked, quoted in the note.
     app_error: String,
     truncated: bool,
+    /// The app's own cap on its vault list, as `/vault` reports it (the
+    /// frontend's `MAX_FILES`). `None` from an older app that does not say.
+    app_limit: Option<u64>,
 }
 
 impl VaultFiles {
@@ -2654,9 +2657,14 @@ impl VaultFiles {
     fn disk_note(&self) -> Option<String> {
         let Some(dir) = self.disk_vault.as_deref() else {
             return self.truncated.then(|| {
-                "The watched folder has more Markdown files than Ashlr MD lists, so only \
-                 its 200 most recently changed files (and the recent documents) were searched."
-                    .to_string()
+                let files = match self.app_limit {
+                    Some(n) => format!("its {n} most recently changed files"),
+                    None => "its most recently changed files".to_string(),
+                };
+                format!(
+                    "The watched folder has more Markdown files than Ashlr MD lists, so \
+                     only {files} (and the recent documents) were searched."
+                )
             });
         };
         let mut note = format!(
@@ -2678,11 +2686,12 @@ impl VaultFiles {
 /// app cannot be reached. A refusal or other failure is still an error.
 fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
     match (vault_listing(ipc), vault) {
-        (Ok((paths, truncated)), _) => Ok(VaultFiles {
-            paths,
+        (Ok(listing), _) => Ok(VaultFiles {
+            paths: listing.paths,
             disk_vault: None,
             app_error: String::new(),
-            truncated,
+            truncated: listing.truncated,
+            app_limit: listing.limit,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -2691,6 +2700,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
                 disk_vault: Some(dir.to_string_lossy().into_owned()),
                 app_error: e,
                 truncated,
+                app_limit: None,
             })
         }
         (Err(e), _) => Err(e),
@@ -3494,14 +3504,23 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// app.  The list comes from the app over IPC, so this errors when the app is
 /// not running (an empty list would read as "no matches").
 pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
-    vault_listing(ipc).map(|(paths, _)| paths)
+    vault_listing(ipc).map(|l| l.paths)
 }
 
 /// [`vault_file_paths`], and whether the app said its vault list is cut
 /// short (the watched folder has more files than it lists).
-fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
+/// The app's `/vault` reply: the listed files and recents, whether the list
+/// was cut short, and the cap it was cut at.
+struct VaultListing {
+    paths: Vec<String>,
+    truncated: bool,
+    limit: Option<u64>,
+}
+
+fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
     let v = ipc.get("/vault")?;
     let truncated = v["truncated"].as_bool() == Some(true);
+    let limit = v["limit"].as_u64();
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3520,7 +3539,11 @@ fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
             }
         }
     }
-    Ok((paths, truncated))
+    Ok(VaultListing {
+        paths,
+        truncated,
+        limit,
+    })
 }
 
 /// Turns text into an embedding vector: [`ollama_embed`] in the server.

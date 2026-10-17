@@ -97,6 +97,8 @@ vi.mock("../store/recentStore", () => ({
 }));
 
 vi.mock("../store/activityStore", () => ({
+  // Not the real 200: the bridge must send the store's cap, not a copy of it.
+  MAX_FILES: 150,
   useActivityStore: {
     getState: () => ({
       watchedDir: "/vault",
@@ -255,7 +257,11 @@ describe("useMcpBridge — mount", () => {
     mountBridge();
     const vaultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_vault");
     expect(vaultCall).toBeDefined();
-    expect(vaultCall![1]).toMatchObject({ watchedDir: "/vault", truncated: true });
+    expect(vaultCall![1]).toMatchObject({
+      watchedDir: "/vault",
+      truncated: true,
+      limit: 150,
+    });
   });
 
   it("does not open export dialog on mount", () => {

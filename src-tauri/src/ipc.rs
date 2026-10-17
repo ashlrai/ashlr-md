@@ -225,8 +225,12 @@ pub struct VaultInner {
     pub watched_dir: Option<String>,
     pub files: Vec<VaultFileEntry>,
     /// The watched folder has more Markdown files than the frontend lists
-    /// (its 200 newest), so `files` is not all of them.
+    /// (its `limit` newest), so `files` is not all of them.
     pub truncated: bool,
+    /// How many files the frontend lists at most (its `MAX_FILES`), sent with
+    /// every sync so notices state the real number. `None` from an older
+    /// frontend that does not send it.
+    pub limit: Option<usize>,
 }
 
 #[derive(Default)]
@@ -372,12 +376,14 @@ pub fn mcp_sync_vault(
     watched_dir: Option<String>,
     files: Vec<VaultFileEntry>,
     truncated: Option<bool>,
+    limit: Option<usize>,
     vault: tauri::State<VaultMirror>,
 ) {
     *vault.0.lock_recover() = VaultInner {
         watched_dir,
         files,
         truncated: truncated.unwrap_or(false),
+        limit,
     };
 }
 
@@ -1517,6 +1523,7 @@ fn handle_vault(req: Request, app: &AppHandle) {
         "watchedDir": vault.watched_dir,
         "files": vault.files,
         "truncated": vault.truncated,
+        "limit": vault.limit,
         "recents": recents,
     }));
 }
@@ -1539,11 +1546,12 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let truncated;
+    let (truncated, vault_limit);
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
         truncated = vault.truncated;
+        vault_limit = vault.limit;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1561,25 +1569,38 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated));
+    send_json(req, search_body(&q, results, truncated, vault_limit));
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
 /// the files left out were not searched.
-fn search_body(q: &str, results: impl Serialize, vault_truncated: bool) -> serde_json::Value {
+fn search_body(
+    q: &str,
+    results: impl Serialize,
+    vault_truncated: bool,
+    vault_limit: Option<usize>,
+) -> serde_json::Value {
     let mut body = serde_json::json!({ "query": q, "results": results });
     if vault_truncated {
         body["truncated"] = serde_json::json!(true);
-        body["note"] = serde_json::json!(VAULT_TRUNCATED_NOTE);
+        body["note"] = serde_json::json!(vault_truncated_note(vault_limit));
     }
     body
 }
 
-/// Said by `/search` (and `search_vault`) when the watched folder has more
-/// Markdown files than the app lists.
-const VAULT_TRUNCATED_NOTE: &str = "The watched folder has more Markdown files than \
-    Ashlr MD lists, so only its 200 most recently changed files (and the recent \
-    documents) were searched.";
+/// Said by `/search` when the watched folder has more Markdown files than the
+/// app lists. `limit` is the frontend's own cap, synced with the file list, so
+/// the number stated is the one in force; without it no number is claimed.
+fn vault_truncated_note(limit: Option<usize>) -> String {
+    let files = match limit {
+        Some(n) => format!("its {n} most recently changed files"),
+        None => "its most recently changed files".to_string(),
+    };
+    format!(
+        "The watched folder has more Markdown files than Ashlr MD lists, so only \
+         {files} (and the recent documents) were searched."
+    )
+}
 
 /// Apply a single exact find→replace, requiring the `find` string to appear
 /// EXACTLY once. Returns the new content, or a human-readable error explaining
@@ -2103,15 +2124,22 @@ mod tests {
     };
     use std::sync::atomic::Ordering;
 
-    /// `/search` said nothing when the vault list was cut at 200 files, so an
-    /// agent read "no hits" as "not in the folder".
+    /// `/search` said nothing when the vault list was cut short, so an agent
+    /// read "no hits" as "not in the folder". The number it states is the
+    /// frontend's synced cap, not one hard-coded here.
     #[test]
     fn search_body_says_when_the_vault_list_is_truncated() {
-        let full = search_body("q", Vec::<String>::new(), false);
+        let full = search_body("q", Vec::<String>::new(), false, Some(150));
         assert!(full.get("truncated").is_none(), "{full}");
-        let cut = search_body("q", Vec::<String>::new(), true);
+        let cut = search_body("q", Vec::<String>::new(), true, Some(150));
         assert_eq!(cut["truncated"], true);
-        assert!(cut["note"].as_str().unwrap().contains("200"), "{cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("its 150 most recently changed files"), "{cut}");
+        // An older frontend that sends no cap: no number is claimed.
+        let cut = search_body("q", Vec::<String>::new(), true, None);
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("its most recently changed files"), "{cut}");
+        assert!(!note.contains("200"), "{cut}");
     }
 
     #[test]

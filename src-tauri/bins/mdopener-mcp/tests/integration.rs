@@ -2606,15 +2606,18 @@ fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     assert!(note.contains("search is disabled"), "note: {note}");
 }
 
-/// The app lists at most 200 files of the watched folder; search_vault said
-/// nothing when the folder had more, so "no hits" read as "not in the folder".
+/// The app lists at most `limit` files of the watched folder (its synced
+/// MAX_FILES); search_vault said nothing when the folder had more, so "no
+/// hits" read as "not in the folder". The number in the note is the app's,
+/// not one hard-coded in the server.
 #[test]
 fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     use std::io::Write;
     let mut f = tempfile::NamedTempFile::new().unwrap();
     writeln!(f, "# Notes\nThe target topic is here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
-    let vault = json!({ "files": [{ "path": path }], "recents": [], "truncated": true });
+    let vault =
+        json!({ "files": [{ "path": path }], "recents": [], "truncated": true, "limit": 150 });
     // The app's own search failed: grep the listed files locally.
     let ipc = MockIpc::new()
         .on_get("/vault", Ok(vault.clone()))
@@ -2630,7 +2633,7 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         text["note"]
             .as_str()
             .unwrap()
-            .contains("200 most recently changed"),
+            .contains("its 150 most recently changed"),
         "{text}"
     );
     // Semantic search over the listed files says so too.
@@ -2643,9 +2646,24 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         v["note"]
             .as_str()
             .unwrap()
-            .contains("200 most recently changed"),
+            .contains("its 150 most recently changed"),
         "{v}"
     );
+    // An older app that does not send its cap: no number is claimed.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [], "truncated": true })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(3),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    let note = text["note"].as_str().unwrap();
+    assert!(note.contains("its most recently changed files"), "{text}");
+    assert!(!note.contains("200"), "{text}");
     // A complete list says nothing.
     let ipc = MockIpc::new()
         .on_get(

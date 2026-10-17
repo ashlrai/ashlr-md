@@ -58,6 +58,7 @@ vi.mock("../store/recentStore", () => ({
 }));
 
 vi.mock("../store/activityStore", () => ({
+  MAX_FILES: 200,
   useActivityStore: {
     getState: () => ({ watchedDir: null, files: [] }),
     subscribe: vi.fn(() => vi.fn()),
