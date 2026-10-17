@@ -110,7 +110,8 @@ pub struct RecentMirror(pub Mutex<Vec<RecentFileEntry>>);
 /// MCP tool). Keyed by reviewId in [`ReviewState`].
 #[derive(Clone, Serialize)]
 pub struct ReviewRecord {
-    /// "pending" | "approved" | "changes_requested" | "dismissed".
+    /// "pending" | "approved" | "changes_requested" | "dismissed" |
+    /// "timeout" | "superseded" (a newer review took the panel first).
     pub status: String,
     pub verdict: Option<String>,
     pub comments: Option<String>,
@@ -121,7 +122,36 @@ pub struct ReviewRecord {
     /// The human's verdict was recorded after the window closed, when an
     /// agent may already have been told `timeout`.
     pub late: bool,
+    /// The panel was told to show this review (`mcp://review` delivered).
+    pub shown: bool,
+    /// The review that replaced this one in the panel, when `superseded`.
+    pub superseded_by: Option<String>,
 }
+
+/// Mark `superseded` every open review the panel was showing other than
+/// `newest`, which the panel shows from now on, and mark `newest` shown. The
+/// panel holds one review at a time, so a displaced review can never get a
+/// verdict; resolving it now tells its agent at once instead of after its
+/// window. A review still opening its file (not yet shown) is left alone:
+/// when it is shown it supersedes `newest` in turn.
+fn supersede_shown(map: &mut HashMap<String, ReviewRecord>, newest: &str, now: u64) {
+    for (id, r) in map.iter_mut() {
+        let open = r.status == "pending" && now < r.created_at.saturating_add(r.timeout_ms);
+        if id != newest && r.shown && open {
+            r.status = "superseded".into();
+            r.verdict = Some("superseded".into());
+            r.superseded_by = Some(newest.to_string());
+        }
+    }
+    if let Some(r) = map.get_mut(newest) {
+        r.shown = true;
+    }
+}
+
+/// Held while `/review` tells the panel to show a review and records which
+/// review that displaced, so two reviews shown at once cannot each mark the
+/// other superseded.
+static REVIEW_PANEL: Mutex<()> = Mutex::new(());
 
 /// How long a review is kept after its window closes, so an agent that got
 /// `pending` back can still resume it by `review_id` and read the verdict.
@@ -323,7 +353,8 @@ fn record_verdict(r: &mut ReviewRecord, verdict: String, comments: Option<String
         }
         return;
     }
-    r.late = r.status == "timeout" || now >= r.created_at.saturating_add(r.timeout_ms);
+    r.late = matches!(r.status.as_str(), "timeout" | "superseded")
+        || now >= r.created_at.saturating_add(r.timeout_ms);
     r.status = verdict.clone();
     r.verdict = Some(verdict);
     r.comments = comments;
@@ -1106,6 +1137,8 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
                 created_at: now,
                 timeout_ms,
                 late: false,
+                shown: false,
+                superseded_by: None,
             },
         );
     }
@@ -1124,7 +1157,9 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     }
     // Tell the frontend a review is pending so it shows the review panel.
     // When the window cannot be told, no panel will ever show, so the review
-    // is dropped and refused rather than left for the agent to wait on.
+    // is dropped and refused rather than left for the agent to wait on. Once
+    // it is told, the review the panel showed before is superseded.
+    let _panel = REVIEW_PANEL.lock_recover();
     let emitted = app.emit(
         "mcp://review",
         serde_json::json!({
@@ -1138,12 +1173,16 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         emitted,
         serde_json::json!({ "ok": true, "reviewId": body.review_id }),
     );
-    if reply["ok"] != true {
-        app.state::<ReviewState>()
-            .0
-            .lock_recover()
-            .remove(&body.review_id);
+    {
+        let state = app.state::<ReviewState>();
+        let mut map = state.0.lock_recover();
+        if reply["ok"] == true {
+            supersede_shown(&mut map, &body.review_id, now_ms());
+        } else {
+            map.remove(&body.review_id);
+        }
     }
+    drop(_panel);
     send_json(req, reply);
 }
 
@@ -1211,9 +1250,8 @@ fn limit_param(query: &str, default: usize) -> Result<usize, String> {
 }
 
 /// The status `/review/result` reports: the recorded one, except that a review
-/// still pending once its window has closed is `timeout`. The panel only
-/// expires the review it is showing, so one a newer review displaced would
-/// otherwise stay `pending` and a resuming agent would wait on it forever.
+/// still pending once its window has closed is `timeout`, so a review whose
+/// panel never reported back (the window closed or reloaded) still ends.
 fn review_status(r: &ReviewRecord, now: u64) -> &str {
     if r.status == "pending" && now >= r.created_at.saturating_add(r.timeout_ms) {
         "timeout"
@@ -1244,16 +1282,18 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
                 r.verdict.clone(),
                 r.comments.clone(),
                 r.late,
+                r.superseded_by.clone(),
             )
         })
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
-        Some((status, verdict, comments, late)) => send_json(req, serde_json::json!({
+        Some((status, verdict, comments, late, superseded_by)) => send_json(req, serde_json::json!({
             "status": status,
             "verdict": verdict,
             "comments": comments,
             "late": late,
+            "supersededBy": superseded_by,
         })),
     }
 }
@@ -2464,7 +2504,64 @@ mod tests {
             created_at,
             timeout_ms,
             late: false,
+            shown: status == "pending",
+            superseded_by: None,
         }
+    }
+
+    #[test]
+    fn a_review_the_panel_replaces_is_superseded_at_once() {
+        use super::{review_status, supersede_shown};
+        let t0 = 1_000_000;
+        let mut map = HashMap::new();
+        map.insert(
+            "old".to_string(),
+            review("pending", Some("/a.md"), t0, 300_000),
+        );
+        // Still opening its file, so not in the panel yet.
+        let mut opening = review("pending", Some("/b.md"), t0 + 1, 300_000);
+        opening.shown = false;
+        map.insert("opening".to_string(), opening);
+        map.insert(
+            "done".to_string(),
+            review("approved", Some("/c.md"), t0, 300_000),
+        );
+        let mut new = review("pending", Some("/d.md"), t0 + 2, 300_000);
+        new.shown = false;
+        map.insert("new".to_string(), new);
+
+        supersede_shown(&mut map, "new", t0 + 10);
+
+        let old = &map["old"];
+        assert_eq!(review_status(old, t0 + 10), "superseded");
+        assert_eq!(old.verdict.as_deref(), Some("superseded"));
+        assert_eq!(old.superseded_by.as_deref(), Some("new"));
+        assert!(map["new"].shown);
+        assert_eq!(map["new"].status, "pending");
+        assert_eq!(map["opening"].status, "pending", "not shown, not displaced");
+        assert_eq!(
+            map["done"].status, "approved",
+            "a decision is never replaced"
+        );
+
+        // The review that finishes opening later takes the panel in turn.
+        supersede_shown(&mut map, "opening", t0 + 20);
+        assert_eq!(map["new"].status, "superseded");
+        assert_eq!(map["new"].superseded_by.as_deref(), Some("opening"));
+        assert_eq!(map["opening"].status, "pending");
+    }
+
+    #[test]
+    fn a_verdict_on_a_superseded_review_is_kept_but_late() {
+        // A click in flight as the panel switched: the human did decide, but
+        // the agent may already have been told `superseded`.
+        let mut r = review("pending", None, 1_000, 5_000);
+        r.status = "superseded".into();
+        record_verdict(&mut r, "timeout".into(), None, 2_000);
+        assert_eq!(r.status, "superseded", "a timeout does not replace it");
+        record_verdict(&mut r, "approved".into(), None, 2_000);
+        assert_eq!(r.status, "approved");
+        assert!(r.late);
     }
 
     #[test]

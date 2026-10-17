@@ -637,7 +637,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_review",
-            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1615,8 +1615,8 @@ pub fn tool_request_review_with(
                 .as_nanos() as u64;
             // The id carries when the review window closes (unix ms), so a
             // resumed call can still end with `timeout` instead of waiting
-            // forever on a record the app never resolves (a review replaced
-            // in the panel by a newer one keeps `pending` in the app).
+            // forever on a record the app never resolves (an app that went
+            // away, or one older than the `superseded` verdict).
             let window_end_ms = unix_ms() + timeout_ms;
             let review_id = format!("rev_{nanos}_{:08x}_{window_end_ms}", std::process::id());
             let post_body = json!({
@@ -1696,6 +1696,19 @@ pub fn tool_request_review_with(
                             "verdict": "timeout",
                             "reviewId": review_id,
                             "message": "The review window closed with no verdict."
+                        }),
+                    )
+                }
+                // A newer review took the panel before the human decided, so
+                // no verdict will come for this one.
+                "superseded" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "superseded",
+                            "reviewId": review_id,
+                            "supersededBy": resp["supersededBy"],
+                            "message": "A newer review replaced this one in the review panel before the human decided. Call request_review again if this still needs sign-off."
                         }),
                     )
                 }

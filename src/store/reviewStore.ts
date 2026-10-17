@@ -6,6 +6,8 @@
  * human's Approve / Request-changes / Dismiss verdict is recorded via the
  * `set_review_verdict` command, which the agent's polling MCP tool picks up.
  * When the countdown runs out with no decision, `expire` records `timeout`.
+ * The panel shows one review at a time: a newer one replaces it, and the app
+ * records the displaced review as `superseded` for its agent.
  */
 
 import { invoke } from "@tauri-apps/api/core";

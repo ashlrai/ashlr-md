@@ -5340,6 +5340,44 @@ fn request_review_marks_a_late_verdict() {
     assert!(v.get("late").is_none(), "{v}");
 }
 
+/// A review a newer one replaced in the panel ends at once as `superseded`
+/// (naming its replacement), instead of waiting out its window as a timeout.
+#[test]
+fn request_review_reports_a_superseded_review_at_once() {
+    use mdopener_mcp::tool_request_review_with;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Ok(json!({
+                "status": "superseded",
+                "verdict": "superseded",
+                "comments": null,
+                "late": false,
+                "supersededBy": "rev_newer"
+            })),
+        );
+    let started = std::time::Instant::now();
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "# Plan", "timeout_ms": 600_000 }),
+        &ipc,
+        std::time::Duration::from_millis(10),
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(!is_error(&resp), "{resp:?}");
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "superseded", "{v}");
+    assert_eq!(v["supersededBy"], "rev_newer", "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("request_review again"),
+        "{v}"
+    );
+}
+
 // ── Disk reads only open regular files ────────────────────────────────────────
 
 /// Run `f` on a worker thread and fail (instead of hanging the suite) when it
