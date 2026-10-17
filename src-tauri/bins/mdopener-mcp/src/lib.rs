@@ -240,8 +240,22 @@ fn conversation_store() -> &'static Mutex<HashMap<String, SessionLog>> {
 /// Maximum messages kept per session in the in-process store.
 pub const MAX_MESSAGES_PER_SESSION: usize = 200;
 
+static SESSIONS_DIR_OVERRIDE: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// Keep session files in `dir` instead of `~/.mdopener/sessions` for the rest
+/// of this process. Tests use it to stay off the real home directory without
+/// mutating `HOME` while other test threads read it. Returns `false` (and
+/// changes nothing) when a directory was already set.
+#[doc(hidden)]
+pub fn set_sessions_dir(dir: std::path::PathBuf) -> bool {
+    SESSIONS_DIR_OVERRIDE.set(dir).is_ok()
+}
+
 /// Return the directory where session JSON files are persisted.
 pub fn sessions_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = SESSIONS_DIR_OVERRIDE.get() {
+        return Some(dir.clone());
+    }
     dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
 }
 

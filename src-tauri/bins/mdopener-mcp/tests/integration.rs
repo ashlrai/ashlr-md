@@ -2254,8 +2254,21 @@ fn search_result_to_json_includes_all_fields() {
 
 // ── Helper: unique session id per test so parallel tests do not interfere ────
 
+/// Session files go to a temp directory, never the real `~/.mdopener`.
+/// Every test that touches a session gets its id from `unique_session`, which
+/// sets this up first.
+fn use_temp_sessions_dir() {
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap().keep().join("sessions");
+        assert!(mdopener_mcp::set_sessions_dir(dir.clone()));
+        dir
+    });
+}
+
 fn unique_session() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use_temp_sessions_dir();
     static CTR: AtomicU64 = AtomicU64::new(0);
     format!("test-sess-{}-{}", std::process::id(), CTR.fetch_add(1, Ordering::SeqCst))
 }
@@ -2548,6 +2561,9 @@ fn appending_to_one_session_does_not_appear_in_another() {
 #[test]
 fn messages_persisted_to_disk_and_loadable() {
     let sess = unique_session();
+    let home_sessions = dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"));
+    let dir = mdopener_mcp::sessions_dir();
+    assert_ne!(dir, home_sessions, "tests must not use ~/.mdopener");
 
     // Append via store (triggers disk write).
     store_append_message(&sess, "agent", "Wrote introduction.", vec!["/vault/intro.md".into()])
@@ -3657,8 +3673,7 @@ fn diff_documents_huge_context_does_not_overflow() {
 #[test]
 fn conversation_store_keeps_messages_appended_by_another_process() {
     use mdopener_mcp::persist_session;
-    let sess = format!("cross-process-{}-{:?}", std::process::id(), std::time::Instant::now())
-        .replace(|c: char| !c.is_alphanumeric(), "-");
+    let sess = format!("cross-process-{}", unique_session());
     store_append_message(&sess, "agent", "from this process", vec![]).unwrap();
     // The "other process" appends straight to the persisted log.
     let mut log = load_session_from_disk(&sess).unwrap();
