@@ -43,6 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .manage(PendingFiles::default())
+        .manage(deep_link::LinkViewModes::default())
         .manage(watcher::FileWatcher::default())
         .manage(ipc::DocMirror::default())
         .manage(ipc::RecentMirror::default())
@@ -68,6 +69,7 @@ pub fn run() {
             document::save_pasted_image_to_downloads,
             export::write_file_bytes,
             file_handler::take_pending_files,
+            deep_link::take_link_view_mode,
             watcher::watch_file,
             watcher::unwatch_file,
             ai::ai_detect_ollama,

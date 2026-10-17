@@ -879,7 +879,9 @@ fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
 }
 
 /// The description says what a null `path` means and that no open document
-/// is an error, as `mdopener://current` and `export_text` report it.
+/// is an error, as `mdopener://current` reports it (`export_text` says so
+/// with its own message, which
+/// `get_current_content_description_quotes_each_nothing_open_message` pins).
 #[test]
 fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     let reg = tool_registry();
@@ -891,7 +893,7 @@ fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     assert!(d.contains("`path` is null for an unsaved document"), "{d}");
     assert!(d.contains("With no document open this is an error"), "{d}");
     assert!(d.contains("isError: true"), "{d}");
-    assert!(d.contains("mdopener://current and export_text"), "{d}");
+    assert!(d.contains("as for mdopener://current"), "{d}");
     assert!(!d.contains("not an error"), "{d}");
 }
 
@@ -9104,6 +9106,87 @@ fn conversation_tool_descriptions_name_their_results() {
     );
 }
 
+/// list_ai_actions' description said each entry has "the action id, label,
+/// icon, scope, and the system+user prompt templates" but not the result's
+/// shape or the field names, so an agent learned `shortLabel`,
+/// `systemPrompt` and `userPromptTemplate` by calling it. The named fields
+/// are exactly the ones the actions carry.
+#[test]
+fn list_ai_actions_description_names_its_result() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "list_ai_actions")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains(
+            "{ actions: [{ id, label, shortLabel, icon, scope, systemPrompt, userPromptTemplate, argument? }], count }"
+        ),
+        "{d}"
+    );
+    let keys_of = |include: bool| {
+        let resp = tool_list_ai_actions(id(1), &json!({ "include_prompts": include }));
+        let body = content_text(&resp);
+        let mut top: Vec<String> = body.as_object().unwrap().keys().cloned().collect();
+        top.sort_unstable();
+        assert_eq!(top, ["actions", "count"]);
+        let mut all = std::collections::BTreeSet::new();
+        for a in body["actions"].as_array().unwrap() {
+            all.extend(a.as_object().unwrap().keys().cloned());
+        }
+        all.into_iter().collect::<Vec<_>>()
+    };
+    assert_eq!(
+        keys_of(true),
+        [
+            "argument",
+            "icon",
+            "id",
+            "label",
+            "scope",
+            "shortLabel",
+            "systemPrompt",
+            "userPromptTemplate"
+        ]
+    );
+    assert_eq!(
+        keys_of(false),
+        ["argument", "icon", "id", "label", "scope", "shortLabel"]
+    );
+}
+
+/// get_current_content's description said its nothing-open error matched
+/// export_text's, but export_text (and export_metadata) say to pass `path`,
+/// which get_current_content does not take. The description now quotes
+/// each message, and the messages are the ones the tools give.
+#[test]
+fn get_current_content_description_quotes_each_nothing_open_message() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "get_current_content")
+        .unwrap()
+        .description;
+    let none_open =
+        || MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let own = tool_error_text(&call("get_current_content", json!({}), &none_open()));
+    assert_eq!(
+        own,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    assert!(d.contains(&format!("\"{own}\"")), "{d}");
+    for tool in ["export_text", "export_metadata"] {
+        let msg = tool_error_text(&call(tool, json!({}), &none_open()));
+        assert_eq!(
+            msg, "No document is open in Ashlr MD; pass `path` to read a file.",
+            "{tool}"
+        );
+        assert!(d.contains(&format!("\"{msg}\"")), "{d}");
+        assert!(d.contains(tool), "{d}");
+    }
+    let resp = handle_resource_read(id(1), "mdopener://current", &none_open());
+    assert_eq!(resp.error.as_ref().unwrap().message, own);
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));
@@ -9730,6 +9813,49 @@ fn unknown_prompt_names_the_closest_prompt_and_the_prompts() {
     }
 }
 
+/// prompts/list described each prompt's task but not that it takes no
+/// arguments or that it needs an open document, so an agent learned both
+/// from an error (docs/AGENTS.md said so). Each description now says it,
+/// with the codes prompts/get gives.
+#[test]
+fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
+    let prompts = mdopener_mcp::prompts_list();
+    let prompts = prompts.as_array().unwrap();
+    assert_eq!(prompts.len(), mdopener_mcp::PROMPT_NAMES.len());
+    for p in prompts {
+        let d = p["description"].as_str().unwrap();
+        assert!(d.contains("Takes no arguments"), "{d}");
+        assert!(d.contains("open_file first"), "{d}");
+        assert!(
+            d.contains("With no document open it fails with -32002"),
+            "{d}"
+        );
+        assert!(d.contains("-32000 when the app is not running"), "{d}");
+    }
+    let none_open = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let no_app = MockIpc::new();
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &none_open,
+        )
+        .unwrap();
+        let err = resp.error.as_ref().unwrap();
+        assert_eq!(err.code, -32002, "{name}");
+        assert!(
+            err.message.starts_with("No document is open"),
+            "{}",
+            err.message
+        );
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &no_app,
+        )
+        .unwrap();
+        assert_eq!(resp.error.as_ref().unwrap().code, -32000, "{name}");
+    }
+}
+
 #[test]
 fn unknown_resource_uri_names_the_closest_uri_and_resources_list() {
     let ipc = MockIpc::new();
@@ -10312,6 +10438,50 @@ fn recent_documents_counts_the_recents_it_skips() {
         body["skipped"],
         json!({ "missing": 0, "notDocument": 0, "tooLarge": 0, "unreadable": 0 })
     );
+}
+
+/// The `mdopener://recent-documents` description gave `{ documents, count,
+/// skipped }` but not what each document holds, so an agent learned
+/// `mtimeMs` and `preview` by reading it. The named fields are exactly the
+/// ones each document has.
+#[test]
+fn recent_documents_description_names_each_documents_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::write(dir.join("ok.md"), "# Fine\nbody\n").unwrap();
+    let recents = json!([dir.join("ok.md").to_string_lossy()]);
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": recents })));
+    let listed = handle_resources_list(id(1), &ipc);
+    let resources = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let desc = resources
+        .iter()
+        .find(|r| r["uri"] == "mdopener://recent-documents")
+        .unwrap()["description"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        desc.contains("{ documents: [{ path, title, mtimeMs, preview }], count, skipped:"),
+        "{desc}"
+    );
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    let mut keys: Vec<String> = body["documents"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["mtimeMs", "path", "preview", "title"]);
+    assert_eq!(body["documents"][0]["title"], "Fine");
 }
 
 /// An HTTP answer was read to its end however long it was (the read timeout

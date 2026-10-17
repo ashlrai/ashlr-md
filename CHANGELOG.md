@@ -36,6 +36,44 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen`'s exit status docs cover an app that was reached but failed.**
+  docs/PHANTOM.md's exit table (which Phantom reads) and docs/AGENTS.md left
+  out that `mdopen` exits `1` without trying the URL scheme when the running
+  app answers with a server error, the connection breaks, or it does not
+  answer within 6 s, keeping a `mdopen -` temp file; `mdopen --help` said so.
+  A doc-facts test ties the 6 s in the help and both docs to the CLI's timeout.
+- **`mdopener://export` links take only known formats.** A link's `format`
+  was passed to the window as given, so `format=PDF` or `format=md` opened
+  the export dialog with no format selected and no word of why. A format
+  other than `pdf`, `docx`, `html` or `epub` now ignores the link with a
+  logged reason, and docs/AGENTS.md documents the link.
+- **`mdopener://open` links honour `mode`.** `&mode=edit` was documented
+  (and sent by `mdopen --edit` when the app is closed, and by the Obsidian
+  plugin) but never read, so the file opened in whatever view it was. The
+  app now keeps a link's `mode` until the window has opened the file, also on
+  a cold start, and switches to that view; a link with any other `mode` is
+  ignored and logged, as `/open` refuses one.
+- **`get_current_content`'s nothing-open claim is true.** Its description
+  said the error matched `export_text`'s, but `export_text` and
+  `export_metadata` say to pass `path` ("No document is open in Ashlr MD;
+  pass `path` to read a file."), which `get_current_content` does not take.
+  The description and docs/AGENTS.md now quote each message, and the export
+  descriptions say their error names `path`.
+- **Prompts say they take no arguments and need an open document.**
+  `prompts/list` described what `summarize`, `review_plan` and
+  `improve_writing` do but not that they take no arguments or that they fail
+  with no document open, which docs/AGENTS.md says. Each description now says
+  both, with the codes (`-32002` with no document open, `-32000` when the app
+  is not running).
+- **`list_ai_actions` names its result.** Its description listed what each
+  action includes but not the result's shape or field names. It now gives
+  `{ actions: [{ id, label, shortLabel, icon, scope, systemPrompt,
+  userPromptTemplate, argument? }], count }` and says `include_prompts:
+  false` leaves the two templates out; docs/AGENTS.md's row says the same.
+- **`mdopener://recent-documents` names each document's fields.** Its
+  description gave `{ documents, count, skipped }` but not what a document
+  holds. It now gives `{ documents: [{ path, title, mtimeMs, preview }],
+  count, skipped }` and says where `title` and `preview` come from.
 - **`get_conversation_context` and `save_conversation_message` name their
   results.** Their descriptions said what each stores or recovers but not
   what comes back. They now give `{ sessionId, messages: [{ id, sessionId,
