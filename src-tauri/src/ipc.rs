@@ -1220,12 +1220,23 @@ fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The `path` `/annotations` reports on. Without one there is no file to
+/// read tasks from or match reviews against, and the reply used to be an
+/// empty result for the path "", which reads as "no tasks, no verdict".
+fn annotations_path(query: &str) -> Result<String, String> {
+    query_param(query, "path")
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| {
+            "path query param required: /annotations?path=<percent-encoded path of the document>"
+                .to_string()
+        })
+}
+
 fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
-    let raw_path = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("path="))
-        .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
-        .unwrap_or_default();
+    let raw_path = match annotations_path(query) {
+        Ok(p) => p,
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     let (open_path, open_content) = {
         let mirror = app.state::<DocMirror>();
@@ -2215,6 +2226,20 @@ mod tests {
 
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn annotations_need_a_path() {
+        use super::annotations_path;
+        assert_eq!(
+            annotations_path("path=%2Fnotes%2Fa%20b.md").unwrap(),
+            "/notes/a b.md"
+        );
+        assert_eq!(annotations_path("x=1&path=/a.md").unwrap(), "/a.md");
+        for query in ["", "path=", "x=1", "path=%FF"] {
+            let err = annotations_path(query).unwrap_err();
+            assert!(err.contains("path query param required"), "{query}: {err}");
+        }
+    }
+
     #[test]
     fn open_refuses_a_mode_the_window_ignores() {
         use super::open_mode_refusal;
