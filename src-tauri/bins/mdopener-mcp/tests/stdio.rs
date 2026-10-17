@@ -61,7 +61,11 @@ fn handshake_with_current_client_protocol_versions() {
         assert_eq!(out[0]["id"], 1);
         assert_eq!(out[0]["result"]["protocolVersion"], protocol);
         assert_eq!(out[0]["result"]["serverInfo"]["name"], "mdopener-mcp");
-        assert_eq!(out[0]["result"]["serverInfo"]["version"], app_version(), "{protocol}");
+        assert_eq!(
+            out[0]["result"]["serverInfo"]["version"],
+            app_version(),
+            "{protocol}"
+        );
         assert_eq!(out[1]["id"], 2);
         let tools = out[1]["result"]["tools"].as_array().unwrap();
         assert!(tools.iter().any(|t| t["name"] == "open_file"));

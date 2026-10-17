@@ -15,18 +15,13 @@
 //!   missing optional args use documented defaults
 
 use mdopener_mcp::{
-    dispatch, handle_initialize, tool_list, tool_registry, ai_actions_registry,
-    ALL_TOOL_NAMES, UNAVAILABLE_TOOLS, ToolTier,
-    tool_open_file, tool_get_content, tool_set_content, tool_list_recent,
-    tool_export, tool_request_review, tool_get_annotations,
-    tool_edit_document, tool_replace_document, tool_search_vault,
-    tool_present_document, tool_list_ai_actions,
-    tool_get_conversation_context, tool_save_conversation_message,
-    store_append_message, store_get_context,
-    session_file_path, load_session_from_disk,
-    IpcClient, Request, tool_open_file_with, tool_export_with,
-    tool_stream_edit, tool_stream_edit_apply,
-    launch::Launch,
+    ai_actions_registry, dispatch, handle_initialize, launch::Launch, load_session_from_disk,
+    session_file_path, store_append_message, store_get_context, tool_edit_document, tool_export,
+    tool_export_with, tool_get_annotations, tool_get_content, tool_get_conversation_context,
+    tool_list, tool_list_ai_actions, tool_list_recent, tool_open_file, tool_open_file_with,
+    tool_present_document, tool_registry, tool_replace_document, tool_request_review,
+    tool_save_conversation_message, tool_search_vault, tool_set_content, tool_stream_edit,
+    tool_stream_edit_apply, IpcClient, Request, ToolTier, ALL_TOOL_NAMES, UNAVAILABLE_TOOLS,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -45,16 +40,21 @@ struct MockIpc {
 
 impl MockIpc {
     fn new() -> Self {
-        Self { calls: Mutex::new(vec![]), responses: vec![] }
+        Self {
+            calls: Mutex::new(vec![]),
+            responses: vec![],
+        }
     }
 
     fn on_get(mut self, path_prefix: &str, resp: Result<Value, String>) -> Self {
-        self.responses.push(("GET".into(), path_prefix.into(), resp));
+        self.responses
+            .push(("GET".into(), path_prefix.into(), resp));
         self
     }
 
     fn on_post(mut self, path_prefix: &str, resp: Result<Value, String>) -> Self {
-        self.responses.push(("POST".into(), path_prefix.into(), resp));
+        self.responses
+            .push(("POST".into(), path_prefix.into(), resp));
         self
     }
 
@@ -66,7 +66,10 @@ impl MockIpc {
 
 impl IpcClient for MockIpc {
     fn get(&self, path: &str) -> Result<Value, String> {
-        self.calls.lock().unwrap().push(("GET".into(), path.into(), None));
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("GET".into(), path.into(), None));
         for (method, prefix, resp) in &self.responses {
             if method == "GET" && path.starts_with(prefix.as_str()) {
                 return resp.clone();
@@ -76,7 +79,10 @@ impl IpcClient for MockIpc {
     }
 
     fn post(&self, path: &str, body: Value) -> Result<Value, String> {
-        self.calls.lock().unwrap().push(("POST".into(), path.into(), Some(body)));
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("POST".into(), path.into(), Some(body)));
         for (method, prefix, resp) in &self.responses {
             if method == "POST" && path.starts_with(prefix.as_str()) {
                 return resp.clone();
@@ -88,7 +94,9 @@ impl IpcClient for MockIpc {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn id(n: u64) -> Value { json!(n) }
+fn id(n: u64) -> Value {
+    json!(n)
+}
 
 /// Extract the text content from a tool_result response envelope.
 fn content_text(resp: &mdopener_mcp::Response) -> Value {
@@ -114,7 +122,8 @@ fn tool_error_text(resp: &mdopener_mcp::Response) -> String {
 
 /// Extract isError flag from the result envelope.
 fn is_error(resp: &mdopener_mcp::Response) -> bool {
-    resp.result.as_ref()
+    resp.result
+        .as_ref()
         .and_then(|r| r["isError"].as_bool())
         .unwrap_or(false)
 }
@@ -127,7 +136,9 @@ fn is_error(resp: &mdopener_mcp::Response) -> bool {
 fn initialize_supported_protocol_echoed() {
     let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": "2025-03-26" })));
     assert!(resp.error.is_none());
-    let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+    let proto = resp.result.as_ref().unwrap()["protocolVersion"]
+        .as_str()
+        .unwrap();
     assert_eq!(proto, "2025-03-26");
 }
 
@@ -137,7 +148,9 @@ fn initialize_unsupported_protocol_falls_back_to_latest_supported() {
     for requested in ["1999-01-01", "2025-11-25"] {
         let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": requested })));
         assert!(resp.error.is_none());
-        let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+        let proto = resp.result.as_ref().unwrap()["protocolVersion"]
+            .as_str()
+            .unwrap();
         assert_eq!(proto, "2025-06-18", "requested {requested}");
     }
 }
@@ -147,7 +160,9 @@ fn initialize_echoes_every_version_current_clients_send() {
     // Claude Code and other current clients send one of these.
     for requested in ["2025-06-18", "2025-03-26", "2024-11-05"] {
         let resp = handle_initialize(id(1), Some(json!({ "protocolVersion": requested })));
-        let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+        let proto = resp.result.as_ref().unwrap()["protocolVersion"]
+            .as_str()
+            .unwrap();
         assert_eq!(proto, requested);
     }
 }
@@ -155,7 +170,9 @@ fn initialize_echoes_every_version_current_clients_send() {
 #[test]
 fn initialize_no_params_uses_default() {
     let resp = handle_initialize(id(1), None);
-    let proto = resp.result.as_ref().unwrap()["protocolVersion"].as_str().unwrap();
+    let proto = resp.result.as_ref().unwrap()["protocolVersion"]
+        .as_str()
+        .unwrap();
     assert_eq!(proto, mdopener_mcp::DEFAULT_PROTOCOL);
     assert_eq!(proto, *mdopener_mcp::SUPPORTED_PROTOCOLS.last().unwrap());
 }
@@ -177,22 +194,37 @@ fn initialize_capabilities_advertised() {
 fn tools_list_contains_all_16_tools() {
     let list = tool_list();
     let tools = list.as_array().expect("tool_list returns an array");
-    let names: Vec<&str> = tools.iter()
-        .filter_map(|t| t["name"].as_str())
-        .collect();
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     let expected = [
-        "open_file", "get_current_content", "set_content", "list_recent",
-        "export", "request_review", "get_user_annotations", "edit_document",
-        "replace_document", "search_vault", "present_document", "list_ai_actions",
-        "get_conversation_context", "save_conversation_message",
-        "diff_documents", "edit_canvas",
-        "stream_edit", "stream_edit_apply",
-        "export_text", "export_metadata",
+        "open_file",
+        "get_current_content",
+        "set_content",
+        "list_recent",
+        "export",
+        "request_review",
+        "get_user_annotations",
+        "edit_document",
+        "replace_document",
+        "search_vault",
+        "present_document",
+        "list_ai_actions",
+        "get_conversation_context",
+        "save_conversation_message",
+        "diff_documents",
+        "edit_canvas",
+        "stream_edit",
+        "stream_edit_apply",
+        "export_text",
+        "export_metadata",
     ];
     for name in &expected {
         assert!(names.contains(name), "tool_list missing: {name}");
     }
-    assert_eq!(names.len(), expected.len(), "unexpected extra tools in list");
+    assert_eq!(
+        names.len(),
+        expected.len(),
+        "unexpected extra tools in list"
+    );
 }
 
 #[test]
@@ -298,7 +330,9 @@ fn every_tool_has_non_empty_description() {
 fn tool_names_are_snake_case() {
     for def in tool_registry() {
         assert!(
-            def.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+            def.name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
             "tool name '{}' is not snake_case",
             def.name
         );
@@ -311,11 +345,7 @@ fn tool_names_are_unique() {
     let registry = tool_registry();
     let mut seen = std::collections::HashSet::new();
     for def in &registry {
-        assert!(
-            seen.insert(def.name),
-            "duplicate tool name: '{}'",
-            def.name
-        );
+        assert!(seen.insert(def.name), "duplicate tool name: '{}'", def.name);
     }
 }
 
@@ -328,9 +358,10 @@ fn tool_names_are_unique() {
 fn read_only_tools_have_read_only_hint_annotation() {
     for def in tool_registry() {
         if def.tier == ToolTier::ReadOnly {
-            let ann = def.annotations.as_ref().unwrap_or_else(|| {
-                panic!("ReadOnly tool '{}' must have annotations", def.name)
-            });
+            let ann = def
+                .annotations
+                .as_ref()
+                .unwrap_or_else(|| panic!("ReadOnly tool '{}' must have annotations", def.name));
             assert_eq!(
                 ann["readOnlyHint"].as_bool(),
                 Some(true),
@@ -346,9 +377,10 @@ fn read_only_tools_have_read_only_hint_annotation() {
 fn destructive_tools_have_destructive_hint_annotation() {
     for def in tool_registry() {
         if def.tier == ToolTier::Destructive {
-            let ann = def.annotations.as_ref().unwrap_or_else(|| {
-                panic!("Destructive tool '{}' must have annotations", def.name)
-            });
+            let ann = def
+                .annotations
+                .as_ref()
+                .unwrap_or_else(|| panic!("Destructive tool '{}' must have annotations", def.name));
             assert_eq!(
                 ann["destructiveHint"].as_bool(),
                 Some(true),
@@ -381,9 +413,21 @@ fn non_destructive_tools_do_not_have_destructive_hint() {
 fn tool_to_json_includes_required_mcp_fields() {
     for def in tool_registry() {
         let j = def.to_json();
-        assert!(j["name"].is_string(), "tool '{}' to_json missing 'name'", def.name);
-        assert!(j["description"].is_string(), "tool '{}' to_json missing 'description'", def.name);
-        assert!(j["inputSchema"].is_object(), "tool '{}' to_json missing 'inputSchema'", def.name);
+        assert!(
+            j["name"].is_string(),
+            "tool '{}' to_json missing 'name'",
+            def.name
+        );
+        assert!(
+            j["description"].is_string(),
+            "tool '{}' to_json missing 'description'",
+            def.name
+        );
+        assert!(
+            j["inputSchema"].is_object(),
+            "tool '{}' to_json missing 'inputSchema'",
+            def.name
+        );
     }
 }
 
@@ -433,8 +477,7 @@ fn open_file_missing_path_returns_error() {
 
 #[test]
 fn open_file_ipc_success_returns_opened_path() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
     // Use /tmp which is guaranteed to exist for canonicalize
     let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
@@ -469,9 +512,13 @@ fn open_file_mode_edit_forwarded_in_post_body() {
     );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/open")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["mode"], json!("edit"));
 }
 
@@ -479,8 +526,7 @@ fn open_file_mode_edit_forwarded_in_post_body() {
 // injected so no test ever starts a real OS launcher or GUI.
 #[test]
 fn open_file_ipc_failure_launches_url_scheme() {
-    let ipc = MockIpc::new()
-        .on_post("/open", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
     let seen = Mutex::new(Vec::<String>::new());
     let resp = tool_open_file_with(
         id(1),
@@ -498,7 +544,10 @@ fn open_file_ipc_failure_launches_url_scheme() {
         .iter()
         .any(|(m, p, _)| m == "POST" && p == "/open"));
     assert!(resp.error.is_none(), "{:?}", resp.error);
-    let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+    let text = resp.result.as_ref().unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert!(text.contains("url-scheme"), "{text}");
     let urls = seen.lock().unwrap();
     assert_eq!(urls.len(), 1);
@@ -551,8 +600,14 @@ fn open_file_pending_launcher_is_unconfirmed_success() {
         },
     );
     assert!(resp.error.is_none());
-    let text = resp.result.as_ref().unwrap()["content"][0]["text"].as_str().unwrap().to_string();
-    assert!(text.contains("\"confirmed\":false") || text.contains("\"confirmed\": false"), "{text}");
+    let text = resp.result.as_ref().unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        text.contains("\"confirmed\":false") || text.contains("\"confirmed\": false"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -574,11 +629,13 @@ fn open_file_rejects_unknown_mode_before_any_launch() {
 
 #[test]
 fn get_current_content_returns_path_and_markdown() {
-    let ipc = MockIpc::new()
-        .on_get("/content", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({
             "path": "/docs/notes.md",
             "content": "# Hello\nworld"
-        })));
+        })),
+    );
     let resp = tool_get_content(id(1), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
@@ -588,8 +645,7 @@ fn get_current_content_returns_path_and_markdown() {
 
 #[test]
 fn get_current_content_no_doc_open_returns_null_path() {
-    let ipc = MockIpc::new()
-        .on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
     let resp = tool_get_content(id(1), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
@@ -598,16 +654,17 @@ fn get_current_content_no_doc_open_returns_null_path() {
 
 #[test]
 fn get_current_content_ipc_unavailable_returns_tool_error() {
-    let ipc = MockIpc::new()
-        .on_get("/content", Err("Could not connect to IPC server".into()));
+    let ipc = MockIpc::new().on_get("/content", Err("Could not connect to IPC server".into()));
     let resp = tool_get_content(id(1), &ipc);
     tool_error_text(&resp);
 }
 
 #[test]
 fn get_current_content_stale_ipc_returns_error_with_hint() {
-    let ipc = MockIpc::new()
-        .on_get("/content", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Err("ipc-port not found — is Ashlr MD running?".into()),
+    );
     let resp = tool_get_content(id(1), &ipc);
     let err = tool_error_text(&resp);
     assert!(err.contains("Ashlr MD"), "error should mention app name");
@@ -626,32 +683,34 @@ fn set_content_missing_content_returns_param_error() {
 
 #[test]
 fn set_content_sends_content_to_ipc() {
-    let ipc = MockIpc::new()
-        .on_post("/content", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
     let resp = tool_set_content(id(1), &json!({ "content": "# New doc" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/content")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["content"], "# New doc");
     assert_eq!(body["save"], json!(false)); // default
 }
 
 #[test]
 fn set_content_save_true_persists() {
-    let ipc = MockIpc::new()
-        .on_post("/content", Ok(json!({ "ok": true, "saved": true })));
-    let resp = tool_set_content(
-        id(1),
-        &json!({ "content": "# Saved", "save": true }),
-        &ipc,
-    );
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true, "saved": true })));
+    let resp = tool_set_content(id(1), &json!({ "content": "# Saved", "save": true }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/content")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["save"], json!(true));
 }
 
@@ -659,14 +718,17 @@ fn set_content_save_true_persists() {
 fn set_content_large_content_not_truncated() {
     // >10 MB string — the handler must pass it through without truncating.
     let big = "x".repeat(11 * 1024 * 1024);
-    let ipc = MockIpc::new()
-        .on_post("/content", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
     let resp = tool_set_content(id(1), &json!({ "content": big }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/content")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     let sent = body["content"].as_str().unwrap();
     assert_eq!(sent.len(), 11 * 1024 * 1024, "large content was truncated");
 }
@@ -703,18 +765,19 @@ fn set_content_without_a_reason_still_fails() {
 
 #[test]
 fn list_recent_default_limit_is_10() {
-    let ipc = MockIpc::new()
-        .on_get("/recent", Ok(json!({ "files": [] })));
+    let ipc = MockIpc::new().on_get("/recent", Ok(json!({ "files": [] })));
     tool_list_recent(id(1), &json!({}), &ipc);
     let calls = ipc.calls();
     let path = &calls[0].1;
-    assert!(path.contains("limit=10"), "default limit should be 10, got: {path}");
+    assert!(
+        path.contains("limit=10"),
+        "default limit should be 10, got: {path}"
+    );
 }
 
 #[test]
 fn list_recent_custom_limit_clamped() {
-    let ipc = MockIpc::new()
-        .on_get("/recent", Ok(json!({ "files": [] })));
+    let ipc = MockIpc::new().on_get("/recent", Ok(json!({ "files": [] })));
     tool_list_recent(id(1), &json!({ "limit": 5 }), &ipc);
     let calls = ipc.calls();
     assert!(calls[0].1.contains("limit=5"));
@@ -723,8 +786,7 @@ fn list_recent_custom_limit_clamped() {
 #[test]
 fn list_recent_returns_files_array() {
     let files = json!(["/a.md", "/b.md", "/c.md"]);
-    let ipc = MockIpc::new()
-        .on_get("/recent", Ok(json!({ "files": files })));
+    let ipc = MockIpc::new().on_get("/recent", Ok(json!({ "files": files })));
     let resp = tool_list_recent(id(1), &json!({}), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
@@ -733,8 +795,7 @@ fn list_recent_returns_files_array() {
 
 #[test]
 fn list_recent_empty_returns_empty_array() {
-    let ipc = MockIpc::new()
-        .on_get("/recent", Ok(json!({ "files": [] })));
+    let ipc = MockIpc::new().on_get("/recent", Ok(json!({ "files": [] })));
     let resp = tool_list_recent(id(1), &json!({}), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
@@ -754,27 +815,36 @@ fn export_missing_format_returns_param_error() {
 
 #[test]
 fn export_pdf_format_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     let resp = tool_export(id(1), &json!({ "format": "pdf" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["format"], "pdf");
-    assert!(body["outputPath"].is_null(), "output_path should default to null");
+    assert!(
+        body["outputPath"].is_null(),
+        "output_path should default to null"
+    );
 }
 
 #[test]
 fn export_docx_format_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     tool_export(id(1), &json!({ "format": "docx" }), &ipc);
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["format"], "docx");
 }
 
@@ -782,8 +852,7 @@ fn export_docx_format_forwarded() {
 fn export_html_with_output_path() {
     let dir = tempfile::tempdir().unwrap();
     let out = std::fs::canonicalize(dir.path()).unwrap().join("out.html");
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     tool_export_with(
         id(1),
         &json!({ "format": "html", "output_path": out.to_string_lossy() }),
@@ -791,16 +860,19 @@ fn export_html_with_output_path() {
         std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["outputPath"], json!(out.to_string_lossy()));
 }
 
 #[test]
 fn export_ipc_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_post("/export", Err("ipc-port not found".into()));
     let resp = tool_export(id(1), &json!({ "format": "pdf" }), &ipc);
     tool_error_text(&resp);
 }
@@ -825,8 +897,7 @@ fn edit_document_missing_replace_returns_error() {
 
 #[test]
 fn edit_document_success_returns_ok_response() {
-    let ipc = MockIpc::new()
-        .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
+    let ipc = MockIpc::new().on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
     let resp = tool_edit_document(
         id(1),
         &json!({ "find": "old text", "replace": "new text" }),
@@ -841,11 +912,13 @@ fn edit_document_success_returns_ok_response() {
 
 #[test]
 fn edit_document_collision_returns_tool_error() {
-    let ipc = MockIpc::new()
-        .on_post("/edit", Ok(json!({
+    let ipc = MockIpc::new().on_post(
+        "/edit",
+        Ok(json!({
             "ok": false,
             "error": "find string appears 2 times — must be unique"
-        })));
+        })),
+    );
     let resp = tool_edit_document(
         id(1),
         &json!({ "find": "common text", "replace": "new" }),
@@ -858,29 +931,27 @@ fn edit_document_collision_returns_tool_error() {
 
 #[test]
 fn edit_document_save_flag_forwarded() {
-    let ipc = MockIpc::new()
-        .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
+    let ipc = MockIpc::new().on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
     tool_edit_document(
         id(1),
         &json!({ "find": "x", "replace": "y", "save": true }),
         &ipc,
     );
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/edit")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["save"], json!(true));
 }
 
 #[test]
 fn edit_document_ipc_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_post("/edit", Err("Could not connect to IPC server".into()));
-    let resp = tool_edit_document(
-        id(1),
-        &json!({ "find": "x", "replace": "y" }),
-        &ipc,
-    );
+    let ipc = MockIpc::new().on_post("/edit", Err("Could not connect to IPC server".into()));
+    let resp = tool_edit_document(id(1), &json!({ "find": "x", "replace": "y" }), &ipc);
     tool_error_text(&resp);
 }
 
@@ -897,36 +968,34 @@ fn replace_document_missing_content_returns_param_error() {
 
 #[test]
 fn replace_document_sends_full_content() {
-    let ipc = MockIpc::new()
-        .on_post("/content", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
     let new_content = "# Full replacement\nAll new content.";
-    let resp = tool_replace_document(
-        id(1),
-        &json!({ "content": new_content }),
-        &ipc,
-    );
+    let resp = tool_replace_document(id(1), &json!({ "content": new_content }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/content")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["content"], new_content);
     assert_eq!(body["save"], json!(false));
 }
 
 #[test]
 fn replace_document_save_true_triggers_persistence() {
-    let ipc = MockIpc::new()
-        .on_post("/content", Ok(json!({ "ok": true })));
-    tool_replace_document(
-        id(1),
-        &json!({ "content": "# Doc", "save": true }),
-        &ipc,
-    );
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
+    tool_replace_document(id(1), &json!({ "content": "# Doc", "save": true }), &ipc);
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/content")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["save"], json!(true));
 }
 
@@ -943,37 +1012,39 @@ fn search_vault_missing_query_returns_param_error() {
 
 #[test]
 fn search_vault_keyword_search_forwarded() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
             "results": [
                 { "path": "/vault/a.md", "score": 0.9, "snippet": "hello world" }
             ]
-        })));
-    let resp = tool_search_vault(
-        id(1),
-        &json!({ "query": "hello world" }),
-        &ipc,
+        })),
     );
+    let resp = tool_search_vault(id(1), &json!({ "query": "hello world" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let path = &calls[0].1;
-    assert!(path.contains("hello%20world") || path.contains("hello+world"),
-        "query should be URL-encoded, got: {path}");
+    assert!(
+        path.contains("hello%20world") || path.contains("hello+world"),
+        "query should be URL-encoded, got: {path}"
+    );
 }
 
 #[test]
 fn search_vault_default_limit_is_50() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x" }), &ipc);
     let calls = ipc.calls();
-    assert!(calls[0].1.contains("limit=50"), "default limit should be 50, got: {}", calls[0].1);
+    assert!(
+        calls[0].1.contains("limit=50"),
+        "default limit should be 50, got: {}",
+        calls[0].1
+    );
 }
 
 #[test]
 fn search_vault_custom_limit() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(id(1), &json!({ "query": "x", "limit": 5 }), &ipc);
     let calls = ipc.calls();
     assert!(calls[0].1.contains("limit=5"));
@@ -981,8 +1052,7 @@ fn search_vault_custom_limit() {
 
 #[test]
 fn search_vault_empty_results_returned() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     let resp = tool_search_vault(id(1), &json!({ "query": "xyz_unlikely" }), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
@@ -1002,8 +1072,7 @@ fn request_review_neither_path_nor_content_returns_error() {
 
 #[test]
 fn request_review_non_blocking_registers_and_returns_pending() {
-    let ipc = MockIpc::new()
-        .on_post("/review", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
     let resp = tool_request_review(
         id(1),
         &json!({ "content": "# Plan\nStep 1.", "blocking": false }),
@@ -1013,13 +1082,15 @@ fn request_review_non_blocking_registers_and_returns_pending() {
     let text = content_text(&resp);
     assert_eq!(text["status"], "pending");
     // reviewId should be present and non-empty
-    assert!(text["reviewId"].as_str().map(|s| !s.is_empty()).unwrap_or(false));
+    assert!(text["reviewId"]
+        .as_str()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false));
 }
 
 #[test]
 fn request_review_ipc_down_returns_error() {
-    let ipc = MockIpc::new()
-        .on_post("/review", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_post("/review", Err("ipc-port not found".into()));
     let resp = tool_request_review(
         id(1),
         &json!({ "content": "# Plan", "blocking": false }),
@@ -1031,8 +1102,7 @@ fn request_review_ipc_down_returns_error() {
 #[test]
 fn request_review_timeout_ms_clamped_to_minimum() {
     // timeout_ms below 5000 should be clamped up — non-blocking so no sleep
-    let ipc = MockIpc::new()
-        .on_post("/review", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
     let resp = tool_request_review(
         id(1),
         &json!({ "content": "x", "blocking": false, "timeout_ms": 100 }),
@@ -1040,16 +1110,23 @@ fn request_review_timeout_ms_clamped_to_minimum() {
     );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter().find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap().2.as_ref().unwrap();
+    let body = calls
+        .iter()
+        .find(|(m, p, _)| m == "POST" && p == "/review")
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(actual_timeout >= 5_000, "timeout should be clamped to >=5000, got {actual_timeout}");
+    assert!(
+        actual_timeout >= 5_000,
+        "timeout should be clamped to >=5000, got {actual_timeout}"
+    );
 }
 
 #[test]
 fn request_review_timeout_ms_clamped_to_maximum() {
-    let ipc = MockIpc::new()
-        .on_post("/review", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
     let resp = tool_request_review(
         id(1),
         &json!({ "content": "x", "blocking": false, "timeout_ms": 9_999_999 }),
@@ -1057,10 +1134,18 @@ fn request_review_timeout_ms_clamped_to_maximum() {
     );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter().find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap().2.as_ref().unwrap();
+    let body = calls
+        .iter()
+        .find(|(m, p, _)| m == "POST" && p == "/review")
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(actual_timeout <= 600_000, "timeout should be clamped to <=600000, got {actual_timeout}");
+    assert!(
+        actual_timeout <= 600_000,
+        "timeout should be clamped to <=600000, got {actual_timeout}"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1069,14 +1154,17 @@ fn request_review_timeout_ms_clamped_to_maximum() {
 
 #[test]
 fn present_document_no_path_uses_current_doc() {
-    let ipc = MockIpc::new()
-        .on_post("/present", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
     let resp = tool_present_document(id(1), &json!({}), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/present")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert!(body["path"].is_null(), "path should be null when omitted");
 }
 
@@ -1087,17 +1175,20 @@ fn present_document_with_path_sends_canonicalized() {
     let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/present")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     // Should have received a non-null path
     assert!(!body["path"].is_null(), "path should be set");
 }
 
 #[test]
 fn present_document_ipc_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_post("/present", Err("Could not connect to IPC server".into()));
+    let ipc = MockIpc::new().on_post("/present", Err("Could not connect to IPC server".into()));
     let resp = tool_present_document(id(1), &json!({}), &ipc);
     tool_error_text(&resp);
 }
@@ -1115,17 +1206,15 @@ fn get_user_annotations_missing_path_returns_error() {
 
 #[test]
 fn get_user_annotations_returns_highlights_comments_bookmarks() {
-    let ipc = MockIpc::new()
-        .on_get("/annotations", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/annotations",
+        Ok(json!({
             "highlights": [{ "line": 3, "text": "important" }],
             "comments": [{ "line": 5, "comment": "check this" }],
             "bookmarks": [10]
-        })));
-    let resp = tool_get_annotations(
-        id(1),
-        &json!({ "path": "/vault/doc.md" }),
-        &ipc,
+        })),
     );
+    let resp = tool_get_annotations(id(1), &json!({ "path": "/vault/doc.md" }), &ipc);
     assert!(resp.error.is_none());
     let text = content_text(&resp);
     assert!(text["highlights"].is_array());
@@ -1135,24 +1224,20 @@ fn get_user_annotations_returns_highlights_comments_bookmarks() {
 
 #[test]
 fn get_user_annotations_path_url_encoded_in_request() {
-    let ipc = MockIpc::new()
-        .on_get("/annotations", Ok(json!({ "highlights": [] })));
-    tool_get_annotations(
-        id(1),
-        &json!({ "path": "/vault/my doc.md" }),
-        &ipc,
-    );
+    let ipc = MockIpc::new().on_get("/annotations", Ok(json!({ "highlights": [] })));
+    tool_get_annotations(id(1), &json!({ "path": "/vault/my doc.md" }), &ipc);
     let calls = ipc.calls();
     let path = &calls[0].1;
     // Space must be percent-encoded
-    assert!(path.contains("%20") || path.contains("+"),
-        "path should be URL-encoded, got: {path}");
+    assert!(
+        path.contains("%20") || path.contains("+"),
+        "path should be URL-encoded, got: {path}"
+    );
 }
 
 #[test]
 fn get_user_annotations_ipc_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_get("/annotations", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
     let resp = tool_get_annotations(id(1), &json!({ "path": "/x.md" }), &ipc);
     tool_error_text(&resp);
 }
@@ -1227,8 +1312,7 @@ fn call(name: &str, arguments: Value, ipc: &MockIpc) -> mdopener_mcp::Response {
 #[test]
 fn dispatch_tools_call_failing_tool_returns_is_error_result() {
     // App not reachable: an execution failure, not a protocol error.
-    let ipc = MockIpc::new()
-        .on_get("/content", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_get("/content", Err("ipc-port not found".into()));
     let resp = call("get_current_content", json!({}), &ipc);
     assert_eq!(resp.id, json!(7));
     let text = tool_error_text(&resp);
@@ -1236,7 +1320,11 @@ fn dispatch_tools_call_failing_tool_returns_is_error_result() {
 
     // A path that does not exist: also an execution failure the agent can fix.
     let missing = "/definitely/not/here/ashlr-md-missing.md";
-    let resp = call("diff_documents", json!({ "path_a": missing, "path_b": missing }), &ipc);
+    let resp = call(
+        "diff_documents",
+        json!({ "path_a": missing, "path_b": missing }),
+        &ipc,
+    );
     let text = tool_error_text(&resp);
     assert!(text.contains(missing), "{text}");
 }
@@ -1309,7 +1397,12 @@ fn list_ai_actions_returns_all_12_actions() {
     assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
     let text = content_text(&resp);
     let actions = text["actions"].as_array().expect("actions must be array");
-    assert_eq!(actions.len(), 12, "expected 12 AI actions, got {}", actions.len());
+    assert_eq!(
+        actions.len(),
+        12,
+        "expected 12 AI actions, got {}",
+        actions.len()
+    );
     assert_eq!(text["count"], json!(12));
 }
 
@@ -1319,13 +1412,41 @@ fn list_ai_actions_every_action_has_required_fields() {
     let text = content_text(&resp);
     let actions = text["actions"].as_array().unwrap();
     for action in actions {
-        assert!(action["id"].is_string(), "action missing 'id': {:?}", action);
-        assert!(action["label"].is_string(), "action '{}' missing 'label'", action["id"]);
-        assert!(action["shortLabel"].is_string(), "action '{}' missing 'shortLabel'", action["id"]);
-        assert!(action["icon"].is_string(), "action '{}' missing 'icon'", action["id"]);
-        assert!(action["scope"].is_string(), "action '{}' missing 'scope'", action["id"]);
-        assert!(action["systemPrompt"].is_string(), "action '{}' missing 'systemPrompt'", action["id"]);
-        assert!(action["userPromptTemplate"].is_string(), "action '{}' missing 'userPromptTemplate'", action["id"]);
+        assert!(
+            action["id"].is_string(),
+            "action missing 'id': {:?}",
+            action
+        );
+        assert!(
+            action["label"].is_string(),
+            "action '{}' missing 'label'",
+            action["id"]
+        );
+        assert!(
+            action["shortLabel"].is_string(),
+            "action '{}' missing 'shortLabel'",
+            action["id"]
+        );
+        assert!(
+            action["icon"].is_string(),
+            "action '{}' missing 'icon'",
+            action["id"]
+        );
+        assert!(
+            action["scope"].is_string(),
+            "action '{}' missing 'scope'",
+            action["id"]
+        );
+        assert!(
+            action["systemPrompt"].is_string(),
+            "action '{}' missing 'systemPrompt'",
+            action["id"]
+        );
+        assert!(
+            action["userPromptTemplate"].is_string(),
+            "action '{}' missing 'userPromptTemplate'",
+            action["id"]
+        );
     }
 }
 
@@ -1337,7 +1458,11 @@ fn list_ai_actions_action_ids_are_unique() {
     let mut seen = std::collections::HashSet::new();
     for action in actions {
         let aid = action["id"].as_str().unwrap();
-        assert!(seen.insert(aid.to_string()), "duplicate action id: '{}'", aid);
+        assert!(
+            seen.insert(aid.to_string()),
+            "duplicate action id: '{}'",
+            aid
+        );
     }
 }
 
@@ -1374,7 +1499,11 @@ fn list_ai_actions_include_prompts_false_strips_templates() {
     assert!(resp.error.is_none());
     let text = content_text(&resp);
     let actions = text["actions"].as_array().unwrap();
-    assert_eq!(actions.len(), 12, "count should still be 12 with include_prompts=false");
+    assert_eq!(
+        actions.len(),
+        12,
+        "count should still be 12 with include_prompts=false"
+    );
     for action in actions {
         // These fields must be present
         assert!(action["id"].is_string());
@@ -1413,13 +1542,24 @@ fn list_ai_actions_contains_expected_selection_actions() {
     let resp = tool_list_ai_actions(id(1), &json!({}));
     let text = content_text(&resp);
     let actions = text["actions"].as_array().unwrap();
-    let ids: Vec<&str> = actions.iter()
-        .filter_map(|a| a["id"].as_str())
-        .collect();
+    let ids: Vec<&str> = actions.iter().filter_map(|a| a["id"].as_str()).collect();
     // The 9 selection-scoped actions from actions.ts
-    for expected in &["explain", "summarize", "rewrite", "fix-grammar", "concise",
-                       "expand", "explain-diff", "translate", "tldr"] {
-        assert!(ids.contains(expected), "missing selection action '{}'", expected);
+    for expected in &[
+        "explain",
+        "summarize",
+        "rewrite",
+        "fix-grammar",
+        "concise",
+        "expand",
+        "explain-diff",
+        "translate",
+        "tldr",
+    ] {
+        assert!(
+            ids.contains(expected),
+            "missing selection action '{}'",
+            expected
+        );
     }
 }
 
@@ -1428,12 +1568,17 @@ fn list_ai_actions_contains_expected_document_actions() {
     let resp = tool_list_ai_actions(id(1), &json!({}));
     let text = content_text(&resp);
     let actions = text["actions"].as_array().unwrap();
-    let doc_ids: Vec<&str> = actions.iter()
+    let doc_ids: Vec<&str> = actions
+        .iter()
         .filter(|a| a["scope"].as_str() == Some("document"))
         .filter_map(|a| a["id"].as_str())
         .collect();
     for expected in &["doc-summarize", "doc-outline", "doc-explain-selection"] {
-        assert!(doc_ids.contains(expected), "missing document action '{}'", expected);
+        assert!(
+            doc_ids.contains(expected),
+            "missing document action '{}'",
+            expected
+        );
     }
 }
 
@@ -1478,8 +1623,10 @@ fn ai_actions_registry_count_matches_tool_response() {
     let text = content_text(&resp);
     let resp_count = text["actions"].as_array().unwrap().len();
 
-    assert_eq!(raw_count, resp_count,
-        "ai_actions_registry() has {raw_count} entries but tool response has {resp_count}");
+    assert_eq!(
+        raw_count, resp_count,
+        "ai_actions_registry() has {raw_count} entries but tool response has {resp_count}"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1490,12 +1637,16 @@ fn ai_actions_registry_count_matches_tool_response() {
 fn app_not_running_msg_ipc_port_error_includes_hint() {
     let msg = mdopener_mcp::app_not_running_msg("ipc-port not found — is Ashlr MD running?");
     assert!(msg.contains("Ashlr MD"), "hint should mention app name");
-    assert!(msg.contains("open_file"), "hint should mention open_file tool");
+    assert!(
+        msg.contains("open_file"),
+        "hint should mention open_file tool"
+    );
 }
 
 #[test]
 fn app_not_running_msg_connect_error_includes_hint() {
-    let msg = mdopener_mcp::app_not_running_msg("Could not connect to IPC server at 127.0.0.1:8080");
+    let msg =
+        mdopener_mcp::app_not_running_msg("Could not connect to IPC server at 127.0.0.1:8080");
     assert!(msg.contains("Ashlr MD"));
 }
 
@@ -1526,21 +1677,27 @@ fn app_not_running_msg_keeps_the_apps_refusal() {
 //   MCP tool call → tool_export() → IPC POST /export → agent response
 // No running Ashlr MD app is required — MockIpc intercepts every IPC call.
 
-use mdopener_mcp::handle_resources_list;
 use mdopener_mcp::handle_resource_read;
+use mdopener_mcp::handle_resources_list;
 
 // ── Successful export scenarios ───────────────────────────────────────────────
 
 #[test]
 fn export_tool_pdf_success_returns_ok_result() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({
+    let ipc = MockIpc::new().on_post(
+        "/export",
+        Ok(json!({
             "ok": true,
             "path": "/home/user/my-doc.pdf",
             "format": "pdf"
-        })));
+        })),
+    );
     let resp = tool_export(id(1), &json!({ "format": "pdf" }), &ipc);
-    assert!(resp.error.is_none(), "should not have RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "should not have RPC error: {:?}",
+        resp.error
+    );
     assert!(!is_error(&resp), "isError should be false on success");
     let text = content_text(&resp);
     assert_eq!(text["ok"], json!(true));
@@ -1548,8 +1705,10 @@ fn export_tool_pdf_success_returns_ok_result() {
 
 #[test]
 fn export_tool_docx_success_returns_ok_result() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true, "path": "/tmp/doc.docx" })));
+    let ipc = MockIpc::new().on_post(
+        "/export",
+        Ok(json!({ "ok": true, "path": "/tmp/doc.docx" })),
+    );
     let resp = tool_export(id(2), &json!({ "format": "docx" }), &ipc);
     assert!(resp.error.is_none());
     assert!(!is_error(&resp));
@@ -1557,8 +1716,10 @@ fn export_tool_docx_success_returns_ok_result() {
 
 #[test]
 fn export_tool_html_success_returns_ok_result() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true, "path": "/tmp/doc.html" })));
+    let ipc = MockIpc::new().on_post(
+        "/export",
+        Ok(json!({ "ok": true, "path": "/tmp/doc.html" })),
+    );
     let resp = tool_export(id(3), &json!({ "format": "html" }), &ipc);
     assert!(resp.error.is_none());
     assert!(!is_error(&resp));
@@ -1570,8 +1731,7 @@ fn export_tool_html_success_returns_ok_result() {
 fn export_tool_output_path_forwarded_to_ipc() {
     let dir = tempfile::tempdir().unwrap();
     let out = std::fs::canonicalize(dir.path()).unwrap().join("out.docx");
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     tool_export_with(
         id(10),
         &json!({ "format": "docx", "output_path": out.to_string_lossy() }),
@@ -1579,20 +1739,27 @@ fn export_tool_output_path_forwarded_to_ipc() {
         std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
         .expect("POST /export not called")
-        .2.as_ref().unwrap();
-    assert_eq!(body["outputPath"], json!(out.to_string_lossy()),
-        "output_path must be forwarded as outputPath");
+        .2
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        body["outputPath"],
+        json!(out.to_string_lossy()),
+        "output_path must be forwarded as outputPath"
+    );
 }
 
 #[test]
 fn export_tool_html_with_output_path_forwarded() {
     let dir = tempfile::tempdir().unwrap();
-    let out = std::fs::canonicalize(dir.path()).unwrap().join("export.html");
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let out = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join("export.html");
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     tool_export_with(
         id(11),
         &json!({ "format": "html", "output_path": out.to_string_lossy() }),
@@ -1600,24 +1767,34 @@ fn export_tool_html_with_output_path_forwarded() {
         std::time::Duration::from_millis(50),
     );
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
     assert_eq!(body["outputPath"], json!(out.to_string_lossy()));
     assert_eq!(body["format"], "html");
 }
 
 #[test]
 fn export_tool_no_output_path_sends_null() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     tool_export(id(12), &json!({ "format": "pdf" }), &ipc);
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
-    assert!(body["outputPath"].is_null(),
-        "missing output_path should be sent as null, got {:?}", body["outputPath"]);
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
+    assert!(
+        body["outputPath"].is_null(),
+        "missing output_path should be sent as null, got {:?}",
+        body["outputPath"]
+    );
 }
 
 // ── No theme argument ─────────────────────────────────────────────────────────
@@ -1663,16 +1840,14 @@ fn export_tool_refuses_a_theme() {
 
 #[test]
 fn export_tool_file_write_error_becomes_tool_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_post("/export", Err("ipc-port not found".into()));
     let resp = tool_export(id(30), &json!({ "format": "pdf" }), &ipc);
     tool_error_text(&resp);
 }
 
 #[test]
 fn export_tool_permission_denied_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("Permission denied: /root/secret.pdf".into()));
+    let ipc = MockIpc::new().on_post("/export", Err("Permission denied: /root/secret.pdf".into()));
     let resp = tool_export(id(31), &json!({ "format": "pdf" }), &ipc);
     // The error message must surface enough detail for the agent to understand.
     assert!(!tool_error_text(&resp).is_empty());
@@ -1680,21 +1855,25 @@ fn export_tool_permission_denied_error_propagated() {
 
 #[test]
 fn export_tool_disk_full_error_propagated() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("No space left on device".into()));
+    let ipc = MockIpc::new().on_post("/export", Err("No space left on device".into()));
     let resp = tool_export(id(32), &json!({ "format": "pdf" }), &ipc);
     tool_error_text(&resp);
 }
 
 #[test]
 fn export_tool_app_not_running_returns_descriptive_error() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Err("ipc-port not found — is Ashlr MD running?".into()));
+    let ipc = MockIpc::new().on_post(
+        "/export",
+        Err("ipc-port not found — is Ashlr MD running?".into()),
+    );
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
     let err = tool_error_text(&resp);
     // app_not_running_msg should enrich the message.
-    assert!(err.contains("Ashlr MD"),
-        "error should name the app, got: {}", err);
+    assert!(
+        err.contains("Ashlr MD"),
+        "error should name the app, got: {}",
+        err
+    );
 }
 
 // ── Unsupported / unknown format ──────────────────────────────────────────────
@@ -1708,10 +1887,16 @@ fn export_tool_app_not_running_returns_descriptive_error() {
 fn export_tool_missing_format_returns_param_error() {
     let ipc = MockIpc::new();
     let resp = tool_export(id(50), &json!({}), &ipc);
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing format must return -32602");
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing format must return -32602"
+    );
     // No IPC call should have been made.
-    assert!(ipc.calls().is_empty(), "no IPC call should be made for a param error");
+    assert!(
+        ipc.calls().is_empty(),
+        "no IPC call should be made for a param error"
+    );
 }
 
 #[test]
@@ -1720,11 +1905,25 @@ fn export_tool_rejects_unknown_format_without_ipc() {
     // reports ok, so the server must refuse it before the request is sent.
     for format in &["xyz", "PDF", "md"] {
         let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
-        let resp = tool_export(id(51), &json!({ "format": format, "output_path": "/tmp/o.pdf" }), &ipc);
-        let err = resp.error.as_ref().unwrap_or_else(|| panic!("{format} must be refused"));
+        let resp = tool_export(
+            id(51),
+            &json!({ "format": format, "output_path": "/tmp/o.pdf" }),
+            &ipc,
+        );
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{format} must be refused"));
         assert_eq!(err.code, -32602, "{format}");
-        assert!(err.message.contains("pdf/docx/html/epub"), "{format}: {}", err.message);
-        assert!(ipc.calls().is_empty(), "{format}: no IPC call should be made");
+        assert!(
+            err.message.contains("pdf/docx/html/epub"),
+            "{format}: {}",
+            err.message
+        );
+        assert!(
+            ipc.calls().is_empty(),
+            "{format}: no IPC call should be made"
+        );
     }
 }
 
@@ -1733,16 +1932,21 @@ fn export_tool_rejects_unknown_format_without_ipc() {
 #[test]
 fn export_tool_format_always_in_ipc_body() {
     for format in &["pdf", "docx", "html", "epub"] {
-        let ipc = MockIpc::new()
-            .on_post("/export", Ok(json!({ "ok": true })));
+        let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
         tool_export(id(60), &json!({ "format": format }), &ipc);
         let calls = ipc.calls();
-        let body = calls.iter()
+        let body = calls
+            .iter()
             .find(|(m, p, _)| m == "POST" && p == "/export")
             .unwrap_or_else(|| panic!("no POST /export for format={format}"))
-            .2.as_ref().unwrap();
-        assert_eq!(body["format"], json!(*format),
-            "format must be forwarded for {format}");
+            .2
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            body["format"],
+            json!(*format),
+            "format must be forwarded for {format}"
+        );
     }
 }
 
@@ -1770,14 +1974,16 @@ fn resources_list_omits_export_current() {
         .iter()
         .filter_map(|r| r["uri"].as_str())
         .collect();
-    assert!(!uris.contains(&"export:current"), "export:current must not be listed: {uris:?}");
+    assert!(
+        !uris.contains(&"export:current"),
+        "export:current must not be listed: {uris:?}"
+    );
     assert!(uris.contains(&"mdopener://current"));
 }
 
 #[test]
 fn resource_read_export_current_fails_fast_without_ipc() {
-    let ipc = MockIpc::new()
-        .on_get("/export/preview", Ok(json!({ "html": "<h1>stale</h1>" })));
+    let ipc = MockIpc::new().on_get("/export/preview", Ok(json!({ "html": "<h1>stale</h1>" })));
     let resp = dispatch(
         dispatch_req("resources/read", json!({ "uri": "export:current" })),
         &ipc,
@@ -1785,10 +1991,22 @@ fn resource_read_export_current_fails_fast_without_ipc() {
     .unwrap();
     let err = resp.error.expect("export:current must return an error");
     assert_eq!(err.code, -32002);
-    assert!(err.message.contains("not available"), "got: {}", err.message);
-    assert!(err.message.contains("mdopener://current"), "must name an alternative: {}", err.message);
+    assert!(
+        err.message.contains("not available"),
+        "got: {}",
+        err.message
+    );
+    assert!(
+        err.message.contains("mdopener://current"),
+        "must name an alternative: {}",
+        err.message
+    );
     assert!(!err.message.contains("404"));
-    assert!(ipc.calls().is_empty(), "must not call the IPC server: {:?}", ipc.calls());
+    assert!(
+        ipc.calls().is_empty(),
+        "must not call the IPC server: {:?}",
+        ipc.calls()
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1796,8 +2014,7 @@ fn resource_read_export_current_fails_fast_without_ipc() {
 // ════════════════════════════════════════════════════════════════════════════
 
 use mdopener_mcp::{
-    cosine_similarity, best_snippet_for_query, canonicalize_path,
-    vault_file_paths, grep_vault,
+    best_snippet_for_query, canonicalize_path, cosine_similarity, grep_vault, vault_file_paths,
     SearchResult,
 };
 
@@ -1807,7 +2024,10 @@ use mdopener_mcp::{
 fn cosine_similarity_identical_vectors_returns_one() {
     let v = vec![1.0_f64, 2.0, 3.0];
     let sim = cosine_similarity(&v, &v);
-    assert!((sim - 1.0).abs() < 1e-9, "identical vectors should have similarity 1.0, got {sim}");
+    assert!(
+        (sim - 1.0).abs() < 1e-9,
+        "identical vectors should have similarity 1.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1815,7 +2035,10 @@ fn cosine_similarity_orthogonal_vectors_returns_zero() {
     let a = vec![1.0_f64, 0.0, 0.0];
     let b = vec![0.0_f64, 1.0, 0.0];
     let sim = cosine_similarity(&a, &b);
-    assert!((sim - 0.0).abs() < 1e-9, "orthogonal vectors should have similarity 0.0, got {sim}");
+    assert!(
+        (sim - 0.0).abs() < 1e-9,
+        "orthogonal vectors should have similarity 0.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1839,7 +2062,10 @@ fn best_snippet_finds_matching_line() {
     let content = "First line\nThis contains the needle\nThird line";
     let (line_no, snippet) = best_snippet_for_query(content, "needle");
     assert_eq!(line_no, 2, "should find match on line 2");
-    assert!(snippet.contains("needle"), "snippet should contain the matched text");
+    assert!(
+        snippet.contains("needle"),
+        "snippet should contain the matched text"
+    );
 }
 
 #[test]
@@ -1853,8 +2079,14 @@ fn best_snippet_case_insensitive_match() {
 fn best_snippet_no_match_falls_back_to_first_nonempty_line() {
     let content = "\n\nFirst real content\nMore content";
     let (line_no, snippet) = best_snippet_for_query(content, "xyz_not_present");
-    assert_eq!(line_no, 3, "fallback should return first non-empty line (3)");
-    assert!(!snippet.is_empty(), "snippet should not be empty on fallback");
+    assert_eq!(
+        line_no, 3,
+        "fallback should return first non-empty line (3)"
+    );
+    assert!(
+        !snippet.is_empty(),
+        "snippet should not be empty on fallback"
+    );
 }
 
 #[test]
@@ -1869,7 +2101,11 @@ fn best_snippet_truncates_long_lines_to_200_chars() {
     let long_line = "x".repeat(500) + " keyword " + &"y".repeat(500);
     let content = format!("short line\n{long_line}");
     let (_line_no, snippet) = best_snippet_for_query(&content, "keyword");
-    assert!(snippet.len() <= 200, "snippet should be capped at 200 chars, got {}", snippet.len());
+    assert!(
+        snippet.len() <= 200,
+        "snippet should be capped at 200 chars, got {}",
+        snippet.len()
+    );
 }
 
 // ── canonicalize_path ─────────────────────────────────────────────────────────
@@ -1881,42 +2117,61 @@ fn canonicalize_path_real_path_resolves() {
     // On macOS /tmp → /private/tmp; on Linux stays /tmp.  Either way it must
     // be non-empty and absolute.
     assert!(!result.is_empty(), "canonicalized path must not be empty");
-    assert!(result.starts_with('/'), "canonicalized path must be absolute");
+    assert!(
+        result.starts_with('/'),
+        "canonicalized path must be absolute"
+    );
 }
 
 #[test]
 fn canonicalize_path_nonexistent_returns_input() {
     let input = "/nonexistent/path/that/does/not/exist/at/all";
     let result = canonicalize_path(input);
-    assert_eq!(result, input, "non-existent path should pass through unchanged");
+    assert_eq!(
+        result, input,
+        "non-existent path should pass through unchanged"
+    );
 }
 
 // ── vault_file_paths ─────────────────────────────────────────────────────────
 
 #[test]
 fn vault_file_paths_returns_files_and_recents() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
             "files": [
                 { "path": "/vault/a.md", "name": "a.md" },
                 { "path": "/vault/b.md", "name": "b.md" }
             ],
             "recents": ["/recent/c.md"]
-        })));
+        })),
+    );
     let paths = vault_file_paths(&ipc).expect("vault list");
     // All three paths should be present (after canonicalization attempt).
-    assert!(paths.iter().any(|p| p.contains("a.md")), "a.md should be in paths");
-    assert!(paths.iter().any(|p| p.contains("b.md")), "b.md should be in paths");
-    assert!(paths.iter().any(|p| p.contains("c.md")), "c.md from recents should be in paths");
+    assert!(
+        paths.iter().any(|p| p.contains("a.md")),
+        "a.md should be in paths"
+    );
+    assert!(
+        paths.iter().any(|p| p.contains("b.md")),
+        "b.md should be in paths"
+    );
+    assert!(
+        paths.iter().any(|p| p.contains("c.md")),
+        "c.md from recents should be in paths"
+    );
 }
 
 #[test]
 fn vault_file_paths_deduplicates_recents_already_in_files() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
             "files": [{ "path": "/vault/a.md", "name": "a.md" }],
             "recents": ["/vault/a.md"]
-        })));
+        })),
+    );
     let paths = vault_file_paths(&ipc).expect("vault list");
     let count = paths.iter().filter(|p| p.contains("a.md")).count();
     assert_eq!(count, 1, "duplicate path should appear only once");
@@ -1925,8 +2180,7 @@ fn vault_file_paths_deduplicates_recents_already_in_files() {
 #[test]
 fn vault_file_paths_ipc_error_is_an_error() {
     // An empty list would make an app that is down look like "no matches".
-    let ipc = MockIpc::new()
-        .on_get("/vault", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_get("/vault", Err("ipc-port not found".into()));
     let err = vault_file_paths(&ipc).expect_err("IPC error must propagate");
     assert!(err.contains("ipc-port not found"), "{err}");
 }
@@ -1936,15 +2190,13 @@ fn vault_file_paths_ipc_error_is_an_error() {
 #[test]
 fn grep_vault_without_vault_list_is_an_error() {
     // IPC unavailable → no vault file list → error, not an empty result set.
-    let ipc = MockIpc::new()
-        .on_get("/vault", Err("ipc-port not found".into()));
+    let ipc = MockIpc::new().on_get("/vault", Err("ipc-port not found".into()));
     assert!(grep_vault("anything", 50, &ipc).is_err());
 }
 
 #[test]
 fn grep_vault_empty_vault_returns_empty() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
     let results = grep_vault("anything", 50, &ipc).expect("grep_vault should not error");
     assert!(results.is_empty(), "no vault paths → no results");
 }
@@ -1957,11 +2209,13 @@ fn grep_vault_with_real_temp_file_finds_match() {
     writeln!(f, "# Meeting notes\nThis is about the quarterly review.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
 
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
             "files": [{ "path": path, "name": "test.md" }],
             "recents": []
-        })));
+        })),
+    );
     let results = grep_vault("quarterly", 50, &ipc).expect("grep_vault ok");
     assert!(!results.is_empty(), "should find match for 'quarterly'");
     let first = &results[0];
@@ -1977,11 +2231,13 @@ fn grep_vault_no_match_returns_empty() {
     writeln!(f, "# Notes\nSome content here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
 
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
             "files": [{ "path": path, "name": "test.md" }],
             "recents": []
-        })));
+        })),
+    );
     let results = grep_vault("xyz_never_matches_zzz", 50, &ipc).expect("grep_vault ok");
     assert!(results.is_empty(), "no match should return empty results");
 }
@@ -1991,46 +2247,60 @@ fn grep_vault_results_sorted_by_score_descending() {
     use std::io::Write;
     // File A: query appears once in 10 lines → low density.
     let mut fa = tempfile::NamedTempFile::new().unwrap();
-    for i in 0..9 { writeln!(fa, "line {i}").unwrap(); }
+    for i in 0..9 {
+        writeln!(fa, "line {i}").unwrap();
+    }
     writeln!(fa, "found the needle here").unwrap();
     let path_a = fa.path().to_str().unwrap().to_string();
 
     // File B: query appears in every line → high density.
     let mut fb = tempfile::NamedTempFile::new().unwrap();
-    for _ in 0..5 { writeln!(fb, "needle needle needle").unwrap(); }
+    for _ in 0..5 {
+        writeln!(fb, "needle needle needle").unwrap();
+    }
     let path_b = fb.path().to_str().unwrap().to_string();
 
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({
             "files": [
                 { "path": path_a.clone(), "name": "a.md" },
                 { "path": path_b.clone(), "name": "b.md" }
             ],
             "recents": []
-        })));
+        })),
+    );
     let results = grep_vault("needle", 50, &ipc).expect("grep_vault ok");
     assert_eq!(results.len(), 2, "both files should match");
     let score_first = results[0]["score"].as_f64().unwrap();
     let score_second = results[1]["score"].as_f64().unwrap();
-    assert!(score_first >= score_second, "results must be sorted descending by score");
+    assert!(
+        score_first >= score_second,
+        "results must be sorted descending by score"
+    );
 }
 
 #[test]
 fn grep_vault_respects_limit() {
     use std::io::Write;
-    let ipc_files: Vec<Value> = (0..10).map(|i| {
-        let mut f = tempfile::NamedTempFile::new().unwrap();
-        writeln!(f, "line with keyword here").unwrap();
-        // Keep file alive by leaking — acceptable in test context.
-        let path = f.path().to_str().unwrap().to_string();
-        std::mem::forget(f);
-        json!({ "path": path, "name": format!("f{i}.md") })
-    }).collect();
+    let ipc_files: Vec<Value> = (0..10)
+        .map(|i| {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            writeln!(f, "line with keyword here").unwrap();
+            // Keep file alive by leaking — acceptable in test context.
+            let path = f.path().to_str().unwrap().to_string();
+            std::mem::forget(f);
+            json!({ "path": path, "name": format!("f{i}.md") })
+        })
+        .collect();
 
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": ipc_files, "recents": [] })));
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": ipc_files, "recents": [] })));
     let results = grep_vault("keyword", 3, &ipc).expect("grep_vault ok");
-    assert!(results.len() <= 3, "limit=3 must cap results to 3, got {}", results.len());
+    assert!(
+        results.len() <= 3,
+        "limit=3 must cap results to 3, got {}",
+        results.len()
+    );
 }
 
 // ── tool_search_vault with semantic=false forces grep path ───────────────────
@@ -2038,12 +2308,14 @@ fn grep_vault_respects_limit() {
 #[test]
 fn search_vault_semantic_false_uses_ipc_grep() {
     // With semantic=false the tool must call /search IPC endpoint (grep mode).
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
             "results": [
                 { "path": "/vault/a.md", "score": 0.8, "snippet": "hello world", "lineNumber": 3 }
             ]
-        })));
+        })),
+    );
     let resp = tool_search_vault(
         id(200),
         &json!({ "query": "hello", "semantic": false }),
@@ -2053,8 +2325,10 @@ fn search_vault_semantic_false_uses_ipc_grep() {
     let text = content_text(&resp);
     // Mode should indicate grep.
     let mode = text["mode"].as_str().unwrap_or("");
-    assert!(mode == "grep" || mode == "grep-local",
-        "semantic=false should use grep mode, got mode={mode}");
+    assert!(
+        mode == "grep" || mode == "grep-local",
+        "semantic=false should use grep mode, got mode={mode}"
+    );
 }
 
 #[test]
@@ -2066,10 +2340,13 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
 
     // /search IPC fails; /vault succeeds so local grep can run.
     let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
-            "files": [{ "path": path, "name": "notes.md" }],
-            "recents": []
-        })))
+        .on_get(
+            "/vault",
+            Ok(json!({
+                "files": [{ "path": path, "name": "notes.md" }],
+                "recents": []
+            })),
+        )
         .on_get("/search", Err("ipc-port not found".into()));
 
     let resp = tool_search_vault(
@@ -2077,10 +2354,17 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
         &json!({ "query": "target topic", "semantic": false }),
         &ipc,
     );
-    assert!(resp.error.is_none(), "local grep fallback should succeed: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "local grep fallback should succeed: {:?}",
+        resp.error
+    );
     let text = content_text(&resp);
-    assert_eq!(text["mode"].as_str().unwrap_or(""), "grep-local",
-        "should fall back to grep-local when IPC is down");
+    assert_eq!(
+        text["mode"].as_str().unwrap_or(""),
+        "grep-local",
+        "should fall back to grep-local when IPC is down"
+    );
     let results = text["results"].as_array().expect("results must be array");
     assert!(!results.is_empty(), "local grep should find the match");
 }
@@ -2089,29 +2373,34 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
 
 #[test]
 fn resources_list_includes_vault_search_resource() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
     let resp = handle_resources_list(id(300), &ipc);
     assert!(resp.error.is_none());
     let result = resp.result.as_ref().unwrap();
     let resources = result["resources"].as_array().unwrap();
     let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
-    assert!(uris.contains(&"text://vault-search"),
-        "resources/list must include text://vault-search, got: {:?}", uris);
+    assert!(
+        uris.contains(&"text://vault-search"),
+        "resources/list must include text://vault-search, got: {:?}",
+        uris
+    );
 }
 
 #[test]
 fn resources_list_vault_search_has_json_mime_type() {
-    let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
     let resp = handle_resources_list(id(301), &ipc);
     let result = resp.result.as_ref().unwrap();
     let resources = result["resources"].as_array().unwrap();
-    let search_res = resources.iter()
+    let search_res = resources
+        .iter()
         .find(|r| r["uri"].as_str() == Some("text://vault-search"))
         .expect("text://vault-search not found");
-    assert_eq!(search_res["mimeType"].as_str(), Some("application/json"),
-        "vault-search resource must have mimeType application/json");
+    assert_eq!(
+        search_res["mimeType"].as_str(),
+        Some("application/json"),
+        "vault-search resource must have mimeType application/json"
+    );
 }
 
 #[test]
@@ -2120,8 +2409,11 @@ fn resource_read_vault_search_missing_query_returns_error() {
     // URI without ?q= parameter.
     let resp = handle_resource_read(id(302), "text://vault-search", &ipc);
     assert!(resp.error.is_some(), "missing query must return error");
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing query must be a param error (-32602)");
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing query must be a param error (-32602)"
+    );
 }
 
 #[test]
@@ -2135,45 +2427,61 @@ fn resource_read_vault_search_with_query_returns_json_content() {
     let resp = handle_resource_read(id(303), "text://vault-search?q=relevant", &ipc);
     assert!(resp.error.is_none(), "should succeed: {:?}", resp.error);
     let result = resp.result.as_ref().unwrap();
-    let contents = result["contents"].as_array().expect("contents must be array");
+    let contents = result["contents"]
+        .as_array()
+        .expect("contents must be array");
     assert_eq!(contents.len(), 1);
     let item = &contents[0];
     assert_eq!(item["mimeType"].as_str(), Some("application/json"));
     // Parse the text payload as JSON.
-    let payload: Value = serde_json::from_str(item["text"].as_str().unwrap())
-        .expect("text must be valid JSON");
-    assert!(payload["results"].is_array(), "payload must have results array");
+    let payload: Value =
+        serde_json::from_str(item["text"].as_str().unwrap()).expect("text must be valid JSON");
+    assert!(
+        payload["results"].is_array(),
+        "payload must have results array"
+    );
     assert!(payload["mode"].is_string(), "payload must have mode field");
-    assert_eq!(payload["query"].as_str(), Some("relevant"),
-        "payload must echo back the query");
+    assert_eq!(
+        payload["query"].as_str(),
+        Some("relevant"),
+        "payload must echo back the query"
+    );
 }
 
 #[test]
 fn resource_read_vault_search_uri_encoded_query_decoded() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     // q=hello%20world — should decode to "hello world".
     let resp = handle_resource_read(id(304), "text://vault-search?q=hello%20world", &ipc);
     assert!(resp.error.is_none());
     let result = resp.result.as_ref().unwrap();
-    let payload: Value = serde_json::from_str(
-        result["contents"][0]["text"].as_str().unwrap()
-    ).unwrap();
-    assert_eq!(payload["query"].as_str(), Some("hello world"),
-        "URL-encoded query must be decoded");
+    let payload: Value =
+        serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        payload["query"].as_str(),
+        Some("hello world"),
+        "URL-encoded query must be decoded"
+    );
 }
 
 #[test]
 fn resource_read_vault_search_no_results_returns_empty_array() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     let resp = handle_resource_read(id(305), "text://vault-search?q=xyz_impossible", &ipc);
     assert!(resp.error.is_none());
     let payload: Value = serde_json::from_str(
-        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
-    ).unwrap();
-    let results = payload["results"].as_array().expect("results must be array");
-    assert!(results.is_empty(), "no matches should return empty results array");
+        resp.result.as_ref().unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let results = payload["results"]
+        .as_array()
+        .expect("results must be array");
+    assert!(
+        results.is_empty(),
+        "no matches should return empty results array"
+    );
 }
 
 #[test]
@@ -2184,32 +2492,44 @@ fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
     let path = f.path().to_str().unwrap().to_string();
 
     let ipc = MockIpc::new()
-        .on_get("/vault", Ok(json!({
-            "files": [{ "path": path, "name": "notes.md" }],
-            "recents": []
-        })))
+        .on_get(
+            "/vault",
+            Ok(json!({
+                "files": [{ "path": path, "name": "notes.md" }],
+                "recents": []
+            })),
+        )
         .on_get("/search", Err("ipc-port not found".into()));
 
     let resp = handle_resource_read(id(306), "text://vault-search?q=query+term", &ipc);
-    assert!(resp.error.is_none(), "local grep fallback must succeed: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "local grep fallback must succeed: {:?}",
+        resp.error
+    );
     let payload: Value = serde_json::from_str(
-        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
-    ).unwrap();
+        resp.result.as_ref().unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
 }
 
 #[test]
 fn resource_read_vault_search_custom_limit_respected() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({ "results": [] })));
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     // limit=5 in query string.
     let resp = handle_resource_read(id(307), "text://vault-search?q=x&limit=5", &ipc);
     assert!(resp.error.is_none());
     // We can't directly observe the limit applied server-side through the mock,
     // but the call should succeed and return valid JSON.
     let payload: Value = serde_json::from_str(
-        resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap()
-    ).unwrap();
+        resp.result.as_ref().unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
     assert!(payload["results"].is_array());
 }
 
@@ -2217,8 +2537,9 @@ fn resource_read_vault_search_custom_limit_respected() {
 
 #[test]
 fn search_vault_result_contains_required_fields() {
-    let ipc = MockIpc::new()
-        .on_get("/search", Ok(json!({
+    let ipc = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
             "results": [
                 {
                     "path": "/vault/doc.md",
@@ -2227,7 +2548,8 @@ fn search_vault_result_contains_required_fields() {
                     "score": 0.9
                 }
             ]
-        })));
+        })),
+    );
     let resp = tool_search_vault(
         id(400),
         &json!({ "query": "relevant", "semantic": false }),
@@ -2294,7 +2616,11 @@ fn unique_session() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     use_temp_sessions_dir();
     static CTR: AtomicU64 = AtomicU64::new(0);
-    format!("test-sess-{}-{}", std::process::id(), CTR.fetch_add(1, Ordering::SeqCst))
+    format!(
+        "test-sess-{}-{}",
+        std::process::id(),
+        CTR.fetch_add(1, Ordering::SeqCst)
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2303,44 +2629,68 @@ fn unique_session() -> String {
 
 #[test]
 fn save_message_missing_session_id_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "role": "agent",
-        "content": "Did something"
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing session_id must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "role": "agent",
+            "content": "Did something"
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing session_id must return -32602"
+    );
 }
 
 #[test]
 fn save_message_empty_session_id_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": "",
-        "role": "agent",
-        "content": "Did something"
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "empty session_id must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": "",
+            "role": "agent",
+            "content": "Did something"
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "empty session_id must return -32602"
+    );
 }
 
 #[test]
 fn save_message_missing_role_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": unique_session(),
-        "content": "Some content"
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing role must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": unique_session(),
+            "content": "Some content"
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing role must return -32602"
+    );
 }
 
 #[test]
 fn save_message_invalid_role_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": unique_session(),
-        "role": "robot",
-        "content": "Some content"
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "invalid role must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": unique_session(),
+            "role": "robot",
+            "content": "Some content"
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "invalid role must return -32602"
+    );
     let msg = resp.error.unwrap().message;
     assert!(
         msg.contains("agent") || msg.contains("human") || msg.contains("system"),
@@ -2350,23 +2700,35 @@ fn save_message_invalid_role_returns_param_error() {
 
 #[test]
 fn save_message_missing_content_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": unique_session(),
-        "role": "agent"
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing content must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": unique_session(),
+            "role": "agent"
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing content must return -32602"
+    );
 }
 
 #[test]
 fn save_message_empty_content_returns_param_error() {
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": unique_session(),
-        "role": "agent",
-        "content": "   "
-    }));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "whitespace-only content must return -32602");
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": unique_session(),
+            "role": "agent",
+            "content": "   "
+        }),
+    );
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "whitespace-only content must return -32602"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2376,17 +2738,29 @@ fn save_message_empty_content_returns_param_error() {
 #[test]
 fn save_message_agent_role_succeeds_and_returns_message_id() {
     let sess = unique_session();
-    let resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": sess,
-        "role": "agent",
-        "content": "Rewrote the introduction paragraph."
-    }));
-    assert!(resp.error.is_none(), "agent save should succeed: {:?}", resp.error);
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": sess,
+            "role": "agent",
+            "content": "Rewrote the introduction paragraph."
+        }),
+    );
+    assert!(
+        resp.error.is_none(),
+        "agent save should succeed: {:?}",
+        resp.error
+    );
     assert!(!is_error(&resp), "isError must be false");
     let text = content_text(&resp);
     assert_eq!(text["ok"], json!(true));
-    assert!(text["messageId"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
-        "messageId must be a non-empty string");
+    assert!(
+        text["messageId"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "messageId must be a non-empty string"
+    );
     assert_eq!(text["sessionId"].as_str(), Some(sess.as_str()));
     assert_eq!(text["role"].as_str(), Some("agent"));
 }
@@ -2394,11 +2768,14 @@ fn save_message_agent_role_succeeds_and_returns_message_id() {
 #[test]
 fn save_message_human_role_succeeds() {
     let sess = unique_session();
-    let resp = tool_save_conversation_message(id(2), &json!({
-        "session_id": sess,
-        "role": "human",
-        "content": "Approved — looks good."
-    }));
+    let resp = tool_save_conversation_message(
+        id(2),
+        &json!({
+            "session_id": sess,
+            "role": "human",
+            "content": "Approved — looks good."
+        }),
+    );
     assert!(resp.error.is_none());
     let text = content_text(&resp);
     assert_eq!(text["role"].as_str(), Some("human"));
@@ -2407,11 +2784,14 @@ fn save_message_human_role_succeeds() {
 #[test]
 fn save_message_system_role_succeeds() {
     let sess = unique_session();
-    let resp = tool_save_conversation_message(id(3), &json!({
-        "session_id": sess,
-        "role": "system",
-        "content": "Session started. Active doc: /docs/notes.md"
-    }));
+    let resp = tool_save_conversation_message(
+        id(3),
+        &json!({
+            "session_id": sess,
+            "role": "system",
+            "content": "Session started. Active doc: /docs/notes.md"
+        }),
+    );
     assert!(resp.error.is_none());
     let text = content_text(&resp);
     assert_eq!(text["role"].as_str(), Some("system"));
@@ -2420,13 +2800,20 @@ fn save_message_system_role_succeeds() {
 #[test]
 fn save_message_with_cited_docs_accepted() {
     let sess = unique_session();
-    let resp = tool_save_conversation_message(id(4), &json!({
-        "session_id": sess,
-        "role": "agent",
-        "content": "Summarised the spec.",
-        "cited_docs": ["/docs/spec.md", "/docs/roadmap.md"]
-    }));
-    assert!(resp.error.is_none(), "cited_docs should be accepted: {:?}", resp.error);
+    let resp = tool_save_conversation_message(
+        id(4),
+        &json!({
+            "session_id": sess,
+            "role": "agent",
+            "content": "Summarised the spec.",
+            "cited_docs": ["/docs/spec.md", "/docs/roadmap.md"]
+        }),
+    );
+    assert!(
+        resp.error.is_none(),
+        "cited_docs should be accepted: {:?}",
+        resp.error
+    );
     assert_eq!(content_text(&resp)["ok"], json!(true));
 }
 
@@ -2434,11 +2821,14 @@ fn save_message_with_cited_docs_accepted() {
 fn save_message_without_cited_docs_defaults_to_empty() {
     // cited_docs is optional — omitting it must not error.
     let sess = unique_session();
-    let resp = tool_save_conversation_message(id(5), &json!({
-        "session_id": sess,
-        "role": "agent",
-        "content": "No docs cited here."
-    }));
+    let resp = tool_save_conversation_message(
+        id(5),
+        &json!({
+            "session_id": sess,
+            "role": "agent",
+            "content": "No docs cited here."
+        }),
+    );
     assert!(resp.error.is_none());
 }
 
@@ -2449,8 +2839,11 @@ fn save_message_without_cited_docs_defaults_to_empty() {
 #[test]
 fn get_context_missing_session_id_returns_param_error() {
     let resp = tool_get_conversation_context(id(1), &json!({}));
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "missing session_id must return -32602");
+    assert_eq!(
+        resp.error.as_ref().unwrap().code,
+        -32602,
+        "missing session_id must return -32602"
+    );
 }
 
 #[test]
@@ -2468,8 +2861,11 @@ fn get_context_empty_session_returns_empty_messages_array() {
     // Session was never written to — must return empty, not error.
     let sess = unique_session();
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
-    assert!(resp.error.is_none(),
-        "empty session must not produce RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "empty session must not produce RPC error: {:?}",
+        resp.error
+    );
     assert!(!is_error(&resp), "isError must be false for empty session");
     let text = content_text(&resp);
     let msgs = text["messages"].as_array().expect("messages must be array");
@@ -2486,12 +2882,15 @@ fn append_then_get_context_returns_message() {
     let sess = unique_session();
 
     // Append a message directly via the store helper.
-    store_append_message(&sess, "agent", "Ran search_vault.", vec![])
-        .expect("append must succeed");
+    store_append_message(&sess, "agent", "Ran search_vault.", vec![]).expect("append must succeed");
 
     // Retrieve via the MCP tool.
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
-    assert!(resp.error.is_none(), "get after append must succeed: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "get after append must succeed: {:?}",
+        resp.error
+    );
     let text = content_text(&resp);
     let msgs = text["messages"].as_array().expect("messages must be array");
     assert_eq!(msgs.len(), 1, "should retrieve exactly 1 message");
@@ -2505,7 +2904,13 @@ fn multiple_appends_retrieved_in_order() {
     let sess = unique_session();
 
     store_append_message(&sess, "system", "Session started.", vec![]).unwrap();
-    store_append_message(&sess, "agent", "Opened /docs/spec.md.", vec!["/docs/spec.md".into()]).unwrap();
+    store_append_message(
+        &sess,
+        "agent",
+        "Opened /docs/spec.md.",
+        vec!["/docs/spec.md".into()],
+    )
+    .unwrap();
     store_append_message(&sess, "human", "Looks good, continue.", vec![]).unwrap();
 
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
@@ -2522,23 +2927,32 @@ fn save_then_get_via_mcp_tools_round_trip() {
     // End-to-end: use only the public MCP tool functions (no store helpers).
     let sess = unique_session();
 
-    let save_resp = tool_save_conversation_message(id(1), &json!({
-        "session_id": sess,
-        "role": "agent",
-        "content": "Edited the summary section.",
-        "cited_docs": ["/vault/summary.md"]
-    }));
+    let save_resp = tool_save_conversation_message(
+        id(1),
+        &json!({
+            "session_id": sess,
+            "role": "agent",
+            "content": "Edited the summary section.",
+            "cited_docs": ["/vault/summary.md"]
+        }),
+    );
     assert!(save_resp.error.is_none(), "save must succeed");
 
-    let get_resp = tool_get_conversation_context(id(2), &json!({
-        "session_id": sess,
-        "limit": 10
-    }));
+    let get_resp = tool_get_conversation_context(
+        id(2),
+        &json!({
+            "session_id": sess,
+            "limit": 10
+        }),
+    );
     assert!(get_resp.error.is_none(), "get must succeed");
     let text = content_text(&get_resp);
     let msgs = text["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 1);
-    assert_eq!(msgs[0]["content"].as_str(), Some("Edited the summary section."));
+    assert_eq!(
+        msgs[0]["content"].as_str(),
+        Some("Edited the summary section.")
+    );
     assert_eq!(msgs[0]["role"].as_str(), Some("agent"));
 }
 
@@ -2574,8 +2988,10 @@ fn appending_to_one_session_does_not_appear_in_another() {
     store_append_message(&sess_x, "agent", "Action in X.", vec![]).unwrap();
 
     let ctx_y = store_get_context(&sess_y, 20).unwrap();
-    assert!(ctx_y.is_empty(),
-        "messages written to session X must not appear in session Y");
+    assert!(
+        ctx_y.is_empty(),
+        "messages written to session X must not appear in session Y"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2590,8 +3006,13 @@ fn messages_persisted_to_disk_and_loadable() {
     assert_ne!(dir, home_sessions, "tests must not use ~/.mdopener");
 
     // Append via store (triggers disk write).
-    store_append_message(&sess, "agent", "Wrote introduction.", vec!["/vault/intro.md".into()])
-        .expect("append must succeed");
+    store_append_message(
+        &sess,
+        "agent",
+        "Wrote introduction.",
+        vec!["/vault/intro.md".into()],
+    )
+    .expect("append must succeed");
 
     // Load directly from disk — simulating a fresh process start.
     let loaded = load_session_from_disk(&sess);
@@ -2612,15 +3033,19 @@ fn disk_persistence_survives_multiple_appends() {
     }
 
     let log = load_session_from_disk(&sess).expect("session must be on disk");
-    assert_eq!(log.messages.len(), 5,
-        "all 5 messages must be persisted, got {}", log.messages.len());
+    assert_eq!(
+        log.messages.len(),
+        5,
+        "all 5 messages must be persisted, got {}",
+        log.messages.len()
+    );
 }
 
 #[test]
 fn cold_start_loads_from_disk_via_get_context() {
     // Simulate a cold start: write directly to disk, bypass the in-process store,
     // then call store_get_context which should load from disk automatically.
-    use mdopener_mcp::{SessionLog, ConversationMessage};
+    use mdopener_mcp::{ConversationMessage, SessionLog};
 
     let sess = unique_session();
     let path = session_file_path(&sess).expect("must have session path");
@@ -2630,23 +3055,25 @@ fn cold_start_loads_from_disk_via_get_context() {
 
     let ts = 1_700_000_000_000u64;
     let log = SessionLog {
-        messages: vec![
-            ConversationMessage {
-                id: "msg-cold-start-test".into(),
-                session_id: sess.clone(),
-                role: "human".into(),
-                content: "Approved the plan.".into(),
-                cited_docs: vec![],
-                timestamp_ms: ts,
-            }
-        ],
+        messages: vec![ConversationMessage {
+            id: "msg-cold-start-test".into(),
+            session_id: sess.clone(),
+            role: "human".into(),
+            content: "Approved the plan.".into(),
+            cited_docs: vec![],
+            timestamp_ms: ts,
+        }],
     };
     let json = serde_json::to_string(&log).unwrap();
     std::fs::write(&path, &json).expect("write must succeed");
 
     // Get context — the in-process store does NOT have this session yet.
     let ctx = store_get_context(&sess, 20).expect("get must succeed");
-    assert_eq!(ctx.len(), 1, "cold-start load must recover 1 message from disk");
+    assert_eq!(
+        ctx.len(),
+        1,
+        "cold-start load must recover 1 message from disk"
+    );
     assert_eq!(ctx[0].content, "Approved the plan.");
     assert_eq!(ctx[0].role, "human");
 }
@@ -2691,14 +3118,21 @@ fn get_context_limit_caps_returned_messages() {
         store_append_message(&sess, "agent", &format!("Step {i}"), vec![]).unwrap();
     }
 
-    let resp = tool_get_conversation_context(id(1), &json!({
-        "session_id": sess,
-        "limit": 3
-    }));
+    let resp = tool_get_conversation_context(
+        id(1),
+        &json!({
+            "session_id": sess,
+            "limit": 3
+        }),
+    );
     assert!(resp.error.is_none());
     let text = content_text(&resp);
     let msgs = text["messages"].as_array().unwrap();
-    assert!(msgs.len() <= 3, "limit=3 must return at most 3 messages, got {}", msgs.len());
+    assert!(
+        msgs.len() <= 3,
+        "limit=3 must return at most 3 messages, got {}",
+        msgs.len()
+    );
 }
 
 #[test]
@@ -2709,16 +3143,22 @@ fn get_context_limit_returns_most_recent_messages() {
         store_append_message(&sess, "agent", &format!("Message {i}"), vec![]).unwrap();
     }
 
-    let resp = tool_get_conversation_context(id(1), &json!({
-        "session_id": sess,
-        "limit": 2
-    }));
+    let resp = tool_get_conversation_context(
+        id(1),
+        &json!({
+            "session_id": sess,
+            "limit": 2
+        }),
+    );
     let text = content_text(&resp);
     let msgs = text["messages"].as_array().unwrap();
     // Should return the two most recent: "Message 3" and "Message 4".
     assert_eq!(msgs.len(), 2);
-    assert_eq!(msgs[1]["content"].as_str(), Some("Message 4"),
-        "last message should be 'Message 4'");
+    assert_eq!(
+        msgs[1]["content"].as_str(),
+        Some("Message 4"),
+        "last message should be 'Message 4'"
+    );
 }
 
 #[test]
@@ -2733,7 +3173,12 @@ fn get_context_default_limit_is_20() {
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
     let text = content_text(&resp);
     let msgs = text["messages"].as_array().unwrap();
-    assert_eq!(msgs.len(), 20, "default limit must be 20, got {}", msgs.len());
+    assert_eq!(
+        msgs.len(),
+        20,
+        "default limit must be 20, got {}",
+        msgs.len()
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2745,15 +3190,29 @@ fn recent_docs_aggregated_from_cited_docs() {
     let sess = unique_session();
 
     store_append_message(&sess, "agent", "Read spec.", vec!["/docs/spec.md".into()]).unwrap();
-    store_append_message(&sess, "agent", "Read roadmap.", vec!["/docs/roadmap.md".into()]).unwrap();
+    store_append_message(
+        &sess,
+        "agent",
+        "Read roadmap.",
+        vec!["/docs/roadmap.md".into()],
+    )
+    .unwrap();
     store_append_message(&sess, "human", "Approved.", vec![]).unwrap();
 
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
     let text = content_text(&resp);
-    let recent_docs = text["recentDocs"].as_array().expect("recentDocs must be array");
+    let recent_docs = text["recentDocs"]
+        .as_array()
+        .expect("recentDocs must be array");
     let paths: Vec<&str> = recent_docs.iter().filter_map(|v| v.as_str()).collect();
-    assert!(paths.contains(&"/docs/spec.md"), "spec.md must appear in recentDocs");
-    assert!(paths.contains(&"/docs/roadmap.md"), "roadmap.md must appear in recentDocs");
+    assert!(
+        paths.contains(&"/docs/spec.md"),
+        "spec.md must appear in recentDocs"
+    );
+    assert!(
+        paths.contains(&"/docs/roadmap.md"),
+        "roadmap.md must appear in recentDocs"
+    );
 }
 
 #[test]
@@ -2765,11 +3224,17 @@ fn recent_docs_deduplicates_repeated_paths() {
 
     let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
     let text = content_text(&resp);
-    let recent_docs = text["recentDocs"].as_array().expect("recentDocs must be array");
-    let doc_count = recent_docs.iter()
+    let recent_docs = text["recentDocs"]
+        .as_array()
+        .expect("recentDocs must be array");
+    let doc_count = recent_docs
+        .iter()
         .filter(|v| v.as_str() == Some("/vault/doc.md"))
         .count();
-    assert_eq!(doc_count, 1, "/vault/doc.md should appear exactly once in recentDocs");
+    assert_eq!(
+        doc_count, 1,
+        "/vault/doc.md should appear exactly once in recentDocs"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2789,8 +3254,14 @@ fn saved_message_has_all_required_fields() {
     assert!(msg["sessionId"].is_string(), "message must have sessionId");
     assert!(msg["role"].is_string(), "message must have role");
     assert!(msg["content"].is_string(), "message must have content");
-    assert!(msg["citedDocs"].is_array(), "message must have citedDocs array");
-    assert!(msg["timestampMs"].is_number(), "message must have timestampMs");
+    assert!(
+        msg["citedDocs"].is_array(),
+        "message must have citedDocs array"
+    );
+    assert!(
+        msg["timestampMs"].is_number(),
+        "message must have timestampMs"
+    );
 }
 
 #[test]
@@ -2823,8 +3294,11 @@ fn dispatch_routes_get_conversation_context() {
     let resp = dispatch(req, &ipc).expect("dispatch must return a response");
     // Must not be an "Unknown tool" error.
     if let Some(err) = &resp.error {
-        assert!(!err.message.contains("Unknown tool"),
-            "get_conversation_context must be routed, got: {}", err.message);
+        assert!(
+            !err.message.contains("Unknown tool"),
+            "get_conversation_context must be routed, got: {}",
+            err.message
+        );
     }
 }
 
@@ -2847,10 +3321,17 @@ fn dispatch_routes_save_conversation_message() {
     let ipc = MockIpc::new();
     let resp = dispatch(req, &ipc).expect("dispatch must return a response");
     if let Some(err) = &resp.error {
-        assert!(!err.message.contains("Unknown tool"),
-            "save_conversation_message must be routed, got: {}", err.message);
+        assert!(
+            !err.message.contains("Unknown tool"),
+            "save_conversation_message must be routed, got: {}",
+            err.message
+        );
     }
-    assert!(resp.error.is_none(), "save via dispatch must succeed: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "save via dispatch must succeed: {:?}",
+        resp.error
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2862,7 +3343,10 @@ fn session_file_path_sanitises_special_characters() {
     // Slashes and dots in a session ID must not escape the sessions directory.
     let path = session_file_path("../../evil/path").expect("must return a path");
     let filename = path.file_name().unwrap().to_string_lossy();
-    assert!(!filename.contains('/'), "sanitised filename must not contain '/'");
+    assert!(
+        !filename.contains('/'),
+        "sanitised filename must not contain '/'"
+    );
     assert!(filename.ends_with(".json"), "path must end with .json");
 }
 
@@ -2870,8 +3354,10 @@ fn session_file_path_sanitises_special_characters() {
 fn session_file_path_alphanumeric_preserved() {
     let path = session_file_path("sess-abc-123_XYZ").expect("must return a path");
     let filename = path.file_name().unwrap().to_string_lossy();
-    assert!(filename.contains("sess-abc-123_XYZ"),
-        "alphanumeric/dash/underscore chars must be preserved in filename");
+    assert!(
+        filename.contains("sess-abc-123_XYZ"),
+        "alphanumeric/dash/underscore chars must be preserved in filename"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2883,16 +3369,21 @@ fn session_file_path_alphanumeric_preserved() {
 fn unavailable_tools_are_not_listed() {
     let names: Vec<&str> = tool_registry().iter().map(|t| t.name).collect();
     for name in UNAVAILABLE_TOOLS {
-        assert!(!names.contains(name), "{name} must not be in tool_registry()");
-        assert!(!ALL_TOOL_NAMES.contains(name), "{name} must not be in ALL_TOOL_NAMES");
+        assert!(
+            !names.contains(name),
+            "{name} must not be in tool_registry()"
+        );
+        assert!(
+            !ALL_TOOL_NAMES.contains(name),
+            "{name} must not be in ALL_TOOL_NAMES"
+        );
     }
     assert_eq!(UNAVAILABLE_TOOLS.len(), 3);
 }
 
 #[test]
 fn unavailable_tools_fail_fast_with_clear_error_and_no_ipc_call() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
     for name in UNAVAILABLE_TOOLS {
         let args = json!({
             "output_path": "/tmp/out",
@@ -2903,23 +3394,39 @@ fn unavailable_tools_fail_fast_with_clear_error_and_no_ipc_call() {
             &ipc,
         )
         .unwrap();
-        assert!(resp.error.is_none(), "{name}: must be an isError result, not a JSON-RPC error");
+        assert!(
+            resp.error.is_none(),
+            "{name}: must be an isError result, not a JSON-RPC error"
+        );
         let result = resp.result.as_ref().unwrap();
         assert_eq!(result["isError"], json!(true), "{name}: isError");
         let text = result["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains(name), "{name}: message must name the tool: {text}");
+        assert!(
+            text.contains(name),
+            "{name}: message must name the tool: {text}"
+        );
         assert!(text.contains("not available"), "{name}: {text}");
-        assert!(text.contains("`export`"), "{name}: must point at export: {text}");
+        assert!(
+            text.contains("`export`"),
+            "{name}: must point at export: {text}"
+        );
         assert!(!text.contains("404"), "{name}: {text}");
     }
-    assert!(ipc.calls().is_empty(), "no IPC call expected: {:?}", ipc.calls());
+    assert!(
+        ipc.calls().is_empty(),
+        "no IPC call expected: {:?}",
+        ipc.calls()
+    );
 }
 
 #[test]
 fn truly_unknown_tool_still_reports_unknown() {
     let ipc = MockIpc::new();
     let resp = dispatch(
-        dispatch_req("tools/call", json!({ "name": "export_everything", "arguments": {} })),
+        dispatch_req(
+            "tools/call",
+            json!({ "name": "export_everything", "arguments": {} }),
+        ),
         &ipc,
     )
     .unwrap();
@@ -2931,34 +3438,48 @@ fn truly_unknown_tool_still_reports_unknown() {
 // Tool: export_text — plaintext extraction + word/char counts
 // ════════════════════════════════════════════════════════════════════════════
 
-use mdopener_mcp::{
-    tool_export_text, tool_export_metadata,
-    strip_markdown,
-    count_words,
-};
+use mdopener_mcp::{count_words, strip_markdown, tool_export_metadata, tool_export_text};
 
 /// Helper: write a temp file, run the tool, return the parsed result JSON.
 fn run_export_text_on(markdown: &str) -> Value {
     let dir = std::env::temp_dir();
-    let path = dir.join(format!("test_export_text_{}.md", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+    let path = dir.join(format!(
+        "test_export_text_{}.md",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
     std::fs::write(&path, markdown).unwrap();
     let ipc = MockIpc::new();
     let args = json!({ "path": path.to_string_lossy() });
     let resp = tool_export_text(json!(1), &args, &ipc);
-    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "unexpected RPC error: {:?}",
+        resp.error
+    );
     content_text(&resp)
 }
 
 fn run_export_metadata_on(markdown: &str) -> Value {
     let dir = std::env::temp_dir();
-    let path = dir.join(format!("test_export_meta_{}.md", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+    let path = dir.join(format!(
+        "test_export_meta_{}.md",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
     std::fs::write(&path, markdown).unwrap();
     let ipc = MockIpc::new();
     let args = json!({ "path": path.to_string_lossy() });
     let resp = tool_export_metadata(json!(1), &args, &ipc);
-    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "unexpected RPC error: {:?}",
+        resp.error
+    );
     content_text(&resp)
 }
 
@@ -2980,10 +3501,22 @@ fn export_text_preserves_code_block_content() {
     let md = "# Title\n\n```python\nprint('hello')\nx = 1 + 2\n```\n\nAfter code.\n";
     let result = run_export_text_on(md);
     let text = result["text"].as_str().unwrap();
-    assert!(text.contains("print('hello')"), "code content should be preserved");
-    assert!(text.contains("x = 1 + 2"), "code content should be preserved");
-    assert!(!text.contains("```"), "code fence markers should be stripped");
-    assert!(text.contains("After code"), "text after code block preserved");
+    assert!(
+        text.contains("print('hello')"),
+        "code content should be preserved"
+    );
+    assert!(
+        text.contains("x = 1 + 2"),
+        "code content should be preserved"
+    );
+    assert!(
+        !text.contains("```"),
+        "code fence markers should be stripped"
+    );
+    assert!(
+        text.contains("After code"),
+        "text after code block preserved"
+    );
 }
 
 #[test]
@@ -2994,12 +3527,21 @@ fn export_text_word_and_char_counts_are_correct() {
     let text = result["text"].as_str().unwrap();
     let reported_words = result["word_count"].as_u64().unwrap() as usize;
     let reported_chars = result["char_count"].as_u64().unwrap() as usize;
-    assert_eq!(reported_words, count_words(text),
-        "word_count must match count_words(text)");
-    assert_eq!(reported_chars, text.chars().count(),
-        "char_count must match text.chars().count()");
+    assert_eq!(
+        reported_words,
+        count_words(text),
+        "word_count must match count_words(text)"
+    );
+    assert_eq!(
+        reported_chars,
+        text.chars().count(),
+        "char_count must match text.chars().count()"
+    );
     // "Title Hello world foo bar" = 5 words
-    assert_eq!(reported_words, 5, "expected 5 words after stripping heading marker");
+    assert_eq!(
+        reported_words, 5,
+        "expected 5 words after stripping heading marker"
+    );
 }
 
 #[test]
@@ -3007,22 +3549,37 @@ fn export_text_strips_frontmatter() {
     let md = "---\ntitle: My Doc\nauthor: Test\n---\n\nActual content here.\n";
     let result = run_export_text_on(md);
     let text = result["text"].as_str().unwrap();
-    assert!(!text.contains("title:"), "frontmatter key should be stripped");
-    assert!(!text.contains("author:"), "frontmatter key should be stripped");
-    assert!(text.contains("Actual content here"), "body content must be preserved");
+    assert!(
+        !text.contains("title:"),
+        "frontmatter key should be stripped"
+    );
+    assert!(
+        !text.contains("author:"),
+        "frontmatter key should be stripped"
+    );
+    assert!(
+        text.contains("Actual content here"),
+        "body content must be preserved"
+    );
 }
 
 #[test]
 fn export_text_ipc_fallback_when_no_path() {
-    let ipc = MockIpc::new()
-        .on_get("/content", Ok(json!({ "content": "# Title\n\nHello.", "path": "/tmp/test.md" })));
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "content": "# Title\n\nHello.", "path": "/tmp/test.md" })),
+    );
     let resp = tool_export_text(json!(42), &json!({}), &ipc);
     assert!(resp.error.is_none());
     let result = content_text(&resp);
     let text = result["text"].as_str().unwrap();
     assert!(text.contains("Title"), "heading text extracted");
     assert!(text.contains("Hello"), "body text extracted");
-    assert_eq!(result["path"].as_str(), Some("/tmp/test.md"), "path echoed from IPC");
+    assert_eq!(
+        result["path"].as_str(),
+        Some("/tmp/test.md"),
+        "path echoed from IPC"
+    );
 }
 
 #[test]
@@ -3031,8 +3588,10 @@ fn export_text_missing_path_and_no_ipc_returns_error() {
     let ipc = MockIpc::new();
     let resp = tool_export_text(json!(1), &json!({}), &ipc);
     // Should return an RPC-level error (app not running).
-    assert!(resp.error.is_some() || is_error(&resp),
-        "should return error when path omitted and IPC fails");
+    assert!(
+        resp.error.is_some() || is_error(&resp),
+        "should return error when path omitted and IPC fails"
+    );
 }
 
 #[test]
@@ -3088,7 +3647,10 @@ fn export_metadata_extracts_wikilinks_and_image_count() {
     let wikilinks = result["wikilinks"].as_array().unwrap();
     let wl_strs: Vec<&str> = wikilinks.iter().filter_map(|v| v.as_str()).collect();
     assert!(wl_strs.contains(&"PageA"), "PageA should be in wikilinks");
-    assert!(wl_strs.contains(&"PageB"), "PageB (before |) should be in wikilinks");
+    assert!(
+        wl_strs.contains(&"PageB"),
+        "PageB (before |) should be in wikilinks"
+    );
     let img_count = result["embedded_image_count"].as_u64().unwrap();
     assert_eq!(img_count, 2, "two embedded images expected");
 }
@@ -3100,23 +3662,29 @@ fn export_metadata_word_count_matches_plain_text() {
     let reported = result["word_count"].as_u64().unwrap() as usize;
     let plain = strip_markdown(md);
     let expected = count_words(&plain);
-    assert_eq!(reported, expected,
-        "export_metadata word_count must match strip_markdown word count");
+    assert_eq!(
+        reported, expected,
+        "export_metadata word_count must match strip_markdown word count"
+    );
 }
 
 #[test]
 fn export_metadata_no_frontmatter_returns_null() {
     let md = "# Just a heading\n\nNo front matter here.\n";
     let result = run_export_metadata_on(md);
-    assert!(result["frontmatter"].is_null(),
-        "frontmatter should be null when absent");
+    assert!(
+        result["frontmatter"].is_null(),
+        "frontmatter should be null when absent"
+    );
 }
 
 #[test]
 fn export_metadata_ipc_fallback_when_no_path() {
     let md = "---\ntitle: IPC Doc\n---\n\n# Heading\n\nBody text.\n";
-    let ipc = MockIpc::new()
-        .on_get("/content", Ok(json!({ "content": md, "path": "/tmp/ipc.md" })));
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "content": md, "path": "/tmp/ipc.md" })),
+    );
     let resp = tool_export_metadata(json!(1), &json!({}), &ipc);
     assert!(resp.error.is_none());
     let result = content_text(&resp);
@@ -3132,11 +3700,19 @@ fn export_metadata_ipc_fallback_when_no_path() {
 #[test]
 fn export_text_is_readonly_tier() {
     let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_text")
+    let def = reg
+        .iter()
+        .find(|d| d.name == "export_text")
         .expect("export_text must be in registry");
-    assert_eq!(def.tier, mdopener_mcp::ToolTier::ReadOnly,
-        "export_text must be ReadOnly tier");
-    let ann = def.annotations.as_ref().expect("export_text must have annotations");
+    assert_eq!(
+        def.tier,
+        mdopener_mcp::ToolTier::ReadOnly,
+        "export_text must be ReadOnly tier"
+    );
+    let ann = def
+        .annotations
+        .as_ref()
+        .expect("export_text must have annotations");
     assert_eq!(ann["readOnlyHint"].as_bool(), Some(true));
     assert_ne!(ann["destructiveHint"].as_bool(), Some(true));
 }
@@ -3144,11 +3720,19 @@ fn export_text_is_readonly_tier() {
 #[test]
 fn export_metadata_is_readonly_tier() {
     let reg = tool_registry();
-    let def = reg.iter().find(|d| d.name == "export_metadata")
+    let def = reg
+        .iter()
+        .find(|d| d.name == "export_metadata")
         .expect("export_metadata must be in registry");
-    assert_eq!(def.tier, mdopener_mcp::ToolTier::ReadOnly,
-        "export_metadata must be ReadOnly tier");
-    let ann = def.annotations.as_ref().expect("export_metadata must have annotations");
+    assert_eq!(
+        def.tier,
+        mdopener_mcp::ToolTier::ReadOnly,
+        "export_metadata must be ReadOnly tier"
+    );
+    let ann = def
+        .annotations
+        .as_ref()
+        .expect("export_metadata must have annotations");
     assert_eq!(ann["readOnlyHint"].as_bool(), Some(true));
     assert_ne!(ann["destructiveHint"].as_bool(), Some(true));
 }
@@ -3234,7 +3818,10 @@ fn huge_dissimilar_documents_diff_without_a_quadratic_table() {
 
 #[test]
 fn prompt_get_embeds_the_live_document() {
-    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": "/p.md", "content": "# Plan\n- step" })));
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/p.md", "content": "# Plan\n- step" })),
+    );
     let resp = handle_prompt_get(id(1), "review_plan", &ipc);
     let text = resp.result.unwrap()["messages"][0]["content"]["text"]
         .as_str()
@@ -3250,12 +3837,19 @@ fn prompt_get_without_the_app_is_an_error_not_an_empty_document() {
     assert!(resp.result.is_none());
     let err = resp.error.unwrap();
     assert_eq!(err.code, -32000);
-    assert!(err.message.contains("does not appear to be running"), "{}", err.message);
+    assert!(
+        err.message.contains("does not appear to be running"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
 fn prompt_get_with_no_open_document_is_an_error() {
-    for empty in [json!({ "path": null, "content": null }), json!({ "path": null, "content": "" })] {
+    for empty in [
+        json!({ "path": null, "content": null }),
+        json!({ "path": null, "content": "" }),
+    ] {
         let ipc = MockIpc::new().on_get("/content", Ok(empty));
         let resp = handle_prompt_get(id(1), "summarize", &ipc);
         assert!(resp.error.unwrap().message.contains("No document is open"));
@@ -3281,7 +3875,10 @@ fn open_file_makes_a_not_yet_existing_relative_path_absolute() {
 fn hunks_carry_full_trailing_context_and_merge_when_close() {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20";
     // Two changes 2 lines apart merge into one hunk; a far one stays separate.
-    let b = a.replace("\n5\n", "\nfive\n").replace("\n8\n", "\neight\n").replace("\n18\n", "\neighteen\n");
+    let b = a
+        .replace("\n5\n", "\nfive\n")
+        .replace("\n8\n", "\neight\n")
+        .replace("\n18\n", "\neighteen\n");
     let (diff, hunks, added, removed) = compute_unified_diff("a", "b", a, &b, 3);
     assert_eq!((hunks, added, removed), (2, 3, 3), "{diff}");
     assert!(diff.contains("@@ -2,10 +2,10 @@"), "{diff}");
@@ -3317,9 +3914,16 @@ fn search_vault_app_down_is_tool_error_not_empty_results() {
 #[test]
 fn resource_read_vault_search_app_down_is_error() {
     let resp = handle_resource_read(id(1), "text://vault-search?q=anything", &app_down_ipc());
-    let err = resp.error.as_ref().expect("app down must be an error, not empty results");
+    let err = resp
+        .error
+        .as_ref()
+        .expect("app down must be an error, not empty results");
     assert_eq!(err.code, -32000);
-    assert!(err.message.contains("does not appear to be running"), "{}", err.message);
+    assert!(
+        err.message.contains("does not appear to be running"),
+        "{}",
+        err.message
+    );
 }
 
 // ── docs/AGENTS.md matches the server ─────────────────────────────────────────
@@ -3332,10 +3936,16 @@ fn agents_doc_states_the_real_tool_count_and_default_protocol() {
     assert!(doc.contains(&count), "docs/AGENTS.md must say {count:?}");
     for t in &tools {
         let row = format!("| `{}` |", t.name);
-        assert!(doc.contains(&row), "docs/AGENTS.md tool table is missing {row:?}");
+        assert!(
+            doc.contains(&row),
+            "docs/AGENTS.md tool table is missing {row:?}"
+        );
     }
     let default = format!("**`{}`** (default)", mdopener_mcp::DEFAULT_PROTOCOL);
-    assert!(doc.contains(&default), "docs/AGENTS.md must say {default:?}");
+    assert!(
+        doc.contains(&default),
+        "docs/AGENTS.md must say {default:?}"
+    );
 }
 
 // ── Disk-reading tools refuse non-Markdown files (no app needed) ─────────────
@@ -3471,7 +4081,10 @@ impl IpcClient for ExportingApp {
 }
 
 fn exporting_app(write: bool) -> ExportingApp {
-    ExportingApp { write, posts: Mutex::new(vec![]) }
+    ExportingApp {
+        write,
+        posts: Mutex::new(vec![]),
+    }
 }
 
 const SHORT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -3506,7 +4119,10 @@ fn export_output_path_errors_when_the_app_never_writes_it() {
         SHORT,
     );
     let text = tool_error_text(&resp);
-    assert!(text.contains("did not write") && text.contains("Read view"), "{text}");
+    assert!(
+        text.contains("did not write") && text.contains("Read view"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -3539,7 +4155,11 @@ fn export_output_path_rejects_unsafe_or_unsupported_targets_without_ipc() {
         ("html", d.join(".bashrc"), "must name a html file"),
         ("html", d.join("notes.md"), "must name a html file"),
         ("docx", d.join("out.html"), "must name a docx file"),
-        ("html", d.join("missing/out.html"), "directory does not exist"),
+        (
+            "html",
+            d.join("missing/out.html"),
+            "directory does not exist",
+        ),
     ];
     for (format, path, want) in cases {
         let app = exporting_app(true);
@@ -3549,10 +4169,20 @@ fn export_output_path_rejects_unsafe_or_unsupported_targets_without_ipc() {
             &app,
             SHORT,
         );
-        let err = resp.error.as_ref().unwrap_or_else(|| panic!("{format} {path:?}: {resp:?}"));
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{format} {path:?}: {resp:?}"));
         assert_eq!(err.code, -32602);
-        assert!(err.message.contains(want), "{format} {path:?}: {}", err.message);
-        assert!(app.posts.lock().unwrap().is_empty(), "must not reach the app");
+        assert!(
+            err.message.contains(want),
+            "{format} {path:?}: {}",
+            err.message
+        );
+        assert!(
+            app.posts.lock().unwrap().is_empty(),
+            "must not reach the app"
+        );
     }
 }
 
@@ -3577,7 +4207,11 @@ fn symlinked_plan() -> (tempfile::TempDir, String, String) {
     std::fs::write(real.join("plan.md"), "# Plan\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, dir.path().join("link")).unwrap();
-    let via_link = dir.path().join("link/./plan.md").to_string_lossy().into_owned();
+    let via_link = dir
+        .path()
+        .join("link/./plan.md")
+        .to_string_lossy()
+        .into_owned();
     let canonical = real.join("plan.md").to_string_lossy().into_owned();
     (dir, via_link, canonical)
 }
@@ -3617,9 +4251,14 @@ fn edit_tools_assert_the_canonical_path() {
         &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": via_link }),
         &ipc,
     );
-    let calls = ipc.calls();
-    assert_eq!(calls.len(), 3);
-    for (_, p, body) in calls {
+    // No open document is reported here, so the canonical path is sent.
+    let posts: Vec<_> = ipc
+        .calls()
+        .into_iter()
+        .filter(|(m, _, _)| m == "POST")
+        .collect();
+    assert_eq!(posts.len(), 3);
+    for (_, p, body) in posts {
         assert_eq!(body.unwrap()["path"], json!(canonical), "{p}");
     }
 }
@@ -3668,6 +4307,57 @@ fn stream_edit_apply_does_not_need_an_edit_id() {
     assert_eq!(required, json!(["find", "replace"]));
 }
 
+/// The frontend checks a stream edit's `path` against the open document's
+/// path as a string, and a document opened by drag and drop, a dialog or the
+/// file tree keeps the (symlinked) path it was opened by. Naming that file,
+/// by that path or any other, must assert the app's own spelling, not the
+/// canonical one the app would reject as "not the currently open document".
+#[cfg(unix)]
+#[test]
+fn stream_edit_tools_assert_the_open_documents_own_path() {
+    use mdopener_mcp::stream_edit_path;
+    let (dir, via_link, canonical) = symlinked_plan();
+    let opened_as = dir
+        .path()
+        .join("link/plan.md")
+        .to_string_lossy()
+        .into_owned();
+    let ipc = MockIpc::new()
+        .on_get(
+            "/content",
+            Ok(json!({ "path": opened_as, "content": "# Plan\n" })),
+        )
+        .on_post("/stream-edit", Ok(json!({ "ok": true })));
+    for raw in [&opened_as, &via_link, &canonical] {
+        assert_eq!(stream_edit_path(raw, &ipc), opened_as, "{raw}");
+    }
+    tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "path": canonical }),
+        &ipc,
+    );
+    tool_stream_edit_apply(
+        id(2),
+        &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": via_link }),
+        &ipc,
+    );
+    let posts: Vec<_> = ipc
+        .calls()
+        .into_iter()
+        .filter(|(m, _, _)| m == "POST")
+        .collect();
+    assert_eq!(posts.len(), 2);
+    for (_, p, body) in posts {
+        assert_eq!(body.unwrap()["path"], json!(opened_as), "{p}");
+    }
+
+    // Another file is still sent resolved, so the app reports the mismatch.
+    let other = std::fs::canonicalize(dir.path()).unwrap().join("other.md");
+    std::fs::write(&other, "x").unwrap();
+    let other = other.to_string_lossy().into_owned();
+    assert_eq!(stream_edit_path(&other, &ipc), other);
+}
+
 // ── Agent-workflow regressions ────────────────────────────────────────────────
 
 /// `text://vault-search?q=my+topic` (the form resources/list documents) must
@@ -3682,12 +4372,17 @@ fn vault_search_resource_decodes_plus_as_space() {
     ] {
         let resp = handle_resource_read(id(1), uri, &ipc);
         let payload: Value = serde_json::from_str(
-            resp.result.as_ref().unwrap()["contents"][0]["text"].as_str().unwrap(),
+            resp.result.as_ref().unwrap()["contents"][0]["text"]
+                .as_str()
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(payload["query"], want, "{uri}");
     }
-    assert!(ipc.calls().iter().any(|(_, p, _)| p.starts_with("/search?q=my%20topic")));
+    assert!(ipc
+        .calls()
+        .iter()
+        .any(|(_, p, _)| p.starts_with("/search?q=my%20topic")));
 }
 
 /// Plain text keeps comparisons, intraword underscores and spaced
@@ -3699,10 +4394,19 @@ fn export_text_keeps_literal_angle_brackets_underscores_and_asterisks() {
         strip_markdown("if a < b and c > d then **stop**"),
         "if a < b and c > d then stop"
     );
-    assert_eq!(strip_markdown("set MAX_RETRY_COUNT in my_config"), "set MAX_RETRY_COUNT in my_config");
-    assert_eq!(strip_markdown("2 * 3 = 6, _emphasis_ and *it*"), "2 * 3 = 6, emphasis and it");
+    assert_eq!(
+        strip_markdown("set MAX_RETRY_COUNT in my_config"),
+        "set MAX_RETRY_COUNT in my_config"
+    );
+    assert_eq!(
+        strip_markdown("2 * 3 = 6, _emphasis_ and *it*"),
+        "2 * 3 = 6, emphasis and it"
+    );
     assert_eq!(strip_markdown("a <span>b</span> <!-- c --> d"), "a b  d");
-    assert_eq!(strip_markdown("see <https://example.com/x>"), "see https://example.com/x");
+    assert_eq!(
+        strip_markdown("see <https://example.com/x>"),
+        "see https://example.com/x"
+    );
 }
 
 /// `#tag` lines (Obsidian tags) and shebangs are not headings.
@@ -3712,7 +4416,10 @@ fn export_metadata_headings_need_a_space_after_the_hashes() {
     let h = extract_headings("# Title\n#project #todo\n##\tTabbed\n#!/bin/sh\n####### seven\n");
     assert_eq!(
         h,
-        vec![json!({"level": 1, "text": "Title"}), json!({"level": 2, "text": "Tabbed"})]
+        vec![
+            json!({"level": 1, "text": "Title"}),
+            json!({"level": 2, "text": "Tabbed"})
+        ]
     );
 }
 
@@ -3740,8 +4447,14 @@ fn diff_documents_huge_context_does_not_overflow() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a.md");
     let b = dir.path().join("b.md");
-    std::fs::File::create(&a).unwrap().write_all(b"x\ny\n").unwrap();
-    std::fs::File::create(&b).unwrap().write_all(b"x\nz\n").unwrap();
+    std::fs::File::create(&a)
+        .unwrap()
+        .write_all(b"x\ny\n")
+        .unwrap();
+    std::fs::File::create(&b)
+        .unwrap()
+        .write_all(b"x\nz\n")
+        .unwrap();
     let resp = mdopener_mcp::tool_diff_documents(
         id(1),
         &json!({ "path_a": a, "path_b": b, "context_lines": u64::MAX }),
@@ -3777,7 +4490,11 @@ fn conversation_store_keeps_messages_appended_by_another_process() {
         .collect();
     assert_eq!(
         on_disk,
-        ["from this process", "from another process", "again from this process"]
+        [
+            "from this process",
+            "from another process",
+            "again from this process"
+        ]
     );
     if let Some(p) = session_file_path(&sess) {
         let _ = std::fs::remove_file(p);
@@ -3830,7 +4547,126 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     let v = content_text(&resp);
     assert_eq!(v["verdict"], "approved", "{v}");
     assert_eq!(v["reviewId"], review_id.as_str());
-    assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
+    assert!(
+        done.calls().iter().all(|(m, _, _)| m == "GET"),
+        "resume must not re-register"
+    );
+}
+
+/// A resumed review stops at the end of its window: the app keeps a review
+/// replaced in its panel by a newer one as `pending` forever, so resuming it
+/// by `review_id` must end with `timeout` once the window the id records has
+/// closed, instead of returning `pending` (and inviting another resume) on
+/// every call.
+#[test]
+fn resumed_review_times_out_when_its_window_has_closed() {
+    use mdopener_mcp::{review_window_end_ms, tool_request_review_with};
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get("/review/result", Ok(json!({ "status": "pending" })));
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "timeout_ms": 5_000, "wait_ms": 1_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["status"], "pending", "{v}");
+    let review_id = v["reviewId"].as_str().unwrap().to_string();
+    let end = review_window_end_ms(&review_id).expect("minted ids carry their window end");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert!(
+        end > now && end <= now + 5_000,
+        "window end {end} vs now {now}"
+    );
+
+    // A review whose window closed long ago (same id shape) times out on the
+    // resume instead of reporting pending for the full wait.
+    let expired = format!("rev_1_00000001_{}", now - 60_000);
+    let started = std::time::Instant::now();
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": expired, "wait_ms": 50_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "timeout", "{v}");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+
+    // A verdict the app recorded at the window's close is still read.
+    let dismissed = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "dismissed", "verdict": "dismissed", "comments": null })),
+    );
+    let resp = tool_request_review_with(
+        id(3),
+        &json!({ "review_id": format!("rev_1_00000001_{}", now - 60_000) }),
+        &dismissed,
+        Duration::from_millis(50),
+    );
+    assert_eq!(content_text(&resp)["verdict"], "dismissed");
+
+    // Ids without a window end (an older server's) keep the wait_ms behaviour.
+    assert_eq!(review_window_end_ms("rev_123_0000abcd"), None);
+    assert_eq!(review_window_end_ms("custom"), None);
+    let resp = tool_request_review_with(
+        id(4),
+        &json!({ "review_id": "rev_123_0000abcd", "wait_ms": 1_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    assert_eq!(content_text(&resp)["status"], "pending");
+}
+
+/// The session log is replaced by a rename, never rewritten in place: another
+/// server process re-reads it on every get and append, and a torn read there
+/// (truncated JSON) made that process write its own copy back over the log.
+#[cfg(unix)]
+#[test]
+fn persist_session_replaces_the_log_atomically() {
+    use mdopener_mcp::persist_session;
+    let sess = unique_session();
+    store_append_message(&sess, "agent", "first", vec![]).unwrap();
+    let path = session_file_path(&sess).unwrap();
+    // A reader holding the old file (here, a hard link to it) keeps a whole,
+    // parseable log while the next version is written.
+    let reader = path.with_extension("reader");
+    std::fs::hard_link(&path, &reader).unwrap();
+    let before = std::fs::read_to_string(&reader).unwrap();
+
+    let mut log = load_session_from_disk(&sess).unwrap();
+    let mut next = log.messages[0].clone();
+    next.id = "msg-next".into();
+    next.content = "second".into();
+    log.messages.push(next);
+    persist_session(&sess, &log).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&reader).unwrap(),
+        before,
+        "written in place"
+    );
+    assert_eq!(load_session_from_disk(&sess).unwrap().messages.len(), 2);
+    let dir = path.parent().unwrap();
+    let stem = path.file_name().unwrap().to_str().unwrap().to_string();
+    let leftovers: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&stem) && n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+    let _ = std::fs::remove_file(&reader);
+    let _ = std::fs::remove_file(&path);
 }
 
 /// A resumed review whose window closed with no verdict reports `timeout`,
