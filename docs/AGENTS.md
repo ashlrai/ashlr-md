@@ -622,7 +622,11 @@ and ends with the next step (start Ashlr MD, then run `mdopen` again). It also
 exits `1`, before contacting the app, for a file that is not a Markdown document
 (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) or is a dotfile, checked after
 symlinks are resolved; and when the running app refuses the file, it exits `1`
-with the app's reason on stderr without trying the URL scheme. `mdopen -` also
+with the app's reason on stderr without trying the URL scheme. It also exits
+`1` without trying the URL scheme when the running app was reached but
+failed: it answered with a server error, the connection broke, or it did not
+answer within 6 s. The app may still open the file then, so for `mdopen -`
+the temp file is kept. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace, or longer
 than the 16 MiB a document may be (it stops reading there and writes no temp
 file). Run with a

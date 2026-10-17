@@ -6,7 +6,9 @@
 
 import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
+import phantomDoc from "../docs/PHANTOM.md?raw";
 import roadmap from "../ROADMAP.md?raw";
+import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
 
@@ -175,6 +177,36 @@ describe(`doc facts: ${AGENTS}`, () => {
         agentsDoc,
         `add \`mdopen ${f}\` to the mdopen usage block at ${at}`,
       ).toMatch(new RegExp(`^mdopen (?:.* )?${f}(?: |$)`, "m"));
+    }
+  });
+});
+
+describe("doc facts: mdopen exit status", () => {
+  // How long mdopen waits for the running app's answer before it exits 1
+  // without trying the URL scheme. docs/PHANTOM.md's exit table, which
+  // Phantom reads, used to leave that case out.
+  const m = mdopenIpc.match(
+    /const IO_TIMEOUT: Duration = Duration::from_secs\((\d+)\);/,
+  );
+  const secs = m?.[1];
+
+  it("finds the IPC answer timeout in mdopen's ipc.rs", () => {
+    expect(secs, "mdopen ipc.rs no longer defines IO_TIMEOUT in seconds").toBeDefined();
+  });
+
+  it("help and docs state the timeout after which mdopen exits 1", () => {
+    // HELP and docs wrap their lines, so whitespace may split the words.
+    expect(mdopenMain, "fix the EXIT STATUS in mdopen's HELP").toMatch(
+      new RegExp(`did not\\s+answer within ${secs}s`),
+    );
+    for (const [file, doc] of [
+      [AGENTS, agentsDoc],
+      ["docs/PHANTOM.md", phantomDoc],
+    ] as const) {
+      expect(
+        doc,
+        `say mdopen exits 1 after ${secs} s without an answer in ${file}`,
+      ).toMatch(new RegExp(`did not\\s+answer\\s+within\\s+${secs} s`));
     }
   });
 });

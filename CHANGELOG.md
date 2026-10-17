@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen`'s exit status docs cover an app that was reached but failed.**
+  docs/PHANTOM.md's exit table (which Phantom reads) and docs/AGENTS.md left
+  out that `mdopen` exits `1` without trying the URL scheme when the running
+  app answers with a server error, the connection breaks, or it does not
+  answer within 6 s, keeping a `mdopen -` temp file; `mdopen --help` said so.
+  A doc-facts test ties the 6 s in the help and both docs to the CLI's timeout.
 - **`mdopener://export` links take only known formats.** A link's `format`
   was passed to the window as given, so `format=PDF` or `format=md` opened
   the export dialog with no format selected and no word of why. A format
