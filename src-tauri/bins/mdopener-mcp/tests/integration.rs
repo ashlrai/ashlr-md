@@ -9104,6 +9104,55 @@ fn conversation_tool_descriptions_name_their_results() {
     );
 }
 
+/// list_ai_actions' description said each entry has "the action id, label,
+/// icon, scope, and the system+user prompt templates" but not the result's
+/// shape or the field names, so an agent learned `shortLabel`,
+/// `systemPrompt` and `userPromptTemplate` by calling it. The named fields
+/// are exactly the ones the actions carry.
+#[test]
+fn list_ai_actions_description_names_its_result() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "list_ai_actions")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains(
+            "{ actions: [{ id, label, shortLabel, icon, scope, systemPrompt, userPromptTemplate, argument? }], count }"
+        ),
+        "{d}"
+    );
+    let keys_of = |include: bool| {
+        let resp = tool_list_ai_actions(id(1), &json!({ "include_prompts": include }));
+        let body = content_text(&resp);
+        let mut top: Vec<String> = body.as_object().unwrap().keys().cloned().collect();
+        top.sort_unstable();
+        assert_eq!(top, ["actions", "count"]);
+        let mut all = std::collections::BTreeSet::new();
+        for a in body["actions"].as_array().unwrap() {
+            all.extend(a.as_object().unwrap().keys().cloned());
+        }
+        all.into_iter().collect::<Vec<_>>()
+    };
+    assert_eq!(
+        keys_of(true),
+        [
+            "argument",
+            "icon",
+            "id",
+            "label",
+            "scope",
+            "shortLabel",
+            "systemPrompt",
+            "userPromptTemplate"
+        ]
+    );
+    assert_eq!(
+        keys_of(false),
+        ["argument", "icon", "id", "label", "scope", "shortLabel"]
+    );
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`list_ai_actions` names its result.** Its description listed what each
+  action includes but not the result's shape or field names. It now gives
+  `{ actions: [{ id, label, shortLabel, icon, scope, systemPrompt,
+  userPromptTemplate, argument? }], count }` and says `include_prompts:
+  false` leaves the two templates out; docs/AGENTS.md's row says the same.
 - **`mdopener://recent-documents` names each document's fields.** Its
   description gave `{ documents, count, skipped }` but not what a document
   holds. It now gives `{ documents: [{ path, title, mtimeMs, preview }],

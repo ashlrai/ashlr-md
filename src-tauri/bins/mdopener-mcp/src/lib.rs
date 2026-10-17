@@ -1002,7 +1002,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_ai_actions",
-            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, scope, and the system+user prompt templates it uses. Templates read the selection (or, for scope 'document', the whole document) as {text}; an action whose templates also take {arg} has an `argument` field saying what {arg} is (the target language for translate). Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
+            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, scope, and the system+user prompt templates it uses. Templates read the selection (or, for scope 'document', the whole document) as {text}; an action whose templates also take {arg} has an `argument` field saying what {arg} is (the target language for translate). Returns { actions: [{ id, label, shortLabel, icon, scope, systemPrompt, userPromptTemplate, argument? }], count }; with include_prompts false, each action leaves out systemPrompt and userPromptTemplate. Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
