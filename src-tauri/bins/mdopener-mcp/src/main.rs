@@ -54,7 +54,10 @@ Register it with your MCP client; see docs/AGENTS.md.
 
 fn main() {
     // Informational flags answer and exit instead of blocking on stdin.
-    // Any other arguments are ignored, as before.
+    // Any other argument is still ignored, so an old client config that
+    // passes one keeps working, but it is named on stderr (stdout carries
+    // only JSON-RPC) so a mistyped `--verison` does not pass unnoticed.
+    let mut ignored = Vec::new();
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "--version" | "-V" => {
@@ -65,8 +68,19 @@ fn main() {
                 print!("{HELP}");
                 return;
             }
-            _ => {}
+            _ => ignored.push(arg),
         }
+    }
+    if !ignored.is_empty() {
+        eprintln!(
+            "mdopener-mcp: ignoring unknown argument{} {}; serving MCP on stdin/stdout (see --help)",
+            if ignored.len() == 1 { "" } else { "s" },
+            ignored
+                .iter()
+                .map(|a| format!("`{a}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     let stdin = io::stdin();

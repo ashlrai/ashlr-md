@@ -36,6 +36,55 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`diff_documents` no longer calls different files identical.** Lines were
+  compared without their endings, so a CRLF file against its LF copy, or a
+  file against the same text without a final newline, returned `hunks: 0`
+  and an empty diff. Line endings now count: a `\r` stays visible in the
+  diff and a missing final newline is marked `\ No newline at end of file`,
+  as `diff -u` does.
+- **Conversation memory is private to its user.** `save_conversation_message`
+  created `~/.mdopener/sessions` as `0755` and each session file as `0644`,
+  so any local user could read an agent's actions and the human's verdicts.
+  The directory is now `0700` (an existing one is tightened on the next save)
+  and session files are `0600`, like the IPC token.
+- **An over-long `session_id` is refused up front.** An id whose file name
+  passed the file system's 255-byte limit was accepted, then saving failed
+  with `File name too long (os error 36)` while reading the same id answered
+  an empty session. Both conversation tools now return `-32602` when the
+  encoded file name would exceed 200 bytes.
+- **MCP resources do not follow a Markdown symlink out of the vault.**
+  `resources/read` checked only that a `file://` path was advertised, so a
+  vault `notes.md` linking to `~/.ssh/id_rsa` or `.env` was served, and the
+  `mdopener://recent-documents` preview showed its first 200 characters. Both
+  now apply the check the disk-reading tools use (Markdown, not a dotfile,
+  after resolving symlinks): the read is refused and the recent is skipped.
+- **`export_metadata` and `export_text` see front-matter after a byte order
+  mark.** A file saved with a UTF-8 BOM (Notepad does this) came back with
+  `frontmatter: null`, and `export_text` kept the raw `---` block in its text
+  and word count. A leading BOM is now ignored.
+- **Negative MCP integer arguments are refused.** The schemas declared no
+  minimum and the tools read integers as unsigned, so `list_recent` with
+  `"limit": -5` listed the default 10, `request_review` with
+  `"timeout_ms": -1` gave the human 5 minutes, and `stream_edit_apply` with
+  `"match_index": -1` applied the first occurrence. Every integer argument now
+  declares a `minimum` (`0`; `1` for `get_conversation_context`'s `limit`,
+  where `0` was silently raised to `1`) and a value below it returns `-32602`
+  naming the argument and the minimum.
+- **An unknown MCP prompt or resource says what to ask for instead.**
+  `prompts/get` answered `Unknown prompt: Summarize` and `resources/read`
+  with no `uri` answered `Unknown resource URI: ` with nothing after it. Both
+  now name the closest prompt or URI (`summarize`, `mdopener://current`), say
+  when the name or URI is missing, and list the prompts or point to
+  `resources/list`.
+- **`mdopener-mcp` names an argument it ignores.** Unknown command-line
+  arguments are still ignored so older client configs keep working, but a
+  line on stderr now names them, so a typo such as `--verison` no longer
+  starts the server without a word. Stdout stays JSON-RPC only.
+- **`mdopen` says what to do when it cannot open a file.** With the app not
+  running and no launcher able to start it, the error was
+  `no URL launcher found (...) (Ashlr MD is not running (no ...))`. It now
+  names the file, what the running-app and `mdopener://` routes each hit, and
+  ends with "Start Ashlr MD, then run mdopen again." The exit code is still 1.
 - **MCP tools refuse arguments they do not declare or cannot use.** Every tool
   read only the arguments it knew and defaulted any of the wrong type, so a
   typo (`export_metadata` with `pth`, `list_ai_actions` with

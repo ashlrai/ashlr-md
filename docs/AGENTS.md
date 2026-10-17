@@ -226,14 +226,14 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
-| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
-| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format, and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed is left as it is. A message that cannot be written to disk is not saved and returns `isError: true`. |
-| `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `context_lines` defaults to `3`. |
+| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, min `1`, max `200`) of a session's memory store, oldest first. Empty when the session has none. A `session_id` too long for its file name is refused with `-32602` (see `save_conversation_message`). |
+| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). That file name (without `.json`) may be at most 200 bytes, so an id of up to 200 letters, digits, `-` and `_` always fits (other bytes count three each); a longer id is refused with `-32602` instead of failing when the file is written. The sessions directory is owner-only (`0700`, tightened if an earlier build left it open) and each session file is `0600`, on Unix. Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format, and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed is left as it is. A message that cannot be written to disk is not saved and returns `isError: true`. |
+| `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `context_lines` defaults to `3`. Lines are compared with their line endings, so files that differ only in CRLF vs LF or in the final newline are not reported as identical: a `\r` stays visible in the diff, and a last line without a newline is followed by `\ No newline at end of file`, as in `diff -u`. |
 | `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, ops_applied }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. |
 | `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately (unsaved, `find` must match once) and the result has `applied: true`, so do not call `stream_edit_apply` after it. A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). The app re-finds `find` in the live document; `edit_id` is for correlation only. |
 | `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
-| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). Top-level scalars are parsed, and lists (`tags: [a, b]` or `- item` lines) become arrays; a nested mapping is not parsed and its key holds `""`. |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). Top-level scalars are parsed, and lists (`tags: [a, b]` or `- item` lines) become arrays; a nested mapping is not parsed and its key holds `""`. A leading UTF-8 byte order mark (as Notepad saves) is ignored by both `export_text` and `export_metadata`, so it does not hide the front-matter. |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -247,9 +247,15 @@ argument the schema does not declare (a typo such as `pth`), a value of the
 wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
 `cited_docs`) or `arguments` that is not an object is refused with `-32602`
 naming the argument; an undeclared one also lists the arguments the tool
-takes and the closest match. `null` counts as not given. An unknown tool name
-gets the closest tool name, if any, and a pointer to `tools/list`. A blank
-`session_id` is refused like a missing one.
+takes and the closest match. Every integer argument declares a `minimum` in
+its schema (`0`, or `1` for `get_conversation_context`'s `limit`), and a value
+below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
+of falling back to the default. `null` counts as not given. An unknown tool
+name gets the closest tool name, if any, and a pointer to `tools/list`. A
+blank `session_id` is refused like a missing one. `prompts/get` with an
+unknown or missing `name` and `resources/read` with an unknown or missing
+`uri` answer `-32602` the same way: the closest prompt or URI, if any, and
+the prompt names or a pointer to `resources/list`.
 
 ### `edit_document` — exact, unique find/replace
 
@@ -298,7 +304,11 @@ is rejected (`-32002`), so the resource channel can't be used as an
 arbitrary-filesystem read primitive. Percent-encoded URIs
 (`file:///notes/My%20Notes.md`) and `file://localhost/...` are accepted; the
 check runs on the decoded path, so encoding cannot reach a file outside the
-vault.
+vault. An advertised path is then read only if it is a Markdown document that
+is not a dotfile, checked after resolving symlinks (like the tools that read a
+path from disk), so a vault `notes.md` that links to `~/.ssh/id_rsa` or `.env`
+is refused (`-32002`). `mdopener://recent-documents` skips such a recent
+instead of previewing its target.
 
 ---
 
@@ -440,7 +450,10 @@ When the app is running, `mdopen` hands it the file over the token-authenticated
 loopback IPC channel, so it works even where the `mdopener://` scheme is not
 registered (an AppImage or dev build on Linux). Otherwise it opens the
 `mdopener://` URL, which launches the app. It exits `1` when neither works;
-for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
+for `mdopen -` the temp file holding stdin is then removed. The message names
+the file, what the running-app route and the `mdopener://` route each hit,
+and ends with the next step (start Ashlr MD, then run `mdopen` again).
+`mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
 stderr. Run with no arguments at all, it prints its help to stderr and exits
@@ -545,7 +558,11 @@ The integration is **local-only and token-authenticated**:
   `Authorization: Bearer <token>`. The token is compared in **constant time** to
   avoid leaking a timing signal, and a mismatch returns `401`.
 - The MCP `resources/read` channel is **scoped to advertised vault/recents
-  files** — it cannot be used to read arbitrary paths off disk.
+  files** — it cannot be used to read arbitrary paths off disk — and, like
+  the tools below, it reads only Markdown non-dotfiles after resolving
+  symlinks.
+- Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
+  server keeps the directory `0700` and writes each session file `0600`.
 - The tools that read a path straight from disk (`diff_documents`,
   `export_text` / `export_metadata` with `path`, and the task list of
   `get_user_annotations` for a file that is not the open document) only read Markdown files
@@ -626,7 +643,10 @@ regenerates `~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`.
 Run `claude mcp list` to see the registered path, then verify the binary exists
 at that path and is executable (`chmod +x`). Running
 `<path> --version` prints `mdopener-mcp <version>` and exits, so it is a quick
-check that the path is right (`--help` prints usage).
+check that the path is right (`--help` prints usage). Any other argument is
+ignored, so an old client config that passes one still starts the server, but
+it is named on stderr (`ignoring unknown argument ...`); look there in the
+client's MCP log for a typo such as `--verison`.
 
 **Cursor MCP panel shows the server as offline**
 Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
