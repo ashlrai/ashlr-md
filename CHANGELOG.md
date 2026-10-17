@@ -45,6 +45,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `null` as its `id`, and with a string or number as its `params`. Each is
   now `-32600` Invalid Request; an `id` that is not a string or an integer
   (MCP never allows `null`) is answered with `null`, not echoed.
+- **`open_file` carries tool annotations.** It was the one tool listed
+  without them, and MCP clients must then assume `destructiveHint` and
+  `openWorldHint` are `true`, so it read as destructive. It now states
+  all four hints (not read-only, not destructive, idempotent, closed world).
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

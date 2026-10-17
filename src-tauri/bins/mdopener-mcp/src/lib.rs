@@ -762,7 +762,16 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 },
                 "required": ["path"]
             }),
-            annotations: None,
+            // Without annotations a client must assume the MCP defaults,
+            // destructiveHint and openWorldHint true, for a tool that only
+            // opens a local file in a view.
+            annotations: Some(json!({
+                "title": "Open File",
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            })),
             tier: ToolTier::Modifier,
         },
         ToolDef {
