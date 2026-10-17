@@ -131,6 +131,42 @@ fn empty_stdin_is_refused() {
     }
 }
 
+/// `mdopen -` reads at most the 16 MiB a document may be: past it, it exits 1
+/// saying so before writing a temp file or trying to open anything. Stdin was
+/// read whole before, however much was piped in.
+#[cfg(unix)]
+#[test]
+fn stdin_over_the_document_limit_is_refused() {
+    use std::io::Write as _;
+    let s = Scratch::new("stdin-cap");
+    let mut child = headless(&s)
+        .arg("-")
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        // One byte past 16 MiB; mdopen may stop reading (closing the pipe)
+        // as soon as it has seen enough.
+        let chunk = vec![b'x'; 1024 * 1024];
+        for _ in 0..16 {
+            if stdin.write_all(&chunk).is_err() {
+                return;
+            }
+        }
+        let _ = stdin.write_all(b"x");
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("more than the 16 MiB"), "stderr: {err}");
+    assert!(err.contains("nothing was opened"), "stderr: {err}");
+    let left: Vec<_> = std::fs::read_dir(s.0.join("tmp")).unwrap().collect();
+    assert!(left.is_empty(), "temp files left behind: {left:?}");
+}
+
 /// With the app running (port + token files present) the file is opened over
 /// its IPC server, with no URL launcher needed: the common Linux case where
 /// `mdopener://` is not registered.

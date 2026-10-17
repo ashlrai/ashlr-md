@@ -220,19 +220,16 @@ const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 
 /// Read stdin into a temp `.md` file and return its path.
 fn read_stdin_to_temp() -> PathBuf {
-    use std::io::{IsTerminal as _, Read as _};
+    use std::io::IsTerminal as _;
 
     // Typed input: say how to finish, rather than waiting for EOF in silence.
     if let Some(hint) = stdin_hint(std::io::stdin().is_terminal()) {
         eprintln!("mdopen: {hint}");
     }
-    let mut content = Vec::new();
-    std::io::stdin()
-        .read_to_end(&mut content)
-        .unwrap_or_else(|e| {
-            eprintln!("mdopen: failed to read stdin: {e}");
-            process::exit(1);
-        });
+    let content = read_capped(std::io::stdin().lock(), MAX_STDIN_BYTES).unwrap_or_else(|msg| {
+        eprintln!("mdopen: {msg}");
+        process::exit(1);
+    });
     if let Err(msg) = check_stdin_content(&content) {
         eprintln!("mdopen: {msg}");
         process::exit(1);
@@ -242,6 +239,32 @@ fn read_stdin_to_temp() -> PathBuf {
         eprintln!("mdopen: failed to write temp file: {e}");
         process::exit(1);
     })
+}
+
+/// Most bytes `mdopen -` reads from stdin: the 16 MiB document limit the app
+/// accepts in one IPC request and the MCP server reads from disk
+/// (`MAX_DOCUMENT_BYTES` in mdopener-mcp). Stdin used to be read whole, so
+/// `mdopen - < /dev/zero` grew without bound and a huge pipe went to disk in full.
+const MAX_STDIN_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Read `input` to its end, refusing it as soon as it is longer than `cap`
+/// bytes (at most `cap + 1` bytes are ever held). `Err` is the message for
+/// stderr.
+fn read_capped(input: impl std::io::Read, cap: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+    let mut content = Vec::new();
+    input
+        .take(cap + 1)
+        .read_to_end(&mut content)
+        .map_err(|e| format!("failed to read stdin: {e}"))?;
+    if content.len() as u64 > cap {
+        return Err(format!(
+            "stdin is more than the {} MiB a document may be, so nothing was opened. \
+             Save it to a file and split it, or open a smaller part.",
+            cap / (1024 * 1024)
+        ));
+    }
+    Ok(content)
 }
 
 /// The stderr hint for `mdopen -` when stdin is a terminal (nothing is piped),
@@ -472,7 +495,8 @@ EXIT STATUS:
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
     1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
-       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
+       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), `-` with empty stdin or
+       more than 16 MiB of it, or the app is not running
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case. Also
        1 when the running app answered with a server error or did not
@@ -674,6 +698,19 @@ mod tests {
         assert!(hint.contains("Ctrl+"), "hint: {hint}");
         assert!(hint.contains("mdopen -"), "hint: {hint}");
         assert_eq!(stdin_hint(false), None);
+    }
+
+    #[test]
+    fn stdin_past_the_document_limit_is_refused() {
+        // `mdopen -` read stdin whole, however much was piped in.
+        assert_eq!(MAX_STDIN_BYTES, 16 * 1024 * 1024);
+        let at_cap = vec![b'#'; 64];
+        assert_eq!(read_capped(&at_cap[..], 64).unwrap(), at_cap);
+        let err = read_capped(&[b'x'; 65][..], 64).unwrap_err();
+        assert!(err.contains("nothing was opened"), "{err}");
+        // The real limit, against an endless stream: refused, not read forever.
+        let err = read_capped(std::io::repeat(b'x'), MAX_STDIN_BYTES).unwrap_err();
+        assert!(err.contains("more than the 16 MiB"), "{err}");
     }
 
     #[test]

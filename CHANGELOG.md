@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen -` stops at 16 MiB.** It read all of stdin into memory and then
+  into a temp file, however much was piped in (`mdopen - < /dev/zero` never
+  finished). Past the 16 MiB a document may be it now exits `1`, saying so,
+  without writing a temp file or opening anything.
 - **Documents over 16 MiB are refused, not returned whole.** `export_text`,
   `export_metadata`, `diff_documents`, `edit_canvas` and `file://` resources
   read a document from disk whole and returned it whole, so a

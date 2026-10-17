@@ -539,7 +539,9 @@ exits `1`, before contacting the app, for a file that is not a Markdown document
 (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) or is a dotfile, checked after
 symlinks are resolved; and when the running app refuses the file, it exits `1`
 with the app's reason on stderr without trying the URL scheme. `mdopen -` also
-exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
+exits `1`, opening nothing, when stdin is empty or only whitespace, or longer
+than the 16 MiB a document may be (it stops reading there and writes no temp
+file). Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
 stderr. Run with no arguments at all, it prints its help to stderr and exits
 `1`; `mdopen --help` prints it to stdout and exits `0`.
