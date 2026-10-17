@@ -707,7 +707,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
-                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
+                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
             }),
@@ -1960,6 +1960,99 @@ fn review_timeout_arg(v: &Value) -> Result<u64, String> {
     }
 }
 
+/// What a review was registered with, kept by this server so a resumed call
+/// (`review_id`) that also sends `path`, `content` or `timeout_ms` can be
+/// checked against it. The content is kept as a hash, not the text.
+#[derive(Clone, PartialEq, Debug)]
+struct RegisteredReview {
+    path: Option<String>,
+    content: Option<u64>,
+    timeout_ms: u64,
+}
+
+/// Most registered reviews remembered for that check (the oldest go first).
+const MAX_REMEMBERED_REVIEWS: usize = 256;
+
+fn registered_reviews() -> &'static Mutex<Vec<(String, RegisteredReview)>> {
+    static REVIEWS: OnceLock<Mutex<Vec<(String, RegisteredReview)>>> = OnceLock::new();
+    REVIEWS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn content_hash(content: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut h);
+    h.finish()
+}
+
+fn remember_review(review_id: &str, review: RegisteredReview) {
+    let mut reviews = registered_reviews()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    reviews.push((review_id.to_string(), review));
+    let excess = reviews.len().saturating_sub(MAX_REMEMBERED_REVIEWS);
+    reviews.drain(..excess);
+}
+
+fn remembered_review(review_id: &str) -> Option<RegisteredReview> {
+    registered_reviews()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == review_id)
+        .map(|(_, r)| r.clone())
+}
+
+/// For a resumed `request_review` (one with `review_id`), the review-defining
+/// arguments it also sent. Resuming never re-registers, so they cannot change
+/// the review. Resending the arguments of the first call is fine, so for a
+/// review this server registered each one given is compared with what it was
+/// registered with, and one that differs is refused (`Err`, a `-32602`
+/// message naming it): an agent that changed `content` and sent the old
+/// `review_id` would otherwise read the human's verdict on the old text as a
+/// verdict on the new. For a review this server did not register (it was
+/// restarted, or another server registered it) nothing can be compared, so the
+/// call goes ahead and `Ok` lists the arguments that went unchecked, which the
+/// result reports as `ignored`.
+fn resumed_review_arguments(
+    review_id: &str,
+    args: &Value,
+    timeout_ms: u64,
+) -> Result<Vec<&'static str>, String> {
+    let given: Vec<&'static str> = ["path", "content", "timeout_ms"]
+        .into_iter()
+        .filter(|k| !args[*k].is_null())
+        .collect();
+    if given.is_empty() {
+        return Ok(given);
+    }
+    let Some(original) = remembered_review(review_id) else {
+        return Ok(given);
+    };
+    let differs = |what: &str| {
+        Err(format!(
+            "`{what}` differs from what review `{review_id}` was requested with. A call with \
+             `review_id` keeps waiting on that review as it was requested and cannot change it; \
+             resend the same `path`, `content` and `timeout_ms` or leave them out, or call \
+             request_review without `review_id` to request a new review."
+        ))
+    };
+    if let Some(p) = args["path"].as_str() {
+        if original.path.as_deref() != Some(agent_path(p).as_str()) {
+            return differs("path");
+        }
+    }
+    if let Some(c) = args["content"].as_str() {
+        if original.content != Some(content_hash(c)) {
+            return differs("content");
+        }
+    }
+    if !args["timeout_ms"].is_null() && original.timeout_ms != timeout_ms {
+        return differs("timeout_ms");
+    }
+    Ok(Vec::new())
+}
+
 /// [`tool_request_review`] with the poll interval injected for tests.
 pub fn tool_request_review_with(
     id: Value,
@@ -1971,8 +2064,21 @@ pub fn tool_request_review_with(
         .as_str()
         .filter(|r| !r.is_empty())
         .map(str::to_string);
+    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
+        Ok(t) => t,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    // A resumed review opens nothing, so its `path` is only compared.
+    let ignored = match &resume {
+        Some(r) => match resumed_review_arguments(r, args, timeout_ms) {
+            Ok(ignored) => ignored,
+            Err(e) => return Response::err(id, -32602, e),
+        },
+        None => Vec::new(),
+    };
     let path = match args["path"]
         .as_str()
+        .filter(|_| resume.is_none())
         .map(openable_document_path)
         .transpose()
     {
@@ -1981,15 +2087,28 @@ pub fn tool_request_review_with(
     };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
-        Ok(t) => t,
-        Err(e) => return Response::err(id, -32602, e),
-    };
     let wait_ms = whole_number(args, "wait_ms")
         .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
         .clamp(1_000, 600_000);
 
     let resumed = resume.is_some();
+    let respond = |id: Value, mut out: Value| -> Response {
+        if !ignored.is_empty() {
+            out["ignored"] = json!(ignored);
+            out["note"] = json!(format!(
+                "{} not checked: this server did not register review `{}` (it was restarted, \
+                 or another server registered it), so a resumed call cannot compare them with \
+                 the review's and they did not change it.",
+                ignored
+                    .iter()
+                    .map(|k| format!("`{k}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                out["reviewId"].as_str().unwrap_or("")
+            ));
+        }
+        tool_result(id, out)
+    };
     let review_id = match resume {
         Some(r) => r,
         None => {
@@ -2027,6 +2146,14 @@ pub fn tool_request_review_with(
                 Ok(_) => {}
                 Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
+            remember_review(
+                &review_id,
+                RegisteredReview {
+                    path: path.clone(),
+                    content: content.as_deref().map(content_hash),
+                    timeout_ms,
+                },
+            );
             if !blocking {
                 return tool_result(
                     id,
@@ -2064,7 +2191,7 @@ pub fn tool_request_review_with(
         let now = std::time::Instant::now();
         if now >= deadline {
             if window_ends {
-                return tool_result(
+                return respond(
                     id,
                     json!({
                         "verdict": "timeout",
@@ -2073,7 +2200,7 @@ pub fn tool_request_review_with(
                     }),
                 );
             }
-            return tool_result(
+            return respond(
                 id,
                 json!({
                     "status": "pending",
@@ -2088,7 +2215,7 @@ pub fn tool_request_review_with(
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
                 "timeout" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "timeout",
@@ -2100,7 +2227,7 @@ pub fn tool_request_review_with(
                 // A newer review took the panel before the human decided, so
                 // no verdict will come for this one.
                 "superseded" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "superseded",
@@ -2111,7 +2238,7 @@ pub fn tool_request_review_with(
                     )
                 }
                 "not_found" => {
-                    return tool_result(
+                    return respond(
                         id,
                         json!({
                             "verdict": "timeout",
@@ -2120,7 +2247,7 @@ pub fn tool_request_review_with(
                         }),
                     )
                 }
-                _ => return tool_result(id, decided_review(&resp, &review_id)),
+                _ => return respond(id, decided_review(&resp, &review_id)),
             },
         }
     }

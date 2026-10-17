@@ -432,7 +432,17 @@ before proceeding.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
-  (no new review is registered). Once its `timeout_ms` window has closed with
+  (no new review is registered). A resumed call cannot change the review, so
+  `path`, `content` and `timeout_ms` may be resent unchanged (or left out), and
+  one that differs from what the review was requested with is refused with an
+  invalid-params error naming it, and nothing is waited on. Refusing, rather
+  than going ahead and noting it, is deliberate: an agent that changed its
+  `content` and kept the old `review_id` would otherwise read the human's
+  verdict on the old text as a verdict on the new one. The server remembers
+  the last 256 reviews it registered; for a review it did not register (it was
+  restarted, or another server registered it) nothing can be compared, so the
+  call goes ahead and the result lists those arguments as `ignored`, with a
+  `note`. Once its `timeout_ms` window has closed with
   no verdict, the call returns `{ "verdict": "timeout", … }`.
   The app keeps a review for 30 minutes after its `timeout_ms` window closes,
   so resume within that time; later the call returns `verdict: "timeout"`

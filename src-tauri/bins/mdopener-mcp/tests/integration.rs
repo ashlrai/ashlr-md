@@ -5254,6 +5254,124 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     );
 }
 
+/// A resumed call (`review_id`) cannot change the review, so it used to
+/// ignore `path`, `content` and `timeout_ms` without a word: an agent that
+/// edited its plan and resent it with the old id got the verdict on the old
+/// text. Resending the first call's arguments still works; a value that
+/// differs is refused, naming it, and nothing is polled.
+#[test]
+fn request_review_resumed_with_different_arguments_is_refused() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.md");
+    let other = dir.path().join("other.md");
+    std::fs::write(&plan, "# Plan\n").unwrap();
+    std::fs::write(&other, "# Other\n").unwrap();
+    let register = |args: Value| {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let mut a = args;
+        a["blocking"] = json!(false);
+        let v = content_text(&tool_request_review_with(id(1), &a, &ipc, Duration::ZERO));
+        v["reviewId"].as_str().unwrap().to_string()
+    };
+    let resume = |args: Value| {
+        let ipc = MockIpc::new().on_get(
+            "/review/result",
+            Ok(json!({ "status": "done", "verdict": "approved", "comments": "" })),
+        );
+        let resp = tool_request_review_with(id(2), &args, &ipc, Duration::from_millis(1));
+        (resp, ipc.calls().len())
+    };
+
+    let by_content = register(json!({ "content": "v1", "timeout_ms": 60_000 }));
+    let by_path = register(json!({ "path": plan }));
+
+    // The same arguments again, or none, resume the review.
+    for args in [
+        json!({ "review_id": by_content, "content": "v1", "timeout_ms": 60_000, "blocking": false }),
+        json!({ "review_id": by_content }),
+        json!({ "review_id": by_path, "path": plan, "timeout_ms": 300_000 }),
+    ] {
+        let (resp, _) = resume(args.clone());
+        let v = content_text(&resp);
+        assert_eq!(v["verdict"], "approved", "{args}: {v}");
+        assert!(v.get("ignored").is_none(), "{v}");
+    }
+    // A relative spelling of the same file is the same path.
+    let cwd = std::env::current_dir().unwrap();
+    if let Ok(rel) = plan.strip_prefix(&cwd) {
+        let (resp, _) = resume(json!({ "review_id": by_path, "path": rel }));
+        assert_eq!(content_text(&resp)["verdict"], "approved");
+    }
+
+    for (args, field) in [
+        (
+            json!({ "review_id": by_content, "content": "v2" }),
+            "content",
+        ),
+        (
+            json!({ "review_id": by_content, "timeout_ms": 90_000 }),
+            "timeout_ms",
+        ),
+        (json!({ "review_id": by_content, "path": plan }), "path"),
+        (json!({ "review_id": by_path, "path": other }), "path"),
+        (
+            json!({ "review_id": by_path, "content": "# Plan\n" }),
+            "content",
+        ),
+    ] {
+        let (resp, polls) = resume(args.clone());
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with(&format!("`{field}` differs from what review `")),
+            "{args}: {msg}"
+        );
+        assert!(msg.contains("without `review_id`"), "{msg}");
+        assert_eq!(polls, 0, "a refused resume does not poll");
+    }
+}
+
+/// A review this server did not register (it was restarted, or another
+/// server registered it) cannot be compared: resending the arguments still
+/// resumes it, and the result says they were not checked.
+#[test]
+fn request_review_resumed_from_another_server_reports_ignored_arguments() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "done", "verdict": "approved", "comments": "" })),
+    );
+    let foreign = format!("rev_1_00000001_{}", u64::MAX / 2);
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign, "content": "plan", "timeout_ms": 60_000 }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["ignored"], json!(["content", "timeout_ms"]), "{v}");
+    assert!(v["note"].as_str().unwrap().contains("not checked"), "{v}");
+    // A path that is not even a document is only compared, never opened.
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign, "path": "/nonexistent/x.md" }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    assert_eq!(content_text(&resp)["ignored"], json!(["path"]));
+    // Without them there is nothing to report.
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": foreign }),
+        &ipc,
+        Duration::from_millis(1),
+    );
+    assert!(content_text(&resp).get("ignored").is_none());
+}
+
 /// A resumed review stops at the end of its window: the app keeps a review
 /// replaced in its panel by a newer one as `pending` forever, so resuming it
 /// by `review_id` must end with `timeout` once the window the id records has

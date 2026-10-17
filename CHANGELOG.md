@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`request_review` with `review_id` no longer ignores a changed review.**
+  `path`, `content` and `timeout_ms` were silently ignored on a resumed call,
+  so an agent that edited its plan and resent it with the old id got the
+  verdict on the old text. Resending the same values still works; a value
+  that differs is now refused (`-32602`) naming it. For a review the server
+  did not register (after a restart) the result lists them as `ignored`.
 - **`edit_canvas` checks every op field's type, and `add_node` refuses nodes
   the app drops.** A mistyped field was misreported (`"x": "5"` gave
   "`x` required") or written as given (`"color": 3`), a misspelled field
