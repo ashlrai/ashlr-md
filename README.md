@@ -7,10 +7,10 @@
 ### Markdown, finally beautiful.
 
 **An open-source, AI-native Markdown app for macOS, Windows, and Linux.** Double-click any `.md` and
-it's instantly beautiful — read it, edit it, export it, and understand it with
+it's instantly beautiful: read it, edit it, export it, and understand it with
 free, private, **on-device AI** built in.
 
-*Think Preview.app, but Markdown-aware, editable, and AI-native — and cross-platform.*
+*Think Preview.app, but Markdown-aware, editable, and AI-native, and cross-platform.*
 
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
@@ -23,7 +23,7 @@ free, private, **on-device AI** built in.
 [Roadmap](./ROADMAP.md) ·
 [Vision](./docs/VISION.md)
 
-<img src="./docs/og.png" width="820" alt="Ashlr MD — a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
+<img src="./docs/og.png" width="820" alt="Ashlr MD: a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
 
 </div>
 
@@ -59,73 +59,73 @@ Windows; its quoting is not intended for Windows Command Prompt (`cmd.exe`).
 
 ## Why
 
-Your AI agents write Markdown all day — `README.md`, `PLAN.md`, research dumps.
+Your AI agents write Markdown all day: `README.md`, `PLAN.md`, research dumps.
 On most systems those open as a wall of raw syntax (TextEdit, Notepad) or a blank
 page (Preview). No app owns the simple job of making them *look right* instantly,
 especially for non-technical people. Ashlr MD does exactly that, on every platform.
 
 ## Features
 
-- **Instant, beautiful rendering** — GFM, Shiki-highlighted code, Mermaid
+- **Instant, beautiful rendering**: GFM, Shiki-highlighted code, Mermaid
   diagrams, KaTeX math, GitHub-style callouts, tables, footnotes.
-- **Edit without the syntax** — Typora-style WYSIWYG (Milkdown) + a lossless
+- **Edit without the syntax**: Typora-style WYSIWYG (Milkdown) + a lossless
   source mode (CodeMirror) + a clean Read view. Atomic save; external-change
   detection with a conflict banner.
-- **Export anywhere** — one-click **PDF / DOCX / HTML**, fully offline, no Pandoc.
-- **⌘K command palette** — fuzzy, keyboard-first access to every action and your
+- **Export anywhere**: one-click **PDF / DOCX / HTML**, fully offline, no Pandoc.
+- **⌘K command palette**: fuzzy, keyboard-first access to every action and your
   recent files.
-- **Free, private, on-device AI** — summarize / explain / rewrite / translate.
+- **Free, private, on-device AI**: summarize / explain / rewrite / translate.
   On **macOS 26+ (Apple Silicon)**: zero-install via **Apple Foundation Models**
   (macOS only). On **Windows & Linux** (and as a fallback on Mac): local
   **Ollama** → your own cloud key → optional hosted. Nothing leaves your device
   unless you opt in.
-- **AI superpowers** — select text to Explain / Summarize / Rewrite / Translate;
+- **AI superpowers**: select text to Explain / Summarize / Rewrite / Translate;
   **inline AI rewrite in the editor (⌘I)** with Rewrite / Fix grammar / Make
   concise / Expand; **"Explain changes"** when a file changes on disk; and
   chat-with-document.
-- **Agent activity drawer (⌘B)** — watch the folder your AI agent writes to and
+- **Agent activity drawer (⌘B)**: watch the folder your AI agent writes to and
   new Markdown files appear live; click to open instantly. The answer to "buried
   in agent `.md` files."
-- **Outline navigation (⌘⇧O)** — an auto table-of-contents with scrollspy for
+- **Outline navigation (⌘⇧O)**: an auto table-of-contents with scrollspy for
   long docs.
-- **Tabs** — open several documents at once; the tab bar appears only when more
+- **Tabs**: open several documents at once; the tab bar appears only when more
   than one is open, so the single-file view stays clean. `⌘⇧]` / `⌘⇧[` to switch,
   `⌘W` to close.
-- **Find & search** — find-in-document (`⌘F`) in both rendered and source views,
+- **Find & search**: find-in-document (`⌘F`) in both rendered and source views,
   find-and-replace in source (`⌘⌥F`), and full-text **search across your recent &
   watched files** (`⌘⇧F`).
-- **Split view & Zen mode** — edit with a live preview side-by-side (`⌘\`, synced
+- **Split view & Zen mode**: edit with a live preview side-by-side (`⌘\`, synced
   scrolling), or go distraction-free with **Zen mode** (`⌘⇧Z`, `Esc` to exit).
-- **Obsidian-compatible** — reads your vault natively: `[[wikilinks]]` (with
+- **Obsidian-compatible**: reads your vault natively, with `[[wikilinks]]` (with
   `#heading` / `#^block` anchors and `|aliases`) that resolve vault-wide and open,
   `![[embeds]]` and partial transclusion, sized `![[image.png|300]]` embeds,
   `==highlights==`, hidden `%%comments%%`, and KaTeX math. Read-only **JSON
   Canvas** (`.canvas`) viewing with pan/zoom, plus an **Open in Obsidian** command
   to hand a note back. Never writes to your `.obsidian/` config. Details:
   [**docs/OBSIDIAN.md**](./docs/OBSIDIAN.md).
-- **Reading polish** — word count & reading time, footnote hover previews,
+- **Reading polish**: word count & reading time, footnote hover previews,
   a path breadcrumb, and copy-link-to-heading on hover.
-- **Secure by default** — malicious Markdown is sanitized (no script/HTML
+- **Secure by default**: malicious Markdown is sanitized (no script/HTML
   injection), API keys live in the OS keychain (never plaintext), and a strict
   CSP is enforced. See [SECURITY.md](./SECURITY.md).
-- **Agent-native review loop** — `mdopen file.md`, the `mdopener://` URL scheme,
+- **Agent-native review loop**: `mdopen file.md`, the `mdopener://` URL scheme,
   and an **MCP server** so Claude Code / Codex / Cursor can open, read, edit, and
   export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
   the instant they land and **"Explain changes"** narrates each on-disk edit.
   One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](./docs/AGENTS.md).
-- **Phantom's Markdown opener** — [Phantom](https://github.com/ashlrai/phantom) opens
+- **Phantom's Markdown opener**: [Phantom](https://github.com/ashlrai/phantom) opens
   `.md` files in Ashlr MD out of the box. See [**docs/PHANTOM.md**](./docs/PHANTOM.md).
-- **Obsidian integration** — the [Open in Ashlr MD](./integrations/obsidian/)
+- **Obsidian integration**: the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.
-- **VS Code integration** — the [Open in Ashlr MD](./integrations/vscode/)
+- **VS Code integration**: the [Open in Ashlr MD](./integrations/vscode/)
   extension opens the active `.md` file in Ashlr MD from an editor title-bar
   button (or the command palette) via the `mdopener://` scheme, with a `mdopen`
   CLI fallback.
-- **Smart agent output** — callouts, interactive checkboxes that save back to the
+- **Smart agent output**: callouts, interactive checkboxes that save back to the
   file, and automatic plan / diff / multi-file detection with badges.
-- **Three themes** — Paper, Sepia, Midnight (light + dark) — switch live.
-- **Native & instant** — built on [Tauri 2](https://tauri.app); a tiny native binary
+- **Three themes**: Paper, Sepia, Midnight (light + dark), switch live.
+- **Native & instant**: built on [Tauri 2](https://tauri.app); a tiny native binary
   on every OS, no Electron bloat. MIT, local-first, no telemetry.
 
 
@@ -142,7 +142,7 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
 
 ## Keyboard shortcuts
 
-Shown with ⌘ on macOS — use **Ctrl** on Windows & Linux.
+Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
 
 | Action | Shortcut |
 |---|---|
@@ -168,7 +168,7 @@ Shown with ⌘ on macOS — use **Ctrl** on Windows & Linux.
 ## One-click agent setup
 
 Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
-**Connect to Cursor** — no terminal required. For Codex, copy the command from the
+**Connect to Cursor**; no terminal required. For Codex, copy the command from the
 same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch an
 agent's output folder and open new `.md` files the moment they appear. Full guide
 + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
@@ -242,8 +242,8 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 
 | Layer | What |
 |---|---|
-| `src/` | React 19 + TS frontend — renderer (remark/rehype + Shiki/Mermaid/KaTeX), Milkdown & CodeMirror editors, AI sidebar, export, Zustand stores |
-| `src-tauri/src/` | Rust core — file I/O, watcher, deep links, AI proxy (reqwest), loopback IPC, on-device AI bridge |
+| `src/` | React 19 + TS frontend: renderer (remark/rehype + Shiki/Mermaid/KaTeX), Milkdown & CodeMirror editors, AI sidebar, export, Zustand stores |
+| `src-tauri/src/` | Rust core: file I/O, watcher, deep links, AI proxy (reqwest), loopback IPC, on-device AI bridge |
 | `src-tauri/bins/` | `mdopen` CLI · `mdopener-mcp` MCP server · `mdopener-afm` Swift on-device AI sidecar |
 | `landing/` | The marketing site (static, deploy-anywhere) |
 

@@ -36,6 +36,33 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`present_document` refuses a missing file itself.** A `path` that does
+  not exist was sent to the app, so with the app closed the agent heard only
+  "not running" and learned the path was wrong after starting it. It is now
+  refused first: "Cannot present '<absolute path>': the file does not exist."
+- **`mdopen` names the target of a refused link.** `notes.md` linking to
+  `.env` was refused as `"notes.md" is not a Markdown document`, though its
+  name is one. It now reads `"notes.md" links to /abs/.env, which is not a
+  Markdown document`.
+- **`mdopen` says when a file does not exist, and where it looked.** A
+  missing file read `cannot resolve path "nope.md": No such file or
+  directory (os error 2)`. It is now `"nope.md" does not exist (looked for
+  /abs/path/nope.md)`; other resolution failures keep the OS reason.
+- **`export_text`, `export_metadata` and `diff_documents` say when a file is
+  missing.** A relative path to a missing file was reported as "Cannot read
+  'nope.md': No such file or directory (os error 2)". The error now names the
+  absolute path the server resolved and says "the file does not exist", as
+  `open_file` does.
+- **`get_current_content` reports no open document as an error.** With
+  nothing open it returned `{ "path": null, "content": "" }` as a success,
+  the same as an empty document, so an agent could not tell the two apart.
+  It is now an `isError` result ("No document is open in Ashlr MD. Open one
+  first (open_file)."), the one `mdopener://current` and `export_text`
+  give. An unsaved document with text, or an empty saved one, is unchanged.
+- **README, CONTRIBUTING, ROADMAP and SECURITY have no em or en dashes.**
+  Their prose, feature lists and tables use colons, semicolons and commas
+  instead, and the dash guard test now covers every top-level Markdown file
+  except this changelog, whose historical entries are unchanged.
 - **docs/AGENTS.md has no em or en dashes in its prose.** Headings, lists,
   the tool table and the hook and security sections now use plain
   punctuation, as the repo's style asks; ranges read "5 000 to 600 000".

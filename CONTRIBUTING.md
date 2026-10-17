@@ -1,7 +1,7 @@
 # Contributing to Ashlr MD
 
 Thanks for your interest! Ashlr MD aims to be the instant, beautiful, AI-native
-home for Markdown — local-first and open source. See [`docs/VISION.md`](./docs/VISION.md)
+home for Markdown: local-first and open source. See [`docs/VISION.md`](./docs/VISION.md)
 for the north star and the quality bar every change should clear.
 
 ## Prerequisites
@@ -54,16 +54,16 @@ Run `bunx biome check --write src` to auto-fix formatting and imports.
 
 - **Local-first.** Nothing leaves the device without explicit user action.
 - **No GPL** in the bundled dependency tree (keeps the MIT promise intact).
-- **Verify in the real app**, not just in theory — a feature is done when it
+- **Verify in the real app**, not just in theory; a feature is done when it
   works end-to-end and looks great in all three themes (Paper / Sepia / Midnight).
 - Match the surrounding code style; comment the non-obvious.
 
 ## Architecture
 
-- `src/` — React + TypeScript frontend (Zustand stores, react-markdown renderer,
+- `src/`: React + TypeScript frontend (Zustand stores, react-markdown renderer,
   Milkdown/CodeMirror editors, AI sidebar, export).
-- `src-tauri/src/` — Rust core (file I/O, watcher, deep links, AI proxy, IPC server).
-- `src-tauri/bins/` — the `mdopen` CLI and `mdopener-mcp` MCP server.
+- `src-tauri/src/`: Rust core (file I/O, watcher, deep links, AI proxy, IPC server).
+- `src-tauri/bins/`: the `mdopen` CLI and `mdopener-mcp` MCP server.
 
 ## License
 

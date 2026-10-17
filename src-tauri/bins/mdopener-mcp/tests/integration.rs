@@ -801,20 +801,45 @@ fn get_current_content_returns_path_and_markdown() {
     assert_eq!(text["content"], "# Hello\nworld");
 }
 
+/// With no document open the app answers `{ path: null, content: "" }`. The
+/// tool used to return that as a success, the same as an empty document; it
+/// is an error now, as `mdopener://current` and `export_text` report it.
 #[test]
-fn get_current_content_no_doc_open_returns_null_path() {
-    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
-    let resp = tool_get_content(id(1), &ipc);
-    assert!(resp.error.is_none());
-    assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
-    let text = content_text(&resp);
-    assert!(text["path"].is_null());
-    assert_eq!(text["content"], "");
+fn get_current_content_no_doc_open_is_a_tool_error() {
+    for body in [
+        json!({ "path": null, "content": "" }),
+        json!({ "path": null }),
+        json!({}),
+    ] {
+        let ipc = MockIpc::new().on_get("/content", Ok(body.clone()));
+        let resp = tool_get_content(id(1), &ipc);
+        let err = tool_error_text(&resp);
+        assert!(
+            err.contains("No document is open in Ashlr MD"),
+            "{body}: {err}"
+        );
+        assert!(err.contains("open_file"), "{err}");
+    }
 }
 
-/// The description said nothing of a null `path` or of what comes back with
-/// no document open, though `mdopener://current` and `export_text` call that
-/// an error and this tool answers it as a success.
+/// An unsaved document with text, and a saved document that is empty, are
+/// still successes: only a null path with no content means nothing is open.
+#[test]
+fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
+    for (path, content) in [(Value::Null, "# Draft"), (json!("/docs/empty.md"), "")] {
+        let ipc =
+            MockIpc::new().on_get("/content", Ok(json!({ "path": path, "content": content })));
+        let resp = tool_get_content(id(1), &ipc);
+        assert!(resp.error.is_none());
+        assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
+        let text = content_text(&resp);
+        assert_eq!(text["path"], path);
+        assert_eq!(text["content"], content);
+    }
+}
+
+/// The description says what a null `path` means and that no open document
+/// is an error, as `mdopener://current` and `export_text` report it.
 #[test]
 fn get_current_content_description_says_what_null_path_and_no_document_mean() {
     let reg = tool_registry();
@@ -824,12 +849,10 @@ fn get_current_content_description_says_what_null_path_and_no_document_mean() {
         .unwrap();
     let d = def.description;
     assert!(d.contains("`path` is null for an unsaved document"), "{d}");
-    assert!(
-        d.contains("With no document open this is not an error"),
-        "{d}"
-    );
-    assert!(d.contains(r#"{ path: null, content: "" }"#), "{d}");
+    assert!(d.contains("With no document open this is an error"), "{d}");
+    assert!(d.contains("isError: true"), "{d}");
     assert!(d.contains("mdopener://current and export_text"), "{d}");
+    assert!(!d.contains("not an error"), "{d}");
 }
 
 #[test]
@@ -1467,9 +1490,13 @@ fn present_document_no_path_uses_current_doc() {
 
 #[test]
 fn present_document_with_path_sends_canonicalized() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, "# Notes\n").unwrap();
     let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
-    let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
+    let resp = tool_present_document(id(1), &json!({ "path": notes }), &ipc);
     assert!(resp.error.is_none());
+    assert!(!is_error(&resp), "{resp:?}");
     let calls = ipc.calls();
     let body = calls
         .iter()
@@ -1480,6 +1507,30 @@ fn present_document_with_path_sends_canonicalized() {
         .unwrap();
     // Should have received a non-null path
     assert!(!body["path"].is_null(), "path should be set");
+}
+
+/// A missing file was sent to the app, so with the app closed the agent was
+/// told only that it is not running. It is refused before the app is asked,
+/// with the absolute path, whether the app is running or not.
+#[test]
+fn present_document_refuses_a_missing_file_without_asking_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.md");
+    for ipc in [
+        MockIpc::new().on_post("/present", Ok(json!({ "ok": true }))),
+        MockIpc::new().on_post("/present", Err("ipc-port not found".into())),
+    ] {
+        let resp = tool_present_document(id(1), &json!({ "path": missing }), &ipc);
+        let err = tool_error_text(&resp);
+        assert!(
+            err.contains(&format!(
+                "Cannot present '{}': the file does not exist.",
+                missing.display()
+            )),
+            "{err}"
+        );
+        assert!(ipc.calls().is_empty(), "the app must not be asked");
+    }
 }
 
 #[test]
@@ -5080,6 +5131,39 @@ fn export_text_and_metadata_with_nothing_open_are_errors() {
 // ════════════════════════════════════════════════════════════════════════════
 // Tool: export_metadata — frontmatter, headings, wikilinks, images, word count
 // ════════════════════════════════════════════════════════════════════════════
+
+/// A missing file given by a relative path was reported as "Cannot read
+/// 'nope.md': No such file or directory (os error 2)": the raw OS text and the
+/// relative spelling, which did not say where the server looked. It is now
+/// the absolute path and "the file does not exist", as `open_file` says.
+#[test]
+fn reading_a_missing_relative_path_names_the_absolute_path_and_says_it_does_not_exist() {
+    let name = format!("ashlr-md-missing-{}.md", std::process::id());
+    let abs = std::env::current_dir().unwrap().join(&name);
+    assert!(!abs.exists());
+    let abs = abs.to_string_lossy().into_owned();
+    let ipc = MockIpc::new();
+    let args = json!({ "path": name });
+    let other = std::env::temp_dir().join(format!("ashlr-md-present-{}.md", std::process::id()));
+    std::fs::write(&other, "# x\n").unwrap();
+    let errors = [
+        tool_error_text(&tool_export_text(json!(1), &args, &ipc)),
+        tool_error_text(&tool_export_metadata(json!(2), &args, &ipc)),
+        tool_error_text(&call(
+            "diff_documents",
+            json!({ "path_a": name, "path_b": other.to_string_lossy() }),
+            &ipc,
+        )),
+    ];
+    std::fs::remove_file(&other).unwrap();
+    for err in errors {
+        assert!(
+            err.contains(&format!("'{abs}': the file does not exist.")),
+            "{err}"
+        );
+        assert!(!err.contains("os error"), "{err}");
+    }
+}
 
 #[test]
 fn export_metadata_parses_frontmatter_and_headings() {

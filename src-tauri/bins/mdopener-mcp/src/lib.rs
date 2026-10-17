@@ -787,7 +787,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is not an error: it returns { path: null, content: \"\" }, the same as an empty unsaved document (mdopener://current and export_text report no open document as an error instead).",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD\"), as for mdopener://current and export_text; the app reports an unsaved document that is still empty the same way, so an error here never hides content.",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",
@@ -1982,12 +1982,25 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
     }
 }
 
+/// `get_current_content`: the app's `{ path, content }`, or a tool error. With
+/// no document open the app answers `{ "path": null, "content": "" }`, which
+/// this tool used to return as a success, so an agent could not tell "nothing
+/// open" from an empty document. It is an error now, the one
+/// `mdopener://current` and `export_text` give; an empty unsaved document
+/// reads the same at the IPC and is reported the same way.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
+        Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
+            tool_error(id, NO_DOCUMENT_OPEN.to_string())
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
+
+/// The error `get_current_content` and `mdopener://current` give when no
+/// document is open in the app.
+const NO_DOCUMENT_OPEN: &str = "No document is open in Ashlr MD. Open one first (open_file).";
 
 pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let content = match args["content"].as_str() {
@@ -2096,6 +2109,18 @@ fn app_reached_but_failed(err: &str) -> bool {
     ]
     .iter()
     .any(|p| err.starts_with(p))
+}
+
+/// "Cannot read {what}'{path}': ..." for a failed document read, saying "the
+/// file does not exist" for a missing file, as `open_file` does. The raw OS
+/// text ("No such file or directory (os error 2)") read like a fault and,
+/// with the relative path the agent passed, did not say where it looked.
+fn cannot_read(what: &str, path: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        format!("Cannot read {what}'{path}': the file does not exist.")
+    } else {
+        format!("Cannot read {what}'{path}': {e}")
+    }
 }
 
 pub fn agent_path(raw: &str) -> String {
@@ -3231,6 +3256,17 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
+    // A missing file can never be presented. It was sent to the app first, so
+    // with the app closed the agent heard only "not running", and learned the
+    // path was wrong after starting it.
+    if let Some(abs) = path.as_deref() {
+        if !std::path::Path::new(abs).is_file() {
+            return tool_error(
+                id,
+                format!("Cannot present '{abs}': the file does not exist."),
+            );
+        }
+    }
     match ipc.post("/present", json!({ "path": path })) {
         Ok(v) if v["ok"].as_bool() == Some(false) => {
             let what = path.as_deref().unwrap_or("the open document");
@@ -3758,10 +3794,7 @@ fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
     let no_document = v["path"].is_null();
     match v["content"].as_str() {
         Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
-        _ if no_document => Err((
-            -32002,
-            "No document is open in Ashlr MD. Open one first (open_file).".to_string(),
-        )),
+        _ if no_document => Err((-32002, NO_DOCUMENT_OPEN.to_string())),
         _ => Err((
             -32002,
             "Ashlr MD did not return the current document's content.".to_string(),
@@ -5204,11 +5237,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         },
     };
 
-    let doc_a = match checked_document(&raw_a, "path_a") {
+    let doc_a = match checked_document(&agent_path(&raw_a), "path_a") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
-    let doc_b = match checked_document(&raw_b, "path_b") {
+    let doc_b = match checked_document(&agent_path(&raw_b), "path_b") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -5216,11 +5249,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
 
     let content_a = match doc_a.read() {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
+        Err(e) => return tool_error(id, cannot_read("path_a ", &path_a, &e)),
     };
     let content_b = match doc_b.read() {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
+        Err(e) => return tool_error(id, cannot_read("path_b ", &path_b, &e)),
     };
 
     let (diff, hunks, added, removed) =
@@ -7103,11 +7136,11 @@ pub fn count_words(text: &str) -> usize {
 /// is an error rather than an empty document.
 fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
     if let Some(raw) = args["path"].as_str() {
-        let doc = checked_document(raw, "path")?;
+        let doc = checked_document(&agent_path(raw), "path")?;
         let abs = doc.path.clone();
         return match doc.read() {
             Ok(c) => Ok((without_bom(c), Some(abs))),
-            Err(e) => Err(format!("Cannot read '{abs}': {e}")),
+            Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
     let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;

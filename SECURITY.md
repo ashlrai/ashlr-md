@@ -40,7 +40,7 @@ secondary sensitive asset is your **AI provider API key**.
 ### Secret storage
 
 - AI provider API keys are stored in the **OS keychain** (macOS Keychain,
-  Windows Credential Manager, Linux Secret Service) via the `keyring` crate —
+  Windows Credential Manager, Linux Secret Service) via the `keyring` crate,
   never in `localStorage`. See `src-tauri/src/secrets.rs` and
   `src/store/aiStore.ts`. A legacy plaintext key from an older build is migrated
   into the keychain and scrubbed from `localStorage` on first launch.
@@ -57,18 +57,18 @@ secondary sensitive asset is your **AI provider API key**.
 
 - Ashlr MD runs a **loopback-only** HTTP server (`127.0.0.1`, OS-assigned port)
   so the bundled MCP binary and coding agents can drive the app. It binds to
-  localhost only — never a routable interface.
+  localhost only, never a routable interface.
 - Every endpoint except `/health` requires a **per-session bearer token**: 32
   bytes of OS CSPRNG (`getrandom`) compared in constant time. The token and port
   are written to `~/.mdopener/` owner-only (`0600` on Unix; the token is written
   before the port, which is the "ready" signal) and removed on exit.
 - **Trust boundary.** The token defends against *other users* on the machine and
   against anything off-box. It does **not** defend against a process running as
-  *the same user* — on every OS a same-user process can read the token file and
+  *the same user*: on every OS a same-user process can read the token file and
   the agent already has filesystem/shell access of its own. We therefore treat
   same-user code as trusted: the IPC adds no capability an agent doesn't already
   have. For the same reason, file-reading commands (`read_markdown_file`,
-  `read_image_data_url`) are intentionally not path-scoped — opening any file the
+  `read_image_data_url`) are intentionally not path-scoped; opening any file the
   user points at is the app's core function. The one write-side guard is refusing
   to write inside a vault's `.obsidian/` config dir.
 - **Agent opens are Markdown-only.** Because an opened document can be read
@@ -84,7 +84,7 @@ secondary sensitive asset is your **AI provider API key**.
 
 - Tauri capabilities are scoped (`src-tauri/capabilities/`). Shell command
   execution (`run_shell`) only runs code from the user's own document **after an
-  explicit in-UI confirmation** — there is no implicit/automatic execution.
+  explicit in-UI confirmation**; there is no implicit/automatic execution.
 
 ### Supply chain
 
