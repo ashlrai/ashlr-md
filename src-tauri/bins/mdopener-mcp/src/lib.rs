@@ -989,7 +989,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_ai_actions",
-            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, and the system+user prompt templates it uses. Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
+            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, scope, and the system+user prompt templates it uses. Templates read the selection (or, for scope 'document', the whole document) as {text}; an action whose templates also take {arg} has an `argument` field saying what {arg} is (the target language for translate). Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3162,8 +3162,10 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
 // ── list_ai_actions tool ──────────────────────────────────────────────────────
 
 /// Static metadata for the AI transform actions defined in src/ai/actions.ts.
-/// Kept in sync manually; the integration test verifies the list matches the
-/// TypeScript source.  Agents call `list_ai_actions` to discover what
+/// Kept in sync manually; `ai_actions_registry_matches_actions_ts` in the
+/// integration tests checks the ids, labels and icons against the TypeScript
+/// source. `argument` (on the actions whose templates use `{arg}`) says what
+/// that placeholder is, which the templates alone did not.  Agents call `list_ai_actions` to discover what
 /// transforms are available before composing a workflow.
 pub fn ai_actions_registry() -> Value {
     json!([
@@ -3228,7 +3230,8 @@ pub fn ai_actions_registry() -> Value {
             "icon": "🔀",
             "scope": "selection",
             "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version — focus on substantive content differences, not whitespace. Be concise and use Markdown.",
-            "userPromptTemplate": "MY CURRENT VERSION (in the editor):\n\n```\n{text}\n```\n\nVERSION ON DISK (changed underneath me):\n\n```\n{arg}\n```\n\nExplain what changed on disk compared to my current version."
+            "userPromptTemplate": "MY CURRENT VERSION (in the editor):\n\n```\n{text}\n```\n\nVERSION ON DISK (changed underneath me):\n\n```\n{arg}\n```\n\nExplain what changed on disk compared to my current version.",
+            "argument": "{arg} is the version of the document on disk; {text} is the version in the editor. The app passes an empty string when there is none."
         },
         {
             "id": "translate",
@@ -3237,7 +3240,8 @@ pub fn ai_actions_registry() -> Value {
             "icon": "🌐",
             "scope": "selection",
             "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation — no commentary, no preamble.",
-            "userPromptTemplate": "Translate the following into {arg}:\n\n{text}"
+            "userPromptTemplate": "Translate the following into {arg}:\n\n{text}",
+            "argument": "{arg} is the language to translate into, by name (e.g. French). The app uses Spanish when none is given."
         },
         {
             "id": "tldr",
@@ -3290,14 +3294,19 @@ pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
             if include_prompts {
                 action.clone()
             } else {
-                // Strip prompt templates — return only discovery metadata.
-                json!({
+                // Strip prompt templates: return only discovery metadata,
+                // which includes what an action's extra argument is.
+                let mut meta = json!({
                     "id": action["id"],
                     "label": action["label"],
                     "shortLabel": action["shortLabel"],
                     "icon": action["icon"],
                     "scope": action["scope"]
-                })
+                });
+                if !action["argument"].is_null() {
+                    meta["argument"] = action["argument"].clone();
+                }
+                meta
             }
         })
         .collect();
