@@ -7734,3 +7734,53 @@ fn frontmatter_nesting_deeper_than_the_cap_is_null() {
         assert!(cur.is_object() || cur.is_null(), "level {i}: {cur}");
     }
 }
+
+/// Tools that read a document from disk read it whole and returned it whole:
+/// a multi-gigabyte `.md` went into memory and into the agent's reply. Past
+/// the 16 MiB the app accepts in one request, they now refuse it.
+#[test]
+fn document_reads_refuse_a_file_larger_than_16_mib() {
+    use mdopener_mcp::{read_document_file, MAX_DOCUMENT_BYTES};
+    let dir = tempfile::Builder::new().prefix("big-").tempdir().unwrap();
+    let big = dir.path().join("big.md");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+    let small = dir.path().join("small.md");
+    std::fs::write(&small, "# small\n").unwrap();
+    let big_canvas = dir.path().join("big.canvas");
+    std::fs::File::create(&big_canvas)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+
+    let err = read_document_file(&big).unwrap_err();
+    assert!(err.to_string().contains("more than the 16 MiB"), "{err}");
+    let msg = tool_error_text(&call_tool("export_text", json!({ "path": big })));
+    assert!(
+        msg.contains("more than the 16 MiB a document may be"),
+        "{msg}"
+    );
+    let msg = tool_error_text(&call_tool(
+        "diff_documents",
+        json!({ "path_a": small, "path_b": big }),
+    ));
+    assert!(msg.contains("more than the 16 MiB"), "{msg}");
+    let msg = tool_error_text(&call_tool(
+        "edit_canvas",
+        json!({ "path": big_canvas, "ops": [{ "type": "delete_node", "id": "a" }] }),
+    ));
+    assert!(msg.contains("more than the 16 MiB"), "{msg}");
+
+    // Exactly the cap is still read.
+    let at_cap = dir.path().join("at-cap.md");
+    std::fs::File::create(&at_cap)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES)
+        .unwrap();
+    assert_eq!(
+        read_document_file(&at_cap).unwrap().len() as u64,
+        MAX_DOCUMENT_BYTES
+    );
+}

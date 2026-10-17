@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Documents over 16 MiB are refused, not returned whole.** `export_text`,
+  `export_metadata`, `diff_documents`, `edit_canvas` and `file://` resources
+  read a document from disk whole and returned it whole, so a
+  multi-gigabyte `.md` went into memory and into the agent's reply. Past
+  16 MiB (what the app accepts in one request) they now refuse it, saying how
+  large it is; vault search and the recent-documents resource skip it.
 - **`text://vault-search` refuses parameters it does not take.** A misspelt
   query parameter (`lmit=5`) was dropped and the search ran with the default,
   and any URI that merely started with `text://vault-search` was read as it.

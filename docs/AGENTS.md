@@ -670,7 +670,10 @@ The integration is **local-only and token-authenticated**:
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files
   only, so a FIFO or device named `x.md` is refused (or skipped) instead of
-  blocking the server.
+  blocking the server. Each also refuses (or, for search and the
+  recent-documents resource, skips) a file larger than 16 MiB, the most the
+  app accepts in one request, instead of reading it whole into memory and
+  into the reply.
 - The token and port files are **removed on clean app exit**, so a stale process
   can't authenticate against a new session.
 

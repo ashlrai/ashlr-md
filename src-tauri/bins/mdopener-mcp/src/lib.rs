@@ -3266,7 +3266,7 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Ok(c) => c,
             Err(e) => return Response::err(id, -32002, e),
         };
-        return match read_regular_file(&checked) {
+        return match read_document_file(&checked) {
             Ok(text) => Response::ok(
                 id,
                 json!({
@@ -3516,6 +3516,47 @@ pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<S
     std::fs::read_to_string(path)
 }
 
+/// Largest document (Markdown or canvas file) a tool or resource reads from
+/// disk: the 16 MiB the app accepts in one IPC request, so nothing larger
+/// could be opened or sent to it anyway. Without it a multi-gigabyte `.md`
+/// was read whole into memory and returned whole to the agent.
+pub const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// [`read_regular_file`] for a document, refusing one larger than
+/// [`MAX_DOCUMENT_BYTES`] (before reading it, and if it grows while read).
+pub fn read_document_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let path = path.as_ref();
+    let meta = std::fs::metadata(path)?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let too_large = |len: u64| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "it is {:.1} MiB, more than the {} MiB a document may be",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_DOCUMENT_BYTES / (1024 * 1024)
+            ),
+        )
+    };
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(too_large(meta.len()));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_DOCUMENT_BYTES + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
+}
+
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's
 /// `MD_EXTENSIONS` (src-tauri/src/document.rs).
 pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
@@ -3683,7 +3724,7 @@ fn semantic_hits(
     let mut skipped = 0;
 
     for path in paths {
-        let content = match read_regular_file(path) {
+        let content = match read_document_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -3739,7 +3780,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in paths {
-        let content = match read_regular_file(path) {
+        let content = match read_document_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -4074,7 +4115,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         };
         // Skip paths that no longer exist on disk. The checked (canonical)
         // path is read, so a link re-pointed after the check is not followed.
-        let content = match read_regular_file(&checked) {
+        let content = match read_document_file(&checked) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -4158,11 +4199,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return tool_error(id, e),
     };
 
-    let content_a = match read_regular_file(&path_a) {
+    let content_a = match read_document_file(&path_a) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match read_regular_file(&path_b) {
+    let content_b = match read_document_file(&path_b) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -4476,7 +4517,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
-    let raw_content = match read_regular_file(&path) {
+    let raw_content = match read_document_file(&path) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
@@ -5813,7 +5854,7 @@ pub fn count_words(text: &str) -> usize {
 fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
     if let Some(raw) = args["path"].as_str() {
         let abs = checked_document_path(raw, "path")?;
-        return match read_regular_file(&abs) {
+        return match read_document_file(&abs) {
             Ok(c) => Ok((without_bom(c), Some(abs))),
             Err(e) => Err(format!("Cannot read '{abs}': {e}")),
         };
