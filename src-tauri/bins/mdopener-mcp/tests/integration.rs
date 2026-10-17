@@ -10314,6 +10314,50 @@ fn recent_documents_counts_the_recents_it_skips() {
     );
 }
 
+/// The `mdopener://recent-documents` description gave `{ documents, count,
+/// skipped }` but not what each document holds, so an agent learned
+/// `mtimeMs` and `preview` by reading it. The named fields are exactly the
+/// ones each document has.
+#[test]
+fn recent_documents_description_names_each_documents_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::write(dir.join("ok.md"), "# Fine\nbody\n").unwrap();
+    let recents = json!([dir.join("ok.md").to_string_lossy()]);
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": recents })));
+    let listed = handle_resources_list(id(1), &ipc);
+    let resources = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let desc = resources
+        .iter()
+        .find(|r| r["uri"] == "mdopener://recent-documents")
+        .unwrap()["description"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        desc.contains("{ documents: [{ path, title, mtimeMs, preview }], count, skipped:"),
+        "{desc}"
+    );
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    let mut keys: Vec<String> = body["documents"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["mtimeMs", "path", "preview", "title"]);
+    assert_eq!(body["documents"][0]["title"], "Fine");
+}
+
 /// An HTTP answer was read to its end however long it was (the read timeout
 /// is per read), so a peer that kept sending grew the server's memory
 /// without bound. Past MAX_HTTP_RESPONSE_BYTES it is now refused.

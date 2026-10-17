@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://recent-documents` names each document's fields.** Its
+  description gave `{ documents, count, skipped }` but not what a document
+  holds. It now gives `{ documents: [{ path, title, mtimeMs, preview }],
+  count, skipped }` and says where `title` and `preview` come from.
 - **`get_conversation_context` and `save_conversation_message` name their
   results.** Their descriptions said what each stores or recovers but not
   what comes back. They now give `{ sessionId, messages: [{ id, sessionId,
