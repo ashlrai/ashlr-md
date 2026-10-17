@@ -598,7 +598,12 @@ enum HookMerge {
 /// Unexpected `hooks` / `hooks.PostToolUse` shapes are an error (the message
 /// is appended to the settings path) rather than silently overwritten.
 fn merge_hook(root: &mut Value, mdopen: &str) -> Result<HookMerge, &'static str> {
-    merge_hook_with(root, mdopen, &|p| std::path::Path::new(p).is_file())
+    merge_hook_with(
+        root,
+        mdopen,
+        &|p| std::path::Path::new(p).is_file(),
+        PATHS_IGNORE_CASE,
+    )
 }
 
 /// The `mdopen` path a hook `command` runs, when it is the form we write,
@@ -616,7 +621,8 @@ fn our_hook_path(command: &str) -> Option<String> {
     matches!(name, "mdopen" | "mdopen.exe").then_some(path)
 }
 
-/// [`merge_hook`] with the file-existence check injected for tests.
+/// [`merge_hook`] with the file-existence check and `ignore_case` (see
+/// [`same_program`]) injected for tests.
 ///
 /// An entry we wrote for an `mdopen` that no longer exists (the app was moved,
 /// e.g. from Downloads to Applications, or reinstalled elsewhere) is pointed
@@ -624,10 +630,16 @@ fn our_hook_path(command: &str) -> Option<String> {
 /// installed" while the hook failed on every write. An entry running some
 /// other `mdopen` that does exist (say one the CLI installer put on `PATH`)
 /// is kept.
+///
+/// An entry whose `mdopen` is this app's by another path (a symlink, or on
+/// macOS a difference in case) is the current one, checked with
+/// [`same_program`]. It used to be matched by exact string only, so a
+/// dangling entry beside it was repointed and the hook then ran twice.
 fn merge_hook_with(
     root: &mut Value,
     mdopen: &str,
     exists: &dyn Fn(&str) -> bool,
+    ignore_case: bool,
 ) -> Result<HookMerge, &'static str> {
     let command = mcp_command::hook_command(mdopen);
     let legacy = mcp_command::legacy_hook_command(mdopen);
@@ -681,10 +693,14 @@ fn merge_hook_with(
 
     // When the current command is already there, a dangling copy is left for
     // the user: repointing it would run the hook twice on every write.
+    let is_current = |c: &str| {
+        c == command
+            || our_hook_path(c).is_some_and(|p| same_program(&p, mdopen, exists, ignore_case))
+    };
     let has_current = arr.iter().any(|entry| {
         entry["hooks"].as_array().is_some_and(|hs| {
             hs.iter()
-                .any(|h| h["command"].as_str() == Some(command.as_str()))
+                .any(|h| h["command"].as_str().is_some_and(is_current))
         })
     });
     let mut moved = None;
@@ -875,7 +891,7 @@ mod tests {
         ] } });
         let gone = |p: &str| p != old;
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &gone),
+            merge_hook_with(&mut root, MDOPEN, &gone, false),
             Ok(HookMerge::Moved(old.to_string()))
         );
         assert_eq!(
@@ -883,7 +899,7 @@ mod tests {
             ["echo hi".to_string(), mcp_command::hook_command(MDOPEN)]
         );
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &gone),
+            merge_hook_with(&mut root, MDOPEN, &gone, false),
             Ok(HookMerge::AlreadyInstalled)
         );
 
@@ -895,7 +911,7 @@ mod tests {
             ] }] } });
         let before = root.clone();
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &gone),
+            merge_hook_with(&mut root, MDOPEN, &gone, false),
             Ok(HookMerge::AlreadyInstalled)
         );
         assert_eq!(root, before);
@@ -905,10 +921,60 @@ mod tests {
             "hooks": [{ "type": "command", "command": mcp_command::hook_command(other) }] }] } });
         let before = root.clone();
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &|_| true),
+            merge_hook_with(&mut root, MDOPEN, &|_| true, false),
             Ok(HookMerge::AlreadyInstalled)
         );
         assert_eq!(root, before);
+    }
+
+    /// A current entry that reaches this app's `mdopen` by another path used
+    /// to be missed, so a dangling entry beside it was repointed and the hook
+    /// ran twice on every write.
+    #[cfg(unix)]
+    #[test]
+    fn hook_reached_through_a_symlink_or_case_is_the_current_one() {
+        let dir = std::env::temp_dir().join(format!("ashlr-md-hook-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("real")).unwrap();
+        let real = dir.join("real/mdopen");
+        fs::write(&real, "").unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let real_s = real.to_str().unwrap().to_string();
+        let linked = dir.join("link/mdopen").to_str().unwrap().to_string();
+        let old = "/Users/me/Downloads/Ashlr MD.app/Contents/Resources/mdopen";
+        let is_file = |p: &str| std::path::Path::new(p).is_file();
+        let with = |current: &str| {
+            json!({ "hooks": { "PostToolUse": [{ "matcher": "Edit|Write",
+                "hooks": [
+                    { "type": "command", "command": mcp_command::hook_command(old) },
+                    { "type": "command", "command": mcp_command::hook_command(current) }
+                ] }] } })
+        };
+
+        let mut root = with(&linked);
+        let before = root.clone();
+        assert_eq!(
+            merge_hook_with(&mut root, &real_s, &is_file, false),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+        assert_eq!(root, before);
+        fs::remove_dir_all(&dir).unwrap();
+
+        // A difference in case is the same file only where case is ignored.
+        let upper = "/Applications/ASHLR MD.app/Contents/Resources/mdopen";
+        let exists = |p: &str| p != old;
+        let mut root = with(upper);
+        let before = root.clone();
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &exists, true),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+        assert_eq!(root, before);
+        let mut root = with(upper);
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &exists, false),
+            Ok(HookMerge::Moved(old.to_string()))
+        );
     }
 
     #[test]
