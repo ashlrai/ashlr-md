@@ -36,6 +36,25 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP `export` with `output_path` writes that file.** The app ignored
+  `output_path`: it opened its save dialog (or the print dialog) while the tool
+  had already returned `{ "ok": true }`, so an agent believed a file existed that
+  was never written. Now html, docx and epub exports go straight to
+  `output_path` with no dialog, and the tool returns `{ ok, format, path, bytes }`
+  only once the new file is on disk, or `isError` after 30 seconds (the document
+  must be in Read view). `output_path` must carry the format's extension, not be
+  a dotfile, and sit in an existing directory; a relative path resolves against
+  the server's working directory. pdf, which only prints through the system
+  dialog, refuses `output_path` with -32602.
+- **MCP path arguments resolve like the agent means them.**
+  `get_user_annotations`, `edit_document`, `stream_edit` and `stream_edit_apply`
+  sent `path` as typed, so a relative, `./`-style or symlinked path (including
+  `/tmp` on macOS) never matched the canonical path the app stores:
+  `get_user_annotations` returned no verdict for a file `request_review` had
+  just recorded, and the edit tools refused the open document as "not the
+  currently open document". They now resolve `path` against the server's
+  working directory and follow symlinks first, as `open_file` and
+  `request_review` already did.
 - **MCP read tools no longer read arbitrary files.** `diff_documents`,
   `export_text` and `export_metadata` read their `path` straight from disk with
   no app running, so an agent could read `~/.env` or any other file through

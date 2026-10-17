@@ -357,6 +357,19 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().exportOpen).toBe(true);
   });
 
+  it("export handler: writes to outputPath without the dialog", async () => {
+    const { exportHtml, exportDocx } = await import("../lib/export");
+    useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    await fireEvent("mcp://export", { format: "html", outputPath: "/out/doc.html" });
+    expect(vi.mocked(exportHtml)).toHaveBeenCalledWith("doc", "/out/doc.html");
+    await fireEvent("mcp://export", { format: "docx", outputPath: "/out/doc.docx" });
+    expect(vi.mocked(exportDocx)).toHaveBeenCalledWith("doc", "/out/doc.docx");
+    expect(useUiStore.getState().exportOpen).toBe(false);
+  });
+
   // edit module
   it("edit handler: applies find/replace to live document", async () => {
     useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
