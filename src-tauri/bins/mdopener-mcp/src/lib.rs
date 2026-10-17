@@ -655,6 +655,13 @@ fn append_message(
     // succession, so a per-process sequence number keeps ids unique.
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Each path once, in the order given: a path cited twice in one message
+    // used to be stored and returned twice.
+    let mut seen = std::collections::HashSet::new();
+    let cited_docs: Vec<String> = cited_docs
+        .into_iter()
+        .filter(|d| seen.insert(d.clone()))
+        .collect();
     let msg = ConversationMessage {
         id: format!("msg-{ts}-{:08x}-{seq}", std::process::id()),
         session_id: session_id.to_string(),
@@ -1067,7 +1074,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -3281,10 +3288,10 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                         "role": m.role,
                         "content": m.content,
                         // Filtered as `recentDocs` is: a blank path from an
-                        // older session file named no document here either.
-                        "citedDocs": m.cited_docs.iter()
-                            .filter(|d| !d.trim().is_empty())
-                            .collect::<Vec<_>>(),
+                        // older session file named no document here either,
+                        // and a path an older build stored twice is listed
+                        // once.
+                        "citedDocs": cited_once(&m.cited_docs),
                         "timestampMs": m.timestamp_ms,
                     })).collect::<Vec<_>>(),
                     "count": messages.len(),
@@ -3294,6 +3301,17 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         }
         Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
     }
+}
+
+/// A message's cited paths for `get_conversation_context`: blank ones left
+/// out, each path once, in the order stored.
+fn cited_once(docs: &[String]) -> Vec<&str> {
+    let mut seen = std::collections::HashSet::new();
+    docs.iter()
+        .map(String::as_str)
+        .filter(|d| !d.trim().is_empty())
+        .filter(|d| seen.insert(*d))
+        .collect()
 }
 
 // ── save_conversation_message tool ───────────────────────────────────────────

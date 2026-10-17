@@ -4596,6 +4596,65 @@ fn message_cited_docs_skip_empty_paths_from_old_sessions() {
     assert_eq!(msgs[1]["citedDocs"], json!([]));
 }
 
+/// A path cited twice in one message was stored and returned twice. Saving
+/// keeps each path once, in the order given; a relative path and its
+/// absolute form are the same path.
+#[test]
+fn duplicate_cited_docs_are_saved_once_in_order() {
+    let sess = unique_session();
+    let abs = std::env::current_dir()
+        .unwrap()
+        .join("notes/plan.md")
+        .to_string_lossy()
+        .into_owned();
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["/v/b.md", "/v/a.md", "/v/b.md", "notes/plan.md", abs] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
+    let saved = load_session_from_disk(&sess).unwrap();
+    assert_eq!(saved.messages[0].cited_docs, ["/v/b.md", "/v/a.md", &abs]);
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!(["/v/b.md", "/v/a.md", abs])
+    );
+}
+
+/// A session file an older build wrote with a path twice in one message
+/// lists it once in that message's `citedDocs`.
+#[test]
+fn duplicate_cited_docs_from_old_sessions_are_returned_once() {
+    use mdopener_mcp::{ConversationMessage, SessionLog};
+    let sess = unique_session();
+    let path = session_file_path(&sess).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).ok();
+    let old = SessionLog {
+        messages: vec![ConversationMessage {
+            id: "msg-old".into(),
+            session_id: sess.clone(),
+            role: "agent".into(),
+            content: "Old build.".into(),
+            cited_docs: vec!["/v/b.md".into(), "/v/a.md".into(), "/v/b.md".into()],
+            timestamp_ms: 1_700_000_000_000,
+        }],
+    };
+    std::fs::write(&path, serde_json::to_string(&old).unwrap()).unwrap();
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!(["/v/b.md", "/v/a.md"])
+    );
+    assert_eq!(ctx["recentDocs"], json!(["/v/b.md", "/v/a.md"]));
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════

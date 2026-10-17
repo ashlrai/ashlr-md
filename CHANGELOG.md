@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A path cited twice in one message is saved once.** `save_conversation_message`
+  stored `cited_docs: ["a.md", "a.md"]` as given, and `get_conversation_context`
+  returned the message's `citedDocs` with the path twice. Saving now keeps each
+  path once, in the order first given (after relative paths are made
+  absolute), and reading lists a path an older session file holds twice once.
 - **No em or en dashes in what agents read.** Tool and schema descriptions
   (`edit_document`, `edit_canvas`, `stream_edit`, `export_text`,
   `present_document`), the `improve_writing` prompt, the AI action prompts,
