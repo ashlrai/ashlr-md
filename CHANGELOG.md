@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP tool schemas describe the arguments as they work.** Path arguments
+  of `request_review`, `get_user_annotations`, `present_document`,
+  `diff_documents`, `edit_canvas`, `export_text` and `export_metadata` said
+  "Absolute path" though relative paths resolve against the server's working
+  directory, and `stream_edit` / `stream_edit_apply` named the app-internal
+  `mcp_stream_edit_preview` and the options `previewLines` / `matchIndex`
+  instead of `preview_lines` / `match_index`.
 - **`request_review` with `review_id` no longer ignores a changed review.**
   `path`, `content` and `timeout_ms` were silently ignored on a resumed call,
   so an agent that edited its plan and resent it with the old id got the

@@ -6825,6 +6825,83 @@ fn edit_canvas_without_ops_is_refused_before_reading_the_file() {
     );
 }
 
+/// `rel` spelled relative to this test's working directory (the tools resolve
+/// relative paths against the server's).
+fn relative_to_cwd(abs: &std::path::Path) -> std::path::PathBuf {
+    let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    let abs = std::fs::canonicalize(abs).unwrap();
+    let up = cwd.components().count() - 1;
+    let mut rel = std::path::PathBuf::new();
+    for _ in 0..up {
+        rel.push("..");
+    }
+    rel.join(abs.strip_prefix("/").unwrap())
+}
+
+/// The schemas said "Absolute path" for arguments that take relative paths
+/// too, and `stream_edit` named the app-internal `mcp_stream_edit_preview`
+/// and camelCase options (`previewLines`, `matchIndex`) agents cannot pass.
+#[test]
+fn tool_descriptions_match_the_arguments_and_path_rules() {
+    for def in tool_registry() {
+        let mut texts = vec![("description".to_string(), def.description.to_string())];
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            texts.push((k.clone(), prop["description"].as_str().unwrap_or("").into()));
+        }
+        for (k, text) in texts {
+            for stale in [
+                "Absolute path",
+                "mcp_stream_edit_preview",
+                "previewLines",
+                "matchIndex",
+            ] {
+                assert!(
+                    !text.contains(stale),
+                    "{}.{k} says {stale:?}: {text}",
+                    def.name
+                );
+            }
+        }
+    }
+    // And relative paths do work for those tools.
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.md");
+    let b = dir.path().join("b.md");
+    let board = dir.path().join("board.canvas");
+    std::fs::write(&a, "x\n").unwrap();
+    std::fs::write(&b, "y\n").unwrap();
+    std::fs::write(&board, r#"{"nodes":[],"edges":[]}"#).unwrap();
+    let (ra, rb, rboard) = (
+        relative_to_cwd(&a),
+        relative_to_cwd(&b),
+        relative_to_cwd(&board),
+    );
+    assert!(ra.is_relative());
+    let resp = mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": ra, "path_b": rb }));
+    assert_eq!(content_text(&resp)["hunks"], 1, "{resp:?}");
+    let resp = mdopener_mcp::tool_export_text(id(1), &json!({ "path": ra }), &MockIpc::new());
+    assert_eq!(
+        content_text(&resp)["text"].as_str().map(str::trim),
+        Some("x")
+    );
+    let resp = mdopener_mcp::tool_export_metadata(id(1), &json!({ "path": rb }), &MockIpc::new());
+    assert_eq!(content_text(&resp)["word_count"], 1, "{resp:?}");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": rboard, "save": false, "ops": [{ "type": "add_node", "node":
+            { "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 } }] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let canon_a = std::fs::canonicalize(&a).unwrap();
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
+    let _ = tool_present_document(id(1), &json!({ "path": ra }), &ipc);
+    assert_eq!(ipc.calls()[0].2.as_ref().unwrap()["path"], json!(canon_a));
+    let ipc = MockIpc::new().on_get("/annotations", Ok(json!({ "tasks": [] })));
+    let _ = tool_get_annotations(id(1), &json!({ "path": ra }), &ipc);
+    let want = urlencoding::encode(canon_a.to_str().unwrap()).into_owned();
+    assert_eq!(ipc.calls()[0].1, format!("/annotations?path={want}"));
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

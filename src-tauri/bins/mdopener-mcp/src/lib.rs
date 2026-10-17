@@ -702,7 +702,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
+                    "path": { "type": "string", "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
@@ -726,7 +726,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path to the Markdown file." }
+                    "path": { "type": "string", "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -809,7 +809,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Optional absolute path to open before presenting. Omit to present the current document." }
+                    "path": { "type": "string", "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -871,7 +871,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{sessionId}.json.",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -911,8 +911,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "description": "Absolute path to the first (original) document." },
-                    "path_b": { "type": "string", "description": "Absolute path to the second (modified) document." },
+                    "path_a": { "type": "string", "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -938,7 +938,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the .canvas file to edit."
+                        "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
                     },
                     "ops": {
                         "type": "array",
@@ -1003,11 +1003,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "stream_edit",
             description: "Preview a find/replace edit as a unified diff before committing. \
-                When `preview` is true (default), returns a minimal unified diff (±previewLines context) \
-                via mcp_stream_edit_preview so the agent can verify the change before applying. \
+                When `preview` is true (default), returns a minimal unified diff with `preview_lines` \
+                lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
-                by occurrence order (rank 1 = first match) — the agent selects a matchIndex and confirms \
-                via stream_edit_apply. With preview=false the app applies the edit at once (unsaved; \
+                by occurrence order (rank 1 = first match) — the agent picks one and confirms it via \
+                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing.",
@@ -1050,7 +1050,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "stream_edit_apply",
             description: "Apply a previously previewed stream_edit. Send the same find/replace plus \
-                a matchIndex (0-based, default 0) to select which occurrence to edit when the preview \
+                a `match_index` (0-based, default 0) to select which occurrence to edit when the preview \
                 returned multiple candidates. The edit is applied atomically against the live document.",
             input_schema: json!({
                 "type": "object",
@@ -1106,7 +1106,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1134,7 +1134,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Absolute path to the Markdown file (.md, .markdown, .mdown, .mkd, .mdx; dotfiles and other files are refused). When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
