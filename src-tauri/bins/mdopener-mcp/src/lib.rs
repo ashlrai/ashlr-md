@@ -1754,19 +1754,29 @@ pub fn tool_request_review_with(
                         }),
                     )
                 }
-                _ => {
-                    return tool_result(
-                        id,
-                        json!({
-                            "verdict": resp["verdict"],
-                            "reviewId": review_id,
-                            "comments": resp["comments"],
-                        }),
-                    )
-                }
+                _ => return tool_result(id, decided_review(&resp, &review_id)),
             },
         }
     }
+}
+
+/// The `request_review` result for a decided review. A verdict the human
+/// gave after the window closed is marked `late: true` with a note, since an
+/// earlier call may already have reported `timeout` for this review.
+fn decided_review(resp: &Value, review_id: &str) -> Value {
+    let mut out = json!({
+        "verdict": resp["verdict"],
+        "reviewId": review_id,
+        "comments": resp["comments"],
+    });
+    if resp["late"].as_bool() == Some(true) {
+        out["late"] = json!(true);
+        out["message"] = json!(
+            "The human gave this verdict after the review window closed; \
+             an earlier call may have reported `timeout` for this review."
+        );
+    }
+    out
 }
 
 pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {

@@ -369,7 +369,11 @@ before proceeding.
 4. **The agent receives the verdict** as the tool result:
    `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
    `dismissed` means the human closed the panel. If the panel's countdown runs
-   out with no decision, the verdict is `timeout`.
+   out with no decision, the verdict is `timeout`. A `timeout` never replaces
+   a verdict already given. If the human still decides after the window has
+   closed (an agent may already have been told `timeout`), that verdict is
+   recorded with `"late": true` and a `message` saying so, in the
+   `request_review` result of a resumed call and in `get_user_annotations`.
 
 ### Parameters
 
@@ -400,7 +404,8 @@ before proceeding.
 ### Reading the result later
 
 `get_user_annotations(path)` returns the **latest** verdict and comments recorded
-for a file, plus the current state of its GFM task checkboxes
+for a file (with `late: true` when that verdict came after its review window
+closed), plus the current state of its GFM task checkboxes
 (`- [ ]` / `- [x]`, including `*`/`+` bullets). Use it after a non-blocking
 `request_review`, or to re-check whether the human has ticked off task items.
 

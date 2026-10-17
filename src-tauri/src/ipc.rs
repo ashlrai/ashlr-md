@@ -103,6 +103,9 @@ pub struct ReviewRecord {
     pub created_at: u64,
     /// The review panel's window: the human has this long to decide.
     pub timeout_ms: u64,
+    /// The human's verdict was recorded after the window closed, when an
+    /// agent may already have been told `timeout`.
+    pub late: bool,
 }
 
 /// How long a review is kept after its window closes, so an agent that got
@@ -285,12 +288,30 @@ pub fn set_review_verdict(
     match map.get_mut(&review_id) {
         None => Err(format!("Review {review_id} not found")),
         Some(r) => {
-            r.status = verdict.clone();
-            r.verdict = Some(verdict);
-            r.comments = comments;
+            record_verdict(r, verdict, comments, now_ms());
             Ok(())
         }
     }
+}
+
+/// Record `verdict` on `r` at `now`. A `timeout` never replaces a decision
+/// already recorded. A decision made once the window has closed (or after
+/// `timeout` was recorded) is kept, since it is what the human decided, but
+/// marked `late`: an agent may already have been told `timeout`, and on
+/// re-reading must see why the outcome changed.
+fn record_verdict(r: &mut ReviewRecord, verdict: String, comments: Option<String>, now: u64) {
+    if verdict == "timeout" {
+        if r.status == "pending" {
+            r.status = verdict.clone();
+            r.verdict = Some(verdict);
+            r.comments = comments;
+        }
+        return;
+    }
+    r.late = r.status == "timeout" || now >= r.created_at.saturating_add(r.timeout_ms);
+    r.status = verdict.clone();
+    r.verdict = Some(verdict);
+    r.comments = comments;
 }
 
 /// Called by the frontend (debounced) when the watched folder or its file list
@@ -1051,6 +1072,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
                 path: abs_path.clone(),
                 created_at: now,
                 timeout_ms,
+                late: false,
             },
         );
     }
@@ -1181,15 +1203,17 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
                 review_status(r, now).to_string(),
                 r.verdict.clone(),
                 r.comments.clone(),
+                r.late,
             )
         })
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
-        Some((status, verdict, comments)) => send_json(req, serde_json::json!({
+        Some((status, verdict, comments, late)) => send_json(req, serde_json::json!({
             "status": status,
             "verdict": verdict,
             "comments": comments,
+            "late": late,
         })),
     }
 }
@@ -1285,20 +1309,21 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
     // Resolve the latest matching verdict/comments, then drop the lock before
     // the blocking send_json response. Reviews store the canonical path, so a
     // relative or symlinked `path` still finds them.
-    let (verdict, comments) = {
+    let (verdict, comments, late) = {
         let review_state = app.state::<ReviewState>();
         let map = review_state.0.lock().unwrap();
         map.values()
             .filter(|r| r.path.as_deref().is_some_and(|p| same_path(p, &raw_path)))
             .max_by_key(|r| r.created_at)
-            .map(|r| (r.verdict.clone(), r.comments.clone()))
-            .unwrap_or((None, None))
+            .map(|r| (r.verdict.clone(), r.comments.clone(), r.late))
+            .unwrap_or((None, None, false))
     };
 
     send_json(req, serde_json::json!({
         "path": raw_path,
         "verdict": verdict,
         "comments": comments,
+        "late": late,
         "tasks": tasks,
     }));
 }
@@ -2343,7 +2368,7 @@ mod tests {
 
     // ── Review retention ─────────────────────────────────────────────────────
 
-    use super::{prune_reviews, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
+    use super::{prune_reviews, record_verdict, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
     use std::collections::HashMap;
 
     fn review(status: &str, path: Option<&str>, created_at: u64, timeout_ms: u64) -> ReviewRecord {
@@ -2354,7 +2379,49 @@ mod tests {
             path: path.map(str::to_string),
             created_at,
             timeout_ms,
+            late: false,
         }
+    }
+
+    #[test]
+    fn a_verdict_inside_the_window_is_not_late() {
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), Some("ok".into()), 5_999);
+        assert_eq!(r.status, "approved");
+        assert_eq!(r.comments.as_deref(), Some("ok"));
+        assert!(!r.late);
+    }
+
+    #[test]
+    fn a_verdict_after_the_window_closed_is_kept_but_marked_late() {
+        // Past the window, still pending: the agent was (or will be) told
+        // `timeout`, so the human's verdict is marked late.
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "changes_requested".into(), None, 6_000);
+        assert_eq!(r.status, "changes_requested");
+        assert!(r.late);
+
+        // After the panel recorded `timeout`, even if the clock says the
+        // window is still open (the window and the panel keep separate time).
+        let mut r = review("timeout", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), None, 2_000);
+        assert_eq!(r.verdict.as_deref(), Some("approved"));
+        assert!(r.late);
+    }
+
+    #[test]
+    fn a_timeout_never_replaces_a_recorded_decision() {
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), Some("lgtm".into()), 2_000);
+        record_verdict(&mut r, "timeout".into(), None, 7_000);
+        assert_eq!(r.status, "approved");
+        assert_eq!(r.comments.as_deref(), Some("lgtm"));
+        assert!(!r.late);
+
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "timeout".into(), None, 6_000);
+        assert_eq!(r.status, "timeout");
+        assert!(!r.late);
     }
 
     #[test]

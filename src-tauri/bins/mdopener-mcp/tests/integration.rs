@@ -5299,6 +5299,47 @@ fn request_review_resumed_after_its_window_reports_timeout() {
     assert_eq!(v["reviewId"], "rev_1");
 }
 
+/// A verdict the human gave after the window closed is reported, but marked
+/// `late` with a note: an earlier call may already have said `timeout`.
+#[test]
+fn request_review_marks_a_late_verdict() {
+    use mdopener_mcp::tool_request_review_with;
+    let late = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "approved", "verdict": "approved", "comments": "ok", "late": true })),
+    );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": "rev_1" }),
+        &late,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["late"], true, "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("after the review window closed"),
+        "{v}"
+    );
+
+    let on_time = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "approved", "verdict": "approved", "comments": null, "late": false })),
+    );
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": "rev_2" }),
+        &on_time,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert!(v.get("late").is_none(), "{v}");
+}
+
 // ── Disk reads only open regular files ────────────────────────────────────────
 
 /// Run `f` on a worker thread and fail (instead of hanging the suite) when it
