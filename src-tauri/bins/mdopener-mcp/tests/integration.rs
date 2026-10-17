@@ -3734,3 +3734,70 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     assert_eq!(v["reviewId"], review_id.as_str());
     assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
 }
+
+/// A resumed review stops at the end of its window: the app keeps a review
+/// replaced in its panel by a newer one as `pending` forever, so resuming it
+/// by `review_id` must end with `timeout` once the window the id records has
+/// closed, instead of returning `pending` (and inviting another resume) on
+/// every call.
+#[test]
+fn resumed_review_times_out_when_its_window_has_closed() {
+    use mdopener_mcp::{review_window_end_ms, tool_request_review_with};
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get("/review/result", Ok(json!({ "status": "pending" })));
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "timeout_ms": 5_000, "wait_ms": 1_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["status"], "pending", "{v}");
+    let review_id = v["reviewId"].as_str().unwrap().to_string();
+    let end = review_window_end_ms(&review_id).expect("minted ids carry their window end");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert!(end > now && end <= now + 5_000, "window end {end} vs now {now}");
+
+    // A review whose window closed long ago (same id shape) times out on the
+    // resume instead of reporting pending for the full wait.
+    let expired = format!("rev_1_00000001_{}", now - 60_000);
+    let started = std::time::Instant::now();
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": expired, "wait_ms": 50_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "timeout", "{v}");
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+
+    // A verdict the app recorded at the window's close is still read.
+    let dismissed = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "dismissed", "verdict": "dismissed", "comments": null })),
+    );
+    let resp = tool_request_review_with(
+        id(3),
+        &json!({ "review_id": format!("rev_1_00000001_{}", now - 60_000) }),
+        &dismissed,
+        Duration::from_millis(50),
+    );
+    assert_eq!(content_text(&resp)["verdict"], "dismissed");
+
+    // Ids without a window end (an older server's) keep the wait_ms behaviour.
+    assert_eq!(review_window_end_ms("rev_123_0000abcd"), None);
+    assert_eq!(review_window_end_ms("custom"), None);
+    let resp = tool_request_review_with(
+        id(4),
+        &json!({ "review_id": "rev_123_0000abcd", "wait_ms": 1_000 }),
+        &ipc,
+        Duration::from_millis(50),
+    );
+    assert_eq!(content_text(&resp)["status"], "pending");
+}

@@ -1308,6 +1308,28 @@ pub fn tool_export_with(
 /// and the agent calls again with `review_id` to keep waiting.
 pub const DEFAULT_REVIEW_WAIT_MS: u64 = 50_000;
 
+/// Extra time a resumed `request_review` polls after its window has closed,
+/// so the app's final verdict (the panel records `dismissed` at expiry) or a
+/// last-second decision is still picked up before reporting `timeout`.
+pub const REVIEW_RESUME_GRACE_MS: u64 = 2_000;
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// When the review window of `review_id` closes (unix ms), for ids this
+/// server minted (`rev_<nanos>_<pid>_<window end>`); `None` for any other id.
+pub fn review_window_end_ms(review_id: &str) -> Option<u64> {
+    let parts: Vec<&str> = review_id.strip_prefix("rev_")?.split('_').collect();
+    match parts.as_slice() {
+        [_, _, end] => end.parse().ok(),
+        _ => None,
+    }
+}
+
 /// Register a review with the app (or resume one by `review_id`), then POLL
 /// for the human's verdict (each poll is a fresh request well within the 5s
 /// TCP timeout). Returns the verdict, `pending` when this call's wait ended
@@ -1348,7 +1370,13 @@ pub fn tool_request_review_with(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos() as u64;
-            let review_id = format!("rev_{nanos}_{:08x}", std::process::id());
+            // The id carries when the review window closes (unix ms), so a
+            // resumed call can still end with `timeout` instead of waiting
+            // forever on a record the app never resolves (a review replaced
+            // in the panel by a newer one keeps `pending` in the app).
+            let window_end_ms = unix_ms() + timeout_ms;
+            let review_id =
+                format!("rev_{nanos}_{:08x}_{window_end_ms}", std::process::id());
             let post_body = json!({
                 "reviewId": review_id,
                 "path": path,
@@ -1365,11 +1393,23 @@ pub fn tool_request_review_with(
         }
     };
 
-    // A fresh review whose window fits in this call reports `timeout` when
-    // it closes. Otherwise (a longer window, or a resumed review whose window
-    // only the app knows) the call ends after `wait_ms` with `pending`.
-    let window_ends = !resumed && timeout_ms <= wait_ms;
-    let this_call = if window_ends { timeout_ms } else { wait_ms };
+    // What is left of the review window: the whole of it for a fresh review;
+    // for a resumed one, what its id says (plus a grace period, so a verdict
+    // the app recorded as the window closed is still read). A resumed id
+    // without a window end (an older server's) leaves it unknown.
+    let window_left = if resumed {
+        review_window_end_ms(&review_id)
+            .map(|end| end.saturating_sub(unix_ms()) + REVIEW_RESUME_GRACE_MS)
+    } else {
+        Some(timeout_ms)
+    };
+    // A review whose window closes within this call reports `timeout` when it
+    // does. Otherwise the call ends after `wait_ms` with `pending`.
+    let window_ends = window_left.is_some_and(|w| w <= wait_ms);
+    let this_call = match window_left {
+        Some(w) if window_ends => w,
+        _ => wait_ms,
+    };
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(this_call);
     let endpoint = format!("/review/result?id={}", urlencoding::encode(&review_id));
     loop {

@@ -336,8 +336,10 @@ before proceeding.
   returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
   can later check the outcome via `get_user_annotations`.
 - `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  the human has to decide (the review panel's window). When it fits within
-  `wait_ms` and expires, the tool returns `{ "verdict": "timeout", … }`.
+  the human has to decide (the review panel's window). When the window closes
+  during a call (the first one, or one resumed with `review_id`) with no
+  decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
+  review never waits past its window.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
