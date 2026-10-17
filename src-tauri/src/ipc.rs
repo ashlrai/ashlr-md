@@ -13,7 +13,7 @@
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
-//! | POST   | /export    | `{"format":"pdf|docx|html","outputPath":"…|null"}` | Trigger export |
+//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null"}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir) |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
@@ -1004,14 +1004,29 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             if let Some(e) = export_refusal(&b.format, open.as_deref()) {
                 return send_error(req, 400, &e);
             }
+            // The window writes `outputPath` without asking, so the app holds
+            // it to the same rule the MCP tool does, whoever is calling.
+            let checked = b.output_path.as_deref().map(|p| app_export_path(p, &b.format));
+            let output_path = match checked.transpose() {
+                Ok(p) => p.map(|p| p.to_string_lossy().into_owned()),
+                Err(e) => return send_error(req, 400, &e),
+            };
             let emitted = app.emit("mcp://export", serde_json::json!({
                 "format": b.format,
-                "outputPath": b.output_path,
+                "outputPath": output_path,
             }));
             send_json(req, emitted_reply(emitted, serde_json::json!({"ok": true})));
         }
         Err((code, e)) => send_error(req, code, &e),
     }
+}
+
+/// `/export`'s `outputPath`, checked by the rule the `export` MCP tool applies
+/// ([`crate::export_path`]): an absolute path (the app's working directory is
+/// unrelated to the caller's) to a file with the format's extension, not a
+/// dotfile, in an existing directory.
+fn app_export_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
+    crate::export_path::checked_export_path(std::path::Path::new(raw), format, "outputPath")
 }
 
 /// Why `/export` cannot run, if it cannot. The window exports only the open
@@ -1912,10 +1927,39 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_tasks, apply_unique_edit, parse_tasks, review_timeout, same_path, InflightEdit,
-        INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
+        annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
+        same_path, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn export_output_path_is_checked_by_the_app_too() {
+        let dir = std::env::temp_dir().join(format!("mdopener-ipc-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub.html")).unwrap();
+        let p = |rel: &str| dir.join(rel).to_string_lossy().into_owned();
+
+        let ok = app_export_path(&p("out.HTML"), "html").unwrap();
+        assert_eq!(ok, std::fs::canonicalize(&dir).unwrap().join("out.HTML"));
+        assert!(app_export_path(&p("book.epub"), "epub").is_ok());
+
+        let cases = [
+            (p("out.pdf"), "pdf", "not supported for pdf"),
+            (p(".bashrc"), "html", "must name a html file"),
+            (p(".x.html"), "html", "not a dotfile"),
+            (p("notes.md"), "html", "must name a html file"),
+            (p("out.html"), "docx", "must name a docx file"),
+            (p("missing/out.html"), "html", "directory does not exist"),
+            (p("sub.html"), "html", "is a directory"),
+            ("out.html".to_string(), "html", "must be an absolute path"),
+        ];
+        for (raw, format, want) in cases {
+            let err = app_export_path(&raw, format).unwrap_err();
+            assert!(err.contains(want), "{format} {raw}: {err}");
+            assert!(err.contains("`outputPath`"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn review_timeout_outside_the_range_is_refused_not_clamped() {

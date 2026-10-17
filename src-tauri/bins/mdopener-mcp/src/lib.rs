@@ -1392,62 +1392,17 @@ pub fn agent_path(raw: &str) -> String {
         .unwrap_or_else(|_| raw.to_string())
 }
 
-/// File extensions `output_path` may carry for each headless export format.
-fn export_extensions(format: &str) -> &'static [&'static str] {
-    match format {
-        "html" => &["html", "htm"],
-        "docx" => &["docx"],
-        "epub" => &["epub"],
-        _ => &[],
-    }
-}
+// The `output_path` rule is shared with the app's `/export`, which applies it
+// again to whatever reaches it.
+#[path = "../../../src/export_path.rs"]
+mod export_path;
 
 /// Validate and resolve `output_path` for `format`. The app writes there
 /// without asking, so only a file with the format's own extension, not a
 /// dotfile, in an existing directory is accepted. Errors are argument errors.
 pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
-    if format == "pdf" {
-        return Err(
-            "`output_path` is not supported for pdf: pdf export goes through the \
-                    system print dialog. Use html, docx or epub with `output_path`, or omit \
-                    `output_path` to print to PDF."
-                .to_string(),
-        );
-    }
     let abs = std::path::absolute(raw).map_err(|e| format!("`output_path` '{raw}': {e}"))?;
-    let name = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let ext = std::path::Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
-    let allowed = export_extensions(format);
-    if name.starts_with('.') || !allowed.contains(&ext.as_str()) {
-        return Err(format!(
-            "`output_path` '{}' must name a {format} file ({}), not a dotfile",
-            abs.display(),
-            allowed
-                .iter()
-                .map(|e| format!(".{e}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    let dir = abs.parent().filter(|d| !d.as_os_str().is_empty());
-    let dir = dir
-        .and_then(|d| std::fs::canonicalize(d).ok())
-        .filter(|d| d.is_dir())
-        .ok_or_else(|| {
-            format!(
-                "`output_path` '{}': the directory does not exist; create it first",
-                abs.display()
-            )
-        })?;
-    let out = dir.join(name);
-    if out.is_dir() {
-        return Err(format!("`output_path` '{}' is a directory", out.display()));
-    }
-    Ok(out)
+    export_path::checked_export_path(&abs, format, "output_path")
 }
 
 /// What identifies one version of a file on disk: size and modification time

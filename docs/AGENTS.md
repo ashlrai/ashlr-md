@@ -596,7 +596,9 @@ The integration is **local-only and token-authenticated**:
 - `export` with `output_path` writes that file without a dialog and replaces
   an existing file of that name. It only accepts a non-dotfile path with the
   format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
-  directory, so it cannot overwrite Markdown or other file types.
+  directory, so it cannot overwrite Markdown or other file types. The app's
+  `/export` endpoint applies the same rule to `outputPath` (which must also be
+  absolute) and refuses anything else with HTTP 400, whoever calls it.
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files
   only, so a FIFO or device named `x.md` is refused (or skipped) instead of
