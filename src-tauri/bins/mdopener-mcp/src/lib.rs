@@ -1029,7 +1029,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_text",
             description: "Extract the plain text of a Markdown document — all Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
-                stripped while code block contents are preserved as-is. Returns the extracted text \
+                stripped while code block contents are preserved as-is. Strikethrough keeps its \
+                text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
                 together with word and character counts. Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (an error when nothing is open).",
@@ -4288,21 +4289,46 @@ pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
     let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let lines = content.lines().skip(skip);
+    let lines: Vec<&str> = content.lines().skip(skip).collect();
 
     let mut in_code_block = false;
+    let mut in_table = false;
 
-    for line in lines {
+    for (idx, &line) in lines.iter().enumerate() {
         // Detect fenced code blocks (``` or ~~~).
         let trimmed = line.trim();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             in_code_block = !in_code_block;
+            in_table = false;
             // Drop the fence line itself; preserve the code inside.
             continue;
         }
         if in_code_block {
             out.push_str(line);
             out.push('\n');
+            continue;
+        }
+
+        // GFM tables: a header row followed by a delimiter row starts one,
+        // and it runs until a blank line or a line without a pipe. Rows
+        // become tab-separated cells; the delimiter row is dropped.
+        if in_table && !trimmed.contains('|') {
+            in_table = false;
+        }
+        if !in_table && trimmed.contains('|') {
+            in_table = lines
+                .get(idx + 1)
+                .is_some_and(|next| is_table_delimiter(next));
+        }
+        if in_table {
+            if !is_table_delimiter(line) {
+                let cells: Vec<String> = table_cells(trimmed)
+                    .iter()
+                    .map(|c| strip_inline_markdown(c).trim().to_string())
+                    .collect();
+                out.push_str(&cells.join("\t"));
+                out.push('\n');
+            }
             continue;
         }
 
@@ -4343,6 +4369,20 @@ pub fn strip_markdown(content: &str) -> String {
             }
             s
         };
+
+        // A footnote definition `[^1]: text` reads `[1] text`.
+        if let Some((label, rest)) = line
+            .strip_prefix("[^")
+            .and_then(|r| r.split_once("]:"))
+            .filter(|(label, _)| !label.is_empty() && !label.contains(char::is_whitespace))
+        {
+            out.push_str(&format!(
+                "[{label}] {}",
+                strip_inline_markdown(rest.trim_start())
+            ));
+            out.push('\n');
+            continue;
+        }
 
         // Strip list markers (unordered and ordered).
         let line = {
@@ -4405,9 +4445,40 @@ pub fn strip_markdown(content: &str) -> String {
     collapsed.trim_end().to_string()
 }
 
+/// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.
+fn is_table_delimiter(line: &str) -> bool {
+    let t = line.trim();
+    t.contains('|')
+        && t.contains('-')
+        && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+}
+
+/// The cells of a table row, outer pipes dropped and `\|` read as a pipe.
+fn table_cells(row: &str) -> Vec<String> {
+    let row = row.strip_prefix('|').unwrap_or(row);
+    let row = match row.strip_suffix('|') {
+        Some(r) if !r.ends_with('\\') => r,
+        _ => row,
+    };
+    let mut cells = vec![String::new()];
+    let mut chars = row.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                chars.next();
+                cells.last_mut().unwrap().push('|');
+            }
+            '|' => cells.push(String::new()),
+            c => cells.last_mut().unwrap().push(c),
+        }
+    }
+    cells
+}
+
 /// Strip inline Markdown from a single (already block-processed) line.
 ///
-/// Handles: images, links, wikilinks, bold/italic, inline code, HTML tags.
+/// Handles: images, links, wikilinks, footnote references, bold/italic,
+/// strikethrough, inline code, HTML tags.
 pub fn strip_inline_markdown(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
@@ -4429,6 +4500,20 @@ pub fn strip_inline_markdown(s: &str) -> String {
         if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
             if let Some(close) = find_double_close(&chars, i + 3) {
                 i = close + 2;
+                continue;
+            }
+        }
+        // Footnote reference [^1] → [1]
+        if chars[i] == '[' && chars.get(i + 1) == Some(&'^') {
+            let label_len = chars[i + 2..]
+                .iter()
+                .take_while(|&&c| c != ']' && !c.is_whitespace())
+                .count();
+            if label_len > 0 && chars.get(i + 2 + label_len) == Some(&']') {
+                out.push('[');
+                out.extend(&chars[i + 2..i + 2 + label_len]);
+                out.push(']');
+                i += label_len + 3;
                 continue;
             }
         }
@@ -4504,6 +4589,19 @@ pub fn strip_inline_markdown(s: &str) -> String {
             let literal =
                 (space(before) && space(after)) || (marker == '_' && word(before) && word(after));
             if literal {
+                out.extend(&chars[i..i + run]);
+            }
+            i += run;
+            continue;
+        }
+        // Strikethrough `~~text~~` keeps its text; a lone `~` (`~5 min`,
+        // `~/x`) or a spaced `~~` is text.
+        if chars[i] == '~' {
+            let run = chars[i..].iter().take_while(|&&c| c == '~').count();
+            let before = i.checked_sub(1).map(|j| chars[j]);
+            let after = chars.get(i + run).copied();
+            let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
+            if run != 2 || (space(before) && space(after)) {
                 out.extend(&chars[i..i + run]);
             }
             i += run;

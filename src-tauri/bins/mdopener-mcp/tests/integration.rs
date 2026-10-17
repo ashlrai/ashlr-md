@@ -4772,6 +4772,37 @@ fn export_text_keeps_literal_angle_brackets_underscores_and_asterisks() {
     );
 }
 
+/// Strikethrough keeps its text without the tildes, table rows become
+/// tab-separated cells with the delimiter row gone, and footnotes read as
+/// `[1]` at the reference and `[1] text` at the definition.
+#[test]
+fn export_text_cleans_strikethrough_tables_and_footnotes() {
+    use mdopener_mcp::strip_markdown;
+    assert_eq!(
+        strip_markdown("Ship ~~Friday~~ Monday, ~5 min, a ~~ b, ~/x"),
+        "Ship Friday Monday, ~5 min, a ~~ b, ~/x"
+    );
+    let table = "Intro\n\n| Name | **Role** |\n|:-----|-------:|\n| Zoë | Lead \\| QA |\n| [Al](http://a.b) | `dev` |\n\nAfter | not a table\n";
+    assert_eq!(
+        strip_markdown(table),
+        "Intro\n\nName\tRole\nZoë\tLead | QA\nAl\tdev\n\nAfter | not a table"
+    );
+    assert_eq!(
+        strip_markdown("a | b\n--- | ---\nc | d"),
+        "a\tb\nc\td",
+        "a table without outer pipes"
+    );
+    assert_eq!(
+        strip_markdown("Claim.[^1] More[^note].\n\n[^1]: The **source**.\n[^note]: Second."),
+        "Claim.[1] More[note].\n\n[1] The source.\n[note] Second."
+    );
+    // Code keeps everything as written.
+    assert_eq!(
+        strip_markdown("```\n| a | b |\n|---|---|\n~~x~~ [^1]\n```"),
+        "| a | b |\n|---|---|\n~~x~~ [^1]"
+    );
+}
+
 /// `#tag` lines (Obsidian tags) and shebangs are not headings.
 #[test]
 fn export_metadata_headings_need_a_space_after_the_hashes() {
