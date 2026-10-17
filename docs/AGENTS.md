@@ -253,7 +253,12 @@ below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
 of falling back to the default. So a string such as `"1"`, a negative or a
 fractional `match_index` is refused rather than read as `0`, and `"save":
 "true"` rather than read as `false`. A whole number written as a float
-(`2.0`) is an integer, as in JSON Schema. `null` counts as not given. An unknown tool
+(`2.0`) is an integer, as in JSON Schema. `null` counts as not given. A
+`required` argument that is missing (or `null`) is refused the same way
+(`` `ops` is required ``) before the tool reads anything, and `request_review`
+without any of `path`, `content` or `review_id` is refused naming all three.
+A test drives every tool's advertised schema through this check, so the
+schema's `required` list and property types are what is enforced. An unknown tool
 name gets the closest tool name, if any, and a pointer to `tools/list`. A
 blank `session_id` is refused like a missing one. `prompts/get` with an
 unknown or missing `name` and `resources/read` with an unknown or missing

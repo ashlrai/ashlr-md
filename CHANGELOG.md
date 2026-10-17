@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Required MCP arguments are checked before a tool runs.** Each tool
+  checked its own required arguments only when it reached them, so
+  `edit_canvas` without `ops` read and parsed the canvas file first and a
+  missing file hid the real mistake. The argument check now enforces every
+  tool's schema `required` list (and `request_review`'s one-of), and a test
+  probes every advertised schema with a missing required argument and a
+  wrong-typed one, so the schema and what is enforced cannot drift apart.
 - **`diff_documents` no longer calls different files identical.** Lines were
   compared without their endings, so a CRLF file against its LF copy, or a
   file against the same text without a final newline, returned `hunks: 0`

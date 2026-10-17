@@ -1269,11 +1269,19 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`).
 ///
+/// - a `required` argument that is missing, as "`name` is required" (the first
+///   missing one in the schema's `required` order), and a call that gives none
+///   of the alternatives of the schema's `anyOf` of `required` lists. A tool
+///   used to check its own required arguments only once it reached them, so
+///   `edit_canvas` without `ops` read the canvas file first, and the schema's
+///   `required` list and the tool's checks could drift apart.
+///
 /// A `null` value counts as "not given", as the tools already treat it.
 pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
     let tool = def.name;
+    let no_args = serde_json::Map::new();
     let given = match args {
-        Value::Null => return Ok(()),
+        Value::Null => &no_args,
         Value::Object(map) => map,
         other => {
             return Err(format!(
@@ -1339,6 +1347,43 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     json_type_phrase(bad)
                 ));
             }
+        }
+    }
+    let present = |name: &str| given.get(name).is_some_and(|v| !v.is_null());
+    let required_names = |schema: &Value| -> Vec<String> {
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    };
+    if let Some(missing) = required_names(&def.input_schema)
+        .into_iter()
+        .find(|n| !present(n))
+    {
+        return Err(format!("`{missing}` is required"));
+    }
+    if let Some(alternatives) = def.input_schema["anyOf"].as_array() {
+        let lists: Vec<Vec<String>> = alternatives.iter().map(required_names).collect();
+        if !lists.is_empty() && !lists.iter().any(|l| l.iter().all(|n| present(n))) {
+            let names: Vec<String> = lists
+                .iter()
+                .map(|l| {
+                    l.iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                })
+                .collect();
+            let shown = match names.split_last() {
+                Some((last, rest)) if !rest.is_empty() => {
+                    format!("{} or {last}", rest.join(", "))
+                }
+                _ => names.join(""),
+            };
+            return Err(format!("`{tool}` needs one of {shown}"));
         }
     }
     Ok(())

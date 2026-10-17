@@ -1,4 +1,4 @@
-//! Integration tests for all 12 mdopener-mcp tools.
+//! Integration tests for every mdopener-mcp tool (`ALL_TOOL_NAMES`).
 //!
 //! Uses a `MockIpc` struct that intercepts IPC calls and returns scripted
 //! fixtures — no running Ashlr MD app required.  Both success and failure
@@ -6363,6 +6363,158 @@ fn every_declared_argument_passes_the_check() {
         let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
         assert!(r.is_ok(), "{}: {:?}", def.name, r);
     }
+}
+
+/// A value of the JSON type `prop` declares (its first `enum` value when it has
+/// one), and a value of some other type.
+fn sample_of(prop: &Value) -> (Value, Value) {
+    if let Some(first) = prop["enum"].as_array().and_then(|e| e.first()) {
+        return (first.clone(), json!(7));
+    }
+    match prop["type"].as_str() {
+        Some("string") => (json!("x"), json!(5)),
+        Some("boolean") => (json!(true), json!("yes")),
+        Some("integer") => (json!(prop["minimum"].as_i64().unwrap_or(0)), json!("1")),
+        Some("number") => (json!(1.5), json!("1.5")),
+        Some("array") => (json!([]), json!({})),
+        Some("object") => (json!({}), json!([])),
+        other => panic!("property without a type: {other:?} in {prop}"),
+    }
+}
+
+/// Call `name` through `tools/call` with an IPC that fails every request, and
+/// return the `-32602` message. Asserts the refusal came before the tool did
+/// anything (no IPC call), i.e. from the argument check.
+fn refused_before_the_tool(name: &str, args: Value) -> String {
+    let ipc = MockIpc::new();
+    let resp = dispatch(
+        dispatch_req("tools/call", json!({ "name": name, "arguments": args })),
+        &ipc,
+    )
+    .unwrap();
+    assert!(
+        ipc.calls().is_empty(),
+        "{name}: reached the app before refusing {args}: {:?}",
+        ipc.calls()
+    );
+    param_error(&resp)
+}
+
+#[test]
+fn every_tool_schema_matches_what_the_argument_check_enforces() {
+    // Drive the advertised schemas (tools/list), not the registry, so what an
+    // agent reads is what is enforced: every `required` argument left out,
+    // every `anyOf` alternative left out, and every property (and array
+    // element) given the wrong JSON type is refused with -32602 naming it,
+    // before the tool runs.
+    let ipc = MockIpc::new();
+    let resp = dispatch(dispatch_req("tools/list", json!({})), &ipc).unwrap();
+    let tools = resp.result.unwrap()["tools"].as_array().unwrap().clone();
+    assert_eq!(tools.len(), ALL_TOOL_NAMES.len());
+    for tool in &tools {
+        let name = tool["name"].as_str().unwrap();
+        let schema = &tool["inputSchema"];
+        let props = schema["properties"].as_object().unwrap();
+        let mut valid = serde_json::Map::new();
+        for (k, prop) in props {
+            valid.insert(k.clone(), sample_of(prop).0);
+        }
+        let def = tool_registry()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap();
+        let ok = mdopener_mcp::check_tool_arguments(&def, &Value::Object(valid.clone()));
+        assert!(ok.is_ok(), "{name}: well-typed arguments refused: {ok:?}");
+
+        for req in schema["required"].as_array().into_iter().flatten() {
+            let req = req.as_str().unwrap();
+            assert!(
+                props.contains_key(req),
+                "{name}: `{req}` required, undeclared"
+            );
+            for absent in [None, Some(Value::Null)] {
+                let mut args = valid.clone();
+                match absent {
+                    None => args.remove(req),
+                    Some(v) => args.insert(req.to_string(), v),
+                };
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert_eq!(msg, format!("`{req}` is required"), "{name}");
+            }
+        }
+        if let Some(alternatives) = schema["anyOf"].as_array() {
+            let mut args = valid.clone();
+            for alt in alternatives {
+                for req in alt["required"].as_array().unwrap() {
+                    args.remove(req.as_str().unwrap());
+                }
+            }
+            let msg = refused_before_the_tool(name, Value::Object(args));
+            assert!(msg.starts_with(&format!("`{name}` needs one of")), "{msg}");
+            // Any one alternative is enough.
+            for alt in alternatives {
+                let mut one = serde_json::Map::new();
+                for req in alt["required"].as_array().unwrap() {
+                    let req = req.as_str().unwrap();
+                    one.insert(req.to_string(), valid[req].clone());
+                }
+                let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(one));
+                assert!(r.is_ok(), "{name}: {alt} not enough: {r:?}");
+            }
+        }
+
+        for (k, prop) in props {
+            let mut args = valid.clone();
+            args.insert(k.clone(), sample_of(prop).1);
+            let msg = refused_before_the_tool(name, Value::Object(args));
+            assert!(
+                msg.starts_with(&format!("`{k}` must be ")),
+                "{name}.{k}: {msg}"
+            );
+            if let Some(items) = prop.get("items") {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!([sample_of(items).1]));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(msg.starts_with(&format!("`{k}[0]")), "{name}.{k}: {msg}");
+            }
+        }
+    }
+}
+
+#[test]
+fn optional_string_of_the_wrong_type_is_not_read_as_absent() {
+    // `path: 5` must not fall back to "the open document".
+    for (tool, args) in [
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": "b", "path": 5 }),
+        ),
+        ("present_document", json!({ "path": 5 })),
+        ("export_text", json!({ "path": false })),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "path": ["a.md"] }),
+        ),
+    ] {
+        let msg = refused_before_the_tool(tool, args);
+        assert!(
+            msg.starts_with("`path` must be a string, got "),
+            "{tool}: {msg}"
+        );
+    }
+}
+
+#[test]
+fn edit_canvas_without_ops_is_refused_before_reading_the_file() {
+    // It used to read (and parse) the canvas first, so a missing file hid the
+    // missing `ops`.
+    let msg = refused_before_the_tool("edit_canvas", json!({ "path": "/nonexistent/x.canvas" }));
+    assert_eq!(msg, "`ops` is required");
+    let msg = refused_before_the_tool("request_review", json!({ "blocking": false }));
+    assert_eq!(
+        msg,
+        "`request_review` needs one of `path`, `content` or `review_id`"
+    );
 }
 
 #[test]
