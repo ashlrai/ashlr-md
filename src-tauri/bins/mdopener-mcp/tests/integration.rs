@@ -2817,6 +2817,85 @@ fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
     assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
 }
 
+/// `semantic=` on the resource was ignored: it always auto-detected Ollama,
+/// so an agent could not force grep (or semantic) the way `search_vault`'s
+/// `semantic` argument does, and a typo was silently dropped.
+#[test]
+fn resource_read_vault_search_honours_semantic_option() {
+    let payload_of = |resp: &mdopener_mcp::Response| -> Value {
+        serde_json::from_str(
+            resp.result.as_ref().unwrap()["contents"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let mock = || {
+        MockIpc::new()
+            .on_get("/vault", Ok(json!({ "files": [], "recents": [] })))
+            .on_get("/search", Ok(json!({ "results": [] })))
+    };
+
+    // semantic=false never asks for the vault list (the embedding path's
+    // first step) and answers with the app's grep, without a note.
+    let ipc = mock();
+    let resp = handle_resource_read(id(310), "text://vault-search?q=x&semantic=false", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let payload = payload_of(&resp);
+    assert_eq!(payload["mode"], "grep", "{payload}");
+    assert!(payload.get("note").is_none(), "{payload}");
+    assert!(
+        ipc.calls()
+            .iter()
+            .all(|(_, path, _)| !path.starts_with("/vault")),
+        "semantic=false tried embeddings: {:?}",
+        ipc.calls()
+    );
+
+    // semantic=true tries embeddings even when auto-detection would not,
+    // and says so when it fell back.
+    if !mdopener_mcp::ollama_available() {
+        let ipc = mock();
+        let resp = handle_resource_read(id(311), "text://vault-search?q=x&semantic=true", &ipc);
+        let payload = payload_of(&resp);
+        assert_eq!(payload["mode"], "grep", "{payload}");
+        assert!(
+            payload["note"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Semantic search was unavailable"),
+            "{payload}"
+        );
+    }
+
+    let resp = handle_resource_read(id(312), "text://vault-search?q=x&semantic=maybe", &mock());
+    let err = resp.error.expect("an invalid semantic value is an error");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("semantic"), "{}", err.message);
+}
+
+/// `search_vault` with `semantic: "false"` (a string) silently auto-detected
+/// instead of forcing grep.
+#[test]
+fn search_vault_rejects_a_non_boolean_semantic() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = mdopener_mcp::tool_search_vault(
+        id(313),
+        &json!({ "query": "x", "semantic": "false" }),
+        &ipc,
+    );
+    let err = resp
+        .error
+        .expect("a string semantic is an invalid argument");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("`semantic` must be a boolean"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+}
+
 /// The resource falls back the way `search_vault` does and says so: a grep
 /// of the files on disk carries the app's own reason for not searching.
 #[test]

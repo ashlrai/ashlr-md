@@ -1784,9 +1784,19 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
     };
 
     // Determine search mode: explicit override or auto-detect via Ollama.
-    let use_semantic = match args["semantic"].as_bool() {
-        Some(b) => b,
-        None => ollama_available(),
+    let use_semantic = match &args["semantic"] {
+        Value::Bool(b) => *b,
+        Value::Null => ollama_available(),
+        other => {
+            return Response::err(
+                id,
+                -32602,
+                format!(
+                    "`semantic` must be a boolean (true or false), got {other}. Omit it to \
+                     use semantic search when Ollama is available."
+                ),
+            )
+        }
     };
 
     match search_vault_in(
@@ -2352,7 +2362,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
         "mimeType": "application/json"
     }));
 
@@ -2414,6 +2424,9 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let mut query = String::new();
         let mut limit: u64 = 50;
         let mut vault = None;
+        // `semantic=true|false` forces a mode, as `search_vault`'s `semantic`
+        // argument does; absent, Ollama is auto-detected.
+        let mut semantic = None;
         // Query-string encoding: `+` is a space (the listed example is
         // `?q=my+topic`), and `%2B` a literal plus.
         let decode = |val: &str| {
@@ -2430,6 +2443,21 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     Ok(dir) => vault = Some(dir),
                     Err(e) => return Response::err(id, -32602, e),
                 }
+            } else if let Some(val) = part.strip_prefix("semantic=") {
+                semantic = match decode(val).as_str() {
+                    "true" | "1" => Some(true),
+                    "false" | "0" => Some(false),
+                    other => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!(
+                                "text://vault-search: `semantic` must be true or false, got \
+                                 {other:?}. Omit it to use semantic search when Ollama is available."
+                            ),
+                        )
+                    }
+                };
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = val.parse().unwrap_or(50);
             }
@@ -2445,7 +2473,7 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // The same search as `search_vault`, notes included. Without `vault`
         // every path needs the app (it supplies the vault file list), so
         // failing to reach it is an error rather than an empty result set.
-        let semantic = ollama_available();
+        let semantic = semantic.unwrap_or_else(ollama_available);
         let found = search_vault_in(
             &query,
             limit,
