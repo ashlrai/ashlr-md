@@ -7958,3 +7958,29 @@ fn current_resource_with_no_document_open_is_an_error_like_the_prompts() {
     let resp = handle_resource_read(id(5), "mdopener://current", &MockIpc::new());
     assert_eq!(resp.error.expect("app unreachable").code, -32000);
 }
+
+/// `mdopener://recent-documents` answered an empty list when the app could
+/// not be reached, the same as an app with no recents. It is now -32000 like
+/// `mdopener://current`; an app with no recents is still an empty list.
+#[test]
+fn recent_documents_without_the_app_is_an_error_not_an_empty_list() {
+    let ipc = MockIpc::new().on_get("/vault", Err("~/.mdopener/ipc-port not found".into()));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    let err = resp.error.expect("an unreachable app must be an error");
+    assert_eq!(err.code, -32000);
+    assert!(
+        err.message.contains("does not appear to be running"),
+        "{}",
+        err.message
+    );
+
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let resp = handle_resource_read(id(2), "mdopener://recent-documents", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["count"], 0);
+}

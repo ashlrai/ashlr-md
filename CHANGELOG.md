@@ -36,6 +36,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://recent-documents` says when the app is not running.** It
+  answered an empty list, the same as an app with no recents. It is now
+  `-32000`, as `mdopener://current` is.
 - **`mdopener://current` says when no document is open.** With nothing open
   it answered an empty document, so an agent could not tell the two apart,
   while the prompts already refused it. It is now `-32002` "No document is

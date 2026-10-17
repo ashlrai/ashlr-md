@@ -3180,7 +3180,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the vault is empty or the app has no recents. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns an empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4230,9 +4230,10 @@ pub fn app_not_running_msg(err: &str) -> String {
 /// of raw content (including front-matter).  Files that no longer exist on
 /// disk are silently omitted so the list stays consistent.
 pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Response {
-    // Fetch the recent paths from the app.  When the app is not running, fall
-    // back gracefully to an empty list rather than returning an error — the
-    // resource contract says "empty list when vault is empty".
+    // Fetch the recent paths from the app. An app that cannot be reached (or
+    // refuses) is an error, as for `mdopener://current`: it used to answer an
+    // empty list, the same as an app with no recents, so the agent was told
+    // there were none when it could not know.
     let recent_paths: Vec<String> = match ipc.get("/vault") {
         Ok(v) => v["recents"]
             .as_array()
@@ -4242,7 +4243,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
                     .collect()
             })
             .unwrap_or_default(),
-        Err(_) => vec![],
+        Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
     };
 
     let mut documents: Vec<Value> = Vec::new();

@@ -347,7 +347,9 @@ The server implements `resources/list` and `resources/read`.
   no `vault` is given.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
-  (`mimeType: application/json`).
+  (`mimeType: application/json`). An app with no recents gives an empty list;
+  an app that cannot be reached is `-32000`, as for `mdopener://current` (it
+  used to be an empty list too).
 - **`file://<path>` (vault files)** — every file the app advertises as part of
   the **vault** (watched folder) plus **recents** is listed as an individually
   readable resource.
