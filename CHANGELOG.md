@@ -36,6 +36,35 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener-mcp` starts with an argument that is not valid UTF-8.** Such an
+  argument in a client config made the server panic before it read a request
+  (exit `101`), so the client reported that it failed to start. It is now
+  ignored and named on stderr like any unknown argument.
+- **`set_content` is listed as destructive, as `replace_document` is.** Both
+  send the whole new text to the app and overwrite the open document, but
+  `tools/list` gave `set_content` `destructiveHint: false`, so a client that
+  asks before destructive tools let it replace a document unasked. It now
+  carries the same hints as `replace_document`, and its description says it
+  replaces the entire content and points to `edit_document`.
+- **`mdopen` says when the path is empty or a directory.** `mdopen "$FILE"`
+  with an empty or blank variable answered `cannot resolve path "": No such
+  file or directory`, and a directory (even one named `notes.md`) was "not a
+  file". An empty or blank path is now a usage error saying the file path is
+  empty, and a directory is refused as a directory; both still exit `1`.
+- **`mdopen` no longer crashes on an argument that is not valid UTF-8.**
+  Such an argument (a file name in another encoding) made `mdopen` panic with
+  a backtrace and exit `101`, and `mdopen --hook`, which must always exit
+  `0`, did the same. It is now a usage error naming the argument (exit `1`),
+  and `--hook` exits `0` in silence.
+- **A path of only whitespace is refused like an empty one.** `"path": " "`
+  passed the `minLength: 1` check and the empty checks, and reached the file
+  checks ("only Markdown documents can be read", "No such file or
+  directory") or the app. A blank `path` (of `open_file`, `present_document`,
+  `export_text`, `export_metadata`, `request_review`, `edit_document`,
+  `stream_edit`, `stream_edit_apply`, `get_user_annotations` and
+  `edit_canvas`), `path_a`, `path_b`, `vault` or `output_path` is now
+  `-32602` saying the field must not be empty. Whitespace in `find`,
+  `replace` and document text is still content.
 - **No em or en dashes in what the app shows.** Toasts (such as "Patch not
   found: the document may have already changed."), tooltips, dialog and
   settings text, export format descriptions, the welcome screen, the AI
@@ -43,6 +72,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   package descriptions shown in app metadata used em dashes (and two en
   dashes). They now use plain punctuation. A test parses the UI sources and
   fails on a dash in a string literal, template text or JSX text.
+  The test now also covers the shell page (`index.html`), every string in
+  the Tauri configs (window titles, bundle descriptions, file association
+  names) and the string literals of the Rust app and its `mdopen` and
+  `mdopener-mcp` binaries (dialog, menu, tray and notification text and the
+  errors the window reports), outside comments and test modules. None of
+  them held a dash.
 - **The app saves a path cited twice in one message once.** The window's
   session writer stored a message's `citedDocs` as given, so a path cited
   twice was written twice, while `save_conversation_message` keeps it once.

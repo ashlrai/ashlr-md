@@ -228,7 +228,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 |---|---|---|---|
 | `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). Without `mode` the window keeps its current view (a file already open in a tab keeps its own, and an app this call launches starts in `read`); pass `read` before an `export`, which needs Read view. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a file that does not exist is refused (by the running app, or before launching it). A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason. A running app that answers with a server error or not in time is a tool error too, never retried through the URL scheme (which could open the file twice). |
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
-| `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. The call returns once the window has applied the content (and saved it, with `save: true`); a save that fails, a document with no file yet, or a window that does not answer within 4 s returns `isError: true` with the reason. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
+| `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document, the same operation as `replace_document`, and like it listed with `destructiveHint: true`. `save` defaults to `false`. The call returns once the window has applied the content (and saved it, with `save: true`); a save that fails, a document with no file yet, or a window that does not answer within 4 s returns `isError: true` with the reason. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`; a value that is not a whole number from 1 to 200 is refused (`-32602`). |
 | `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once the window reports it written and it is on disk. An export that fails in the window (for example, the document is not in Read view) returns `isError` at once with the window's reason; one the window has not finished within 30 s returns `isError` saying so. The app writes one headless export at a time, in a slot of its own, so a slow export never makes edits, opens, presents or reviews wait; a second headless export sent while one is being written returns `isError` at once saying so (retry once the first finishes). The document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
 | `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required; an empty or whitespace-only `content` is refused with `-32602` (it used to register a review of no text). `verdict` is `approved`, `changes_requested`, `dismissed`, `timeout` or `superseded` (a newer review replaced it in the panel). |
@@ -281,7 +281,8 @@ required string a tool cannot use when empty declares `1`: `search_vault`'s
 `request_review`'s inline `content` and `search_vault`'s `vault`, and
 the optional `path` of `edit_document`, `stream_edit` and
 `stream_edit_apply`, `stream_edit_apply`'s `edit_id` and `export`'s
-`output_path` (omitting them is still allowed): an empty one is refused with `-32602`
+`output_path` (omitting them is still allowed): an empty one, or one of only
+whitespace, is refused with `-32602`
 (`` `path` must not be empty ``), where it used to reach the file checks and
 come back as "only Markdown documents can be read", "No such file or
 directory", "not the open document" or "cannot make an empty path
@@ -627,7 +628,13 @@ than the 16 MiB a document may be (it stops reading there and writes no temp
 file). Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
 stderr. Run with no arguments at all, it prints its help to stderr and exits
-`1`; `mdopen --help` prints it to stdout and exits `0`.
+`1`; `mdopen --help` prints it to stdout and exits `0`. An empty or blank
+path (`mdopen "$FILE"` with an empty variable) is a usage error saying the
+path is empty, and a directory is refused as a directory (exit `1` for
+both). An argument that is
+not valid UTF-8 is a usage error (exit `1`, naming it on stderr): Ashlr MD
+takes paths as UTF-8 text, and such an argument used to crash `mdopen` with
+exit `101`, `--hook` included, which still exits `0` in silence.
 
 ### Install
 
@@ -845,7 +852,8 @@ at that path and is executable (`chmod +x`). Running
 check that the path is right (`--help` prints usage). Any other argument is
 ignored, so an old client config that passes one still starts the server, but
 it is named on stderr (`ignoring unknown argument ...`); look there in the
-client's MCP log for a typo such as `--verison`. Run from a terminal, it says
+client's MCP log for a typo such as `--verison`. That holds for an argument
+that is not valid UTF-8 too (it used to stop the server with a panic). Run from a terminal, it says
 on stderr that it is waiting for JSON-RPC on stdin; stdout carries only
 protocol messages.
 

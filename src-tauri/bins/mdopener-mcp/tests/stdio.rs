@@ -327,3 +327,39 @@ fn not_running_errors_and_help_have_no_em_or_en_dashes() {
     assert!(help.starts_with("mdopener-mcp"), "{help}");
     assert!(!has_dash(&help), "{help}");
 }
+
+/// An argument that is not valid UTF-8 used to panic in `std::env::args`
+/// before the server read a request (exit 101). It is ignored and named on
+/// stderr like any unknown argument, and the server answers.
+#[cfg(unix)]
+#[test]
+fn an_argument_that_is_not_utf8_is_ignored_not_a_panic() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .arg(std::ffi::OsStr::from_bytes(b"--x\xff"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(
+        child.stdin.as_mut().unwrap(),
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"ping"})
+    )
+    .unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reply["id"], 1, "{reply}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("ignoring unknown argument `--x\u{FFFD}`"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}

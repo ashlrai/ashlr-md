@@ -299,3 +299,28 @@ fn failed_open_names_the_file_both_routes_and_the_next_step() {
         "{err}"
     );
 }
+
+/// An argument that is not valid UTF-8 used to panic in `std::env::args`
+/// (exit 101 and a backtrace), `--hook` included, which must always exit 0.
+/// It is now a usage error, and `--hook` still exits 0 in silence.
+#[cfg(unix)]
+#[test]
+fn an_argument_that_is_not_utf8_is_a_usage_error_not_a_panic() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let s = Scratch::new("not-utf8");
+    let bad = std::ffi::OsStr::from_bytes(b"\xffnotes.md");
+
+    let out = headless(&s).arg(bad).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("is not valid UTF-8"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+
+    let out = headless(&s)
+        .args([std::ffi::OsStr::new("--hook"), bad])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(out.stderr.is_empty(), "{out:?}");
+}

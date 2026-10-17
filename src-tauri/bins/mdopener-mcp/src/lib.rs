@@ -800,7 +800,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the content of the currently open document in Ashlr MD.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -818,11 +818,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
             annotations: Some(json!({
                 "title": "Set Content",
                 "readOnlyHint": false,
-                "destructiveHint": false,
+                "destructiveHint": true,
                 "idempotentHint": false,
                 "openWorldHint": false
             })),
-            tier: ToolTier::Modifier,
+            tier: ToolTier::Destructive,
         },
         ToolDef {
             name: "list_recent",
@@ -927,7 +927,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty string is refused; omit it to skip the check." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -1222,7 +1222,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty string is refused; omit it to skip the check."
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1270,7 +1270,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional path assertion: errors if a different file is open. An empty string is refused; omit it to skip the check."
+                        "description": "Optional path assertion: errors if a different file is open. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1884,7 +1884,7 @@ pub fn tool_open_file_with(
     ipc: &dyn IpcClient,
     launcher: &dyn Fn(&str) -> launch::Launch,
 ) -> Response {
-    let raw_path = match non_empty_str(args, "path") {
+    let raw_path = match non_blank_str(args, "path") {
         Ok(Some(p)) => p.to_string(),
         Ok(None) => return Response::err(id, -32602, "`path` is required"),
         Err(e) => return Response::err(id, -32602, e),
@@ -2163,7 +2163,7 @@ pub fn tool_export_with(
 
     // An empty `output_path` used to come back as "cannot make an empty path
     // absolute"; it is refused in the words the other tools use.
-    let output_path = match non_empty_str(args, "output_path") {
+    let output_path = match non_blank_str(args, "output_path") {
         Err(e) => return Response::err(id, -32602, e),
         Ok(None) => None,
         Ok(Some(raw)) => match export_output_path(raw, &format) {
@@ -2417,13 +2417,11 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
+    if let Err(e) = non_blank_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     // An empty `content` (with no path) used to register a review of no
     // text at all, which the human could only approve or reject blind.
-    for field in ["path", "content"] {
-        if let Err(e) = non_empty_str(args, field) {
-            return Response::err(id, -32602, e);
-        }
-    }
     // Only whitespace is no text to review either, as for
     // `save_conversation_message`'s `content`.
     if args["content"]
@@ -2672,10 +2670,10 @@ fn decided_review(resp: &Value, review_id: &str) -> Value {
 pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     // An empty `path` is refused here: the app refuses it too, but with the
     // app closed the agent was told to start the app instead.
-    let path = match args["path"].as_str() {
-        Some("") => return Response::err(id, -32602, "`path` must not be empty"),
-        Some(p) => p,
-        None => return Response::err(id, -32602, "`path` is required"),
+    let path = match non_blank_str(args, "path") {
+        Ok(Some(p)) => p,
+        Ok(None) => return Response::err(id, -32602, "`path` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
     // request_review stores the canonical path, so look it up the same way.
     let path = agent_path(path);
@@ -2704,7 +2702,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
     let save = args["save"].as_bool().unwrap_or(false);
     // An empty `path` used to reach the app, which answered that "" is not
     // the open document; it is refused here like an empty `find`.
-    let path = match non_empty_str(args, "path") {
+    let path = match non_blank_str(args, "path") {
         Ok(p) => p,
         Err(e) => return Response::err(id, -32602, e),
     };
@@ -2770,7 +2768,7 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
             }
         },
     };
-    let vault = match non_empty_str(args, "vault") {
+    let vault = match non_blank_str(args, "vault") {
         Ok(v) => v,
         Err(e) => return Response::err(id, -32602, e),
     };
@@ -3225,7 +3223,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
 }
 
 pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = match non_empty_str(args, "path") {
+    let path = match non_blank_str(args, "path") {
         Ok(p) => p,
         Err(e) => return Response::err(id, -32602, e),
     };
@@ -4979,13 +4977,15 @@ pub fn whole_number(args: &Value, name: &str) -> Option<u64> {
 }
 
 /// `args[name]` as a string, `None` when absent (or not a string, which the
-/// schema check refuses first). An empty string is refused with the message
-/// the other tools use, "`name` must not be empty": as a path it used to
-/// reach the file checks, which answered with misleading errors such as
-/// "only Markdown documents can be read" or "No such file or directory".
-fn non_empty_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, String> {
+/// schema check refuses first). An empty or blank (only whitespace) string
+/// is refused with the message the other tools use, "`name` must not be
+/// empty": as a path it used to reach the file checks, which answered with
+/// misleading errors such as "only Markdown documents can be read" or "No
+/// such file or directory". Only for paths, ids and names, where whitespace
+/// alone names nothing; never for document or replacement text.
+fn non_blank_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, String> {
     match args[name].as_str() {
-        Some("") => Err(format!("`{name}` must not be empty")),
+        Some(s) if s.trim().is_empty() => Err(format!("`{name}` must not be empty")),
         s => Ok(s),
     }
 }
@@ -5174,12 +5174,12 @@ pub const DIFF_MAX_CONTEXT_LINES: u64 = 10_000;
 /// - `removed` — total lines removed
 /// - `path_a` / `path_b` — the resolved absolute paths
 pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
-    let raw_a = match non_empty_str(args, "path_a") {
+    let raw_a = match non_blank_str(args, "path_a") {
         Ok(Some(p)) => p.to_string(),
         Ok(None) => return Response::err(id, -32602, "`path_a` is required"),
         Err(e) => return Response::err(id, -32602, e),
     };
-    let raw_b = match non_empty_str(args, "path_b") {
+    let raw_b = match non_blank_str(args, "path_b") {
         Ok(Some(p)) => p.to_string(),
         Ok(None) => return Response::err(id, -32602, "`path_b` is required"),
         Err(e) => return Response::err(id, -32602, e),
@@ -5524,9 +5524,10 @@ fn canvas_number(v: f64) -> Value {
 /// when every op succeeds AND `save` is `true` (default).
 pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Validate path ────────────────────────────────────────────────────────
-    let raw_path = match args["path"].as_str() {
-        Some(p) if !p.is_empty() => p,
-        _ => return Response::err(id, -32602, "`path` is required"),
+    let raw_path = match non_blank_str(args, "path") {
+        Ok(Some(p)) => p,
+        Ok(None) => return Response::err(id, -32602, "`path` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
     if !raw_path.ends_with(".canvas") {
         return Response::err(id, -32602, "`path` must point to a .canvas file");
@@ -6561,7 +6562,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
             }
         },
     };
-    let path = match non_empty_str(args, "path") {
+    let path = match non_blank_str(args, "path") {
         Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
         Err(e) => return Response::err(id, -32602, e),
     };
@@ -6618,7 +6619,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
-    let path = match non_empty_str(args, "path") {
+    let path = match non_blank_str(args, "path") {
         Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
         Err(e) => return Response::err(id, -32602, e),
     };
@@ -7130,7 +7131,7 @@ fn without_bom(content: String) -> String {
 }
 
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    if let Err(e) = non_empty_str(args, "path") {
+    if let Err(e) = non_blank_str(args, "path") {
         return Response::err(id, -32602, e);
     }
     let (markdown, path_used) = match source_document(args, ipc) {
@@ -7692,7 +7693,7 @@ pub fn count_embedded_images(content: &str) -> usize {
 /// }
 /// ```
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    if let Err(e) = non_empty_str(args, "path") {
+    if let Err(e) = non_blank_str(args, "path") {
         return Response::err(id, -32602, e);
     }
     let (markdown, path_used) = match source_document(args, ipc) {

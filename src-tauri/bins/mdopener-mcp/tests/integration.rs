@@ -423,6 +423,34 @@ fn every_tool_states_all_four_annotation_hints() {
     }
 }
 
+/// `set_content` and `replace_document` both post the whole new text to the
+/// app's `/content`, so they overwrite the open document alike.
+/// `set_content` used to be listed as `destructiveHint: false` (a Modifier),
+/// so a client that confirms destructive tools let it replace a document
+/// unasked, while `replace_document` was asked about.
+#[test]
+fn set_content_is_as_destructive_as_replace_document() {
+    let reg = tool_registry();
+    let def = |name: &str| reg.iter().find(|d| d.name == name).unwrap();
+    let (set, replace) = (def("set_content"), def("replace_document"));
+    assert_eq!(set.tier, ToolTier::Destructive);
+    let mut a = set.annotations.clone().unwrap();
+    let mut b = replace.annotations.clone().unwrap();
+    a.as_object_mut().unwrap().remove("title");
+    b.as_object_mut().unwrap().remove("title");
+    assert_eq!(a, b);
+    assert!(set.description.contains("ENTIRE"), "{}", set.description);
+
+    // The same request reaches the app either way.
+    let args = json!({ "content": "# new", "save": true });
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": true })));
+    mdopener_mcp::tool_set_content(id(1), &args, &ipc);
+    mdopener_mcp::tool_replace_document(id(1), &args, &ipc);
+    let calls = ipc.calls();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls[0], calls[1]);
+}
+
 /// Non-destructive tools must NOT carry destructiveHint=true.
 #[test]
 fn non_destructive_tools_do_not_have_destructive_hint() {
@@ -8752,6 +8780,90 @@ fn required_strings_refused_when_empty_declare_min_length() {
         );
     }
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+}
+
+/// A path, id or name of only whitespace names nothing, as an empty one
+/// does. It passed the `minLength: 1` check and the tools' empty checks, and
+/// reached the file checks ("only Markdown documents can be read", "node
+/// `` not found") or the app. It is refused with `-32602` saying the field
+/// must not be empty, before anything is read or sent; whitespace in text
+/// arguments (`find`, `replace`) is still content.
+#[test]
+fn blank_path_arguments_are_refused_like_empty_ones() {
+    for blank in [" ", "  \t\n"] {
+        let calls: [(&str, &str, Value); 15] = [
+            ("open_file", "path", json!({ "path": blank })),
+            ("present_document", "path", json!({ "path": blank })),
+            (
+                "diff_documents",
+                "path_a",
+                json!({ "path_a": blank, "path_b": "b.md" }),
+            ),
+            (
+                "diff_documents",
+                "path_b",
+                json!({ "path_a": "a.md", "path_b": blank }),
+            ),
+            ("export_text", "path", json!({ "path": blank })),
+            ("export_metadata", "path", json!({ "path": blank })),
+            (
+                "request_review",
+                "path",
+                json!({ "path": blank, "blocking": false }),
+            ),
+            (
+                "search_vault",
+                "vault",
+                json!({ "query": "x", "vault": blank }),
+            ),
+            (
+                "edit_document",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "stream_edit",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "stream_edit_apply",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "export",
+                "output_path",
+                json!({ "format": "html", "output_path": blank }),
+            ),
+            ("get_user_annotations", "path", json!({ "path": blank })),
+            (
+                "edit_canvas",
+                "path",
+                json!({ "path": blank, "ops": [{ "type": "delete_node", "id": "n" }] }),
+            ),
+            (
+                "request_review",
+                "content",
+                json!({ "content": blank, "blocking": false }),
+            ),
+        ];
+        for (tool, field, args) in calls {
+            assert_eq!(
+                param_error(&call_tool(tool, args)),
+                format!("`{field}` must not be empty"),
+                "{tool}.{field} = {blank:?}"
+            );
+        }
+    }
+    // Whitespace is still valid text to find and to write.
+    let ipc = MockIpc::new();
+    let resp =
+        mdopener_mcp::tool_edit_document(id(1), &json!({ "find": " ", "replace": " " }), &ipc);
+    assert!(
+        resp.error.as_ref().is_none_or(|e| e.code != -32602),
+        "{resp:?}"
+    );
 }
 
 /// An empty path in `cited_docs` used to be stored, and came back in
