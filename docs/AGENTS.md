@@ -219,7 +219,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
 | `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document. With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. |
-| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer` | `{ verdict, reviewId, comments }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path` or `content` is required. |
+| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. |
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. |
@@ -318,7 +318,11 @@ before proceeding.
    `reviewId` is generated) and, if a `path` was given, opens that file in read
    mode. The app shows its **review panel**.
 2. **The call BLOCKS** (when `blocking` is `true`, the default). Under the hood
-   the MCP binary polls the app every ~1.5s for a verdict, up to `timeout_ms`.
+   the MCP binary polls the app every ~1.5s for a verdict, for at most
+   `wait_ms` (default 50 s, below the 60 s request timeout of common MCP
+   clients). If the human has not decided by then it returns
+   `{ "status": "pending", "reviewId": "…" }`; call `request_review` again with
+   `review_id` to keep waiting on the same review.
 3. **The human acts in the app** — clicking **Approve**, **Request changes**, or
    **Dismiss** — optionally leaving comments.
 4. **The agent receives the verdict** as the tool result:
@@ -332,8 +336,12 @@ before proceeding.
   returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
   can later check the outcome via `get_user_annotations`.
 - `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  to wait for a verdict. On expiry the tool returns `{ "verdict": "timeout", … }`
-  rather than hanging forever.
+  the human has to decide (the review panel's window). When it fits within
+  `wait_ms` and expires, the tool returns `{ "verdict": "timeout", … }`.
+- `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
+  blocks. Raise it only if your client allows longer tool calls.
+- `review_id` — resume waiting on a review an earlier call returned as pending
+  (no new review is registered).
 
 ### Reading the result later
 
