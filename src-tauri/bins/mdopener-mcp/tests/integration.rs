@@ -2254,8 +2254,21 @@ fn search_result_to_json_includes_all_fields() {
 
 // ── Helper: unique session id per test so parallel tests do not interfere ────
 
+/// Session files go to a temp directory, never the real `~/.mdopener`.
+/// Every test that touches a session gets its id from `unique_session`, which
+/// sets this up first.
+fn use_temp_sessions_dir() {
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap().keep().join("sessions");
+        assert!(mdopener_mcp::set_sessions_dir(dir.clone()));
+        dir
+    });
+}
+
 fn unique_session() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use_temp_sessions_dir();
     static CTR: AtomicU64 = AtomicU64::new(0);
     format!("test-sess-{}-{}", std::process::id(), CTR.fetch_add(1, Ordering::SeqCst))
 }
@@ -2548,6 +2561,9 @@ fn appending_to_one_session_does_not_appear_in_another() {
 #[test]
 fn messages_persisted_to_disk_and_loadable() {
     let sess = unique_session();
+    let home_sessions = dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"));
+    let dir = mdopener_mcp::sessions_dir();
+    assert_ne!(dir, home_sessions, "tests must not use ~/.mdopener");
 
     // Append via store (triggers disk write).
     store_append_message(&sess, "agent", "Wrote introduction.", vec!["/vault/intro.md".into()])
@@ -3657,8 +3673,7 @@ fn diff_documents_huge_context_does_not_overflow() {
 #[test]
 fn conversation_store_keeps_messages_appended_by_another_process() {
     use mdopener_mcp::persist_session;
-    let sess = format!("cross-process-{}-{:?}", std::process::id(), std::time::Instant::now())
-        .replace(|c: char| !c.is_alphanumeric(), "-");
+    let sess = format!("cross-process-{}", unique_session());
     store_append_message(&sess, "agent", "from this process", vec![]).unwrap();
     // The "other process" appends straight to the persisted log.
     let mut log = load_session_from_disk(&sess).unwrap();
@@ -3666,7 +3681,7 @@ fn conversation_store_keeps_messages_appended_by_another_process() {
     other.id = "msg-other".into();
     other.content = "from another process".into();
     log.messages.push(other);
-    persist_session(&sess, &log);
+    persist_session(&sess, &log).unwrap();
 
     let ctx = store_get_context(&sess, 20).unwrap();
     assert_eq!(ctx.len(), 2, "reads must see the other process's message");
@@ -3733,4 +3748,354 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     assert_eq!(v["verdict"], "approved", "{v}");
     assert_eq!(v["reviewId"], review_id.as_str());
     assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
+}
+
+// ── Disk reads only open regular files ────────────────────────────────────────
+
+/// Run `f` on a worker thread and fail (instead of hanging the suite) when it
+/// does not return within a few seconds.
+#[cfg(unix)]
+fn within_seconds<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap_or_else(|_| panic!("{what} hung instead of refusing a non-regular file"))
+}
+
+/// A FIFO named like a document (`x.md`, `x.canvas`) must be refused, not
+/// opened: opening a FIFO for reading blocks until a writer appears, which
+/// hung the whole MCP session.
+#[cfg(unix)]
+#[test]
+fn disk_reading_tools_refuse_a_fifo_instead_of_hanging() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.keep()).unwrap();
+    let fifo_md = dir.join("x.md");
+    let fifo_canvas = dir.join("x.canvas");
+    let real = dir.join("real.md");
+    std::fs::write(&real, "# Real\n").unwrap();
+    for p in [&fifo_md, &fifo_canvas] {
+        let status = std::process::Command::new("mkfifo")
+            .arg(p)
+            .status()
+            .unwrap();
+        assert!(status.success(), "mkfifo failed");
+    }
+    let md = fifo_md.to_string_lossy().into_owned();
+    let canvas = fifo_canvas.to_string_lossy().into_owned();
+    let real = real.to_string_lossy().into_owned();
+
+    let (m, r) = (md.clone(), real.clone());
+    let resp = within_seconds("diff_documents", move || {
+        mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": r, "path_b": m }))
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let m = md.clone();
+    let resp = within_seconds("export_text", move || {
+        mdopener_mcp::tool_export_text(id(2), &json!({ "path": m }), &MockIpc::new())
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let m = md.clone();
+    let resp = within_seconds("export_metadata", move || {
+        mdopener_mcp::tool_export_metadata(id(3), &json!({ "path": m }), &MockIpc::new())
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let c = canvas.clone();
+    let resp = within_seconds("edit_canvas", move || {
+        mdopener_mcp::tool_edit_canvas(
+            id(4),
+            &json!({ "path": c, "ops": [{ "type": "delete_node", "id": "n" }] }),
+        )
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    // The vault/recents paths come from the app, so a FIFO there must not
+    // hang resources/read, the recent-documents resource or the local grep.
+    let vault = json!({ "files": [{ "path": md, "name": "x.md" }], "recents": [md] });
+    let (v, m) = (vault.clone(), md.clone());
+    let resp = within_seconds("resources/read file://", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        handle_resource_read(id(5), &format!("file://{m}"), &ipc)
+    });
+    let err = resp.error.expect("reading a FIFO resource must fail");
+    assert!(err.message.contains("regular file"), "{}", err.message);
+
+    let v = vault.clone();
+    let resp = within_seconds("mdopener://recent-documents", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        handle_resource_read(id(6), "mdopener://recent-documents", &ipc)
+    });
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    let v = vault.clone();
+    let found = within_seconds("grep_vault", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        mdopener_mcp::grep_vault("anything", 10, &ipc)
+    });
+    assert_eq!(found.unwrap(), Vec::<Value>::new());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── Session ids map to distinct files ─────────────────────────────────────────
+
+/// `a.b` and `a_b` used to sanitize to the same `a_b.json`, so two sessions
+/// shared (and overwrote) one memory store.
+#[test]
+fn session_ids_that_used_to_sanitize_alike_get_separate_files() {
+    let base = unique_session();
+    let ids = [
+        format!("{base}.x"),
+        format!("{base}_x"),
+        format!("{base}/x"),
+        format!("{base}%2Ex"),
+        format!("{base}é"),
+    ];
+    let mut paths = std::collections::HashSet::new();
+    for sid in &ids {
+        let path = session_file_path(sid).unwrap();
+        assert!(paths.insert(path.clone()), "{sid} shares {path:?}");
+        let dir = mdopener_mcp::sessions_dir();
+        assert_eq!(path.parent(), dir.as_deref(), "{sid}");
+        let resp = tool_save_conversation_message(
+            id(1),
+            &json!({ "session_id": sid, "role": "agent", "content": format!("only in {sid}") }),
+        );
+        assert!(!is_error(&resp), "{resp:?}");
+    }
+    for sid in &ids {
+        let ctx = store_get_context(sid, 20).unwrap();
+        let contents: Vec<_> = ctx.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(contents, [format!("only in {sid}")], "{sid}");
+        let _ = std::fs::remove_file(session_file_path(sid).unwrap());
+    }
+    // Ids that were already file-name safe keep their file.
+    let plain = session_file_path(&base).unwrap();
+    let want = format!("{base}.json");
+    assert_eq!(plain.file_name().unwrap().to_str(), Some(want.as_str()));
+}
+
+/// Where the file system still folds two ids onto one file (case-insensitive
+/// volumes: `Plan` and `plan`), reads never return the other session's
+/// messages and appends refuse rather than mix the two logs.
+#[test]
+fn session_file_holding_another_ids_messages_is_not_shared() {
+    use mdopener_mcp::{persist_session, ConversationMessage, SessionLog};
+    let sid = unique_session();
+    let other = ConversationMessage {
+        id: "msg-other".into(),
+        session_id: format!("{sid}-other"),
+        role: "agent".into(),
+        content: "belongs to another session".into(),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    let messages = vec![other];
+    persist_session(&sid, &SessionLog { messages }).unwrap();
+    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "mine" }),
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains("another session"), "{err}");
+    let on_disk = load_session_from_disk(&sid).unwrap();
+    assert_eq!(on_disk.messages.len(), 1);
+    assert_eq!(on_disk.messages[0].content, "belongs to another session");
+    let _ = std::fs::remove_file(session_file_path(&sid).unwrap());
+}
+
+/// A message that could not be written to the session file is not saved:
+/// the tool must say so (isError) rather than report `ok: true`, and the
+/// unsaved message must not linger in the in-process store either.
+#[test]
+fn save_message_reports_a_failed_session_write() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    // A directory where the session file belongs makes the write fail.
+    std::fs::create_dir_all(&path).unwrap();
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "lost" }),
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains("not saved"), "{err}");
+    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    std::fs::remove_dir(&path).unwrap();
+}
+
+// ── edit_canvas keeps what it does not edit ───────────────────────────────────
+
+/// Saving used to rewrite the file as `{ nodes, edges }` only, dropping any
+/// other top-level key (format extensions, plugin metadata).
+#[test]
+fn edit_canvas_preserves_unknown_top_level_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let canvas = json!({
+        "nodes": [{ "id": "a", "type": "text", "text": "hi", "x": 0, "y": 0,
+                    "width": 10, "height": 10, "pluginData": { "k": 1 } }],
+        "edges": [],
+        "version": "1.0-1.0",
+        "metadata": { "frontmatter": { "tags": ["x"] } }
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["version"], canvas["version"]);
+    assert_eq!(saved["metadata"], canvas["metadata"]);
+    assert_eq!(saved["nodes"][0]["x"].as_f64(), Some(5.0));
+    assert_eq!(saved["nodes"][0]["pluginData"], json!({ "k": 1 }));
+}
+
+/// A node or edge that is not a JSON object used to vanish silently on save;
+/// now the edit is refused and the file is left as it was.
+#[test]
+fn edit_canvas_refuses_non_object_nodes_instead_of_dropping_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    for raw in [
+        r#"{"nodes":[{"id":"a","x":0,"y":0},"stray"],"edges":[]}"#,
+        r#"{"nodes":[{"id":"a","x":0,"y":0}],"edges":[42]}"#,
+        r#"{"nodes":{"id":"a"},"edges":[]}"#,
+    ] {
+        std::fs::write(&path, raw).unwrap();
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }] }),
+        );
+        let err = tool_error_text(&resp);
+        assert!(err.contains("Canvas parse error"), "{raw}: {err}");
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(on_disk, raw, "file must be untouched");
+    }
+}
+
+// ── An unclosed leading `---` is not front-matter ─────────────────────────────
+
+/// A document that opens with `---` (a thematic break) and never closes it
+/// used to be swallowed whole as front-matter: empty plain text, zero words,
+/// and every `key: value`-looking line reported as metadata.
+#[test]
+fn unclosed_leading_fence_is_not_frontmatter() {
+    use mdopener_mcp::{extract_frontmatter, strip_markdown};
+    let doc = "---\nNote: this is body text.\n\nSecond paragraph here.\n";
+    let text = strip_markdown(doc);
+    assert!(text.contains("Note: this is body text."), "{text:?}");
+    assert!(text.contains("Second paragraph here."), "{text:?}");
+    assert_eq!(extract_frontmatter(doc), Value::Null);
+
+    // Closed front-matter is still stripped and parsed.
+    let closed = "---\ntitle: Plan\n---\nBody\n";
+    assert_eq!(strip_markdown(closed).trim(), "Body");
+    assert_eq!(extract_frontmatter(closed), json!({ "title": "Plan" }));
+    let dots = "---\ntitle: Plan\n...\nBody\n";
+    assert_eq!(strip_markdown(dots).trim(), "Body");
+    assert_eq!(extract_frontmatter(dots), json!({ "title": "Plan" }));
+}
+
+// ── file:// resource URIs are percent-decoded ─────────────────────────────────
+
+/// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server
+/// compared the encoded text with the advertised path and answered "not in
+/// vault". Decoding happens before the advertised-path check, so encoding
+/// cannot reach a file outside the vault.
+#[test]
+fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("My Notes.md");
+    let secret = dir.join("secret.md");
+    std::fs::write(&doc, "# Notes\n").unwrap();
+    std::fs::write(&secret, "# Secret\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "My Notes.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+
+    let encoded = format!("file://{}", doc.replace(' ', "%20"));
+    let resp = handle_resource_read(id(1), &encoded, &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let contents = &resp.result.as_ref().unwrap()["contents"][0];
+    assert_eq!(contents["text"], "# Notes\n");
+    assert_eq!(contents["uri"], encoded.as_str());
+
+    // `file://localhost/...` is the same file.
+    let resp = handle_resource_read(id(2), &format!("file://localhost{doc}"), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    // The unencoded form resources/list advertises still works.
+    let resp = handle_resource_read(id(2), &format!("file://{doc}"), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    // Encoding does not get around the scope check.
+    let dir_s = dir.to_string_lossy().into_owned();
+    let leaf = dir.file_name().unwrap().to_string_lossy().into_owned();
+    for uri in [
+        format!("file://{}", secret.to_string_lossy().replace('s', "%73")),
+        format!("file://{}/My%20Notes.md%2F..%2Fsecret.md", dir_s),
+        format!("file://{dir_s}/%2E%2E/{leaf}/secret.md"),
+    ] {
+        let resp = handle_resource_read(id(3), &uri, &ipc);
+        let err = resp.error.expect("must be refused");
+        let msg = err.message;
+        assert!(msg.contains("not in vault"), "{uri}: {msg}");
+    }
+}
+
+/// History saved by earlier builds under the old sanitized name stays
+/// readable: `proj.1` used to live in `proj_1.json` (shared with `proj_1`).
+/// Reads fall back to that file, keeping only `proj.1`'s own messages, and
+/// the next append writes them, plus the new message, to the new file.
+#[test]
+fn legacy_sanitized_session_file_is_still_read() {
+    use mdopener_mcp::{ConversationMessage, SessionLog};
+    let base = unique_session();
+    let dotted = format!("{base}.1");
+    let underscored = format!("{base}_1");
+    let msg = |sid: &str, content: &str| ConversationMessage {
+        id: format!("msg-{content}"),
+        session_id: sid.to_string(),
+        role: "agent".into(),
+        content: content.into(),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    let legacy = session_file_path(&underscored).unwrap();
+    let messages = vec![
+        msg(&dotted, "old dotted"),
+        msg(&underscored, "old underscored"),
+    ];
+    let legacy_json = serde_json::to_string(&SessionLog { messages }).unwrap();
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, &legacy_json).unwrap();
+
+    let contents = |sid: &str| -> Vec<String> {
+        let ctx = store_get_context(sid, 20).unwrap();
+        ctx.into_iter().map(|m| m.content).collect()
+    };
+    assert_eq!(contents(&dotted), ["old dotted"]);
+    assert_eq!(contents(&underscored), ["old underscored"]);
+
+    store_append_message(&dotted, "agent", "new dotted", vec![]).unwrap();
+    let new_file = session_file_path(&dotted).unwrap();
+    assert_ne!(new_file, legacy);
+    let on_disk: Vec<String> = load_session_from_disk(&dotted)
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    assert_eq!(on_disk, ["old dotted", "new dotted"]);
+    assert_eq!(contents(&dotted), ["old dotted", "new dotted"]);
+    // The legacy file is left as it was for the id that still owns it.
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_json);
+    assert_eq!(contents(&underscored), ["old underscored"]);
 }

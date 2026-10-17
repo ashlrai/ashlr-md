@@ -240,14 +240,49 @@ fn conversation_store() -> &'static Mutex<HashMap<String, SessionLog>> {
 /// Maximum messages kept per session in the in-process store.
 pub const MAX_MESSAGES_PER_SESSION: usize = 200;
 
+static SESSIONS_DIR_OVERRIDE: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// Keep session files in `dir` instead of `~/.mdopener/sessions` for the rest
+/// of this process. Tests use it to stay off the real home directory without
+/// mutating `HOME` while other test threads read it. Returns `false` (and
+/// changes nothing) when a directory was already set.
+#[doc(hidden)]
+pub fn set_sessions_dir(dir: std::path::PathBuf) -> bool {
+    SESSIONS_DIR_OVERRIDE.set(dir).is_ok()
+}
+
 /// Return the directory where session JSON files are persisted.
 pub fn sessions_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = SESSIONS_DIR_OVERRIDE.get() {
+        return Some(dir.clone());
+    }
     dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
 }
 
 /// Path for a specific session's on-disk JSON file.
+///
+/// The mapping is injective: ASCII letters, digits, `-` and `_` are kept
+/// (so ids that were already file-name safe keep their file), and every other
+/// byte of the UTF-8 id is written as `%XX`. `%` itself is escaped, so `a.b`
+/// (`a%2Eb.json`) and `a_b` (`a_b.json`) no longer share a file, and no id
+/// can produce a separator, `..` or a dotfile.
 pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
-    // Sanitise the session ID: keep only alphanumeric, '-', and '_'.
+    let mut safe = String::with_capacity(session_id.len());
+    for b in session_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+            safe.push(b as char);
+        } else {
+            safe.push_str(&format!("%{b:02X}"));
+        }
+    }
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// The file name earlier builds used: every character other than an
+/// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
+/// Only read, as a fallback, so that history saved before the injective
+/// mapping stays reachable.
+fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     let safe: String = session_id
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
@@ -255,24 +290,55 @@ pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
-/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`.
-/// Creates the directory if it does not exist.  Errors are silently ignored
-/// (persistence is best-effort; the in-process store is always authoritative).
-pub fn persist_session(session_id: &str, log: &SessionLog) {
-    let Some(path) = session_file_path(session_id) else { return };
+/// Load `session_id`'s log from disk, keeping only its own messages. On a
+/// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
+/// still share a file; their messages are told apart by `session_id`.
+/// Returns the log and whether the file also held another session's messages.
+///
+/// When the session has no file of its own yet, its messages are read from
+/// the legacy file name (filtered the same way, since that file may be shared
+/// with other ids). The next append writes them to the session's own file
+/// and leaves the legacy file untouched.
+fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
+    let own = |mut log: SessionLog| {
+        let before = log.messages.len();
+        log.messages.retain(|m| m.session_id == session_id);
+        let foreign = log.messages.len() != before;
+        (log, foreign)
+    };
+    let path = session_file_path(session_id)?;
+    if path.exists() {
+        return load_session_from_disk(session_id).map(own);
+    }
+    let legacy = legacy_session_file_path(session_id)?;
+    if legacy == path {
+        return None;
+    }
+    let text = read_regular_file(&legacy).ok()?;
+    let (log, _) = own(serde_json::from_str(&text).ok()?);
+    Some((log, false))
+}
+
+/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the
+/// directory if it does not exist. The persisted log is what every reader
+/// (another server process, this one after a restart) sees, so a failed
+/// write is an error for the caller to report.
+pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
+    let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     }
-    if let Ok(json) = serde_json::to_string_pretty(log) {
-        let _ = std::fs::write(&path, json);
-    }
+    let json =
+        serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
 /// or cannot be parsed.
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
-    let text = std::fs::read_to_string(&path).ok()?;
+    let text = read_regular_file(&path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
@@ -313,11 +379,24 @@ pub fn store_append_message(
     // process (a second agent, or this agent after a restart) may have
     // appended since this process cached it, and writing the cached copy
     // back would drop those messages.
-    let fresh = load_session_from_disk(session_id);
-    let log = store.entry(session_id.to_string()).or_default();
-    if let Some(disk) = fresh {
-        *log = disk;
-    }
+    let fresh = match load_own_session(session_id) {
+        Some((_, true)) => {
+            let path = session_file_path(session_id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            return Err(format!(
+                "Session file {path} also holds another session's messages (ids that \
+                 differ only in case share a file on this file system); use a different \
+                 `session_id`."
+            ));
+        }
+        Some((disk, false)) => Some(disk),
+        None => None,
+    };
+    let mut log = match fresh {
+        Some(disk) => disk,
+        None => store.get(session_id).cloned().unwrap_or_default(),
+    };
     log.messages.push(msg.clone());
 
     // Bound the in-process store.
@@ -326,7 +405,11 @@ pub fn store_append_message(
         log.messages.drain(..excess);
     }
 
-    persist_session(session_id, log);
+    // Only a log that reached disk replaces the cached one, so a failed
+    // write leaves no unsaved message behind.
+    persist_session(session_id, &log)
+        .map_err(|e| format!("Message not saved to the session file: {e}"))?;
+    store.insert(session_id.to_string(), log);
     Ok(msg)
 }
 
@@ -338,7 +421,7 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read.
-    if let Some(log) = load_session_from_disk(session_id) {
+    if let Some((log, _)) = load_own_session(session_id) {
         store.insert(session_id.to_string(), log);
     }
 
@@ -1584,6 +1667,11 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         Some(r) => r,
         None => return Response::err(id, -32602, "`role` is required"),
     };
+    if !matches!(role.trim(), "agent" | "human" | "system") {
+        let got = role.trim();
+        let msg = format!("`role` must be 'agent', 'human', or 'system', got '{got}'");
+        return Response::err(id, -32602, msg);
+    }
 
     let content = match args["content"].as_str() {
         Some(c) if !c.trim().is_empty() => c.to_string(),
@@ -1604,7 +1692,9 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
             "role": msg.role,
             "timestampMs": msg.timestamp_ms,
         })),
-        Err(e) => Response::err(id, -32602, e),
+        // The arguments were valid (checked above); this is a failure to
+        // store the message, e.g. the session file could not be written.
+        Err(e) => tool_error(id, e),
     }
 }
 
@@ -1896,11 +1986,27 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         return handle_recent_documents_resource(id, ipc);
     }
 
-    if let Some(p) = uri.strip_prefix("file://") {
-        if !is_advertised_path(p, ipc) {
-            return Response::err(id, -32002, format!("Resource not in vault: {uri}"));
-        }
-        return match std::fs::read_to_string(p) {
+    if let Some(raw) = uri.strip_prefix("file://") {
+        // `file://localhost/a` names the same file as `file:///a`.
+        let raw = match raw.strip_prefix("localhost/") {
+            Some(_) => &raw["localhost".len()..],
+            None => raw,
+        };
+        // resources/list advertises `file://<path>` unencoded, but clients
+        // percent-encode URIs (`My%20Notes.md`). The decoded path is what
+        // must be advertised: the scope check runs after decoding, so
+        // encoding cannot name a file outside the vault.
+        let decoded = urlencoding::decode(raw).ok().map(|d| d.into_owned());
+        let advertised = |p: &str| is_advertised_path(p, ipc);
+        let p = if advertised(raw) {
+            raw.to_string()
+        } else {
+            match decoded {
+                Some(d) if d != raw && advertised(&d) => d,
+                _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+            }
+        };
+        return match read_regular_file(&p) {
             Ok(text) => Response::ok(id, json!({
                 "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
             })),
@@ -2049,6 +2155,21 @@ pub fn canonicalize_path(raw: &str) -> String {
         .unwrap_or_else(|_| raw.to_string())
 }
 
+/// Read a file as UTF-8 text, refusing anything that is not a regular file
+/// (after following symlinks). Opening a FIFO for reading blocks until a
+/// writer appears, and a device or socket is never a document, so every disk
+/// read goes through here rather than `std::fs::read_to_string`.
+pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    let path = path.as_ref();
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    std::fs::read_to_string(path)
+}
+
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's
 /// `MD_EXTENSIONS` (src-tauri/src/document.rs).
 pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
@@ -2057,8 +2178,9 @@ pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// from disk (no app involved), refusing anything that is not a Markdown
 /// document. The check runs on the canonical path, so a `notes.md` symlink to
 /// `.env` is refused too. Dotfiles (`.env.md`, `.secrets.md`) are refused even
-/// with a Markdown extension. Returns the canonical path, or a message for an
-/// `isError` result.
+/// with a Markdown extension, and so is anything that exists but is not a
+/// regular file (a FIFO named `x.md` would block the read forever). Returns
+/// the canonical path, or a message for an `isError` result.
 pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
@@ -2082,6 +2204,14 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+    }
+    // A missing file falls through so the caller reports "No such file".
+    if let Ok(meta) = std::fs::metadata(p) {
+        if !meta.is_file() {
+            return Err(format!(
+                "Refusing to read `{arg}` '{abs}': it is not a regular file."
+            ));
+        }
     }
     Ok(abs)
 }
@@ -2126,7 +2256,7 @@ pub fn semantic_search_vault(
     let mut scored: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2162,7 +2292,7 @@ pub fn grep_vault(
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2427,7 +2557,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     let mut documents: Vec<Value> = Vec::new();
     for path in &recent_paths {
         // Skip paths that no longer exist on disk.
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2508,11 +2638,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return tool_error(id, e),
     };
 
-    let content_a = match std::fs::read_to_string(&path_a) {
+    let content_a = match read_regular_file(&path_a) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match std::fs::read_to_string(&path_b) {
+    let content_b = match read_regular_file(&path_b) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -2793,7 +2923,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
-    let raw_content = match std::fs::read_to_string(&path) {
+    let raw_content = match read_regular_file(&path) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
@@ -2806,6 +2936,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
     let mut edges: Vec<serde_json::Map<String, Value>> = parsed.edges;
+    let mut output = parsed.rest;
 
     // ── Apply ops ────────────────────────────────────────────────────────────
     let ops = match args["ops"].as_array() {
@@ -3096,7 +3227,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Serialise ────────────────────────────────────────────────────────────
-    let output = json!({ "nodes": nodes, "edges": edges });
+    output.insert("nodes".into(), json!(nodes));
+    output.insert("edges".into(), json!(edges));
     let serialised = match serde_json::to_string_pretty(&output) {
         Ok(s) => s,
         Err(e) => return tool_error(id, format!("Serialisation error: {e}")),
@@ -3126,21 +3258,41 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
 struct RawCanvas {
     nodes: Vec<serde_json::Map<String, Value>>,
     edges: Vec<serde_json::Map<String, Value>>,
+    /// Every other top-level key, written back unchanged on save.
+    rest: serde_json::Map<String, Value>,
 }
 
 fn parse_canvas_json(raw: &str) -> Result<RawCanvas, String> {
     let v: Value = serde_json::from_str(raw)
         .map_err(|e| format!("Invalid JSON: {e}"))?;
-    let obj = v.as_object().ok_or("Canvas must be a JSON object")?;
-    let nodes = obj.get("nodes")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    let edges = obj.get("edges")
-        .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(|v| v.as_object().cloned()).collect())
-        .unwrap_or_default();
-    Ok(RawCanvas { nodes, edges })
+    let Value::Object(mut rest) = v else {
+        return Err("Canvas must be a JSON object".into());
+    };
+    let nodes = take_canvas_items(&mut rest, "nodes")?;
+    let edges = take_canvas_items(&mut rest, "edges")?;
+    Ok(RawCanvas { nodes, edges, rest })
+}
+
+/// Remove `key` (`nodes` or `edges`) from the canvas object as a list of
+/// objects. A missing key is an empty list; anything that is not an array of
+/// objects is an error, since saving would otherwise drop it.
+fn take_canvas_items(
+    obj: &mut serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Vec<serde_json::Map<String, Value>>, String> {
+    let items = match obj.remove(key) {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(format!("`{key}` must be an array")),
+    };
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(i, item)| match item {
+            Value::Object(m) => Ok(m),
+            other => Err(format!("{key}[{i}] must be an object, got {other}")),
+        })
+        .collect()
 }
 
 fn find_node_mut<'a>(
@@ -3277,7 +3429,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///
 /// Rules:
 /// - YAML front-matter fences (`---` … `---` / `---` … `...`) at the top are
-///   removed entirely.
+///   removed entirely. A leading `---` that is never closed is not
+///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
 ///   code content is preserved as-is.
 /// - ATX headings: leading `#` characters and a space are removed.
@@ -3294,20 +3447,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Blank lines are collapsed to a single blank line between paragraphs.
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
-    let mut lines = content.lines().peekable();
-
-    // Remove YAML front-matter at the very start.
-    if let Some(&first) = lines.peek() {
-        if first.trim() == "---" {
-            lines.next(); // consume opening fence
-            // Consume until closing `---` or `...`
-            for line in lines.by_ref() {
-                if line.trim() == "---" || line.trim() == "..." {
-                    break;
-                }
-            }
-        }
-    }
+    // Remove YAML front-matter at the very start (only when it is closed).
+    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
+    let lines = content.lines().skip(skip);
 
     let mut in_code_block = false;
 
@@ -3608,7 +3750,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
@@ -3640,6 +3782,26 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 
 // ── export_metadata tool ──────────────────────────────────────────────────────
 
+/// The lines between a leading `---` and the closing `---` or `...`, or
+/// `None` when the document does not open with front-matter. A leading `---`
+/// that is never closed is a thematic break, not front-matter, so the rest
+/// of the document is not swallowed.
+fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
+    let mut lines = content.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+    let mut fm_lines = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            return Some(fm_lines);
+        }
+        fm_lines.push(line);
+    }
+    None
+}
+
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
 /// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
@@ -3647,22 +3809,9 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// simple key: value lines.  Only scalar string/bool/number values are parsed;
 /// multi-line and nested YAML are returned as raw strings.
 pub fn extract_frontmatter(content: &str) -> Value {
-    let mut lines = content.lines();
-    let first = match lines.next() {
-        Some(l) => l.trim(),
-        None => return Value::Null,
-    };
-    if first != "---" {
+    let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
-    }
-    let mut fm_lines: Vec<&str> = Vec::new();
-    for line in lines {
-        let t = line.trim();
-        if t == "---" || t == "..." {
-            break;
-        }
-        fm_lines.push(line);
-    }
+    };
     if fm_lines.is_empty() {
         return Value::Null;
     }
@@ -3837,7 +3986,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
