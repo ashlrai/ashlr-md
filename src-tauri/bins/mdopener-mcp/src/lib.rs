@@ -1008,7 +1008,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stripped while code block contents are preserved as-is. Returns the extracted text \
                 together with word and character counts. Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC.",
+                document via IPC (an error when nothing is open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1034,7 +1034,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC.",
+                reads the currently open document via IPC (an error when nothing is open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3847,27 +3847,31 @@ pub fn count_words(text: &str) -> usize {
 /// When omitted, fetches the current document's content via IPC.
 ///
 /// Returns `{ text, word_count, char_count, path? }`.
+/// The Markdown `export_text` and `export_metadata` work on, with its path:
+/// the file `path` names (read from disk), else the document open in the app.
+/// With neither a path nor an open document there is nothing to read, which
+/// is an error rather than an empty document.
+fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
+    if let Some(raw) = args["path"].as_str() {
+        let abs = checked_document_path(raw, "path")?;
+        return match read_regular_file(&abs) {
+            Ok(c) => Ok((c, Some(abs))),
+            Err(e) => Err(format!("Cannot read '{abs}': {e}")),
+        };
+    }
+    let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
+    let content = v["content"].as_str().unwrap_or("").to_string();
+    let path = v["path"].as_str().map(str::to_string);
+    if path.is_none() && content.is_empty() {
+        return Err("No document is open in Ashlr MD; pass `path` to read a file.".to_string());
+    }
+    Ok((content, path))
+}
+
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    // Resolve source: explicit path → disk read; no path → IPC current content.
-    let (markdown, path_used) = match args["path"].as_str() {
-        Some(raw) => {
-            let abs = match checked_document_path(raw, "path") {
-                Ok(p) => p,
-                Err(e) => return tool_error(id, e),
-            };
-            match read_regular_file(&abs) {
-                Ok(c) => (c, Some(abs)),
-                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
-            }
-        }
-        None => match ipc.get("/content") {
-            Ok(v) => {
-                let content = v["content"].as_str().unwrap_or("").to_string();
-                let path = v["path"].as_str().map(str::to_string);
-                (content, path)
-            }
-            Err(e) => return tool_error(id, app_not_running_msg(&e)),
-        },
+    let (markdown, path_used) = match source_document(args, ipc) {
+        Ok(doc) => doc,
+        Err(e) => return tool_error(id, e),
     };
 
     let text = strip_markdown(&markdown);
@@ -4085,25 +4089,9 @@ pub fn count_embedded_images(content: &str) -> usize {
 /// }
 /// ```
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let (markdown, path_used) = match args["path"].as_str() {
-        Some(raw) => {
-            let abs = match checked_document_path(raw, "path") {
-                Ok(p) => p,
-                Err(e) => return tool_error(id, e),
-            };
-            match read_regular_file(&abs) {
-                Ok(c) => (c, Some(abs)),
-                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
-            }
-        }
-        None => match ipc.get("/content") {
-            Ok(v) => {
-                let content = v["content"].as_str().unwrap_or("").to_string();
-                let path = v["path"].as_str().map(str::to_string);
-                (content, path)
-            }
-            Err(e) => return tool_error(id, app_not_running_msg(&e)),
-        },
+    let (markdown, path_used) = match source_document(args, ipc) {
+        Ok(doc) => doc,
+        Err(e) => return tool_error(id, e),
     };
 
     let frontmatter = extract_frontmatter(&markdown);

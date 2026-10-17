@@ -3035,6 +3035,21 @@ fn export_text_missing_path_and_no_ipc_returns_error() {
         "should return error when path omitted and IPC fails");
 }
 
+#[test]
+fn export_text_and_metadata_with_nothing_open_are_errors() {
+    // No path and no document open: there is nothing to extract, so an empty
+    // text / zero word count would read as an empty document.
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    for resp in [
+        tool_export_text(json!(1), &json!({}), &ipc),
+        tool_export_metadata(json!(2), &json!({}), &ipc),
+    ] {
+        let text = tool_error_text(&resp);
+        assert!(text.contains("No document is open"), "{text}");
+        assert!(text.contains("`path`"), "{text}");
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool: export_metadata — frontmatter, headings, wikilinks, images, word count
 // ════════════════════════════════════════════════════════════════════════════
