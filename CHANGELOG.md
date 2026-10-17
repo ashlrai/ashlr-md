@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The Obsidian plugin offers Ashlr MD only for notes it opens.** "Open in
+  Ashlr MD" was in the menu of every file, and its commands ran for any
+  active file, but the app ignores a link to anything other than a Markdown
+  document that is not a dotfile, so clicking it on a PDF, an image or a
+  `.canvas` did nothing. The menu items and commands now appear only for
+  `.md`, `.markdown`, `.mdown`, `.mkd` and `.mdx` notes that are not
+  dotfiles, and the ribbon icon says why for any other file.
 - **`mdopener://export` links open the file in Read view.** An export link
   ignored `mode` and opened the file in whatever view it was, and an export
   from Edit view fails. It now switches the file to Read view before the

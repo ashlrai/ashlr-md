@@ -34,6 +34,21 @@ const DEFAULT_SETTINGS: AshlrMdSettings = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** The extensions Ashlr MD opens from a link (`MD_EXTENSIONS` in the app). */
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd", "mdx"]);
+
+/**
+ * Whether Ashlr MD opens `file` from a link: a Markdown document that is not
+ * a dotfile. The app ignores any other link without a word, so offering it
+ * for a PDF, an image or a `.canvas` used to do nothing when clicked.
+ */
+function isOpenableInAshlr(file: TFile): boolean {
+	return (
+		MARKDOWN_EXTENSIONS.has(file.extension.toLowerCase()) &&
+		!file.name.startsWith(".")
+	);
+}
+
 /**
  * Returns the absolute on-disk path for a vault-relative TFile path.
  * Returns null (and shows a Notice) if the vault adapter is not a
@@ -100,7 +115,7 @@ export default class AshlrMdPlugin extends Plugin {
 			name: "Open current note in Ashlr MD",
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
-				if (!file) return false;
+				if (!file || !isOpenableInAshlr(file)) return false;
 				if (!checking) this.openFile(file);
 				return true;
 			},
@@ -112,7 +127,7 @@ export default class AshlrMdPlugin extends Plugin {
 			name: "Open current note in Ashlr MD (edit mode)",
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
-				if (!file) return false;
+				if (!file || !isOpenableInAshlr(file)) return false;
 				if (!checking) this.openFile(file, "edit");
 				return true;
 			},
@@ -123,8 +138,9 @@ export default class AshlrMdPlugin extends Plugin {
 			this.app.workspace.on(
 				"file-menu",
 				(menu: Menu, file: TAbstractFile) => {
-					// Only show for actual files, not folders.
-					if (!(file instanceof TFile)) return;
+					// Only show for files Ashlr MD opens (no folders, PDFs or
+					// canvases).
+					if (!(file instanceof TFile) || !isOpenableInAshlr(file)) return;
 
 					menu.addItem((item: MenuItem) => {
 						item
@@ -141,7 +157,7 @@ export default class AshlrMdPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu: Menu) => {
 				const file = this.app.workspace.getActiveFile();
-				if (!file) return;
+				if (!file || !isOpenableInAshlr(file)) return;
 
 				menu.addItem((item: MenuItem) => {
 					item
@@ -170,6 +186,13 @@ export default class AshlrMdPlugin extends Plugin {
 		const file = this.app.workspace.getActiveFile();
 		if (!file) {
 			new Notice("Open in Ashlr MD: no active file.");
+			return;
+		}
+		if (!isOpenableInAshlr(file)) {
+			new Notice(
+				"Open in Ashlr MD: Ashlr MD opens only Markdown notes " +
+					"(.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles."
+			);
 			return;
 		}
 		this.openFile(file);
