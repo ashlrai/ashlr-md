@@ -253,7 +253,11 @@ below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
 of falling back to the default. A string outside the property's `enum`
 (`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
 `"move"`) is refused the same way, and the message lists the allowed values
-(`` `mode` must be one of `read`, `edit`, got a string ("view") ``). So a string such as `"1"`, a negative or a
+(`` `mode` must be one of `read`, `edit`, got a string ("view") ``). A string
+shorter than the property's `minLength` (`search_vault`'s `query` declares
+`1`) is refused the same way; `search_vault` also refuses a `query` that is
+only whitespace with `-32602`, before it asks the app (it used to report that
+the app was not running). So a string such as `"1"`, a negative or a
 fractional `match_index` is refused rather than read as `0`, and `"save":
 "true"` rather than read as `false`. A whole number written as a float
 (`2.0`) is an integer, as in JSON Schema. `null` counts as not given. A

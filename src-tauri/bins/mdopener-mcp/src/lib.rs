@@ -884,7 +884,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
+                    "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
@@ -1435,6 +1435,15 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
                 return Err(format!("`{key}` must be at least {min}, got {value}"));
+            }
+        }
+        // JSON Schema counts characters (code points), not bytes.
+        if let (Some(min), Some(text)) = (prop["minLength"].as_u64(), value.as_str()) {
+            if (text.chars().count() as u64) < min {
+                return Err(format!(
+                    "`{key}` must be at least {min} character{} long, got {value}",
+                    if min == 1 { "" } else { "s" }
+                ));
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -2473,7 +2482,18 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
 }
 
 pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty query is refused by the schema's `minLength`; a whitespace-only
+    // one is refused here, before Ollama or the app is asked. Both used to
+    // reach the app, so with it closed the agent was told to start it rather
+    // than that the query was empty.
     let query = match args["query"].as_str() {
+        Some(q) if q.trim().is_empty() => {
+            return Response::err(
+                id,
+                -32602,
+                "`query` must not be empty or only whitespace: pass the words to search for",
+            )
+        }
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
@@ -3294,11 +3314,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 );
             }
         }
-        if query.is_empty() {
+        if query.trim().is_empty() {
             return Response::err(
                 id,
                 -32602,
-                "text://vault-search requires a query: text://vault-search?q=your+query",
+                "text://vault-search requires a query that is not only whitespace: \
+                 text://vault-search?q=your+query",
             );
         }
 

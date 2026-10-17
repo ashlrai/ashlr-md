@@ -7211,6 +7211,21 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                     assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}: {msg}");
                 }
             }
+            // A string shorter than its declared `minLength` is refused,
+            // and one exactly that long is not.
+            if let Some(min) = prop["minLength"].as_u64() {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("x".repeat(min as usize - 1)));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(
+                    msg.starts_with(&format!("`{k}` must be at least {min} character")),
+                    "{name}.{k}: {msg}"
+                );
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("é".repeat(min as usize)));
+                let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
+                assert!(r.is_ok(), "{name}.{k}: {min} characters refused: {r:?}");
+            }
             if let Some(items) = prop.get("items") {
                 let mut args = valid.clone();
                 args.insert(k.clone(), json!([sample_of(items).1]));
@@ -7867,4 +7882,43 @@ fn document_reads_refuse_a_file_larger_than_16_mib() {
         read_document_file(&at_cap).unwrap().len() as u64,
         MAX_DOCUMENT_BYTES
     );
+}
+
+/// `search_vault` with an empty or whitespace-only query reached the app, so
+/// with the app closed the agent was told "app not running" instead of that
+/// its query was empty. Both are now `-32602` before any IPC: an empty one by
+/// the schema's `minLength`, a blank one by the tool. The resource refuses a
+/// blank `q` the same way.
+#[test]
+fn search_vault_refuses_an_empty_or_blank_query_before_the_app() {
+    let schema = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "search_vault")
+        .unwrap()
+        .input_schema;
+    assert_eq!(schema["properties"]["query"]["minLength"], 1);
+    let msg = refused_before_the_tool("search_vault", json!({ "query": "" }));
+    assert!(
+        msg.starts_with("`query` must be at least 1 character"),
+        "{msg}"
+    );
+    for blank in [" ", "  \t\n "] {
+        let msg = refused_before_the_tool(
+            "search_vault",
+            json!({ "query": blank, "vault": "/nonexistent" }),
+        );
+        assert!(msg.contains("only whitespace"), "{blank:?}: {msg}");
+    }
+    let ipc = MockIpc::new();
+    for uri in ["text://vault-search?q=", "text://vault-search?q=+%20+"] {
+        let resp = mdopener_mcp::handle_resource_read(id(1), uri, &ipc);
+        let err = resp.error.expect(uri);
+        assert_eq!(err.code, -32602, "{uri}");
+        assert!(
+            err.message.contains("requires a query"),
+            "{uri}: {}",
+            err.message
+        );
+    }
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }

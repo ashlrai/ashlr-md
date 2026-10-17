@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`search_vault` refuses an empty query.** An empty or whitespace-only
+  `query` was sent to the app, so with the app closed the agent was told to
+  start it rather than that its query was empty. `query` now declares
+  `minLength: 1`, which the argument check enforces for any string property,
+  and a blank query is refused too: both are `-32602` before any IPC, as is a
+  blank `q` for `text://vault-search`.
 - **Folders too deep to scan are no longer skipped in silence.** The vault
   walk enters folders at most 8 levels down and skipped deeper ones without
   a word, so the Activity drawer, `/search` and `search_vault` presented the
