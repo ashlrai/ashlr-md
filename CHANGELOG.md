@@ -36,6 +36,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md has no em or en dashes in its prose.** Headings, lists,
+  the tool table and the hook and security sections now use plain
+  punctuation, as the repo's style asks; ranges read "5 000 to 600 000".
 - **`mdopen -- -` opens a file named `-`, and `--help` wins over `--hook`.**
   After `--`, `-` was still read as "read stdin", so a file named `-` could
   not be opened; `--` now ends option parsing for it too, and a `-` before

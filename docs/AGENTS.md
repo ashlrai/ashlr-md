@@ -2,7 +2,7 @@
 
 Ashlr MD ships an **MCP server** (`mdopener-mcp`) that lets AI coding agents
 open, read, edit, search, export, and **request human review of** the document
-that is live in your Ashlr MD window — without leaving their coding environment.
+that is live in your Ashlr MD window, without leaving their coding environment.
 
 It also ships **`mdopen`**, a tiny CLI companion for opening any `.md` file from
 a terminal or agent script, and for wiring up an **auto-open hook** that pops
@@ -10,7 +10,7 @@ Markdown into Ashlr MD the moment your agent writes it.
 
 > **Tip:** To watch everything an agent produces, open the **Agent Activity
 > drawer** (`⌘B` on macOS, `Ctrl+B` on Windows/Linux) and point it at the folder
-> your agent writes to. New Markdown files appear live as they're created — click
+> your agent writes to. New Markdown files appear live as they're created; click
 > any one to open it instantly. It's the recommended way to keep an eye on an
 > agent's `.md` output without polling the filesystem yourself.
 
@@ -20,13 +20,13 @@ Markdown into Ashlr MD the moment your agent writes it.
 
 There are two cooperating pieces:
 
-1. **`mdopener-mcp`** — a [Model Context Protocol](https://modelcontextprotocol.io/)
+1. **`mdopener-mcp`**: a [Model Context Protocol](https://modelcontextprotocol.io/)
    server speaking JSON-RPC 2.0 over stdio. Agents (Claude Code, Codex, Cursor,
    anything MCP-capable) launch it as a child process and call its **tools**,
    read its **resources**, and use its **prompts**. It talks to the running
    Ashlr MD app over a token-authenticated loopback HTTP channel (see
    [Security](#security)).
-2. **`mdopen`** — a CLI for opening files (`mdopen file.md`), reading stdin
+2. **`mdopen`**: a CLI for opening files (`mdopen file.md`), reading stdin
    (`cat x.md | mdopen -`), and running as a Claude Code **PostToolUse hook**
    (`mdopen --hook`) so freshly written Markdown auto-opens for review.
 
@@ -49,10 +49,10 @@ whose `id` is not a string or an integer (MCP never allows `null`) is answered
 
 Open **Ashlr MD → Preferences → AI agents (MCP)** and click:
 
-- **Connect to Claude Code** — runs `claude mcp add` for you, no terminal needed.
-- **Connect to Cursor** — writes/merges `~/.cursor/mcp.json` automatically.
-- **Connect to Codex** — runs `codex mcp add` for you.
-- **Install auto-open hook** — adds a Claude Code `PostToolUse` hook so written
+- **Connect to Claude Code**: runs `claude mcp add` for you, no terminal needed.
+- **Connect to Cursor**: writes/merges `~/.cursor/mcp.json` automatically.
+- **Connect to Codex**: runs `codex mcp add` for you.
+- **Install auto-open hook**: adds a Claude Code `PostToolUse` hook so written
   `.md` files open in Ashlr MD automatically (see [Auto-open hook](#auto-open-hook)).
 
 The in-app buttons are only enabled for tools detected on your machine
@@ -80,7 +80,7 @@ claude mcp add --scope user ashlr-md <mcp-binary>
 ```
 
 The `--scope user` flag registers the server globally (all projects), not just
-the current directory. The command is idempotent — re-running it when the server
+the current directory. The command is idempotent: re-running it when the server
 already exists is treated as success.
 
 ### Manual
@@ -89,7 +89,7 @@ already exists is treated as success.
 # macOS
 claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
-# Windows (PowerShell) — verify path; shown here for a typical per-user install
+# Windows (PowerShell): verify path; shown here for a typical per-user install
 claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb install default; AppImage: use the resource dir inside the mount)
@@ -99,7 +99,7 @@ claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
 After running it, **restart Claude Code** (quit and start a new session) once.
 
 To get the exact command (with the real binary path) for your machine, use the
-**Copy** button in **Preferences → AI agents (MCP)** — it produces precisely:
+**Copy** button in **Preferences → AI agents (MCP)**; it produces precisely:
 
 ```bash
 claude mcp add --scope user ashlr-md <resolved-mdopener-mcp-path>
@@ -141,10 +141,10 @@ codex mcp add ashlr-md -- <mcp-binary>
 ```
 
 This writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
-consumes MCP **tools** (not resources/prompts) — exactly what `ashlr-md` exposes
+consumes MCP **tools** (not resources/prompts), exactly what `ashlr-md` exposes
 for agent control.
 
-### Manual — `codex mcp add`
+### Manual: `codex mcp add`
 
 ```bash
 # macOS
@@ -157,7 +157,7 @@ codex mcp add ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.ex
 codex mcp add ashlr-md -- "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
-### Manual — `config.toml`
+### Manual: `config.toml`
 
 If you prefer editing config directly, the `codex mcp add` command above writes
 the equivalent of this to **`~/.codex/config.toml`** (global) or a project-level
@@ -207,10 +207,10 @@ Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
 On **Windows**, replace `command` with the path to `mdopener-mcp.exe` in your
 install directory (e.g. `C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe`).
 On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`) or the binary inside
-the AppImage resource directory — verify the exact path after install.
+the AppImage resource directory; verify the exact path after install.
 
 If the file already has other servers, merge only the `"ashlr-md"` key into the
-existing `"mcpServers"` object — don't replace the whole file.
+existing `"mcpServers"` object; don't replace the whole file.
 
 After saving, go to **Cursor Settings → MCP** and click **Reload** (or restart
 Cursor). You should then see `ashlr-md` listed with a green status indicator.
@@ -227,7 +227,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | Tool | Parameters | Returns | Notes |
 |---|---|---|---|
 | `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). Without `mode` the window keeps its current view (a file already open in a tab keeps its own, and an app this call launches starts in `read`); pass `read` before an `export`, which needs Read view. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a file that does not exist is refused (by the running app, or before launching it). A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason. A running app that answers with a server error or not in time is a tool error too, never retried through the URL scheme (which could open the file twice). |
-| `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. `path` is `null` for an unsaved document. With no document open this is a success, not an error: it returns `{ "path": null, "content": "" }`, which looks the same as an empty unsaved document. `mdopener://current` and `export_text` called without `path` treat that case as an error instead (the resource answers `-32002`, the tool `isError: true`). |
+| `get_current_content` | none | `{ path, content }` | Path + full Markdown source of the open document. `path` is `null` for an unsaved document. With no document open this is a success, not an error: it returns `{ "path": null, "content": "" }`, which looks the same as an empty unsaved document. `mdopener://current` and `export_text` called without `path` treat that case as an error instead (the resource answers `-32002`, the tool `isError: true`). |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document, the same operation as `replace_document`, and like it listed with `destructiveHint: true`. `save` defaults to `false`. The call returns once the window has applied the content (and saved it, with `save: true`); a save that fails, a document with no file yet, or a window that does not answer within 4 s returns `isError: true` with the reason. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`; a value that is not a whole number from 1 to 200 is refused (`-32602`). |
 | `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once the window reports it written and it is on disk. An export that fails in the window (for example, the document is not in Read view) returns `isError` at once with the window's reason; one the window has not finished within 30 s returns `isError` saying so. The app writes one headless export at a time, in a slot of its own, so a slow export never makes edits, opens, presents or reviews wait; a second headless export sent while one is being written returns `isError` at once saying so (retry once the first finishes). The document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
@@ -236,7 +236,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. With `save: true`, a save that fails (or a document with no file yet) returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. Reports a failed apply or save as `set_content` does. |
 | `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean`, `vault?: string` | `{ results, mode, query?, note?, vault?, truncated?, depthCut? }` | Search across the vault (watched folder) + recents. `query` comes with mode `grep` only: the query as the app's own search read it. The app lists the watched folder's 200 most recently changed Markdown files (the app sends that cap with its vault list, and the `note` quotes the app's number); when the folder has more, the result has `truncated: true` and a `note` saying only those were searched (the Activity drawer says so too). The app keeps the newest files of the whole folder while it walks it, but reads at most 50,000 directory entries and enters folders at most 8 levels down; past the entry budget the walk stops, and below that depth a folder is skipped. Either way the list is the newest of the files it reached, and `truncated: true` comes with a `note` saying newer files elsewhere in the folder may have been missed. When the depth limit is what cut the walk, the result also has `depthCut: true` and the `note` says the folder is too deeply nested (with only the entry budget, there is no `depthCut` and the `note` says the folder is too large); the app's `/vault` reply carries the same `scanCut` (either limit) and `depthCut` (the depth limit) flags. An older app that sends no `depthCut` gets the note naming both limits. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50` and is a whole number from 1 to 200 in every mode; a value outside that range is refused with `-32602`, by the tool and by `text://vault-search?…&limit=`, as for `list_recent` (a value above 200 used to be read as 200). Needs the app (it supplies the vault file list). When the app cannot be reached (no `~/.mdopener/ipc-port`, or nothing listening; not when it refuses), `vault` names a directory (absolute, or relative to the server's working directory) whose Markdown files are searched on disk instead: `mode` is `grep-disk` (or `semantic`), `vault` is the directory searched, and `note` says the app was unreachable and the disk was searched. The walk reads only Markdown files that are not dotfiles, skips hidden folders, `node_modules` and `target`, does not follow directory symlinks, and stops at 5000 files (the `note` says so). It enters folders at most 16 levels below `vault`; a deeper folder is not searched, and the result then has `truncated: true`, `depthCut: true` and a `note` saying so (deeper folders used to be skipped in silence). Without `vault`, an unreachable app is `isError: true`, and the message names `vault`. A `vault` that is not a directory, or is itself a hidden folder (`.git`, `.obsidian`), is `isError: true`. |
-| `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
+| `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation, ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. Templates read the text as `{text}`; `translate` and `explain-diff` also take `{arg}`, and carry an `argument` field saying what it is (the target language, or the on-disk version). No app needed. |
 | `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, a whole number from `1` to `200`; a value outside that range is refused with `-32602`, as for `list_recent`, where one above `200` used to be clamped) of a session's memory store, oldest first. `recentDocs` lists the paths those messages cite, most recently cited first and each once (it used to be in random order). An empty or blank path that an earlier build stored is left out of `recentDocs` and of each message's own `citedDocs`. A path an earlier build stored twice in one message is listed once in that message's `citedDocs`. Empty when the session has none. A session file larger than 16 MiB is not read: the result is `isError: true` saying how large it is (it used to be read whole, and an unreadable file answered as an empty session). A `session_id` too long for its file name is refused with `-32602` (see `save_conversation_message`). |
 | `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). That file name (without `.json`) may be at most 200 bytes, so an id of up to 200 letters, digits, `-` and `_` always fits (other bytes count three each); a longer id is refused with `-32602` instead of failing when the file is written. The sessions directory is owner-only (`0700`, tightened if an earlier build left it open) and each session file is `0600`, on Unix. Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format (each message's `citedDocs` once per path, in the order first given, as this tool stores them), and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed, or is larger than 16 MiB, is left as it is and the append is refused. A session file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, with a `note`). A message that cannot be written to disk is not saved and returns `isError: true`. An empty or blank (whitespace-only) path in `cited_docs` is refused with `-32602` (it used to be stored and come back in `recentDocs`). Each `cited_docs` path is stored absolute: a relative one is resolved against the server's working directory when saved (it used to be stored as given), and an absolute one is kept as given. A path given twice (or a relative path and its absolute form) is stored once, in the order first given (it used to be stored and returned twice). |
@@ -303,13 +303,13 @@ unknown or missing `name` and `resources/read` with an unknown or missing
 `uri` answer `-32602` the same way: the closest prompt or URI, if any, and
 the prompt names or a pointer to `resources/list`.
 
-### `edit_document` — exact, unique find/replace
+### `edit_document`: exact, unique find/replace
 
 `edit_document` replaces an **exact substring** of the currently open document.
 The `find` string must occur **exactly once**:
 
 - **0 matches** → the edit is refused: *"`find` string not found in the current document."*
-- **2+ matches** → the edit is refused: *"`find` string is not unique (N matches) — include more surrounding context to disambiguate."*
+- **2+ matches** → the edit is refused: *"`find` string is not unique (N matches). Include more surrounding context to disambiguate."*
 - **empty `find`** → refused by the MCP server itself with `-32602` (*"`find` must not be empty"*), whether or not the app is running.
 
 So include enough surrounding context to make `find` unique. These soft failures
@@ -318,10 +318,10 @@ transport failure, so the agent can retry with more context.
 
 Pass `path` to assert which file is open: if a *different* document is currently
 open, the edit is refused rather than silently applied to the wrong file. Pass
-`save: true` to persist to disk immediately (default `false` — edits stay in the
+`save: true` to persist to disk immediately (default `false`: edits stay in the
 live buffer until saved).
 
-### `request_review` — blocking human sign-off
+### `request_review`: blocking human sign-off
 
 See the dedicated [Human review loop](#human-review-loop) section.
 
@@ -365,12 +365,12 @@ The server implements `resources/list`, `resources/templates/list` and
 `text://vault-search?q={query}` (`mimeType: application/json`), the search
 below; it needs no app.
 
-- **`mdopener://current`** — the document currently open in Ashlr MD
+- **`mdopener://current`**: the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content; an open
   document that is empty is `""`. With no document open it is `-32002`
   ("No document is open"), as for the prompts, and `-32000` when the app is
   not running.
-- **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
+- **`text://vault-search?q=<query>`**: the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
   `&semantic=false` or `true` to force grep or semantic search, like
   `search_vault`'s `semantic`; any other value, a `limit` that is not a
@@ -383,7 +383,7 @@ below; it needs no app.
   with the same `note`, `truncated` and `depthCut` as `search_vault` when it
   fell back or did not search every file; an error when the app is not
   running and no `vault` is given.
-- **`mdopener://recent-documents`** — recently opened files that still exist,
+- **`mdopener://recent-documents`**: recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`), as `{ documents, count, skipped }`.
   Recents that cannot be listed are left out and counted in `skipped` by
@@ -393,7 +393,7 @@ below; it needs no app.
   An app with no recents gives an empty list;
   an app that cannot be reached is `-32000`, as for `mdopener://current` (it
   used to be an empty list too).
-- **`file://<path>` (vault files)** — every file the app lists in the
+- **`file://<path>` (vault files)**: every file the app lists in the
   **vault** (watched folder) is listed as an individually readable resource.
   Recently opened files are not listed as `file://` entries (read
   `mdopener://recent-documents` for them), but a recent's `file://<path>` is
@@ -468,8 +468,8 @@ before proceeding.
    clients). If the human has not decided by then it returns
    `{ "status": "pending", "reviewId": "…" }`; call `request_review` again with
    `review_id` to keep waiting on the same review.
-3. **The human acts in the app** — clicking **Approve**, **Request changes**, or
-   **Dismiss** — optionally leaving comments.
+3. **The human acts in the app**, clicking **Approve**, **Request changes**, or
+   **Dismiss**, optionally leaving comments.
 4. **The agent receives the verdict** as the tool result:
    `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
    `dismissed` means the human closed the panel. If the panel's countdown runs
@@ -491,11 +491,11 @@ before proceeding.
 
 ### Parameters
 
-- `path` *or* `content` — **one is required.** `path` opens that file for review;
+- `path` *or* `content`: **one is required.** `path` opens that file for review;
   `content` reviews inline Markdown, which the review panel shows as text
   (it used to show only "inline content", so the human never saw what they
   were approving).
-- `blocking` (default `true`) — if `false`, the review is registered and the call
+- `blocking` (default `true`): if `false`, the review is registered and the call
   returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
   Call `request_review` with that `review_id` to wait for the verdict. A
   resumed call with `blocking: false` does not wait: it reads the review once
@@ -503,7 +503,7 @@ before proceeding.
   window has closed, ignoring `wait_ms`. A
   review of a `path` can also be read later via `get_user_annotations`; one
   of inline `content` has no path, so only `review_id` finds it.
-- `timeout_ms` (default `300000` = 5 min, must be **5 000–600 000**) — how long
+- `timeout_ms` (default `300000` = 5 min, must be **5 000 to 600 000**): how long
   the human has to decide (the review panel's window). A value outside that
   range (or not a whole number) is refused with an invalid-params error naming
   the range, and no review is registered; the app's `/review` refuses the same
@@ -511,13 +511,13 @@ before proceeding.
   during a call (the first one, or one resumed with `review_id`) with no
   decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
   review never waits past its window.
-- `wait_ms` (default `50000`, must be **1 000–600 000**): the most one call
+- `wait_ms` (default `50000`, must be **1 000 to 600 000**): the most one call
   blocks. Raise it only if your client allows longer tool calls. A value
   outside that range (or not a whole number) is refused with an
   invalid-params error naming the range, and no review is registered; it
   used to be clamped in silence. To return without waiting, pass
   `blocking: false`.
-- `review_id` — resume waiting on a review an earlier call returned as pending
+- `review_id`: resume waiting on a review an earlier call returned as pending
   (no new review is registered). An empty or blank `review_id` is refused with
   `-32602`; it used to be read as absent, so the call registered a new review
   that replaced the pending one. A resumed call cannot change the review, so
@@ -549,7 +549,7 @@ closed), plus the current state of its GFM task checkboxes
 ### Tips for agents
 
 - Use `request_review` for **gates**: "Here's the plan / the diff / the final
-  doc — approve before I continue."
+  doc. Approve before I continue."
 - Pair it with `present_document` when you want the human to read a polished
   result full-screen, then call `request_review` for the sign-off.
 - On `changes_requested`, read the returned `comments`, apply fixes with
@@ -561,7 +561,7 @@ closed), plus the current state of its GFM task checkboxes
 
 `mdopen --hook` is a Claude Code **PostToolUse hook**: whenever Claude writes or
 edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
-silent and always succeeds, so it never disrupts Claude's tool flow — it reads
+silent and always succeeds, so it never disrupts Claude's tool flow: it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
 read mode: through the running app's loopback IPC channel, or via the
 `mdopener://` scheme when the app is not running. It reads at most 64 MiB of
@@ -604,7 +604,7 @@ has not been verified on an installed Windows build.
 
 > If `~/.claude/settings.json` already has a non-object `hooks` value or a
 > non-array `hooks.PostToolUse`, the installer **bails with an error** rather than
-> clobbering your settings — fix the shape manually and retry.
+> clobbering your settings; fix the shape manually and retry.
 
 ---
 
@@ -720,7 +720,7 @@ its port to `~/.mdopener/ipc-port` and a per-session token to
 `~/.mdopener/ipc-token`; the MCP binary reads both to locate and authenticate to
 the app, and the app removes them on clean exit.
 
-If the app is not running, most tools return a clear error — `open_file` is the
+If the app is not running, most tools return a clear error; `open_file` is the
 exception and will cold-start the app via the `mdopener://` URL scheme. The
 frontend keeps the app's document, recents, and vault state mirrored to the IPC
 layer (via `mcp_sync_state` / `mcp_sync_vault`) so reads are always fresh without
@@ -732,7 +732,7 @@ re-walking the disk.
 
 The integration is **local-only and token-authenticated**:
 
-- The IPC server binds to **`127.0.0.1`** (loopback) on an ephemeral port —
+- The IPC server binds to **`127.0.0.1`** (loopback) on an ephemeral port, so
   nothing is exposed beyond your machine.
 - On startup the app generates a **32-byte CSPRNG token** (64 hex chars) and
   writes it to `~/.mdopener/ipc-token`. On Unix the file is created **owner-only
@@ -741,7 +741,7 @@ The integration is **local-only and token-authenticated**:
   `Authorization: Bearer <token>`. The token is compared in **constant time** to
   avoid leaking a timing signal, and a mismatch returns `401`.
 - The MCP `resources/read` channel is **scoped to advertised vault/recents
-  files** — it cannot be used to read arbitrary paths off disk — and, like
+  files** (it cannot be used to read arbitrary paths off disk) and, like
   the tools below, it reads only Markdown non-dotfiles after resolving
   symlinks.
 - Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
@@ -864,7 +864,7 @@ Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
 
 **Auto-open hook didn't install**
 If `~/.claude/settings.json` has a malformed `hooks` / `hooks.PostToolUse` shape,
-the installer bails rather than overwrite it — fix the JSON manually and retry.
+the installer bails rather than overwrite it; fix the JSON manually and retry.
 
 **`mdopen` command not found after installing**
 On macOS/Linux, make sure `/usr/local/bin` (or `~/.local/bin`) is on your `$PATH`:
