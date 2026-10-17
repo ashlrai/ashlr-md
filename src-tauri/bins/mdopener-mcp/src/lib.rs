@@ -273,6 +273,12 @@ pub fn sessions_dir() -> Option<std::path::PathBuf> {
 /// (`a%2Eb.json`) and `a_b` (`a_b.json`) no longer share a file, and no id
 /// can produce a separator, `..` or a dotfile.
 pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
+    let safe = session_file_stem(session_id);
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// The session file's name without `.json` (see [`session_file_path`]).
+fn session_file_stem(session_id: &str) -> String {
     let mut safe = String::with_capacity(session_id.len());
     for b in session_id.bytes() {
         if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
@@ -281,8 +287,13 @@ pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
             safe.push_str(&format!("%{b:02X}"));
         }
     }
-    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+    safe
 }
+
+/// Longest session file stem the conversation tools accept. File systems
+/// cap a name at 255 bytes, and the temp file a save writes first adds
+/// `.json` and a `.<pid>-<seq>.tmp` suffix of up to 36 bytes to the stem.
+pub const MAX_SESSION_FILE_STEM: usize = 200;
 
 /// The file name earlier builds used: every character other than an
 /// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
@@ -367,7 +378,7 @@ pub fn parse_session_log(text: &str) -> Result<SessionLog, String> {
 /// session, so neither process writes a stale copy over the other's appends.
 fn lock_sessions_dir() -> Result<std::fs::File, String> {
     let dir = sessions_dir().ok_or("Cannot determine home directory")?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    create_private_dir(&dir)?;
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -386,8 +397,7 @@ fn lock_sessions_dir() -> Result<std::fs::File, String> {
 pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
     let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+        create_private_dir(dir)?;
     }
     let json =
         serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
@@ -400,13 +410,41 @@ pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String>
     let mut tmp = path.clone().into_os_string();
     tmp.push(format!(".{}-{seq}.tmp", std::process::id()));
     let tmp = std::path::PathBuf::from(tmp);
-    let written = std::fs::write(&tmp, json)
+    let written = write_private_file(&tmp, json.as_bytes())
         .and_then(|()| std::fs::rename(&tmp, &path))
         .map_err(|e| format!("Cannot write {}: {e}", path.display()));
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+
+/// Create the sessions directory if needed and make it owner-only (`0700`
+/// on Unix). Session files hold the conversation (agent actions, human
+/// verdicts, cited paths); they used to be created `0644` in a `0755`
+/// directory, readable by every local user, unlike the `0600` IPC token and
+/// `mdopen -` temp files. An existing directory (created by an earlier build
+/// or by the app) is tightened too.
+fn create_private_dir(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Cannot make {} private: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Write `bytes` to a new file at `path`, readable by this user only (`0600`
+/// on Unix) from the moment it is created.
+fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)?.write_all(bytes)
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
@@ -816,7 +854,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session)."
+                        "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session). At most 200 bytes once encoded for its file name (letters, digits, `-` and `_` count one byte, other bytes three)."
                     },
                     "role": {
                         "type": "string",
@@ -2089,11 +2127,21 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
 /// The `session_id` of the conversation tools. A blank or whitespace-only id
 /// is refused like a missing one: it used to be accepted and stored as
 /// `%20%20%20.json`, a session no agent means to address.
-fn session_id_arg(args: &Value) -> Result<String, &'static str> {
+///
+/// An id whose file name would be longer than [`MAX_SESSION_FILE_STEM`] is
+/// refused too: it used to fail only when saving, with the OS error "File
+/// name too long", while reading it answered an empty session.
+fn session_id_arg(args: &Value) -> Result<String, String> {
     match args["session_id"].as_str() {
-        Some(s) if !s.trim().is_empty() => Ok(s.to_string()),
-        Some(_) => Err("`session_id` must not be blank"),
-        None => Err("`session_id` is required"),
+        Some(s) if s.trim().is_empty() => Err("`session_id` must not be blank".to_string()),
+        Some(s) if session_file_stem(s).len() > MAX_SESSION_FILE_STEM => Err(format!(
+            "`session_id` is too long ({} bytes): it must fit a {MAX_SESSION_FILE_STEM}-byte \
+             file name, where ASCII letters, digits, `-` and `_` count one byte each and \
+             every other byte counts three.",
+            s.len()
+        )),
+        Some(s) => Ok(s.to_string()),
+        None => Err("`session_id` is required".to_string()),
     }
 }
 
@@ -2489,6 +2537,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
             }
         };
+        // Advertised is not enough: a vault `notes.md` that is a symlink to
+        // `~/.ssh/id_rsa` or `.env` used to be served. Like the tools that
+        // read a path from disk, only a Markdown non-dotfile is read, checked
+        // after resolving symlinks.
+        if let Err(e) = checked_document_path(&p, "uri") {
+            return Response::err(id, -32002, e);
+        }
         return match read_regular_file(&p) {
             Ok(text) => Response::ok(
                 id,
@@ -2733,7 +2788,7 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
     if hidden || !markdown {
         return Err(format!(
             "Refusing to read `{arg}` '{abs}': only Markdown documents ({}) that are not \
-             dotfiles can be read by this tool.",
+             dotfiles can be read.",
             MD_EXTENSIONS
                 .iter()
                 .map(|e| format!(".{e}"))
@@ -3183,6 +3238,12 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 
     let mut documents: Vec<Value> = Vec::new();
     for path in &recent_paths {
+        // Skip a recent that is (or now links to) something other than a
+        // Markdown non-dotfile, as `file://` reads do: its preview would
+        // otherwise show the first 200 characters of the link's target.
+        if checked_document_path(path, "path").is_err() {
+            continue;
+        }
         // Skip paths that no longer exist on disk.
         let content = match read_regular_file(path) {
             Ok(c) => c,
@@ -3308,8 +3369,11 @@ pub fn compute_unified_diff(
     text_b: &str,
     context: usize,
 ) -> (String, usize, usize, usize) {
-    let lines_a: Vec<&str> = text_a.lines().collect();
-    let lines_b: Vec<&str> = text_b.lines().collect();
+    // Lines keep their terminators, so files that differ only in line
+    // endings (CRLF vs LF) or in the final newline are not reported as
+    // identical, as they were with `str::lines`.
+    let lines_a: Vec<&str> = text_a.split_inclusive('\n').collect();
+    let lines_b: Vec<&str> = text_b.split_inclusive('\n').collect();
 
     // Build the edit script via LCS (longest common subsequence).
     let lcs = lcs_diff(&lines_a, &lines_b);
@@ -3420,7 +3484,15 @@ pub fn compute_unified_diff(
         ));
 
         for e in slice {
-            diff_lines.push(format!("{}{}", e.kind, e.text));
+            // The `\n` is the joiner; a `\r` stays visible, and a last line
+            // without a newline is marked the way `diff -u` marks it.
+            match e.text.strip_suffix('\n') {
+                Some(text) => diff_lines.push(format!("{}{}", e.kind, text)),
+                None => {
+                    diff_lines.push(format!("{}{}", e.kind, e.text));
+                    diff_lines.push("\\ No newline at end of file".to_string());
+                }
+            }
             if e.kind == '+' {
                 total_added += 1;
             }
@@ -4654,17 +4726,28 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
     if let Some(raw) = args["path"].as_str() {
         let abs = checked_document_path(raw, "path")?;
         return match read_regular_file(&abs) {
-            Ok(c) => Ok((c, Some(abs))),
+            Ok(c) => Ok((without_bom(c), Some(abs))),
             Err(e) => Err(format!("Cannot read '{abs}': {e}")),
         };
     }
     let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
-    let content = v["content"].as_str().unwrap_or("").to_string();
+    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     let path = v["path"].as_str().map(str::to_string);
     if path.is_none() && content.is_empty() {
         return Err("No document is open in Ashlr MD; pass `path` to read a file.".to_string());
     }
     Ok((content, path))
+}
+
+/// `content` without a leading UTF-8 byte order mark. Editors on Windows
+/// (Notepad among them) save one; it hid a document's front-matter from
+/// `export_metadata` (`frontmatter: null`) and left the raw front-matter in
+/// `export_text`'s text and word count.
+fn without_bom(content: String) -> String {
+    match content.strip_prefix('\u{FEFF}') {
+        Some(rest) => rest.to_string(),
+        None => content,
+    }
 }
 
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {

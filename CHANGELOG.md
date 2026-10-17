@@ -36,6 +36,32 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`diff_documents` no longer calls different files identical.** Lines were
+  compared without their endings, so a CRLF file against its LF copy, or a
+  file against the same text without a final newline, returned `hunks: 0`
+  and an empty diff. Line endings now count: a `\r` stays visible in the
+  diff and a missing final newline is marked `\ No newline at end of file`,
+  as `diff -u` does.
+- **Conversation memory is private to its user.** `save_conversation_message`
+  created `~/.mdopener/sessions` as `0755` and each session file as `0644`,
+  so any local user could read an agent's actions and the human's verdicts.
+  The directory is now `0700` (an existing one is tightened on the next save)
+  and session files are `0600`, like the IPC token.
+- **An over-long `session_id` is refused up front.** An id whose file name
+  passed the file system's 255-byte limit was accepted, then saving failed
+  with `File name too long (os error 36)` while reading the same id answered
+  an empty session. Both conversation tools now return `-32602` when the
+  encoded file name would exceed 200 bytes.
+- **MCP resources do not follow a Markdown symlink out of the vault.**
+  `resources/read` checked only that a `file://` path was advertised, so a
+  vault `notes.md` linking to `~/.ssh/id_rsa` or `.env` was served, and the
+  `mdopener://recent-documents` preview showed its first 200 characters. Both
+  now apply the check the disk-reading tools use (Markdown, not a dotfile,
+  after resolving symlinks): the read is refused and the recent is skipped.
+- **`export_metadata` and `export_text` see front-matter after a byte order
+  mark.** A file saved with a UTF-8 BOM (Notepad does this) came back with
+  `frontmatter: null`, and `export_text` kept the raw `---` block in its text
+  and word count. A leading BOM is now ignored.
 - **Negative MCP integer arguments are refused.** The schemas declared no
   minimum and the tools read integers as unsigned, so `list_recent` with
   `"limit": -5` listed the default 10, `request_review` with
