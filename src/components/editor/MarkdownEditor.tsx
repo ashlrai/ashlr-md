@@ -1,5 +1,5 @@
 import { Crepe } from "@milkdown/crepe";
-import { editorViewCtx } from "@milkdown/kit/core";
+import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import {
 } from "../../lib/editorShortcuts";
 import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
+import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
 import {
   applyTableEdit,
@@ -499,10 +500,15 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         void handleImagePasteWithSettings(event.clipboardData, pasteImageTarget).then(
           (markdownRef) => {
             if (!markdownRef) return;
-            const { from, to } = view.state.selection;
-            // insertText routes the raw Markdown through the editor; Crepe's
-            // markdownUpdated listener then re-parses it into a rendered image.
-            view.dispatch(view.state.tr.insertText(markdownRef, from, to));
+            // As an image node: inserted as text, the reference would be
+            // saved escaped and never render (Crepe does not re-parse it).
+            const inserted = get()?.action((ctx) =>
+              insertImageMarkdown(view, ctx.get(parserCtx), markdownRef),
+            );
+            if (!inserted) {
+              const { from, to } = view.state.selection;
+              view.dispatch(view.state.tr.insertText(markdownRef, from, to));
+            }
           },
         );
         return;
@@ -553,7 +559,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     };
     view.dom.addEventListener("paste", onPaste, true);
     return () => view.dom.removeEventListener("paste", onPaste, true);
-  }, [loading, pasteImageTarget]);
+  }, [loading, get, pasteImageTarget]);
 
   // Drag-drop image reordering — when the user drags an embedded image token
   // within the editor and drops it at a new position, we reorder the image
