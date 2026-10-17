@@ -3734,3 +3734,94 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     assert_eq!(v["reviewId"], review_id.as_str());
     assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
 }
+
+// ── Disk reads only open regular files ────────────────────────────────────────
+
+/// Run `f` on a worker thread and fail (instead of hanging the suite) when it
+/// does not return within a few seconds.
+#[cfg(unix)]
+fn within_seconds<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap_or_else(|_| panic!("{what} hung instead of refusing a non-regular file"))
+}
+
+/// A FIFO named like a document (`x.md`, `x.canvas`) must be refused, not
+/// opened: opening a FIFO for reading blocks until a writer appears, which
+/// hung the whole MCP session.
+#[cfg(unix)]
+#[test]
+fn disk_reading_tools_refuse_a_fifo_instead_of_hanging() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.keep()).unwrap();
+    let fifo_md = dir.join("x.md");
+    let fifo_canvas = dir.join("x.canvas");
+    let real = dir.join("real.md");
+    std::fs::write(&real, "# Real\n").unwrap();
+    for p in [&fifo_md, &fifo_canvas] {
+        let status = std::process::Command::new("mkfifo")
+            .arg(p)
+            .status()
+            .unwrap();
+        assert!(status.success(), "mkfifo failed");
+    }
+    let md = fifo_md.to_string_lossy().into_owned();
+    let canvas = fifo_canvas.to_string_lossy().into_owned();
+    let real = real.to_string_lossy().into_owned();
+
+    let (m, r) = (md.clone(), real.clone());
+    let resp = within_seconds("diff_documents", move || {
+        mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": r, "path_b": m }))
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let m = md.clone();
+    let resp = within_seconds("export_text", move || {
+        mdopener_mcp::tool_export_text(id(2), &json!({ "path": m }), &MockIpc::new())
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let m = md.clone();
+    let resp = within_seconds("export_metadata", move || {
+        mdopener_mcp::tool_export_metadata(id(3), &json!({ "path": m }), &MockIpc::new())
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    let c = canvas.clone();
+    let resp = within_seconds("edit_canvas", move || {
+        mdopener_mcp::tool_edit_canvas(
+            id(4),
+            &json!({ "path": c, "ops": [{ "type": "delete_node", "id": "n" }] }),
+        )
+    });
+    assert!(tool_error_text(&resp).contains("regular file"), "{resp:?}");
+
+    // The vault/recents paths come from the app, so a FIFO there must not
+    // hang resources/read, the recent-documents resource or the local grep.
+    let vault = json!({ "files": [{ "path": md, "name": "x.md" }], "recents": [md] });
+    let (v, m) = (vault.clone(), md.clone());
+    let resp = within_seconds("resources/read file://", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        handle_resource_read(id(5), &format!("file://{m}"), &ipc)
+    });
+    let err = resp.error.expect("reading a FIFO resource must fail");
+    assert!(err.message.contains("regular file"), "{}", err.message);
+
+    let v = vault.clone();
+    let resp = within_seconds("mdopener://recent-documents", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        handle_resource_read(id(6), "mdopener://recent-documents", &ipc)
+    });
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    let v = vault.clone();
+    let found = within_seconds("grep_vault", move || {
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        mdopener_mcp::grep_vault("anything", 10, &ipc)
+    });
+    assert_eq!(found.unwrap(), Vec::<Value>::new());
+    let _ = std::fs::remove_dir_all(&dir);
+}

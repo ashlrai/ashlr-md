@@ -523,6 +523,10 @@ The integration is **local-only and token-authenticated**:
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
   refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
   after resolving symlinks.
+- Every disk read (those tools, `edit_canvas`, `file://` resources, the
+  recent-documents resource and the local grep fallback) opens regular files
+  only, so a FIFO or device named `x.md` is refused (or skipped) instead of
+  blocking the server.
 - The token and port files are **removed on clean app exit**, so a stale process
   can't authenticate against a new session.
 

@@ -272,7 +272,7 @@ pub fn persist_session(session_id: &str, log: &SessionLog) {
 /// or cannot be parsed.
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
-    let text = std::fs::read_to_string(&path).ok()?;
+    let text = read_regular_file(&path).ok()?;
     serde_json::from_str(&text).ok()
 }
 
@@ -1900,7 +1900,7 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         if !is_advertised_path(p, ipc) {
             return Response::err(id, -32002, format!("Resource not in vault: {uri}"));
         }
-        return match std::fs::read_to_string(p) {
+        return match read_regular_file(p) {
             Ok(text) => Response::ok(id, json!({
                 "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
             })),
@@ -2049,6 +2049,21 @@ pub fn canonicalize_path(raw: &str) -> String {
         .unwrap_or_else(|_| raw.to_string())
 }
 
+/// Read a file as UTF-8 text, refusing anything that is not a regular file
+/// (after following symlinks). Opening a FIFO for reading blocks until a
+/// writer appears, and a device or socket is never a document, so every disk
+/// read goes through here rather than `std::fs::read_to_string`.
+pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    let path = path.as_ref();
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    std::fs::read_to_string(path)
+}
+
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's
 /// `MD_EXTENSIONS` (src-tauri/src/document.rs).
 pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
@@ -2057,8 +2072,9 @@ pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// from disk (no app involved), refusing anything that is not a Markdown
 /// document. The check runs on the canonical path, so a `notes.md` symlink to
 /// `.env` is refused too. Dotfiles (`.env.md`, `.secrets.md`) are refused even
-/// with a Markdown extension. Returns the canonical path, or a message for an
-/// `isError` result.
+/// with a Markdown extension, and so is anything that exists but is not a
+/// regular file (a FIFO named `x.md` would block the read forever). Returns
+/// the canonical path, or a message for an `isError` result.
 pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
@@ -2082,6 +2098,14 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+    }
+    // A missing file falls through so the caller reports "No such file".
+    if let Ok(meta) = std::fs::metadata(p) {
+        if !meta.is_file() {
+            return Err(format!(
+                "Refusing to read `{arg}` '{abs}': it is not a regular file."
+            ));
+        }
     }
     Ok(abs)
 }
@@ -2126,7 +2150,7 @@ pub fn semantic_search_vault(
     let mut scored: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2162,7 +2186,7 @@ pub fn grep_vault(
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in &paths {
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2427,7 +2451,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
     let mut documents: Vec<Value> = Vec::new();
     for path in &recent_paths {
         // Skip paths that no longer exist on disk.
-        let content = match std::fs::read_to_string(path) {
+        let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -2508,11 +2532,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return tool_error(id, e),
     };
 
-    let content_a = match std::fs::read_to_string(&path_a) {
+    let content_a = match read_regular_file(&path_a) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match std::fs::read_to_string(&path_b) {
+    let content_b = match read_regular_file(&path_b) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -2793,7 +2817,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
-    let raw_content = match std::fs::read_to_string(&path) {
+    let raw_content = match read_regular_file(&path) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
@@ -3608,7 +3632,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
@@ -3837,7 +3861,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
                 Ok(p) => p,
                 Err(e) => return tool_error(id, e),
             };
-            match std::fs::read_to_string(&abs) {
+            match read_regular_file(&abs) {
                 Ok(c) => (c, Some(abs)),
                 Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
             }
