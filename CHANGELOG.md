@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` refuses a field its op does not use.** A `move_node` with a
+  `width`, or an `edit_text` with a `label`, applied the op and ignored the
+  extra field, so the call reported success for a change it never made. It
+  is now `-32602` naming the field, the fields the op takes and the ops that
+  use it, before the canvas is read.
 - **A `file://` read with the app down says the app is not running.** The
   app lists the readable `file://` paths, so with it unreachable every read
   was answered `-32002` "Resource not in vault", as if the file were the

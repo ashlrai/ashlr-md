@@ -1118,7 +1118,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "ops": {
                         "type": "array",
                         "minItems": 1,
-                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written).",
+                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -5424,6 +5424,14 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     if ops.is_empty() {
         return Response::err(id, -32602, "`ops` must not be empty");
     }
+    // A field the op does not use (`width` on a move_node) used to be
+    // ignored, so the call reported success for a change it never made.
+    // Checked before the file is read, as the empty list is.
+    for (i, op) in ops.iter().enumerate() {
+        if let Some(msg) = canvas_op_field_problem(op) {
+            return Response::err(id, -32602, format!("op[{i}] {msg}"));
+        }
+    }
 
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
@@ -6173,6 +6181,53 @@ fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> 
         return Some(canvas_color_problem("node.color", c));
     }
     None
+}
+
+/// The fields each `edit_canvas` op reads, besides `type`.
+const CANVAS_OP_FIELDS: &[(&str, &[&str])] = &[
+    ("move_node", &["id", "x", "y"]),
+    ("resize_node", &["id", "width", "height"]),
+    ("edit_text", &["id", "text"]),
+    ("edit_link", &["id", "url"]),
+    ("edit_group_label", &["id", "label"]),
+    ("set_node_color", &["id", "color"]),
+    ("add_node", &["node"]),
+    ("delete_node", &["id"]),
+    ("add_edge", &["edge"]),
+    ("delete_edge", &["id"]),
+    ("edit_edge_label", &["id", "label"]),
+    ("reorder_edges", &["ids"]),
+];
+
+/// The first field of `op` that its op type does not use (a `null` one is
+/// taken as left out), as "`move_node`: `width` is not used ...", naming the
+/// ops that do use it. `None` for an op whose type is missing or unknown;
+/// those are refused where the ops are applied.
+fn canvas_op_field_problem(op: &Value) -> Option<String> {
+    let kind = op["type"].as_str()?;
+    let takes = CANVAS_OP_FIELDS.iter().find(|(k, _)| *k == kind)?.1;
+    let (field, _) = op
+        .as_object()?
+        .iter()
+        .find(|(k, v)| k.as_str() != "type" && !v.is_null() && !takes.contains(&k.as_str()))?;
+    let users: Vec<String> = CANVAS_OP_FIELDS
+        .iter()
+        .filter(|(_, fs)| fs.contains(&field.as_str()))
+        .map(|(k, _)| format!("`{k}`"))
+        .collect();
+    let hint = if users.is_empty() {
+        String::new()
+    } else {
+        format!(" (it is for {})", users.join(", "))
+    };
+    let list = takes
+        .iter()
+        .map(|f| format!("`{f}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "{kind}: `{field}` is not used by {kind}, which takes {list}{hint}. Send one op per change."
+    ))
 }
 
 /// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /

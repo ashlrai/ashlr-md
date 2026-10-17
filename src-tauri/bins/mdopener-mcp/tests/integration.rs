@@ -9535,3 +9535,47 @@ fn an_http_answer_past_the_cap_is_refused() {
     );
     server.join().unwrap();
 }
+
+/// A field an `edit_canvas` op does not use (`width` on a move_node) was
+/// ignored and the call reported success for a resize it never made. It is
+/// refused with -32602 naming the op that uses it, and the file is untouched.
+#[test]
+fn edit_canvas_refuses_fields_the_op_does_not_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("c.canvas");
+    let original = r#"{"nodes":[{"id":"n1","type":"text","text":"hi","x":0,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, original).unwrap();
+    let p = path.to_string_lossy().into_owned();
+    let msg = param_error(&call_tool(
+        "edit_canvas",
+        json!({ "path": p, "ops": [
+            { "type": "move_node", "id": "n1", "x": 5, "y": 6 },
+            { "type": "move_node", "id": "n1", "x": 5, "y": 6, "width": 99 }
+        ] }),
+    ));
+    assert!(
+        msg.starts_with("op[1] move_node: `width` is not used"),
+        "{msg}"
+    );
+    assert!(msg.contains("`resize_node`"), "{msg}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    // Refused before the file is read, as an empty `ops` is.
+    let missing = dir
+        .path()
+        .join("missing.canvas")
+        .to_string_lossy()
+        .into_owned();
+    let msg = param_error(&call_tool(
+        "edit_canvas",
+        json!({ "path": missing, "ops": [{ "type": "delete_node", "id": "n1", "text": "x" }] }),
+    ));
+    assert!(msg.contains("`text` is not used by delete_node"), "{msg}");
+    // A null field is taken as left out, and the op's own fields still work.
+    let resp = call_tool(
+        "edit_canvas",
+        json!({ "path": p, "save": false, "ops": [
+            { "type": "resize_node", "id": "n1", "width": 5, "height": 5, "x": null }
+        ] }),
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+}
