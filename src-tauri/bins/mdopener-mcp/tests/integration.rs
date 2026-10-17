@@ -3963,3 +3963,26 @@ fn edit_canvas_refuses_non_object_nodes_instead_of_dropping_them() {
         assert_eq!(on_disk, raw, "file must be untouched");
     }
 }
+
+// ── An unclosed leading `---` is not front-matter ─────────────────────────────
+
+/// A document that opens with `---` (a thematic break) and never closes it
+/// used to be swallowed whole as front-matter: empty plain text, zero words,
+/// and every `key: value`-looking line reported as metadata.
+#[test]
+fn unclosed_leading_fence_is_not_frontmatter() {
+    use mdopener_mcp::{extract_frontmatter, strip_markdown};
+    let doc = "---\nNote: this is body text.\n\nSecond paragraph here.\n";
+    let text = strip_markdown(doc);
+    assert!(text.contains("Note: this is body text."), "{text:?}");
+    assert!(text.contains("Second paragraph here."), "{text:?}");
+    assert_eq!(extract_frontmatter(doc), Value::Null);
+
+    // Closed front-matter is still stripped and parsed.
+    let closed = "---\ntitle: Plan\n---\nBody\n";
+    assert_eq!(strip_markdown(closed).trim(), "Body");
+    assert_eq!(extract_frontmatter(closed), json!({ "title": "Plan" }));
+    let dots = "---\ntitle: Plan\n...\nBody\n";
+    assert_eq!(strip_markdown(dots).trim(), "Body");
+    assert_eq!(extract_frontmatter(dots), json!({ "title": "Plan" }));
+}

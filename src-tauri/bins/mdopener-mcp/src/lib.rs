@@ -3370,7 +3370,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///
 /// Rules:
 /// - YAML front-matter fences (`---` … `---` / `---` … `...`) at the top are
-///   removed entirely.
+///   removed entirely. A leading `---` that is never closed is not
+///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
 ///   code content is preserved as-is.
 /// - ATX headings: leading `#` characters and a space are removed.
@@ -3387,20 +3388,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Blank lines are collapsed to a single blank line between paragraphs.
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
-    let mut lines = content.lines().peekable();
-
-    // Remove YAML front-matter at the very start.
-    if let Some(&first) = lines.peek() {
-        if first.trim() == "---" {
-            lines.next(); // consume opening fence
-            // Consume until closing `---` or `...`
-            for line in lines.by_ref() {
-                if line.trim() == "---" || line.trim() == "..." {
-                    break;
-                }
-            }
-        }
-    }
+    // Remove YAML front-matter at the very start (only when it is closed).
+    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
+    let lines = content.lines().skip(skip);
 
     let mut in_code_block = false;
 
@@ -3733,6 +3723,26 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 
 // ── export_metadata tool ──────────────────────────────────────────────────────
 
+/// The lines between a leading `---` and the closing `---` or `...`, or
+/// `None` when the document does not open with front-matter. A leading `---`
+/// that is never closed is a thematic break, not front-matter, so the rest
+/// of the document is not swallowed.
+fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
+    let mut lines = content.lines();
+    if lines.next()?.trim() != "---" {
+        return None;
+    }
+    let mut fm_lines = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            return Some(fm_lines);
+        }
+        fm_lines.push(line);
+    }
+    None
+}
+
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
 /// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
@@ -3740,22 +3750,9 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// simple key: value lines.  Only scalar string/bool/number values are parsed;
 /// multi-line and nested YAML are returned as raw strings.
 pub fn extract_frontmatter(content: &str) -> Value {
-    let mut lines = content.lines();
-    let first = match lines.next() {
-        Some(l) => l.trim(),
-        None => return Value::Null,
-    };
-    if first != "---" {
+    let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
-    }
-    let mut fm_lines: Vec<&str> = Vec::new();
-    for line in lines {
-        let t = line.trim();
-        if t == "---" || t == "..." {
-            break;
-        }
-        fm_lines.push(line);
-    }
+    };
     if fm_lines.is_empty() {
         return Value::Null;
     }
