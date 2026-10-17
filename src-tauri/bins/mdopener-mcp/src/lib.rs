@@ -1767,12 +1767,23 @@ pub fn search_vault(
     use_semantic: bool,
     ipc: &dyn IpcClient,
 ) -> Result<Value, String> {
+    search_vault_with(query, limit, use_semantic, ipc, &ollama_embed)
+}
+
+/// [`search_vault`] with the embedder injected, so tests never need Ollama.
+pub fn search_vault_with(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Value, String> {
     // Why semantic search was tried but not used, said in words so an agent
     // that asked for it does not read keyword hits as meaning matches.
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_search_vault(query, limit, ipc) {
+        match semantic_search_vault_with(query, limit, ipc, embed) {
             Ok(results) => return Ok(json!({ "results": results, "mode": "semantic" })),
             Err(e) => {
                 // Embedding failed — fall through to grep, and say so.
@@ -2485,6 +2496,9 @@ pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
+/// Turns text into an embedding vector: [`ollama_embed`] in the server.
+pub type Embedder<'a> = &'a dyn Fn(&str) -> Result<Vec<f64>, String>;
+
 /// Perform semantic search: embed the query and each candidate document,
 /// rank by cosine similarity, return top-`limit` results sorted by score.
 ///
@@ -2494,9 +2508,23 @@ pub fn semantic_search_vault(
     limit: u64,
     ipc: &dyn IpcClient,
 ) -> Result<Vec<Value>, String> {
+    semantic_search_vault_with(query, limit, ipc, &ollama_embed)
+}
+
+/// [`semantic_search_vault`] with the embedder injected. A document whose
+/// embedding fails is skipped, but when every embedding fails this is an
+/// error: an empty result would read as "nothing in the vault is related",
+/// when nothing was compared at all.
+pub fn semantic_search_vault_with(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Vec<Value>, String> {
     let paths = vault_file_paths(ipc)?;
-    let query_vec = ollama_embed(query)?;
+    let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
+    let mut embed_error = None;
 
     for path in &paths {
         let content = match read_regular_file(path) {
@@ -2505,9 +2533,12 @@ pub fn semantic_search_vault(
         };
         // Truncate to first 8 KB to stay within typical embedding context limits.
         let truncated: String = content.chars().take(8192).collect();
-        let doc_vec = match ollama_embed(&truncated) {
+        let doc_vec = match embed(&truncated) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                embed_error = Some(e);
+                continue;
+            }
         };
         let score = cosine_similarity(&query_vec, &doc_vec);
         let (line_number, snippet) = best_snippet_for_query(&content, query);
@@ -2517,6 +2548,10 @@ pub fn semantic_search_vault(
             line_number,
             score,
         });
+    }
+
+    if let (true, Some(e)) = (scored.is_empty(), embed_error) {
+        return Err(format!("embedding every document failed: {e}"));
     }
 
     scored.sort_by(|a, b| {

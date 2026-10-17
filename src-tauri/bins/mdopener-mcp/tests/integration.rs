@@ -2499,6 +2499,49 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     assert!(msg.contains("search is disabled"), "got: {msg}");
 }
 
+/// When every document's embedding fails, semantic search compared nothing,
+/// so it falls back to grep with a note instead of returning no results.
+#[test]
+fn search_vault_falls_back_when_every_embedding_fails() {
+    use mdopener_mcp::{search_vault_with, semantic_search_vault_with};
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get(
+            "/search",
+            Ok(json!({ "results": [{ "path": path, "matches": [] }] })),
+        );
+    // The query embeds; every document is too much for the model.
+    let embed = |text: &str| {
+        if text == "target topic" {
+            Ok(vec![1.0, 0.0])
+        } else {
+            Err("Ollama embed request failed: HTTP 500".to_string())
+        }
+    };
+
+    let err = semantic_search_vault_with("target topic", 50, &ipc, &embed).unwrap_err();
+    assert!(err.contains("HTTP 500"), "{err}");
+
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "grep");
+    let note = v["note"].as_str().expect("the fallback is said");
+    assert!(note.contains("Semantic search was unavailable"), "{note}");
+    assert!(note.contains("embedding every document failed"), "{note}");
+
+    // One document that embeds is a semantic answer, as before.
+    let embed_all = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed_all).unwrap();
+    assert_eq!(v["mode"], "semantic");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1);
+}
+
 // ── text://vault-search resource ──────────────────────────────────────────────
 
 #[test]
