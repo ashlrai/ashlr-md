@@ -272,15 +272,28 @@ See the dedicated [Human review loop](#human-review-loop) section.
   numbers, `~`, `null` and an empty value (`key:` with nothing after it and
   nothing under it) become `null`, and anything else is a string with
   surrounding `"` or `'` removed (`key: ""` is the empty string).
-- **Lists of scalars**: a flow list (`tags: [a, "b, c"]`) or `- item` lines
-  under an empty `key:` become arrays.
-- **One level of nesting**: indented `name: value` lines under an empty
-  `owner:` become an object (`{"owner": {"name": "value"}}`). Their values are
-  read the same way, so `links: [a, b]` or `- item` lines under `roles:` are
+- **Lists**: a flow list (`tags: [a, "b, c"]`) or `- item` lines under an
+  empty `key:` become arrays. An item written as `- name: x` starts an object,
+  and the lines aligned with `name` add keys to it, so
+  `- name: Ann` / `  role: lead` is `{"name": "Ann", "role": "lead"}`. An item
+  in quotes, or whose colons are not followed by a space (`- http://x`), stays
+  a string.
+- **Nesting**: indented `name: value` lines under an empty `owner:` become an
+  object (`{"owner": {"name": "value"}}`), at any depth. Their values are read
+  the same way, so `links: [a, b]` or `- item` lines under `roles:` are
   arrays, and an empty one is `null`.
-- **Not parsed**: anything nested deeper (its key holds `null`), lists of
-  mappings (`- name: x` is the string `"name: x"`), multi-line strings (`|`,
-  `>`), anchors and tags. Comment lines (`# ...`) are skipped.
+- **Block scalars**: `key: |` keeps the indented lines under it as written,
+  and `key: >` folds them: a line break between two lines becomes a space, a
+  blank line becomes a line break, and lines indented further keep their
+  breaks. Both end with one line break; `|-` / `>-` drop it and `|+` / `>+`
+  keep every trailing blank line. An explicit indentation digit (`|2`) is
+  honoured. Lines inside a block scalar are text, so `# ...` there is kept.
+- A key's colon must be followed by a space or end the line, so `time: 10:30`
+  is the string `"10:30"`.
+- **Not parsed**: anchors and aliases (`&a`, `*a`), tags (`!!str`), flow
+  mappings (`{a: 1}` stays a string), and multi-line plain or quoted scalars
+  (their continuation lines are skipped). Comment lines (`# ...`) outside
+  block scalars are skipped.
 
 ---
 

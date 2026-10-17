@@ -480,7 +480,11 @@ fn open_file_ipc_success_returns_opened_path() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
     // Use /tmp which is guaranteed to exist for canonicalize
     let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
-    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "unexpected RPC error: {:?}",
+        resp.error
+    );
     assert!(!is_error(&resp));
     let text = content_text(&resp);
     assert!(text["opened"].as_str().is_some());
@@ -1247,8 +1251,7 @@ fn present_document_no_path_uses_current_doc() {
 
 #[test]
 fn present_document_with_path_sends_canonicalized() {
-    let ipc = MockIpc::new()
-        .on_post("/present", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
     let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
@@ -5409,11 +5412,11 @@ fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
     );
 }
 
-/// One level of nesting becomes an object (its values parsed like top-level
-/// ones, lists included), deeper levels are not parsed (null), and a bare
-/// `key:` with nothing under it is null rather than "".
+/// Nesting becomes an object (its values parsed like top-level ones, lists
+/// included, and a level deeper too), and a bare `key:` with nothing under it
+/// is null rather than "".
 #[test]
-fn frontmatter_parses_one_level_of_nesting_and_empty_values_are_null() {
+fn frontmatter_parses_nesting_and_empty_values_are_null() {
     use mdopener_mcp::extract_frontmatter;
     let doc = "---\n\
                summary:\n\
@@ -5431,12 +5434,82 @@ fn frontmatter_parses_one_level_of_nesting_and_empty_values_are_null() {
                 "name": "Zoë",
                 "links": ["a", "b"],
                 "roles": ["lead", "qa"],
-                "address": null,
+                "address": { "city": "Oslo" },
                 "email": null,
             },
             "quoted": "",
             "tilde": null,
             "last": null,
+        })
+    );
+}
+
+/// Lists of mappings were read as strings (`"name: Ann"`), block scalars
+/// (`|`, `>`) as the literal indicator with their lines dropped, and a
+/// second nesting level as null.
+#[test]
+fn frontmatter_reads_lists_of_mappings_block_scalars_and_deep_nesting() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               authors:\n\
+               \x20 - name: Ann\n\
+               \x20   role: lead\n\
+               \x20   links:\n\
+               \x20     - a\n\
+               \x20 - name: Bo\n\
+               \x20 - plain\n\
+               \x20 - \"q: quoted\"\n\
+               \x20 - http://example.com\n\
+               steps:\n\
+               - id: 1\n\
+               \x20 done: true\n\
+               literal: |\n\
+               \x20 line one\n\
+               \x20   indented\n\
+               \n\
+               \x20 # not a comment\n\
+               folded: >\n\
+               \x20 one\n\
+               \x20 two\n\
+               \n\
+               \x20 three\n\
+               \x20   kept\n\
+               \x20 four\n\
+               strip: |-\n\
+               \x20 a\n\
+               \x20 b\n\
+               keep: >+\n\
+               \x20 a\n\
+               \n\
+               empty: |\n\
+               deep:\n\
+               \x20 a:\n\
+               \x20   b:\n\
+               \x20     c: 3\n\
+               \x20     note: >-\n\
+               \x20       x\n\
+               \x20       y\n\
+               \x20   d: [1, 2]\n\
+               time: 10:30\n\
+               ---\nBody\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({
+            "authors": [
+                { "name": "Ann", "role": "lead", "links": ["a"] },
+                { "name": "Bo" },
+                "plain",
+                "q: quoted",
+                "http://example.com",
+            ],
+            "steps": [{ "id": 1, "done": true }],
+            "literal": "line one\n  indented\n\n# not a comment\n",
+            "folded": "one two\nthree\n  kept\nfour\n",
+            "strip": "a\nb",
+            "keep": "a\n\n",
+            "empty": "",
+            "deep": { "a": { "b": { "c": 3, "note": "x y" }, "d": [1, 2] } },
+            "time": "10:30",
         })
     );
 }

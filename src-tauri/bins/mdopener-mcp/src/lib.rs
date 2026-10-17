@@ -453,7 +453,9 @@ pub fn store_append_message(
         timestamp_ms: ts,
     };
 
-    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store()
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?;
     let _dir_lock = lock_sessions_dir().map_err(|e| format!("Message not saved: {e}"))?;
     // Continue the persisted log, re-read on every append: another server
     // process (a second agent, or this agent after a restart) or the app may
@@ -1055,8 +1057,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "export_metadata",
             description: "Extract structural metadata from a Markdown document without the full \
-                content: YAML front-matter (a simple subset parsed to an object: scalars, lists, one \
-                level of nested mapping; an empty value is null), a headings tree (level + text for \
+                content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
+                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
+                headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
@@ -1681,21 +1684,36 @@ pub fn tool_request_review_with(
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
-                "timeout" => return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "The review window closed with no verdict."
-                })),
-                "not_found" => return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
-                })),
-                _ => return tool_result(id, json!({
-                    "verdict": resp["verdict"],
-                    "reviewId": review_id,
-                    "comments": resp["comments"],
-                })),
+                "timeout" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "timeout",
+                            "reviewId": review_id,
+                            "message": "The review window closed with no verdict."
+                        }),
+                    )
+                }
+                "not_found" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "timeout",
+                            "reviewId": review_id,
+                            "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
+                        }),
+                    )
+                }
+                _ => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": resp["verdict"],
+                            "reviewId": review_id,
+                            "comments": resp["comments"],
+                        }),
+                    )
+                }
             },
         }
     }
@@ -2773,7 +2791,11 @@ impl SemanticHits {
         let e = self.skip_error.as_deref()?;
         let n = self.skipped;
         let total = n + self.compared;
-        let docs = if n == 1 { "document was" } else { "documents were" };
+        let docs = if n == 1 {
+            "document was"
+        } else {
+            "documents were"
+        };
         Some(format!(
             "{n} of {total} {docs} left out of these semantic results because \
              embedding failed ({e})."
@@ -4771,84 +4793,22 @@ fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
 ///
 /// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
 /// `Value::Null` when no front-matter is present or it holds no `key: value`
-/// lines. A simple subset of YAML is read (documented in docs/AGENTS.md):
-/// scalars become strings, bools, numbers or null (`~`, `null`, or nothing
-/// after the colon), lists of scalars (`tags: [a, b]`, or `- item` lines under
-/// `tags:`) become arrays, and one level of nested mapping (indented
-/// `key: value` lines under `owner:`) becomes an object whose values are read
-/// the same way. Anything nested deeper is not parsed: its key holds null.
+/// lines. A subset of YAML is read (documented in docs/AGENTS.md): scalars
+/// become strings, bools, numbers or null (`~`, `null`, or nothing after the
+/// colon), lists (`tags: [a, b]`, or `- item` lines under `tags:`) become
+/// arrays whose `- key: value` items are objects, indented `key: value` lines
+/// under an empty `key:` become nested objects at any depth, and block scalars
+/// (`|`, `>`, with `-` / `+` chomping) become strings.
 pub fn extract_frontmatter(content: &str) -> Value {
     let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
     };
+    let mut parser = FrontMatter {
+        lines: fm_lines,
+        pos: 0,
+    };
     let mut map = serde_json::Map::new();
-    // The top-level key whose value was left empty: `- item` lines make it a
-    // list, indented `key: value` lines a mapping.
-    let mut open_key: Option<String> = None;
-    // The indentation of that mapping's keys, once its first one is seen.
-    let mut map_indent: Option<usize> = None;
-    // The nested key whose value was left empty, which `- item` lines
-    // indented deeper than it then fill.
-    let mut open_sub: Option<String> = None;
-    for line in &fm_lines {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with('#') {
-            continue;
-        }
-        let indent = line.len() - line.trim_start().len();
-        if let Some(item) = t.strip_prefix("- ").or((t == "-").then_some("")) {
-            let parent = open_key.as_ref().and_then(|k| map.get_mut(k));
-            let entry = match (parent, &open_sub, map_indent) {
-                (Some(Value::Object(m)), Some(sub), Some(mi)) if indent > mi => m.get_mut(sub),
-                (Some(v), _, None) => Some(v),
-                _ => None,
-            };
-            if let Some(entry) = entry {
-                if entry.is_null() {
-                    *entry = json!([]);
-                }
-                if let Some(items) = entry.as_array_mut() {
-                    items.push(frontmatter_scalar(item.trim()));
-                }
-            }
-            continue;
-        }
-        if indent > 0 {
-            // A nested mapping's key, one level down; deeper lines are not read.
-            let Some(key) = &open_key else {
-                continue;
-            };
-            if map_indent.is_some_and(|mi| mi != indent) {
-                continue;
-            }
-            let Some((sub, val_str)) = frontmatter_key_value(t) else {
-                continue;
-            };
-            let parent = map.get_mut(key);
-            let Some(parent) = parent.filter(|v| v.is_null() || v.is_object()) else {
-                continue;
-            };
-            if parent.is_null() {
-                *parent = json!({});
-            }
-            map_indent = Some(indent);
-            open_sub = val_str.is_empty().then(|| sub.clone());
-            if let Some(m) = parent.as_object_mut() {
-                m.insert(sub, frontmatter_value(val_str));
-            }
-            continue;
-        }
-        open_key = None;
-        map_indent = None;
-        open_sub = None;
-        let Some((key, val_str)) = frontmatter_key_value(t) else {
-            continue;
-        };
-        if val_str.is_empty() {
-            open_key = Some(key.clone());
-        }
-        map.insert(key, frontmatter_value(val_str));
-    }
+    parser.mapping(0, &mut map);
     if map.is_empty() {
         Value::Null
     } else {
@@ -4856,9 +4816,249 @@ pub fn extract_frontmatter(content: &str) -> Value {
     }
 }
 
+/// A line-by-line reader of the front-matter YAML subset, driven by
+/// indentation.
+struct FrontMatter<'a> {
+    lines: Vec<&'a str>,
+    pos: usize,
+}
+
+/// A line's indentation in bytes of leading whitespace.
+fn line_indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// The text of a `- item` line after its dash, or `None` for other lines.
+fn sequence_item(t: &str) -> Option<&str> {
+    t.strip_prefix("- ").or((t == "-").then_some(""))
+}
+
+impl<'a> FrontMatter<'a> {
+    /// The next line holding YAML (not blank, not a `#` comment), as its
+    /// indentation and trimmed text, without consuming it. Skipped lines are
+    /// consumed.
+    fn peek(&mut self) -> Option<(usize, &'a str)> {
+        while let Some(line) = self.lines.get(self.pos) {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with('#') {
+                self.pos += 1;
+                continue;
+            }
+            return Some((line_indent(line), t));
+        }
+        None
+    }
+
+    /// Read `key: value` lines at exactly `indent` into `map`, stopping at
+    /// the first line indented less. Deeper lines that no key opened (the
+    /// continuation of a plain multi-line scalar) and stray `- item` lines
+    /// are skipped.
+    fn mapping(&mut self, indent: usize, map: &mut serde_json::Map<String, Value>) {
+        while let Some((ind, t)) = self.peek() {
+            if ind < indent {
+                break;
+            }
+            self.pos += 1;
+            if ind > indent || sequence_item(t).is_some() {
+                continue;
+            }
+            if let Some((key, val_str)) = frontmatter_key_value(t) {
+                let value = self.value_after_key(indent, val_str);
+                map.insert(key, value);
+            }
+        }
+    }
+
+    /// The value of a key at `indent` whose text after the colon is
+    /// `val_str`: a block scalar, a nested block (when empty), or an inline
+    /// value.
+    fn value_after_key(&mut self, indent: usize, val_str: &str) -> Value {
+        if let Some(header) = block_scalar_header(val_str) {
+            return self.block_scalar(indent, header);
+        }
+        if !val_str.is_empty() {
+            return frontmatter_value(val_str);
+        }
+        match self.peek() {
+            // A list may sit at its key's own indentation.
+            Some((ind, t)) if ind >= indent && sequence_item(t).is_some() => self.sequence(ind),
+            Some((ind, _)) if ind > indent => {
+                let mut nested = serde_json::Map::new();
+                self.mapping(ind, &mut nested);
+                if nested.is_empty() {
+                    Value::Null
+                } else {
+                    Value::Object(nested)
+                }
+            }
+            _ => Value::Null,
+        }
+    }
+
+    /// Read `- item` lines at exactly `indent` into an array. An item that is
+    /// a `key: value` pair starts an object whose further keys are the lines
+    /// aligned with it.
+    fn sequence(&mut self, indent: usize) -> Value {
+        let mut items = Vec::new();
+        while let Some((ind, t)) = self.peek() {
+            let Some(item) = sequence_item(t).filter(|_| ind == indent) else {
+                break;
+            };
+            self.pos += 1;
+            let item_text = item.trim_start();
+            // The column of the item's text: its object's keys align there.
+            let item_indent = ind + (t.len() - item_text.len());
+            let item_text = item_text.trim_end();
+            let value = if item_text.is_empty() {
+                self.value_after_key(ind, "")
+            } else if let Some(header) = block_scalar_header(item_text) {
+                self.block_scalar(ind, header)
+            } else if let Some((key, val_str)) = mapping_item(item_text) {
+                let mut obj = serde_json::Map::new();
+                let first = self.value_after_key(item_indent, val_str);
+                obj.insert(key, first);
+                self.mapping(item_indent, &mut obj);
+                Value::Object(obj)
+            } else {
+                frontmatter_value(item_text)
+            };
+            items.push(value);
+        }
+        Value::Array(items)
+    }
+
+    /// Read the lines of a block scalar whose key sits at `indent`: every
+    /// following line indented deeper, plus blank lines among them, joined
+    /// as written (`|`) or folded (`>`), then chomped.
+    fn block_scalar(&mut self, indent: usize, header: BlockScalar) -> Value {
+        let mut body: Vec<&str> = Vec::new();
+        let mut content_indent = header.indent.map(|i| indent + i);
+        while let Some(line) = self.lines.get(self.pos) {
+            if line.trim().is_empty() {
+                body.push("");
+                self.pos += 1;
+                continue;
+            }
+            let ind = line_indent(line);
+            let ci = *content_indent.get_or_insert(ind);
+            if ind <= indent || ind < ci {
+                break;
+            }
+            body.push(&line[ci..]);
+            self.pos += 1;
+        }
+        let trailing = body.iter().rev().take_while(|l| l.is_empty()).count();
+        body.truncate(body.len() - trailing);
+        let mut text = if header.folded {
+            fold_lines(&body)
+        } else {
+            body.join("\n")
+        };
+        if !body.is_empty() {
+            match header.chomp {
+                Chomp::Strip => {}
+                Chomp::Clip => text.push('\n'),
+                Chomp::Keep => text.push_str(&"\n".repeat(trailing + 1)),
+            }
+        } else if header.chomp == Chomp::Keep {
+            text.push_str(&"\n".repeat(trailing));
+        }
+        Value::String(text)
+    }
+}
+
+/// How a block scalar treats its final line breaks.
+#[derive(Clone, Copy, PartialEq)]
+enum Chomp {
+    /// `-`: no final line break.
+    Strip,
+    /// The default: one final line break.
+    Clip,
+    /// `+`: every trailing line break.
+    Keep,
+}
+
+/// A block scalar's header (`|`, `>-`, `|+2`, optionally followed by a
+/// comment).
+#[derive(Clone, Copy)]
+struct BlockScalar {
+    folded: bool,
+    chomp: Chomp,
+    /// An explicit indentation indicator, relative to the key.
+    indent: Option<usize>,
+}
+
+/// Parse `val_str` as a block scalar header, or `None` when it is not one.
+fn block_scalar_header(val_str: &str) -> Option<BlockScalar> {
+    let head = val_str.split(" #").next()?.trim_end();
+    let mut chars = head.chars();
+    let folded = match chars.next()? {
+        '|' => false,
+        '>' => true,
+        _ => return None,
+    };
+    let mut header = BlockScalar {
+        folded,
+        chomp: Chomp::Clip,
+        indent: None,
+    };
+    for c in chars {
+        match c {
+            '-' if header.chomp == Chomp::Clip => header.chomp = Chomp::Strip,
+            '+' if header.chomp == Chomp::Clip => header.chomp = Chomp::Keep,
+            '1'..='9' if header.indent.is_none() => {
+                header.indent = c.to_digit(10).map(|d| d as usize)
+            }
+            _ => return None,
+        }
+    }
+    Some(header)
+}
+
+/// Fold a `>` block scalar's lines: a line break between two ordinary lines
+/// becomes a space, each blank line a line break, and lines indented more
+/// than the block keep their breaks.
+fn fold_lines(lines: &[&str]) -> String {
+    let mut out = String::new();
+    let mut blanks = 0;
+    let mut prev_more: Option<bool> = None;
+    for line in lines {
+        if line.is_empty() {
+            blanks += 1;
+            continue;
+        }
+        let more = line.starts_with([' ', '\t']);
+        match prev_more {
+            None => out.push_str(&"\n".repeat(blanks)),
+            Some(false) if !more && blanks == 0 => out.push(' '),
+            Some(false) if !more => out.push_str(&"\n".repeat(blanks)),
+            Some(_) => out.push_str(&"\n".repeat(blanks + 1)),
+        }
+        out.push_str(line);
+        prev_more = Some(more);
+        blanks = 0;
+    }
+    out
+}
+
+/// A `- key: value` item's key and value, or `None` when the item is a
+/// scalar (a quoted string, a flow list, or text whose colons are not
+/// followed by a space, like a URL).
+fn mapping_item(item: &str) -> Option<(String, &str)> {
+    if item.starts_with(['"', '\'', '[', '{']) {
+        return None;
+    }
+    frontmatter_key_value(item)
+}
+
 /// Split a `key: value` line into its key and its trimmed value text.
+/// The colon must be followed by a space or end the line, so `10:30` and
+/// `http://x` are not keys.
 fn frontmatter_key_value(line: &str) -> Option<(String, &str)> {
-    let colon = line.find(':')?;
+    let colon = line
+        .match_indices(':')
+        .map(|(i, _)| i)
+        .find(|&i| line[i + 1..].is_empty() || line[i + 1..].starts_with([' ', '\t']))?;
     let key = line[..colon].trim();
     (!key.is_empty()).then(|| (key.to_string(), line[colon + 1..].trim()))
 }
