@@ -1470,20 +1470,28 @@ fn same_path(a: &str, b: &str) -> bool {
     }
 }
 
+/// Largest file `/annotations` reads its task list from: the 16 MiB a
+/// document may be (the IPC body cap, and what mdopener-mcp reads from disk).
+/// The file used to be read whole however large it was.
+const MAX_ANNOTATION_FILE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// The GFM task checkboxes of the file `requested`: from the live buffer when
 /// it is the open document, else read from disk when it is a Markdown file
 /// (not a dotfile, checked after resolving symlinks), else none. Never the
-/// open document's tasks for some other path.
+/// open document's tasks for some other path. The second value says why a
+/// Markdown file's tasks could not be read (larger than
+/// [`MAX_ANNOTATION_FILE_BYTES`], or not readable as UTF-8 text), so an empty
+/// list is not taken for a file with no tasks.
 fn annotation_tasks(
     requested: &str,
     open_path: Option<&str>,
     open_content: &str,
-) -> Vec<serde_json::Value> {
+) -> (Vec<serde_json::Value>, Option<String>) {
     if open_path.is_some_and(|o| same_path(requested, o)) {
-        return parse_tasks(open_content);
+        return (parse_tasks(open_content), None);
     }
     let Ok(canon) = std::fs::canonicalize(requested) else {
-        return vec![];
+        return (vec![], None);
     };
     let markdown = canon.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         ["md", "markdown", "mdown", "mkd", "mdx"].contains(&e.to_ascii_lowercase().as_str())
@@ -1493,11 +1501,40 @@ fn annotation_tasks(
         .and_then(|n| n.to_str())
         .is_none_or(|n| n.starts_with('.'));
     if !markdown || hidden || !canon.is_file() {
-        return vec![];
+        return (vec![], None);
     }
-    std::fs::read_to_string(&canon)
-        .map(|c| parse_tasks(&c))
-        .unwrap_or_default()
+    match read_capped_text(&canon, MAX_ANNOTATION_FILE_BYTES) {
+        Ok(c) => (parse_tasks(&c), None),
+        Err(e) => (
+            vec![],
+            Some(format!("The tasks of {} were not read: {e}.", canon.display())),
+        ),
+    }
+}
+
+/// Read `path` as UTF-8 text, refusing it (before reading, and if it grows
+/// while read) when it is larger than `max` bytes.
+fn read_capped_text(path: &std::path::Path, max: u64) -> Result<String, String> {
+    use std::io::Read as _;
+    let too_large = |len: u64| {
+        format!(
+            "it is {:.1} MiB, more than the {} MiB a document may be",
+            len as f64 / (1024.0 * 1024.0),
+            max / (1024 * 1024)
+        )
+    };
+    let len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if len > max {
+        return Err(too_large(len));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(max + 1).read_to_string(&mut text))
+        .map_err(|e| e.to_string())?;
+    if text.len() as u64 > max {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
 }
 
 fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
@@ -1546,7 +1583,7 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
         let inner = mirror.0.lock_recover();
         (inner.path.clone(), inner.content.clone())
     };
-    let tasks = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
+    let (tasks, tasks_note) = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
 
     // Resolve the latest matching verdict/comments, then drop the lock before
     // the blocking send_json response. Reviews store the canonical path, so a
@@ -1561,13 +1598,17 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
             .unwrap_or((None, None, false))
     };
 
-    send_json(req, serde_json::json!({
+    let mut body = serde_json::json!({
         "path": raw_path,
         "verdict": verdict,
         "comments": comments,
         "late": late,
         "tasks": tasks,
-    }));
+    });
+    if let Some(note) = tasks_note {
+        body["tasksNote"] = serde_json::json!(note);
+    }
+    send_json(req, body);
 }
 
 // ── Vault / search / edit / present handlers ──────────────────────────────────
@@ -2542,14 +2583,16 @@ mod tests {
         // The open document: its live buffer, also via a non-canonical path.
         let via_dots = format!("{}/./open.md", dir.path().display());
         for p in [open_s, via_dots.as_str()] {
-            let t = annotation_tasks(p, Some(open_s), live);
+            let (t, note) = annotation_tasks(p, Some(open_s), live);
+            assert_eq!(note, None);
             assert_eq!(t.len(), 1);
             assert_eq!(t[0]["text"], "live task", "{p}");
         }
         assert!(same_path(&via_dots, open_s));
 
         // Another Markdown file: its own tasks from disk, not the open doc's.
-        let t = annotation_tasks(other.to_str().unwrap(), Some(open_s), live);
+        let (t, note) = annotation_tasks(other.to_str().unwrap(), Some(open_s), live);
+        assert_eq!(note, None);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0]["text"], "on disk");
         assert_eq!(t[0]["checked"], true);
@@ -2564,11 +2607,31 @@ mod tests {
             dot.as_path(),
             dir.path().join("nope.md").as_path(),
         ] {
-            assert!(
-                annotation_tasks(p.to_str().unwrap(), Some(open_s), live).is_empty(),
+            assert_eq!(
+                annotation_tasks(p.to_str().unwrap(), Some(open_s), live),
+                (vec![], None),
                 "{p:?}"
             );
         }
+    }
+
+    /// `/annotations` read a file that is not the open document whole,
+    /// however large it was. Past 16 MiB it is not read, and the reply says
+    /// why its task list is empty instead of passing it off as no tasks.
+    #[test]
+    fn annotation_tasks_skip_a_file_past_the_document_cap() {
+        let dir = std::env::temp_dir().join(format!("ipc-annot-huge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let huge = dir.join("huge.md");
+        let f = std::fs::File::create(&huge).unwrap();
+        f.set_len(super::MAX_ANNOTATION_FILE_BYTES + 1).unwrap();
+        drop(f);
+        let (tasks, note) = annotation_tasks(huge.to_str().unwrap(), None, "");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(tasks.is_empty());
+        let note = note.expect("a note saying why the tasks were not read");
+        assert!(note.contains("more than the 16 MiB"), "{note}");
     }
 
     // ── Session files shared with mdopener-mcp ───────────────────────────────

@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_user_annotations` reads a task list up to 16 MiB.** For a file
+  that is not the open document, the app's `/annotations` read the file
+  whole however large it was. Past 16 MiB (or for text that is not UTF-8)
+  it is not read, and the reply's `tasksNote` says why `tasks` is empty.
 - **The app's IPC server answers an unknown route in JSON.** A request for
   a route it does not have got the plain text `Not Found`, unlike every
   other error. It is now a 404 with `{"error": "No such endpoint: <method>
