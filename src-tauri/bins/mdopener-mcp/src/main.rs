@@ -44,7 +44,7 @@ use std::io::{self, BufRead, IsTerminal as _, Write};
 use mdopener_mcp::{dispatch, invalid_envelope, IpcClient, RealIpcClient, Request, Response};
 use serde_json::Value;
 
-const HELP: &str = "mdopener-mcp — MCP server for Ashlr MD (stdio JSON-RPC 2.0)
+const HELP: &str = "mdopener-mcp: MCP server for Ashlr MD (stdio JSON-RPC 2.0)
 
 USAGE:
     mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)

@@ -145,7 +145,7 @@ export const AI_ACTIONS: AIAction[] = [
       return msg(
         "You are an expert editor. Rewrite the provided text to be clearer " +
           "and more concise while preserving the original meaning and voice. " +
-          "Output only the rewritten text — no commentary, no preamble.",
+          "Output only the rewritten text, with no commentary and no preamble.",
         `Rewrite the following text to be clearer and more concise:\n\n${text}`,
       );
     },
@@ -161,7 +161,7 @@ export const AI_ACTIONS: AIAction[] = [
         "You are a meticulous copy editor. Correct spelling, grammar, " +
           "punctuation, and obvious typos in the provided text. Preserve the " +
           "original meaning, tone, wording, and any Markdown formatting. " +
-          "Output only the corrected text — no commentary, no preamble.",
+          "Output only the corrected text, with no commentary and no preamble.",
         `Fix the grammar and spelling in the following text:\n\n${text}`,
       );
     },
@@ -175,9 +175,9 @@ export const AI_ACTIONS: AIAction[] = [
     buildMessages(text) {
       return msg(
         "You are an expert editor who tightens prose. Make the provided text " +
-          "more concise — remove redundancy and filler while preserving the " +
+          "more concise: remove redundancy and filler while preserving the " +
           "meaning, key facts, voice, and any Markdown formatting. " +
-          "Output only the rewritten text — no commentary, no preamble.",
+          "Output only the rewritten text, with no commentary and no preamble.",
         `Make the following text more concise:\n\n${text}`,
       );
     },
@@ -193,7 +193,7 @@ export const AI_ACTIONS: AIAction[] = [
         "You are an expert writer. Expand the provided text with helpful " +
           "detail, clarification, and supporting points while keeping the " +
           "original meaning, voice, and any Markdown formatting. Do not invent " +
-          "facts. Output only the expanded text — no commentary, no preamble.",
+          "facts. Output only the expanded text, with no commentary and no preamble.",
         `Expand the following text with more detail:\n\n${text}`,
       );
     },
@@ -212,8 +212,8 @@ export const AI_ACTIONS: AIAction[] = [
         "You are a precise technical reviewer. The user has a document open " +
           "with unsaved edits, and the same file changed on disk underneath " +
           "them. You will be given both versions. Explain, in clear bullet " +
-          "points, what changed on disk relative to their in-editor version — " +
-          "focus on substantive content differences, not whitespace. Be " +
+          "points, what changed on disk relative to their in-editor version, " +
+          "focusing on substantive content differences, not whitespace. Be " +
           "concise and use Markdown.",
         "MY CURRENT VERSION (in the editor):\n\n" +
           "```\n" +
@@ -236,7 +236,7 @@ export const AI_ACTIONS: AIAction[] = [
     buildMessages(text, arg = "Spanish") {
       return msg(
         `You are a professional translator. Translate the provided text into ${arg}. ` +
-          "Output only the translation — no commentary, no preamble.",
+          "Output only the translation, with no commentary and no preamble.",
         `Translate the following into ${arg}:\n\n${text}`,
       );
     },

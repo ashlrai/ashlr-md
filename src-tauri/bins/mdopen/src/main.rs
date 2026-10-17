@@ -489,7 +489,7 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
 }
 
-const HELP: &str = "mdopen — open Markdown files in Ashlr MD
+const HELP: &str = "mdopen: open Markdown files in Ashlr MD
 
 USAGE:
     mdopen [FLAGS] <file.md>

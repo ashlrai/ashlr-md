@@ -282,3 +282,48 @@ fn unknown_argument_is_named_on_stderr_and_the_server_still_serves() {
     );
     assert!(stderr.contains("--help"), "stderr: {stderr:?}");
 }
+
+fn has_dash(s: &str) -> bool {
+    s.contains('\u{2014}') || s.contains('\u{2013}')
+}
+
+/// The not-running error (no `ipc-port`, then an empty `ipc-token`) and the
+/// `--help` text carry no em or en dash: the product rule is none in
+/// user-facing strings.
+#[test]
+fn not_running_errors_and_help_have_no_em_or_en_dashes() {
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"get_current_content","arguments":{}}});
+    for token_file in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        if token_file {
+            let dir = home.path().join(".mdopener");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("ipc-port"), "9").unwrap();
+            std::fs::write(dir.join("ipc-token"), "").unwrap();
+        }
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.as_mut().unwrap(), "{call}").unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().unwrap();
+        let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        let expect = if token_file { "ipc-token" } else { "ipc-port" };
+        assert!(text.contains(expect), "{text}");
+        assert!(!has_dash(text), "{text}");
+    }
+    let help = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help.starts_with("mdopener-mcp"), "{help}");
+    assert!(!has_dash(&help), "{help}");
+}

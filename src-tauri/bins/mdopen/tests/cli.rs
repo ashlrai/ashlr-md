@@ -34,7 +34,13 @@ fn help_exits_0() {
         .output()
         .unwrap();
     assert!(out.status.success());
-    assert!(String::from_utf8(out.stdout).unwrap().contains("--version"));
+    let help = String::from_utf8(out.stdout).unwrap();
+    assert!(help.contains("--version"));
+    // No em or en dash in user-facing text.
+    assert!(
+        !help.contains('\u{2014}') && !help.contains('\u{2013}'),
+        "{help}"
+    );
 }
 
 /// With no arguments there is nothing to open: the help goes to stderr and

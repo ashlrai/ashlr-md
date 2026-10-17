@@ -793,7 +793,7 @@ fn get_current_content_ipc_unavailable_returns_tool_error() {
 fn get_current_content_stale_ipc_returns_error_with_hint() {
     let ipc = MockIpc::new().on_get(
         "/content",
-        Err("ipc-port not found — is Ashlr MD running?".into()),
+        Err("ipc-port not found. Is Ashlr MD running?".into()),
     );
     let resp = tool_get_content(id(1), &ipc);
     let err = tool_error_text(&resp);
@@ -1990,7 +1990,7 @@ fn ai_actions_registry_count_matches_tool_response() {
 
 #[test]
 fn app_not_running_msg_ipc_port_error_includes_hint() {
-    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found — is Ashlr MD running?");
+    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found. Is Ashlr MD running?");
     assert!(msg.contains("Ashlr MD"), "hint should mention app name");
     assert!(
         msg.contains("open_file"),
@@ -2219,7 +2219,7 @@ fn export_tool_disk_full_error_propagated() {
 fn export_tool_app_not_running_returns_descriptive_error() {
     let ipc = MockIpc::new().on_post(
         "/export",
-        Err("ipc-port not found — is Ashlr MD running?".into()),
+        Err("ipc-port not found. Is Ashlr MD running?".into()),
     );
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
     let err = tool_error_text(&resp);
@@ -4596,6 +4596,65 @@ fn message_cited_docs_skip_empty_paths_from_old_sessions() {
     assert_eq!(msgs[1]["citedDocs"], json!([]));
 }
 
+/// A path cited twice in one message was stored and returned twice. Saving
+/// keeps each path once, in the order given; a relative path and its
+/// absolute form are the same path.
+#[test]
+fn duplicate_cited_docs_are_saved_once_in_order() {
+    let sess = unique_session();
+    let abs = std::env::current_dir()
+        .unwrap()
+        .join("notes/plan.md")
+        .to_string_lossy()
+        .into_owned();
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["/v/b.md", "/v/a.md", "/v/b.md", "notes/plan.md", abs] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
+    let saved = load_session_from_disk(&sess).unwrap();
+    assert_eq!(saved.messages[0].cited_docs, ["/v/b.md", "/v/a.md", &abs]);
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!(["/v/b.md", "/v/a.md", abs])
+    );
+}
+
+/// A session file an older build wrote with a path twice in one message
+/// lists it once in that message's `citedDocs`.
+#[test]
+fn duplicate_cited_docs_from_old_sessions_are_returned_once() {
+    use mdopener_mcp::{ConversationMessage, SessionLog};
+    let sess = unique_session();
+    let path = session_file_path(&sess).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).ok();
+    let old = SessionLog {
+        messages: vec![ConversationMessage {
+            id: "msg-old".into(),
+            session_id: sess.clone(),
+            role: "agent".into(),
+            content: "Old build.".into(),
+            cited_docs: vec!["/v/b.md".into(), "/v/a.md".into(), "/v/b.md".into()],
+            timestamp_ms: 1_700_000_000_000,
+        }],
+    };
+    std::fs::write(&path, serde_json::to_string(&old).unwrap()).unwrap();
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!(["/v/b.md", "/v/a.md"])
+    );
+    assert_eq!(ctx["recentDocs"], json!(["/v/b.md", "/v/a.md"]));
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
@@ -5709,7 +5768,7 @@ fn canvas_saves_replace_the_file_and_never_write_through_a_link() {
     );
     assert!(!is_error(&resp), "{resp:?}");
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&board).unwrap()).unwrap();
-    assert_eq!(saved["nodes"][0]["x"], json!(5.0));
+    assert_eq!(saved["nodes"][0]["x"], json!(5));
     let mode = std::fs::metadata(&board).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600, "{mode:o}");
     let left: Vec<_> = std::fs::read_dir(dir.path())
@@ -6077,6 +6136,27 @@ fn stream_edit_apply_does_not_need_an_edit_id() {
         .to_json()["inputSchema"]["required"]
         .clone();
     assert_eq!(required, json!(["find", "replace"]));
+}
+
+/// An empty `edit_id` names no preview: it is refused with -32602, through
+/// tools/call (the schema's minLength) and when the handler is called
+/// directly, and the app is not asked to apply anything.
+#[test]
+fn stream_edit_apply_refuses_an_empty_edit_id() {
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let args = json!({ "edit_id": "", "find": "a", "replace": "b" });
+    let msg = param_error(&call("stream_edit_apply", args.clone(), &ipc));
+    assert!(msg.contains("`edit_id`"), "{msg}");
+    let msg = param_error(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(msg, "`edit_id` must not be empty");
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let schema = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap()
+        .to_json()["inputSchema"]["properties"]["edit_id"]["minLength"]
+        .clone();
+    assert_eq!(schema, json!(1));
 }
 
 /// The frontend checks a stream edit's `path` against the open document's
@@ -7122,6 +7202,39 @@ fn saving_past_the_session_cap_drops_the_oldest_and_says_so() {
         "{body}"
     );
     std::fs::remove_file(&path).unwrap();
+}
+
+// ── edit_canvas writes whole coordinates as integers ─────────────────────────
+
+/// JSON Canvas positions and sizes are integers, but move_node and
+/// resize_node wrote `"x": 5.0`. A whole value is now written as an integer
+/// (also when given as `5.0`); a fractional one is kept as given.
+#[test]
+fn edit_canvas_writes_whole_coordinates_as_integers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let canvas = json!({
+        "nodes": [{ "id": "a", "type": "text", "text": "hi", "x": 0, "y": 0,
+                    "width": 10, "height": 10 }],
+        "edges": []
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [
+            { "type": "move_node", "id": "a", "x": 5, "y": -3.0 },
+            { "type": "resize_node", "id": "a", "width": 200.0, "height": 50.5 }
+        ] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let saved: Value = serde_json::from_str(&text).unwrap();
+    let node = &saved["nodes"][0];
+    assert!(node["x"].is_i64() && node["x"] == 5, "{text}");
+    assert!(node["y"].is_i64() && node["y"] == -3, "{text}");
+    assert!(node["width"].is_i64() && node["width"] == 200, "{text}");
+    assert_eq!(node["height"].as_f64(), Some(50.5), "{text}");
+    assert!(!text.contains("5.0") && !text.contains("200.0"), "{text}");
 }
 
 // ── edit_canvas keeps what it does not edit ───────────────────────────────────
@@ -9695,4 +9808,100 @@ fn prompts_get_refuses_arguments_no_prompt_declares() {
         json!({ "name": "sumarize", "arguments": { "x": "1" } }),
     ));
     assert!(msg.contains("Unknown prompt"), "{msg}");
+}
+
+// ── No em or en dashes in what agents read ───────────────────────────────────
+
+/// The product rule is no em-dashes in user-facing strings. Every listing an
+/// agent reads (tools, schemas, prompts, resources, AI action prompts) and
+/// every prompt's text is scanned for U+2014 and U+2013. The not-running
+/// error the real IPC client gives is checked against the binary in
+/// `tests/stdio.rs`.
+#[test]
+fn agent_facing_text_has_no_em_or_en_dashes() {
+    fn dashes(place: &str, v: &Value) -> Vec<String> {
+        let text = v.to_string();
+        if text.contains('\u{2014}') || text.contains('\u{2013}') {
+            vec![format!("{place}: {text}")]
+        } else {
+            vec![]
+        }
+    }
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/p.md", "content": "# Plan" })),
+    );
+    let mut found = Vec::new();
+    for method in [
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+    ] {
+        let resp = dispatch(dispatch_req(method, json!({})), &ipc).unwrap();
+        let result = resp.result.unwrap_or_else(|| panic!("{method} failed"));
+        found.extend(dashes(method, &result));
+    }
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(dispatch_req("prompts/get", json!({ "name": name })), &ipc).unwrap();
+        let result = resp
+            .result
+            .unwrap_or_else(|| panic!("prompts/get {name} failed"));
+        found.extend(dashes(&format!("prompts/get {name}"), &result));
+    }
+    let actions = tool_list_ai_actions(id(1), &json!({}));
+    found.extend(dashes("list_ai_actions", &content_text(&actions)));
+    found.extend(dashes(
+        "app_not_running_msg",
+        &json!(mdopener_mcp::app_not_running_msg("ipc-port not found")),
+    ));
+    assert!(found.is_empty(), "dashes found:\n{}", found.join("\n"));
+}
+
+// ── edit_canvas refuses empty ids before reading ─────────────────────────────
+
+/// An op with `id: ""` (or an empty `ids` element, `node.id`, `edge.id`,
+/// `edge.fromNode` or `edge.toNode`) used to reach the file and come back as
+/// "node `` not found". It is now -32602 saying the field must not be empty,
+/// before the file is read: the canvas here does not exist.
+#[test]
+fn edit_canvas_refuses_empty_ids_before_reading_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing.canvas");
+    let node = json!({ "id": "", "type": "text", "text": "t", "x": 0, "y": 0,
+                       "width": 1, "height": 1 });
+    let cases = [
+        (
+            json!({ "type": "move_node", "id": "", "x": 1, "y": 2 }),
+            "op[0] move_node: `id` must not be empty",
+        ),
+        (
+            json!({ "type": "delete_edge", "id": "" }),
+            "op[0] delete_edge: `id` must not be empty",
+        ),
+        (
+            json!({ "type": "reorder_edges", "ids": ["e1", ""] }),
+            "op[0] reorder_edges: `ids[1]` must not be empty",
+        ),
+        (
+            json!({ "type": "add_node", "node": node }),
+            "op[0] add_node: node.id must not be empty",
+        ),
+        (
+            json!({ "type": "add_edge", "edge": { "id": "e", "fromNode": "", "toNode": "b" } }),
+            "op[0] add_edge: edge.fromNode must not be empty",
+        ),
+        (
+            json!({ "type": "add_edge", "edge": { "id": "e", "fromNode": "a", "toNode": "" } }),
+            "op[0] add_edge: edge.toNode must not be empty",
+        ),
+    ];
+    for (op, want) in cases {
+        let args = json!({ "path": path, "ops": [op] });
+        let direct = mdopener_mcp::tool_edit_canvas(id(1), &args);
+        assert_eq!(param_error(&direct), want);
+        let via_call = call("edit_canvas", args, &MockIpc::new());
+        assert_eq!(param_error(&via_call), want);
+    }
+    assert!(!path.exists());
 }

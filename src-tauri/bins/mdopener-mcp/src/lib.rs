@@ -655,6 +655,13 @@ fn append_message(
     // succession, so a per-process sequence number keeps ids unique.
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Each path once, in the order given: a path cited twice in one message
+    // used to be stored and returned twice.
+    let mut seen = std::collections::HashSet::new();
+    let cited_docs: Vec<String> = cited_docs
+        .into_iter()
+        .filter(|d| seen.insert(d.clone()))
+        .collect();
     let msg = ConversationMessage {
         id: format!("msg-{ts}-{:08x}-{seq}", std::process::id()),
         session_id: session_id.to_string(),
@@ -913,7 +920,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once — include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -977,7 +984,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation — ideal for showing the human a finished result.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1067,7 +1074,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1109,7 +1116,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use — only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use: only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1137,27 +1144,27 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                     ],
                                     "description": "Operation type."
                                 },
-                                "id": { "type": "string", "description": "Node or edge id (required for most ops)." },
-                                "x": { "type": "number", "description": "New x coordinate (move_node)." },
-                                "y": { "type": "number", "description": "New y coordinate (move_node)." },
-                                "width": { "type": "number", "description": "New width (resize_node)." },
-                                "height": { "type": "number", "description": "New height (resize_node)." },
+                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty one is refused before the file is read." },
+                                "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
+                                "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
+                                "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
+                                "height": { "type": "number", "description": "New height (resize_node); a whole number is written as an integer." },
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
                                 "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
-                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
+                                "color": { "type": "string", "description": "Color preset '1' to '6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
                                     "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and non-empty fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
                                 },
                                 "ids": {
                                     "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Complete ordered list of all edge ids (reorder_edges)."
+                                    "items": { "type": "string", "minLength": 1 },
+                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty id is refused."
                                 }
                             },
                             "required": ["type"]
@@ -1185,7 +1192,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 When `preview` is true (default), returns a minimal unified diff with `preview_lines` \
                 lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
-                by occurrence order (rank 1 = first match) — the agent picks one and confirms it via \
+                by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
@@ -1239,7 +1246,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "edit_id": {
                         "type": "string",
-                        "description": "Optional: the editId of the stream_edit preview, for correlation only. The app re-finds `find` in the live document and applies occurrence `match_index`."
+                        "minLength": 1,
+                        "description": "Optional: the editId of the stream_edit preview, for correlation only; an empty one is refused. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -1278,7 +1286,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export_text",
-            description: "Extract the plain text of a Markdown document — all Markdown syntax \
+            description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
@@ -3281,10 +3289,10 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                         "role": m.role,
                         "content": m.content,
                         // Filtered as `recentDocs` is: a blank path from an
-                        // older session file named no document here either.
-                        "citedDocs": m.cited_docs.iter()
-                            .filter(|d| !d.trim().is_empty())
-                            .collect::<Vec<_>>(),
+                        // older session file named no document here either,
+                        // and a path an older build stored twice is listed
+                        // once.
+                        "citedDocs": cited_once(&m.cited_docs),
                         "timestampMs": m.timestamp_ms,
                     })).collect::<Vec<_>>(),
                     "count": messages.len(),
@@ -3294,6 +3302,17 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         }
         Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
     }
+}
+
+/// A message's cited paths for `get_conversation_context`: blank ones left
+/// out, each path once, in the order stored.
+fn cited_once(docs: &[String]) -> Vec<&str> {
+    let mut seen = std::collections::HashSet::new();
+    docs.iter()
+        .map(String::as_str)
+        .filter(|d| !d.trim().is_empty())
+        .filter(|d| seen.insert(*d))
+        .collect()
 }
 
 // ── save_conversation_message tool ───────────────────────────────────────────
@@ -3417,7 +3436,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Rewrite",
             "icon": "✏️",
             "scope": "selection",
-            "systemPrompt": "You are an expert editor. Rewrite the provided text to be clearer and more concise while preserving the original meaning and voice. Output only the rewritten text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert editor. Rewrite the provided text to be clearer and more concise while preserving the original meaning and voice. Output only the rewritten text, with no commentary and no preamble.",
             "userPromptTemplate": "Rewrite the following text to be clearer and more concise:\n\n{text}"
         },
         {
@@ -3426,7 +3445,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Fix",
             "icon": "✓",
             "scope": "selection",
-            "systemPrompt": "You are a meticulous copy editor. Correct spelling, grammar, punctuation, and obvious typos in the provided text. Preserve the original meaning, tone, wording, and any Markdown formatting. Output only the corrected text — no commentary, no preamble.",
+            "systemPrompt": "You are a meticulous copy editor. Correct spelling, grammar, punctuation, and obvious typos in the provided text. Preserve the original meaning, tone, wording, and any Markdown formatting. Output only the corrected text, with no commentary and no preamble.",
             "userPromptTemplate": "Fix the grammar and spelling in the following text:\n\n{text}"
         },
         {
@@ -3435,7 +3454,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Concise",
             "icon": "✂️",
             "scope": "selection",
-            "systemPrompt": "You are an expert editor who tightens prose. Make the provided text more concise — remove redundancy and filler while preserving the meaning, key facts, voice, and any Markdown formatting. Output only the rewritten text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert editor who tightens prose. Make the provided text more concise: remove redundancy and filler while preserving the meaning, key facts, voice, and any Markdown formatting. Output only the rewritten text, with no commentary and no preamble.",
             "userPromptTemplate": "Make the following text more concise:\n\n{text}"
         },
         {
@@ -3444,7 +3463,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Expand",
             "icon": "➕",
             "scope": "selection",
-            "systemPrompt": "You are an expert writer. Expand the provided text with helpful detail, clarification, and supporting points while keeping the original meaning, voice, and any Markdown formatting. Do not invent facts. Output only the expanded text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert writer. Expand the provided text with helpful detail, clarification, and supporting points while keeping the original meaning, voice, and any Markdown formatting. Do not invent facts. Output only the expanded text, with no commentary and no preamble.",
             "userPromptTemplate": "Expand the following text with more detail:\n\n{text}"
         },
         {
@@ -3453,7 +3472,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Explain changes",
             "icon": "🔀",
             "scope": "selection",
-            "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version — focus on substantive content differences, not whitespace. Be concise and use Markdown.",
+            "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version, focusing on substantive content differences, not whitespace. Be concise and use Markdown.",
             "userPromptTemplate": "MY CURRENT VERSION (in the editor):\n\n```\n{text}\n```\n\nVERSION ON DISK (changed underneath me):\n\n```\n{arg}\n```\n\nExplain what changed on disk compared to my current version.",
             "argument": "{arg} is the version of the document on disk; {text} is the version in the editor. The app passes an empty string when there is none."
         },
@@ -3463,7 +3482,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Translate",
             "icon": "🌐",
             "scope": "selection",
-            "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation — no commentary, no preamble.",
+            "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation, with no commentary and no preamble.",
             "userPromptTemplate": "Translate the following into {arg}:\n\n{text}",
             "argument": "{arg} is the language to translate into, by name (e.g. French). The app uses Spanish when none is given."
         },
@@ -4122,7 +4141,7 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
             "Review the following Markdown document as an implementation plan. Identify risks, missing steps, and anything ambiguous:"
         }
         "improve_writing" => {
-            "Improve the writing of the following Markdown document — tighten prose and fix grammar without changing its meaning or structure:"
+            "Improve the writing of the following Markdown document. Tighten prose and fix grammar without changing its meaning or structure:"
         }
         other => return Response::err(id, -32602, unknown_prompt_msg(other)),
     };
@@ -4730,7 +4749,7 @@ pub fn read_ipc_port() -> Result<u16, String> {
         .ok_or("Cannot determine home directory")?;
 
     let content = std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-port not found — is Ashlr MD running?".to_string())?;
+        .map_err(|_| "~/.mdopener/ipc-port not found. Is Ashlr MD running?".to_string())?;
 
     content
         .trim()
@@ -4744,11 +4763,11 @@ pub fn read_ipc_token() -> Result<String, String> {
         .map(|h| h.join(".mdopener").join("ipc-token"))
         .ok_or("Cannot determine home directory")?;
     std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-token not found — is Ashlr MD running?".to_string())
+        .map_err(|_| "~/.mdopener/ipc-token not found. Is Ashlr MD running?".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();
             if t.is_empty() {
-                Err("~/.mdopener/ipc-token is empty — is Ashlr MD finished starting?".to_string())
+                Err("~/.mdopener/ipc-token is empty. Has Ashlr MD finished starting?".to_string())
             } else {
                 Ok(t)
             }
@@ -5451,6 +5470,18 @@ macro_rules! req_str {
 
 // ── edit_canvas tool ──────────────────────────────────────────────────────────
 
+/// A coordinate or size for a canvas node: a whole number is written as a
+/// JSON integer (JSON Canvas positions and sizes are integers; `json!(5.0)`
+/// wrote `5.0`), anything else as the number given.
+fn canvas_number(v: f64) -> Value {
+    const LIMIT: f64 = 9_007_199_254_740_992.0; // 2^53, exact in an f64
+    if v.fract() == 0.0 && v.abs() <= LIMIT {
+        json!(v as i64)
+    } else {
+        json!(v)
+    }
+}
+
 /// Apply a list of typed edit operations to a `.canvas` file and optionally
 /// write the mutated JSON back to disk.
 ///
@@ -5492,6 +5523,11 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // Checked before the file is read, as the empty list is.
     for (i, op) in ops.iter().enumerate() {
         if let Some(msg) = canvas_op_field_problem(op) {
+            return Response::err(id, -32602, format!("op[{i}] {msg}"));
+        }
+        // An empty id names no node or edge: it used to be looked up in the
+        // file and come back as "node `` not found".
+        if let Some(msg) = canvas_op_empty_id(op) {
             return Response::err(id, -32602, format!("op[{i}] {msg}"));
         }
     }
@@ -5566,8 +5602,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
-                node.insert("x".into(), json!(x));
-                node.insert("y".into(), json!(y));
+                node.insert("x".into(), canvas_number(x));
+                node.insert("y".into(), canvas_number(y));
             }
             "resize_node" => {
                 let node_id = match op["id"].as_str() {
@@ -5617,8 +5653,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         )
                     }
                 };
-                node.insert("width".into(), json!(w));
-                node.insert("height".into(), json!(h));
+                node.insert("width".into(), canvas_number(w));
+                node.insert("height".into(), canvas_number(h));
             }
             "edit_text" => {
                 let node_id = match op["id"].as_str() {
@@ -6338,6 +6374,34 @@ fn canvas_op_field_problem(op: &Value) -> Option<String> {
     ))
 }
 
+/// The first id-like field of `op` that is an empty string, as
+/// "move_node: `id` must not be empty": the op's `id`, an element of
+/// `reorder_edges`' `ids`, `add_node`'s `node.id`, and `add_edge`'s
+/// `edge.id`, `edge.fromNode` and `edge.toNode`. A field of another type is
+/// refused by the type checks.
+fn canvas_op_empty_id(op: &Value) -> Option<String> {
+    let kind = op["type"].as_str().unwrap_or("op");
+    let empty = |v: &Value| v.as_str() == Some("");
+    if empty(&op["id"]) {
+        return Some(format!("{kind}: `id` must not be empty"));
+    }
+    if let Some(j) = op["ids"]
+        .as_array()
+        .and_then(|ids| ids.iter().position(empty))
+    {
+        return Some(format!("{kind}: `ids[{j}]` must not be empty"));
+    }
+    if empty(&op["node"]["id"]) {
+        return Some(format!("{kind}: node.id must not be empty"));
+    }
+    for field in ["id", "fromNode", "toNode"] {
+        if empty(&op["edge"][field]) {
+            return Some(format!("{kind}: edge.{field} must not be empty"));
+        }
+    }
+    None
+}
+
 /// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /
 /// `#rrggbb`. Anything else (`"red"`, `"7"`, `"#abcd"`) was written as given
 /// and the app then showed the node with no colour or a broken one.
@@ -6497,8 +6561,12 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// `match_index` selects which candidate to apply when there are multiple matches.
 pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     // Only correlates with a preview: the app re-finds `find` in the live
-    // document, so the apply does not depend on it.
-    let edit_id = args["edit_id"].as_str().unwrap_or("").to_string();
+    // document, so the apply does not depend on it. An empty one named no
+    // preview and used to be accepted; it is refused as an empty `path` is.
+    let edit_id = match non_empty_str(args, "edit_id") {
+        Ok(e) => e.unwrap_or("").to_string(),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
         Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
