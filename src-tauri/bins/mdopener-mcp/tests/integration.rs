@@ -2863,6 +2863,63 @@ fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
     assert!(msg.contains("not a directory"), "{msg}");
 }
 
+/// The on-disk `vault` walk does not enter folders more than 16 levels down.
+/// It used to skip them silently, so a search presented the rest as the whole
+/// vault; it now says so with `depthCut` (and `truncated`) and a note.
+#[test]
+fn search_vault_on_disk_says_when_folders_were_too_deep() {
+    use mdopener_mcp::DISK_VAULT_MAX_DEPTH;
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deepest = dir.path().to_path_buf();
+    for level in 1..=DISK_VAULT_MAX_DEPTH {
+        deepest = deepest.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deepest).unwrap();
+    std::fs::write(deepest.join("read.md"), "the target topic\n").unwrap();
+    let vault = dir.path().to_str().unwrap();
+    let args = json!({ "query": "target", "semantic": false, "vault": vault });
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = || {
+        MockIpc::new()
+            .on_get("/vault", Err(down.into()))
+            .on_get("/search", Err(down.into()))
+    };
+
+    // Level 16 is still read, and nothing was cut.
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc()));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    assert!(v.get("depthCut").is_none(), "{v}");
+    assert!(v.get("truncated").is_none(), "{v}");
+
+    // A folder below it is not entered, and the result says so.
+    let below = deepest.join("too-deep");
+    std::fs::create_dir(&below).unwrap();
+    std::fs::write(below.join("missed.md"), "the target topic\n").unwrap();
+    let scan = mdopener_mcp::disk_vault_scan(dir.path());
+    assert!(scan.depth_cut && !scan.file_cap, "{scan:?}");
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc()));
+    assert_eq!(
+        v["results"].as_array().unwrap().len(),
+        1,
+        "unchanged limit: {v}"
+    );
+    assert_eq!(v["depthCut"], true, "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.contains("Folders more than 16 levels below it were not searched"),
+        "{note}"
+    );
+    assert!(!note.contains("Only the first"), "not the file cap: {note}");
+    // Semantic search over the same files says so too.
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v =
+        mdopener_mcp::search_vault_in("target", 5, true, Some(dir.path()), &ipc(), &embed).unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["depthCut"], true, "{v}");
+}
+
 /// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
 /// though the walk skips hidden folders below a vault: its own notes were
 /// read and grepped. It is now refused, as the hidden subfolders are skipped.

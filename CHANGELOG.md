@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`search_vault` says when an on-disk `vault` is too deep.** With the
+  app unreachable, the walk of `vault` enters folders at most 16 levels down
+  and skipped deeper ones without a word. The limit is unchanged, but the
+  result now has `truncated: true`, `depthCut: true` and a `note` saying
+  folders below it were not searched.
 - **A vault scan says which limit cut it.** The depth limit (folders more
   than 8 levels down) shared `scanCut` with the 50,000-entry budget, so the
   Activity drawer, `/search` and `search_vault` could not say whether the
