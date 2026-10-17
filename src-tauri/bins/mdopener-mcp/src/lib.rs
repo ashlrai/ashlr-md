@@ -278,16 +278,45 @@ pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
+/// The file name earlier builds used: every character other than an
+/// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
+/// Only read, as a fallback, so that history saved before the injective
+/// mapping stays reachable.
+fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
 /// Load `session_id`'s log from disk, keeping only its own messages. On a
 /// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
 /// still share a file; their messages are told apart by `session_id`.
 /// Returns the log and whether the file also held another session's messages.
+///
+/// When the session has no file of its own yet, its messages are read from
+/// the legacy file name (filtered the same way, since that file may be shared
+/// with other ids). The next append writes them to the session's own file
+/// and leaves the legacy file untouched.
 fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
-    let mut log = load_session_from_disk(session_id)?;
-    let before = log.messages.len();
-    log.messages.retain(|m| m.session_id == session_id);
-    let foreign = log.messages.len() != before;
-    Some((log, foreign))
+    let own = |mut log: SessionLog| {
+        let before = log.messages.len();
+        log.messages.retain(|m| m.session_id == session_id);
+        let foreign = log.messages.len() != before;
+        (log, foreign)
+    };
+    let path = session_file_path(session_id)?;
+    if path.exists() {
+        return load_session_from_disk(session_id).map(own);
+    }
+    let legacy = legacy_session_file_path(session_id)?;
+    if legacy == path {
+        return None;
+    }
+    let text = read_regular_file(&legacy).ok()?;
+    let (log, _) = own(serde_json::from_str(&text).ok()?);
+    Some((log, false))
 }
 
 /// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the

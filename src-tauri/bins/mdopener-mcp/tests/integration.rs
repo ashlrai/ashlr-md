@@ -4049,3 +4049,53 @@ fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
         assert!(msg.contains("not in vault"), "{uri}: {msg}");
     }
 }
+
+/// History saved by earlier builds under the old sanitized name stays
+/// readable: `proj.1` used to live in `proj_1.json` (shared with `proj_1`).
+/// Reads fall back to that file, keeping only `proj.1`'s own messages, and
+/// the next append writes them, plus the new message, to the new file.
+#[test]
+fn legacy_sanitized_session_file_is_still_read() {
+    use mdopener_mcp::{ConversationMessage, SessionLog};
+    let base = unique_session();
+    let dotted = format!("{base}.1");
+    let underscored = format!("{base}_1");
+    let msg = |sid: &str, content: &str| ConversationMessage {
+        id: format!("msg-{content}"),
+        session_id: sid.to_string(),
+        role: "agent".into(),
+        content: content.into(),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    let legacy = session_file_path(&underscored).unwrap();
+    let messages = vec![
+        msg(&dotted, "old dotted"),
+        msg(&underscored, "old underscored"),
+    ];
+    let legacy_json = serde_json::to_string(&SessionLog { messages }).unwrap();
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, &legacy_json).unwrap();
+
+    let contents = |sid: &str| -> Vec<String> {
+        let ctx = store_get_context(sid, 20).unwrap();
+        ctx.into_iter().map(|m| m.content).collect()
+    };
+    assert_eq!(contents(&dotted), ["old dotted"]);
+    assert_eq!(contents(&underscored), ["old underscored"]);
+
+    store_append_message(&dotted, "agent", "new dotted", vec![]).unwrap();
+    let new_file = session_file_path(&dotted).unwrap();
+    assert_ne!(new_file, legacy);
+    let on_disk: Vec<String> = load_session_from_disk(&dotted)
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    assert_eq!(on_disk, ["old dotted", "new dotted"]);
+    assert_eq!(contents(&dotted), ["old dotted", "new dotted"]);
+    // The legacy file is left as it was for the id that still owns it.
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_json);
+    assert_eq!(contents(&underscored), ["old underscored"]);
+}
