@@ -3624,6 +3624,26 @@ fn edit_tools_assert_the_canonical_path() {
     }
 }
 
+/// `preview: false` applies the edit at once; the result must say so, or an
+/// agent that then calls stream_edit_apply edits the document twice.
+#[test]
+fn stream_edit_reports_whether_it_applied_the_edit() {
+    let reply = json!({ "ok": true, "editId": "sedit_1", "diff": "", "matchCount": 1 });
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply));
+    let previewed = content_text(&tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b" }),
+        &ipc,
+    ));
+    assert_eq!(previewed["applied"], false, "{previewed}");
+    let applied = content_text(&tool_stream_edit(
+        id(2),
+        &json!({ "find": "a", "replace": "b", "preview": false }),
+        &ipc,
+    ));
+    assert_eq!(applied["applied"], true, "{applied}");
+}
+
 // ── Agent-workflow regressions ────────────────────────────────────────────────
 
 /// `text://vault-search?q=my+topic` (the form resources/list documents) must

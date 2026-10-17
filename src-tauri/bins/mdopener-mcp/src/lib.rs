@@ -919,8 +919,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 via mcp_stream_edit_preview so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match) — the agent selects a matchIndex and confirms \
-                via stream_edit_apply. For single-match or preview=false cases the edit can be applied \
-                immediately. Prefer this over edit_document for large files or when the agent needs to \
+                via stream_edit_apply. With preview=false the app applies the edit at once (unsaved; \
+                the find string must match exactly once) and the result has applied: true, so do not \
+                call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing.",
             input_schema: json!({
                 "type": "object",
@@ -3479,11 +3480,14 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     });
 
     match ipc.post("/stream-edit", body) {
-        Ok(v) => {
+        Ok(mut v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit preview failed.");
                 return tool_error(id, msg.to_string());
             }
+            // Without a preview the app has already applied the edit (unsaved);
+            // calling stream_edit_apply on top would apply it a second time.
+            v["applied"] = json!(!preview);
             tool_result(id, v)
         }
         Err(e) => tool_error(id, app_not_running_msg(&e)),
