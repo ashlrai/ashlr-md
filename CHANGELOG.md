@@ -54,6 +54,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   root-owned `/usr/local/bin` was picked, the link failed, and the script
   still printed `mdopen → /usr/local/bin/mdopen` without trying the
   fallback. Writability and the link itself are now checked.
+- **`scripts/install.sh` on Linux installs the CLI and MCP server.** Without
+  `SKIP_APP_BUILD=1` it ran the full `tauri build` and then failed looking
+  for a macOS `.app` bundle, before linking `mdopen` or registering the MCP
+  server. Off macOS it now skips the app build, says so, and points to the
+  release packages.
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

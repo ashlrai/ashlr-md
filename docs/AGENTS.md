@@ -723,7 +723,8 @@ The integration is **local-only and token-authenticated**:
 ## Dev / build-from-source
 
 ```bash
-# Full install (builds the app, sidecars, and CLI):
+# Full install (macOS: builds and installs the app, sidecars, and CLI;
+# elsewhere: CLI + MCP only, get the app from Releases):
 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 
 # Or from a checkout:
@@ -733,10 +734,11 @@ bash scripts/install.sh
 SKIP_APP_BUILD=1 bash scripts/install.sh
 ```
 
-The install script requires **Rust** (rustup) and **Bun**.
-On macOS, also Xcode Command Line Tools; on Windows, MSVC build tools; on Linux,
-`build-essential` and the [Tauri Linux dependencies](https://tauri.app/start/prerequisites/#linux).
-See the script header for full prerequisites.
+The install script requires **Rust** (rustup), **Bun** and **git**. It is a
+bash script for macOS and Linux. On macOS the full install also needs Xcode
+(see the script header). On Linux it builds and installs only `mdopen` and
+`mdopener-mcp` (a C toolchain such as `build-essential` is enough) and says so;
+install the app itself from a `.deb`, `.rpm` or `.AppImage` release.
 
 In a dev build the MCP binary lives at:
 

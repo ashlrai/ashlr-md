@@ -2,7 +2,8 @@
 # =============================================================================
 # Ashlr MD — build-from-source installer
 #
-# Clones (or uses an existing checkout), builds the app and its CLI tools,
+# Clones (or uses an existing checkout), builds the app (macOS only; other
+# systems get the CLI and MCP server) and its CLI tools,
 # installs them to standard locations, and registers the MCP server with
 # Claude Code if the CLI is present.
 #
@@ -124,6 +125,11 @@ APP_BINARY="$MCP_BIN"   # default: use the target/release binary for MCP reg
 
 if [[ "$SKIP_APP_BUILD" == "1" ]]; then
   warn "SKIP_APP_BUILD=1 — skipping Tauri build and .app installation."
+elif [[ "$(uname -s)" != "Darwin" ]]; then
+  # Only the macOS .app is built and installed here; elsewhere the build ran
+  # for minutes and then failed looking for bundle/macos.
+  warn "Building and installing the app is macOS-only; installing the CLI and MCP server only."
+  warn "Get the app for this OS from https://github.com/ashlrai/ashlr-md/releases/latest"
 else
   info "Building Ashlr MD.app (bun run tauri build)…"
   info "This takes 2–5 minutes on first run."

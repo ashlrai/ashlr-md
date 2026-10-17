@@ -188,6 +188,53 @@ die() { printf '%s\\n' "$*" >&2; exit 77; }
         self.assertLess(source.index('[[ -f "src-tauri/target/release/mdopener-setdefault" ]]'), source.index("bun run tauri build\n"))
 
 
+class AppInstallTests(unittest.TestCase):
+    """Evaluates only the installer's app build/install section, with `bun`,
+    `find`, `head`, `rm`, `cp` and `uname` mocked; nothing is built or copied."""
+
+    def run_section(self, os_name, skip):
+        source = (ROOT / "scripts/install.sh").read_text()
+        start = source.index('APP_BINARY="$MCP_BIN"')
+        section = source[start:source.index("# ── 6.", start)]
+        with tempfile.TemporaryDirectory(prefix="md-app-install-") as directory:
+            mocks = """
+uname() { printf '%s\\n' "$MOCK_OS"; }
+bun() { printf 'MOCK bun: %s\\n' "$*"; }
+find() { printf '%s\\n' "$REPO_ROOT/src-tauri/target/release/bundle/macos/Ashlr MD.app"; }
+head() { local line; IFS= read -r line && printf '%s\\n' "$line"; }
+rm() { :; }
+cp() { printf 'MOCK cp: %s\\n' "$*"; }
+info() { :; }
+success() { :; }
+warn() { printf 'WARN %s\\n' "$*"; }
+die() { printf '%s\\n' "$*" >&2; exit 77; }
+"""
+            tail = '\nprintf "APP_BINARY=%s\\n" "$APP_BINARY"\n'
+            return subprocess.run(
+                ["/bin/bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + mocks + section + tail],
+                cwd=directory,
+                env={"PATH": "/nonexistent", "HOME": directory, "MOCK_OS": os_name,
+                     "SKIP_APP_BUILD": skip, "MCP_BIN": "/repo/mdopener-mcp",
+                     "REPO_ROOT": "/repo", "INSTALL_DIR": directory},
+                capture_output=True,
+                text=True,
+            )
+
+    def test_non_macos_installs_cli_and_mcp_only_without_building_the_app(self):
+        result = self.run_section("Linux", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("MOCK bun:", result.stdout)
+        self.assertIn("macOS-only", result.stdout)
+        self.assertIn("releases/latest", result.stdout)
+        self.assertIn("APP_BINARY=/repo/mdopener-mcp", result.stdout)
+
+    def test_macos_builds_and_registers_the_installed_app(self):
+        result = self.run_section("Darwin", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MOCK bun: run tauri build", result.stdout)
+        self.assertIn("Ashlr MD.app/Contents/Resources/mdopener-mcp", result.stdout)
+
+
 class CliLinkTests(unittest.TestCase):
     """Evaluates only the installer's mdopen-link section; `ln` is mocked to
     refuse the first directory, as a root-owned /usr/local/bin does."""
