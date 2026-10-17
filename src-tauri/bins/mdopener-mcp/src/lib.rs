@@ -874,7 +874,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
-                    "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
+                    "review_id": { "type": "string", "minLength": 1, "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one; an empty or blank id is refused. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
             }),
@@ -2308,10 +2308,21 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
-    let resume = args["review_id"]
-        .as_str()
-        .filter(|r| !r.is_empty())
-        .map(str::to_string);
+    // An empty or blank `review_id` used to be read as absent, so a call
+    // that meant to resume (`{ "review_id": "", "content": ... }`) registered
+    // a new review, which replaced and so ended the pending one the agent
+    // meant to wait on.
+    let resume = match args["review_id"].as_str() {
+        Some(r) if r.trim().is_empty() => {
+            return Response::err(
+                id,
+                -32602,
+                "`review_id` must not be empty or blank: pass the `reviewId` a pending call \
+                 returned, or leave `review_id` out to request a new review",
+            )
+        }
+        r => r.map(str::to_string),
+    };
     let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
         Ok(t) => t,
         Err(e) => return Response::err(id, -32602, e),

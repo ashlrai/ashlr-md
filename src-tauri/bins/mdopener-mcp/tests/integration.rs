@@ -6208,6 +6208,44 @@ fn get_user_annotations_sends_an_absolute_path() {
     assert_eq!(calls[0].1, format!("/annotations?path={want}"));
 }
 
+/// An empty `review_id` used to be read as absent: with `content` the call
+/// registered a new review, which superseded the pending one the agent meant
+/// to resume. It is refused before the app is asked, by the tool and by the
+/// schema check.
+#[test]
+fn request_review_refuses_an_empty_or_blank_review_id() {
+    use mdopener_mcp::tool_request_review_with;
+    for bad in ["", "   "] {
+        let ipc = MockIpc::new()
+            .on_post("/review", Ok(json!({ "ok": true })))
+            .on_get("/review/result", Ok(json!({ "status": "pending" })));
+        let resp = tool_request_review_with(
+            id(1),
+            &json!({ "review_id": bad, "content": "plan", "blocking": false }),
+            &ipc,
+            std::time::Duration::from_millis(10),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.contains("`review_id` must not be empty or blank"),
+            "{msg}"
+        );
+        assert!(
+            ipc.calls().is_empty(),
+            "{bad:?} reached the app: {:?}",
+            ipc.calls()
+        );
+    }
+    let msg = param_error(&call_tool(
+        "request_review",
+        json!({ "review_id": "", "content": "plan" }),
+    ));
+    assert_eq!(
+        msg,
+        "`review_id` must be at least 1 character long, got \"\""
+    );
+}
+
 /// A blocking review returns `pending` with its id once `wait_ms` passes,
 /// instead of blocking past the MCP client's request timeout, and the agent
 /// resumes it with `review_id` (no second registration).

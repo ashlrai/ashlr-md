@@ -490,7 +490,9 @@ before proceeding.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
-  (no new review is registered). A resumed call cannot change the review, so
+  (no new review is registered). An empty or blank `review_id` is refused with
+  `-32602`; it used to be read as absent, so the call registered a new review
+  that replaced the pending one. A resumed call cannot change the review, so
   `path`, `content` and `timeout_ms` may be resent unchanged (or left out), and
   one that differs from what the review was requested with is refused with an
   invalid-params error naming it, and nothing is waited on. Refusing, rather
