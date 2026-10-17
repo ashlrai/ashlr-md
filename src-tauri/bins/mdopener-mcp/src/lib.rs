@@ -800,7 +800,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -849,7 +849,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme. Returns { ok, format, path, bytes } once the file is written (`path` absolute, `bytes` its size), or { ok, format, dialog: true } when the dialog was opened. A file not written within 30 s is an error, and so is a second headless export sent while one is being written (retry once it finishes).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -920,7 +920,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -942,7 +942,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document. Use edit_document for targeted changes; use this only when rewriting the whole document.",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1023,7 +1023,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns { sessionId, messages: [{ id, sessionId, role, content, citedDocs, timestampMs }], count, recentDocs } (timestampMs in milliseconds since the Unix epoch); `messages` is empty when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1052,7 +1052,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`).",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`). Returns { ok, messageId, sessionId, role, timestampMs, dropped?, note? }; a message that cannot be written to disk is not saved and is an error.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1196,7 +1196,12 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
-                confirm correctness before committing.",
+                confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
+                otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
+                Refused (isError, document unchanged) when `find` is not found, when `path` is not the open \
+                document, with preview=false when `find` is not unique, when the window does not answer \
+                within 4 s, or when two edits are already waiting on the app (retry in a moment).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1240,7 +1245,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "stream_edit_apply",
             description: "Apply a previously previewed stream_edit. Send the same find/replace plus \
                 a `match_index` (0-based, default 0) to select which occurrence to edit when the preview \
-                returned multiple candidates. The edit is applied atomically against the live document.",
+                returned multiple candidates. The edit is applied atomically against the live document. \
+                Returns { ok: true, replaced: 1, matchIndex } once the window has applied it (and written \
+                it to disk, with `save: true`). Refused (isError, document unchanged) when `find` is no \
+                longer in the live document, when `match_index` is past its last occurrence (the error \
+                says how many there are), when `path` is not the open document, when the window does not \
+                answer within 4 s, or when two edits are already waiting on the app (retry in a moment); \
+                with `save: true`, a failed save, or a document with no file yet, is an error saying the \
+                edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1261,7 +1273,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "match_index": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "0-based index of the candidate to apply. Defaults to 0 (first occurrence)."
+                        "maximum": STREAM_EDIT_MAX_MATCH_INDEX,
+                        "description": "0-based index of the candidate to apply, a whole number from 0 to 4294967295 (the app's 32-bit limit; a larger value is refused, not clamped). Defaults to 0 (first occurrence). An index past the document's last occurrence is refused by the app, saying how many there are."
                     },
                     "save": {
                         "type": "boolean",
@@ -1289,8 +1302,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
             description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
-                text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
-                together with word and character counts. Operates directly on disk; no running app \
+                text, table rows become tab-separated cells, and footnotes read [1]. Returns \
+                { text, word_count, char_count, path? }: the extracted text with its word and character \
+                counts, and the absolute path of the file read (absent for an unsaved open document). \
+                Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (an error when nothing is open).",
             input_schema: json!({
@@ -1319,7 +1334,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
                 headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
+                images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
+                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
+                (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
+                `path` absent for an unsaved open document). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
                 reads the currently open document via IPC (an error when nothing is open).",
             input_schema: json!({
@@ -6570,6 +6588,10 @@ pub struct StreamEditPayload {
 /// Most context lines `stream_edit` shows on each side of a diff hunk.
 pub const STREAM_EDIT_MAX_PREVIEW_LINES: u64 = 20;
 
+/// Largest `match_index` `stream_edit_apply` takes: the app reads it as a
+/// 32-bit unsigned integer, so a larger one cannot name an occurrence.
+pub const STREAM_EDIT_MAX_MATCH_INDEX: u64 = u32::MAX as u64;
+
 fn default_preview() -> bool {
     true
 }
@@ -6604,8 +6626,10 @@ pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
 /// Returns the preview result including:
 ///  - `diff`       — unified diff string for the first/only match
 ///  - `candidates` — ranked list of diffs when find matches multiple times
-///  - `match_count`— total occurrences of find in the document
-///  - `ok`         — false when find is empty or not found
+///  - `matchCount` — total occurrences of find in the document
+///  - `editId`     — the app's id for this preview
+///  - `applied`    — true only when `preview` was false (the edit is applied)
+///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error
 pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
@@ -6687,9 +6711,17 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let match_index = match u32::try_from(whole_number(args, "match_index").unwrap_or(0)) {
-        Ok(m) => m,
-        Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
+    // The app reads `matchIndex` as a u32, so the schema's maximum is that
+    // limit; a direct call past it is refused with the schema's message.
+    let match_index = match whole_number(args, "match_index").unwrap_or(0) {
+        m if m <= STREAM_EDIT_MAX_MATCH_INDEX => m as u32,
+        m => {
+            return Response::err(
+                id,
+                -32602,
+                format!("`match_index` must be at most {STREAM_EDIT_MAX_MATCH_INDEX}, got {m}"),
+            )
+        }
     };
     let save = args["save"].as_bool().unwrap_or(false);
     let path = match non_blank_str(args, "path") {

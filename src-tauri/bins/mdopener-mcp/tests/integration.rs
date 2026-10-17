@@ -8674,13 +8674,41 @@ fn relative_to_cwd(abs: &std::path::Path) -> std::path::PathBuf {
     rel.join(abs.strip_prefix("/").unwrap())
 }
 
+/// `text` without its `{ ... }` spans: the result shapes a description
+/// names (`{ ok: true, replaced: 1, matchIndex }`), whose camelCase fields
+/// are what the app returns, not options an agent passes.
+fn outside_result_shapes(text: &str) -> String {
+    let mut depth = 0usize;
+    text.chars()
+        .filter(|&c| match c {
+            '{' => {
+                depth += 1;
+                false
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                false
+            }
+            _ => depth == 0,
+        })
+        .collect()
+}
+
 /// The schemas said "Absolute path" for arguments that take relative paths
 /// too, and `stream_edit` named the app-internal `mcp_stream_edit_preview`
 /// and camelCase options (`previewLines`, `matchIndex`) agents cannot pass.
+/// A result field of that name inside a named result shape is allowed.
 #[test]
 fn tool_descriptions_match_the_arguments_and_path_rules() {
+    assert_eq!(
+        outside_result_shapes("Returns { ok, matchIndex } or [{ a }], a matchIndex"),
+        "Returns  or [], a matchIndex"
+    );
     for def in tool_registry() {
-        let mut texts = vec![("description".to_string(), def.description.to_string())];
+        let mut texts = vec![(
+            "description".to_string(),
+            outside_result_shapes(def.description),
+        )];
         for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
             texts.push((k.clone(), prop["description"].as_str().unwrap_or("").into()));
         }
@@ -8803,6 +8831,277 @@ fn tool_descriptions_name_their_result_shapes() {
             assert!(d.contains(want), "{tool} missing {want:?}: {d}");
         }
     }
+}
+
+/// set_content, replace_document, edit_document and stream_edit_apply said
+/// what they change but not what comes back or when they are refused, so an
+/// agent learned `{ ok: true }`, `replaced` and `matchIndex`, and that a
+/// failed save leaves the change applied, by calling them. Each named shape
+/// is the reply the app's IPC sends (`set_content_reply`, `handle_edit`,
+/// `handle_stream_edit_apply`), passed through unchanged, and a refusal is a
+/// tool error carrying the app's reason.
+#[test]
+fn edit_tool_descriptions_name_their_results_and_refusals() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let busy = "two edits are already waiting on the app";
+    let cases = [
+        (
+            "set_content",
+            &["{ ok: true }", "no document is open", "4 s", busy, "replaced but not saved"][..],
+            "/content",
+            json!({ "content": "# New\n" }),
+            json!({ "ok": true }),
+            "No document is open in Ashlr MD; open one first (open_file).",
+        ),
+        (
+            "replace_document",
+            &["{ ok: true }", "no document is open", "4 s", busy, "replaced but not saved"][..],
+            "/content",
+            json!({ "content": "# New\n", "save": true }),
+            json!({ "ok": true }),
+            "Content replaced in the open document but not saved: the write failed",
+        ),
+        (
+            "edit_document",
+            &[
+                "{ ok: true, replaced: 1 }",
+                "not found",
+                "not unique (the error gives the match count)",
+                "not the open document",
+                busy,
+                "applied but not saved",
+            ][..],
+            "/edit",
+            json!({ "find": "a", "replace": "b" }),
+            json!({ "ok": true, "replaced": 1 }),
+            "`find` string is not unique (2 matches): include more surrounding context to disambiguate.",
+        ),
+        (
+            "stream_edit_apply",
+            &[
+                "{ ok: true, replaced: 1, matchIndex }",
+                "no longer in the live document",
+                "past its last occurrence",
+                "not the open document",
+                busy,
+                "applied but not saved",
+            ][..],
+            "/stream-edit-apply",
+            json!({ "find": "a", "replace": "b", "match_index": 1 }),
+            json!({ "ok": true, "replaced": 1, "matchIndex": 1 }),
+            "matchIndex 3 out of bounds: document has 2 occurrence(s).",
+        ),
+    ];
+    for (tool, wants, route, args, reply, refusal) in cases {
+        let d = desc(tool);
+        for want in wants {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+        let ipc = MockIpc::new().on_post(route, Ok(reply.clone()));
+        let resp = call(tool, args.clone(), &ipc);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        assert_eq!(content_text(&resp), reply, "{tool}");
+        let ipc = MockIpc::new().on_post(route, Ok(json!({ "ok": false, "error": refusal })));
+        let resp = call(tool, args, &ipc);
+        assert_eq!(tool_error_text(&resp), refusal, "{tool}");
+    }
+}
+
+/// stream_edit's description said it returns diffs but not the fields, and
+/// docs/AGENTS.md said "the app's diff preview". The named shape is the
+/// reply the app's `/stream-edit` sends, with the tool's own `applied`.
+#[test]
+fn stream_edit_description_names_its_result_and_refusals() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    for want in [
+        "{ ok, editId, diff, candidates, matchCount, applied }",
+        "[{ matchIndex, startLine, diff, rank }]",
+        "null for a single match",
+        "`find` is not found",
+        "not the open",
+        "not unique",
+        "two edits are already waiting on the app",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let candidate =
+        |i: u32| json!({ "matchIndex": i, "startLine": i + 1, "diff": "@@", "rank": i + 1 });
+    let reply = json!({
+        "ok": true,
+        "editId": "stream_1",
+        "diff": "@@",
+        "candidates": [candidate(0), candidate(1)],
+        "matchCount": 2,
+    });
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply.clone()));
+    let v = content_text(&call(
+        "stream_edit",
+        json!({ "find": "a", "replace": "b" }),
+        &ipc,
+    ));
+    let mut want = reply;
+    want["applied"] = json!(false);
+    assert_eq!(v, want);
+    let refusal = "`find` string not found in the document.";
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": false, "error": refusal })));
+    let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+    assert_eq!(tool_error_text(&resp), refusal);
+}
+
+/// export's description said when the call returns but not what it
+/// returns, though docs/AGENTS.md gave both shapes. The named shapes are the
+/// tool's own results, for a written file and for the dialog.
+#[test]
+fn export_description_names_its_results() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "export")
+        .unwrap()
+        .description;
+    for want in [
+        "{ ok, format, path, bytes }",
+        "{ ok, format, dialog: true }",
+        "30 s",
+        "second headless export",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
+    let v = content_text(&tool_export(id(1), &json!({ "format": "docx" }), &ipc));
+    assert_eq!(v, json!({ "ok": true, "format": "docx", "dialog": true }));
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("plan.html");
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &exporting_app(true),
+        SHORT,
+    );
+    let v = content_text(&resp);
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["bytes", "format", "ok", "path"], "{v}");
+}
+
+/// export_text and export_metadata listed what they extract but not the
+/// field names, so an agent learned `word_count` and `embedded_image_count`
+/// by calling them. Each named field is one the tool returns, and no other.
+#[test]
+fn export_text_and_metadata_descriptions_name_their_fields() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "---\ntitle: T\n---\n# Plan\n\nSee [[B]] and [[A]].\n").unwrap();
+    let args = json!({ "path": doc.to_string_lossy() });
+    for (tool, shape, keys) in [
+        (
+            "export_text",
+            "{ text, word_count, char_count, path? }",
+            &["char_count", "path", "text", "word_count"][..],
+        ),
+        (
+            "export_metadata",
+            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? }",
+            &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
+        ),
+    ] {
+        let d = desc(tool);
+        assert!(d.contains(shape), "{tool} missing {shape:?}: {d}");
+        assert!(d.contains("absent for an unsaved open document"), "{tool}: {d}");
+        let v = content_text(&call(tool, args.clone(), &MockIpc::new()));
+        let mut got: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, keys, "{tool}: {v}");
+        if tool == "export_metadata" {
+            assert_eq!(v["headings"], json!([{ "level": 1, "text": "Plan" }]));
+            assert_eq!(v["wikilinks"], json!(["A", "B"]));
+        }
+    }
+    // Without `path`, an unsaved open document gives no `path`.
+    for tool in ["export_text", "export_metadata"] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": null, "content": "# Draft\n" })),
+        );
+        let v = content_text(&call(tool, json!({}), &ipc));
+        assert!(v.get("path").is_none(), "{tool}: {v}");
+    }
+}
+
+/// get_conversation_context and save_conversation_message said what they
+/// recover or store but not what they return, so an agent learned
+/// `messageId`, `timestampMs` and each message's fields by calling them.
+/// The named fields are exactly the ones the tools return.
+#[test]
+fn conversation_tool_descriptions_name_their_results() {
+    let session = unique_session();
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let keys = |v: &Value| {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort_unstable();
+        k
+    };
+    let d = desc("save_conversation_message");
+    assert!(
+        d.contains("{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }"),
+        "{d}"
+    );
+    let ipc = MockIpc::new();
+    let saved = content_text(&call(
+        "save_conversation_message",
+        json!({ "session_id": session, "role": "agent", "content": "did it" }),
+        &ipc,
+    ));
+    assert_eq!(
+        keys(&saved),
+        ["messageId", "ok", "role", "sessionId", "timestampMs"]
+    );
+    let d = desc("get_conversation_context");
+    assert!(
+        d.contains(
+            "{ sessionId, messages: [{ id, sessionId, role, content, citedDocs, timestampMs }], count, recentDocs }"
+        ),
+        "{d}"
+    );
+    let got = content_text(&call(
+        "get_conversation_context",
+        json!({ "session_id": session }),
+        &ipc,
+    ));
+    assert_eq!(keys(&got), ["count", "messages", "recentDocs", "sessionId"]);
+    assert_eq!(
+        keys(&got["messages"][0]),
+        [
+            "citedDocs",
+            "content",
+            "id",
+            "role",
+            "sessionId",
+            "timestampMs"
+        ]
+    );
 }
 
 #[test]
@@ -9239,15 +9538,73 @@ fn integer_below_its_minimum_is_refused() {
             }
         }
     }
-    // The minimum itself and values past i64 still pass.
+    // The minimum itself and the 32-bit maximum still pass.
     let def = tool_registry()
         .into_iter()
         .find(|t| t.name == "stream_edit_apply")
         .unwrap();
-    for n in [json!(0), json!(u64::MAX)] {
+    for n in [json!(0), json!(u32::MAX)] {
         let args = json!({ "find": "a", "replace": "b", "match_index": n });
         assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
     }
+}
+
+/// `stream_edit_apply`'s schema declared no `maximum` for `match_index`, so
+/// a client checking it let 2^32 through and the tool answered only
+/// "`match_index` is too large". The schema now declares the app's 32-bit
+/// limit, the description says it, and both refusals give the bound.
+#[test]
+fn stream_edit_apply_match_index_declares_its_32_bit_maximum() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap();
+    let prop = &def.input_schema["properties"]["match_index"];
+    assert_eq!(prop["maximum"], json!(u32::MAX));
+    assert_eq!(
+        mdopener_mcp::STREAM_EDIT_MAX_MATCH_INDEX,
+        u64::from(u32::MAX)
+    );
+    let d = prop["description"].as_str().unwrap();
+    assert!(d.contains("0 to 4294967295"), "{d}");
+    let over = u64::from(u32::MAX) + 1;
+    let want = format!("`match_index` must be at most 4294967295, got {over}");
+    for n in [json!(over), json!(u64::MAX)] {
+        let args = json!({ "find": "a", "replace": "b", "match_index": n });
+        let ipc = MockIpc::new();
+        let msg = param_error(&call("stream_edit_apply", args.clone(), &ipc));
+        assert!(
+            msg.starts_with("`match_index` must be at most 4294967295"),
+            "{msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+        // Called directly (past the schema check), the tool says the same.
+        let ipc = MockIpc::new();
+        let direct = mdopener_mcp::tool_stream_edit_apply(id(1), &args, &ipc);
+        let msg = param_error(&direct);
+        if n == json!(over) {
+            assert_eq!(msg, want);
+        }
+        assert!(
+            msg.starts_with("`match_index` must be at most 4294967295"),
+            "{msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
+    // The maximum itself reaches the app as that index.
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let resp = call(
+        "stream_edit_apply",
+        json!({ "find": "a", "replace": "b", "match_index": u32::MAX }),
+        &ipc,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(_, p, _)| p == "/stream-edit-apply")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["matchIndex"], json!(u32::MAX));
 }
 
 /// `request_review` refused an empty inline `content` but registered a

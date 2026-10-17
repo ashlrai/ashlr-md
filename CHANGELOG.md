@@ -36,6 +36,48 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_conversation_context` and `save_conversation_message` name their
+  results.** Their descriptions said what each stores or recovers but not
+  what comes back. They now give `{ sessionId, messages: [{ id, sessionId,
+  role, content, citedDocs, timestampMs }], count, recentDocs }` and
+  `{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }`, and
+  docs/AGENTS.md's row gives each message's fields.
+- **`export_text` and `export_metadata` name their result fields.** Their
+  descriptions listed what they extract but not the field names, and
+  docs/AGENTS.md ended `export_metadata`'s shape with "…". They now give
+  `{ text, word_count, char_count, path? }` and
+  `{ frontmatter, headings: [{ level, text }], wikilinks,
+  embedded_image_count, word_count, path? }`, with `path` absent for an
+  unsaved open document.
+- **`export`'s description names its results.** It said when the call
+  returns but not what comes back. It now gives `{ ok, format, path, bytes }`
+  for a written file and `{ ok, format, dialog: true }` for the dialog, and
+  names the 30 s write limit and the one-headless-export-at-a-time refusal,
+  as docs/AGENTS.md already did.
+- **`stream_edit` names its result and refusals.** Its description said it
+  returns diffs but not the fields, and docs/AGENTS.md gave "the app's diff
+  preview". Both now give `{ ok, editId, diff, candidates, matchCount,
+  applied }`, with `candidates` null for a single match and otherwise
+  `[{ matchIndex, startLine, diff, rank }]`, and name the not-found,
+  not-unique (with `preview: false`), wrong-`path`, timeout and busy
+  refusals.
+- **`set_content`, `replace_document`, `edit_document` and
+  `stream_edit_apply` name their results and refusals.** Their descriptions
+  said what they change but not what comes back. They now give
+  `{ ok: true }`, `{ ok: true, replaced: 1 }` and
+  `{ ok: true, replaced: 1, matchIndex }`, and name when each is refused:
+  no document open, `find` not found or not unique, a `match_index` past the
+  last occurrence, a `path` that is not the open document, a window that
+  does not answer within 4 s, two edits already waiting, and a failed save
+  that leaves the change applied. docs/AGENTS.md's rows give the same, and
+  its quote of the not-unique error now matches the app's.
+- **`stream_edit_apply`'s `match_index` declares its 32-bit maximum.** The
+  schema gave only `minimum: 0`, so a client validating against it let
+  `4294967296` through and the tool then answered "`match_index` is too
+  large" without the bound. The schema now declares `maximum: 4294967295`
+  (the app reads the index as a 32-bit unsigned integer), the description
+  and docs/AGENTS.md say so, and a larger value is refused with
+  "`match_index` must be at most 4294967295, got …".
 - **docs/AGENTS.md puts `stream_edit`'s `applied: true` with `preview: false`.**
   The row read as if a refused `preview_lines` came back with
   `applied: true`; the sentence now follows `preview: false`, the case the
