@@ -484,7 +484,7 @@ pub fn apply_file_patch(
         0 => return Err("Patch context not found in the target file.".into()),
         1 => content.replacen(find.as_str(), replace.as_str(), 1),
         n => return Err(format!(
-            "Patch context is not unique ({n} matches) — include more surrounding context to disambiguate."
+            "Patch context is not unique ({n} matches). Include more surrounding context to disambiguate."
         )),
     };
     write_markdown_file(resolved_str.clone(), new_content)?;

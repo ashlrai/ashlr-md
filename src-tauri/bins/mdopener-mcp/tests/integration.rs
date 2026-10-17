@@ -793,7 +793,7 @@ fn get_current_content_ipc_unavailable_returns_tool_error() {
 fn get_current_content_stale_ipc_returns_error_with_hint() {
     let ipc = MockIpc::new().on_get(
         "/content",
-        Err("ipc-port not found — is Ashlr MD running?".into()),
+        Err("ipc-port not found. Is Ashlr MD running?".into()),
     );
     let resp = tool_get_content(id(1), &ipc);
     let err = tool_error_text(&resp);
@@ -1990,7 +1990,7 @@ fn ai_actions_registry_count_matches_tool_response() {
 
 #[test]
 fn app_not_running_msg_ipc_port_error_includes_hint() {
-    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found — is Ashlr MD running?");
+    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found. Is Ashlr MD running?");
     assert!(msg.contains("Ashlr MD"), "hint should mention app name");
     assert!(
         msg.contains("open_file"),
@@ -2219,7 +2219,7 @@ fn export_tool_disk_full_error_propagated() {
 fn export_tool_app_not_running_returns_descriptive_error() {
     let ipc = MockIpc::new().on_post(
         "/export",
-        Err("ipc-port not found — is Ashlr MD running?".into()),
+        Err("ipc-port not found. Is Ashlr MD running?".into()),
     );
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
     let err = tool_error_text(&resp);
@@ -9695,4 +9695,52 @@ fn prompts_get_refuses_arguments_no_prompt_declares() {
         json!({ "name": "sumarize", "arguments": { "x": "1" } }),
     ));
     assert!(msg.contains("Unknown prompt"), "{msg}");
+}
+
+// ── No em or en dashes in what agents read ───────────────────────────────────
+
+/// The product rule is no em-dashes in user-facing strings. Every listing an
+/// agent reads (tools, schemas, prompts, resources, AI action prompts) and
+/// every prompt's text is scanned for U+2014 and U+2013. The not-running
+/// error the real IPC client gives is checked against the binary in
+/// `tests/stdio.rs`.
+#[test]
+fn agent_facing_text_has_no_em_or_en_dashes() {
+    fn dashes(place: &str, v: &Value) -> Vec<String> {
+        let text = v.to_string();
+        if text.contains('\u{2014}') || text.contains('\u{2013}') {
+            vec![format!("{place}: {text}")]
+        } else {
+            vec![]
+        }
+    }
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/p.md", "content": "# Plan" })),
+    );
+    let mut found = Vec::new();
+    for method in [
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+    ] {
+        let resp = dispatch(dispatch_req(method, json!({})), &ipc).unwrap();
+        let result = resp.result.unwrap_or_else(|| panic!("{method} failed"));
+        found.extend(dashes(method, &result));
+    }
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(dispatch_req("prompts/get", json!({ "name": name })), &ipc).unwrap();
+        let result = resp
+            .result
+            .unwrap_or_else(|| panic!("prompts/get {name} failed"));
+        found.extend(dashes(&format!("prompts/get {name}"), &result));
+    }
+    let actions = tool_list_ai_actions(id(1), &json!({}));
+    found.extend(dashes("list_ai_actions", &content_text(&actions)));
+    found.extend(dashes(
+        "app_not_running_msg",
+        &json!(mdopener_mcp::app_not_running_msg("ipc-port not found")),
+    ));
+    assert!(found.is_empty(), "dashes found:\n{}", found.join("\n"));
 }

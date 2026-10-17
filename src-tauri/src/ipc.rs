@@ -1084,7 +1084,7 @@ fn set_content_reply(outcome: Result<EditOutcome, mpsc::RecvTimeoutError>) -> se
         }),
         Err(_) => serde_json::json!({
             "ok": false,
-            "error": "Timed out waiting for the app to replace the document content — is the window responsive?",
+            "error": "Timed out waiting for the app to replace the document content. Is the window responsive?",
         }),
     }
 }
@@ -1151,7 +1151,7 @@ fn window_open_reply(
             "ok": false,
             "path": path,
             "error": format!(
-                "Timed out waiting for the app to {doing} {path} — is the window responsive?"
+                "Timed out waiting for the app to {doing} {path}. Is the window responsive?"
             ),
         }),
     }
@@ -1753,7 +1753,7 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
         0 => Err("`find` string not found in the current document.".into()),
         1 => Ok(content.replacen(find, replace, 1)),
         n => Err(format!(
-            "`find` string is not unique ({n} matches) — include more surrounding context to disambiguate."
+            "`find` string is not unique ({n} matches). Include more surrounding context to disambiguate."
         )),
     }
 }
@@ -1850,14 +1850,14 @@ fn open_document_named(app: &AppHandle, want: &str) -> Option<String> {
 fn not_the_open_document() -> serde_json::Value {
     serde_json::json!({
         "ok": false,
-        "error": "The named path is not the currently open document — open it first with open_file.",
+        "error": "The named path is not the currently open document. Open it first with open_file.",
     })
 }
 
 fn editor_busy() -> serde_json::Value {
     serde_json::json!({
         "ok": false,
-        "error": "The editor is busy applying another edit — retry in a moment.",
+        "error": "The editor is busy applying another edit. Retry in a moment.",
     })
 }
 
@@ -1894,7 +1894,7 @@ fn window_busy(doing: &str, path: &str) -> serde_json::Value {
         "path": path,
         "error": format!(
             "The app is busy finishing other agent requests, so it did not {doing} \
-             {path} — retry in a moment."
+             {path}. Retry in a moment."
         ),
     })
 }
@@ -2014,7 +2014,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             app.state::<PendingEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for the app to apply the edit — is a document open and the window responsive?",
+                "error": "Timed out waiting for the app to apply the edit. Is a document open and the window responsive?",
             }));
         }
     }
@@ -2108,7 +2108,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for stream-edit preview — is a document open?",
+                "error": "Timed out waiting for stream-edit preview. Is a document open?",
             }));
         }
     }
@@ -2196,7 +2196,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for stream-edit-apply — is a document open?",
+                "error": "Timed out waiting for stream-edit-apply. Is a document open?",
             }));
         }
     }

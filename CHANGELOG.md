@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **No em or en dashes in what agents read.** Tool and schema descriptions
+  (`edit_document`, `edit_canvas`, `stream_edit`, `export_text`,
+  `present_document`), the `improve_writing` prompt, the AI action prompts,
+  the not-running error ("ipc-port not found. Is Ashlr MD running?"), the
+  app's edit and timeout errors, and the first line of `mdopen --help` and
+  `mdopener-mcp --help` used them. They now use plain punctuation, and a test
+  scans every listing, prompt and the not-running error for them.
 - **`prompts/get` refuses arguments no prompt declares.** The prompts take
   none, but `arguments: { "path": "plan.md" }` was dropped in silence and
   the prompt ran on whatever document was open. A given argument is now

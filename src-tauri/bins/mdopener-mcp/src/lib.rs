@@ -913,7 +913,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once — include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -977,7 +977,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation — ideal for showing the human a finished result.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1109,7 +1109,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use — only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use: only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1145,7 +1145,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
                                 "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
-                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
+                                "color": { "type": "string", "description": "Color preset '1' to '6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
                                     "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
@@ -1185,7 +1185,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 When `preview` is true (default), returns a minimal unified diff with `preview_lines` \
                 lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
-                by occurrence order (rank 1 = first match) — the agent picks one and confirms it via \
+                by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
@@ -1278,7 +1278,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export_text",
-            description: "Extract the plain text of a Markdown document — all Markdown syntax \
+            description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
@@ -3417,7 +3417,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Rewrite",
             "icon": "✏️",
             "scope": "selection",
-            "systemPrompt": "You are an expert editor. Rewrite the provided text to be clearer and more concise while preserving the original meaning and voice. Output only the rewritten text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert editor. Rewrite the provided text to be clearer and more concise while preserving the original meaning and voice. Output only the rewritten text, with no commentary and no preamble.",
             "userPromptTemplate": "Rewrite the following text to be clearer and more concise:\n\n{text}"
         },
         {
@@ -3426,7 +3426,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Fix",
             "icon": "✓",
             "scope": "selection",
-            "systemPrompt": "You are a meticulous copy editor. Correct spelling, grammar, punctuation, and obvious typos in the provided text. Preserve the original meaning, tone, wording, and any Markdown formatting. Output only the corrected text — no commentary, no preamble.",
+            "systemPrompt": "You are a meticulous copy editor. Correct spelling, grammar, punctuation, and obvious typos in the provided text. Preserve the original meaning, tone, wording, and any Markdown formatting. Output only the corrected text, with no commentary and no preamble.",
             "userPromptTemplate": "Fix the grammar and spelling in the following text:\n\n{text}"
         },
         {
@@ -3435,7 +3435,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Concise",
             "icon": "✂️",
             "scope": "selection",
-            "systemPrompt": "You are an expert editor who tightens prose. Make the provided text more concise — remove redundancy and filler while preserving the meaning, key facts, voice, and any Markdown formatting. Output only the rewritten text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert editor who tightens prose. Make the provided text more concise: remove redundancy and filler while preserving the meaning, key facts, voice, and any Markdown formatting. Output only the rewritten text, with no commentary and no preamble.",
             "userPromptTemplate": "Make the following text more concise:\n\n{text}"
         },
         {
@@ -3444,7 +3444,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Expand",
             "icon": "➕",
             "scope": "selection",
-            "systemPrompt": "You are an expert writer. Expand the provided text with helpful detail, clarification, and supporting points while keeping the original meaning, voice, and any Markdown formatting. Do not invent facts. Output only the expanded text — no commentary, no preamble.",
+            "systemPrompt": "You are an expert writer. Expand the provided text with helpful detail, clarification, and supporting points while keeping the original meaning, voice, and any Markdown formatting. Do not invent facts. Output only the expanded text, with no commentary and no preamble.",
             "userPromptTemplate": "Expand the following text with more detail:\n\n{text}"
         },
         {
@@ -3453,7 +3453,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Explain changes",
             "icon": "🔀",
             "scope": "selection",
-            "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version — focus on substantive content differences, not whitespace. Be concise and use Markdown.",
+            "systemPrompt": "You are a precise technical reviewer. The user has a document open with unsaved edits, and the same file changed on disk underneath them. You will be given both versions. Explain, in clear bullet points, what changed on disk relative to their in-editor version, focusing on substantive content differences, not whitespace. Be concise and use Markdown.",
             "userPromptTemplate": "MY CURRENT VERSION (in the editor):\n\n```\n{text}\n```\n\nVERSION ON DISK (changed underneath me):\n\n```\n{arg}\n```\n\nExplain what changed on disk compared to my current version.",
             "argument": "{arg} is the version of the document on disk; {text} is the version in the editor. The app passes an empty string when there is none."
         },
@@ -3463,7 +3463,7 @@ pub fn ai_actions_registry() -> Value {
             "shortLabel": "Translate",
             "icon": "🌐",
             "scope": "selection",
-            "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation — no commentary, no preamble.",
+            "systemPrompt": "You are a professional translator. Translate the provided text into {arg}. Output only the translation, with no commentary and no preamble.",
             "userPromptTemplate": "Translate the following into {arg}:\n\n{text}",
             "argument": "{arg} is the language to translate into, by name (e.g. French). The app uses Spanish when none is given."
         },
@@ -4122,7 +4122,7 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
             "Review the following Markdown document as an implementation plan. Identify risks, missing steps, and anything ambiguous:"
         }
         "improve_writing" => {
-            "Improve the writing of the following Markdown document — tighten prose and fix grammar without changing its meaning or structure:"
+            "Improve the writing of the following Markdown document. Tighten prose and fix grammar without changing its meaning or structure:"
         }
         other => return Response::err(id, -32602, unknown_prompt_msg(other)),
     };
@@ -4730,7 +4730,7 @@ pub fn read_ipc_port() -> Result<u16, String> {
         .ok_or("Cannot determine home directory")?;
 
     let content = std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-port not found — is Ashlr MD running?".to_string())?;
+        .map_err(|_| "~/.mdopener/ipc-port not found. Is Ashlr MD running?".to_string())?;
 
     content
         .trim()
@@ -4744,11 +4744,11 @@ pub fn read_ipc_token() -> Result<String, String> {
         .map(|h| h.join(".mdopener").join("ipc-token"))
         .ok_or("Cannot determine home directory")?;
     std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-token not found — is Ashlr MD running?".to_string())
+        .map_err(|_| "~/.mdopener/ipc-token not found. Is Ashlr MD running?".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();
             if t.is_empty() {
-                Err("~/.mdopener/ipc-token is empty — is Ashlr MD finished starting?".to_string())
+                Err("~/.mdopener/ipc-token is empty. Has Ashlr MD finished starting?".to_string())
             } else {
                 Ok(t)
             }
