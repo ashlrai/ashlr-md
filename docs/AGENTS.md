@@ -59,6 +59,12 @@ The in-app buttons are only enabled for tools detected on your machine
 (`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For any
 other agent, copy the command with the **Copy** button and paste it in a terminal.
 
+When Claude Code or Codex already has an `ashlr-md` server, the Connect button
+asks it (`mcp get`) which program it runs. A registration for a program that no
+longer exists (the app was moved or reinstalled) is removed and added again for
+this app; one that runs another program that still exists is kept, and the
+message names it and the command that removes it.
+
 ---
 
 ## Claude Code

@@ -98,6 +98,215 @@ fn cursor_installed() -> bool {
         .unwrap_or(false)
 }
 
+// ── Claude Code and Codex: registration through the client's CLI ─────────────
+
+/// What one run of a client CLI printed, and whether it succeeded.
+#[derive(Debug, Clone, Default)]
+struct CliOutput {
+    success: bool,
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+impl CliOutput {
+    /// stdout and stderr, trimmed, joined by a newline (empty ones left out).
+    fn detail(&self) -> String {
+        [self.stdout.trim(), self.stderr.trim()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// [`Self::detail`], or the exit code when the run printed nothing.
+    fn failure(&self, what: &str) -> String {
+        let detail = self.detail();
+        if detail.is_empty() {
+            format!("{what} exited with code {}.", self.code.unwrap_or(-1))
+        } else {
+            detail
+        }
+    }
+}
+
+/// Runs a client CLI with the given arguments. Injected so the registration
+/// logic is tested without a real `claude` or `codex`.
+type CliRunner<'a> = &'a dyn Fn(&[&str]) -> std::io::Result<CliOutput>;
+
+/// How to register the `ashlr-md` server with one client's CLI.
+struct AgentCli {
+    /// The client's name in messages.
+    label: &'static str,
+    /// The program run, as shown in messages.
+    program: &'static str,
+    /// Said when the program is not installed.
+    not_found: &'static str,
+    /// `mcp add` up to the server path, which is appended.
+    add: &'static [&'static str],
+    /// Ways to ask which command the registered server runs, tried in order.
+    get: &'static [&'static [&'static str]],
+    /// Removes the registration `add` makes.
+    remove: &'static [&'static str],
+    /// Said after a registration that took effect.
+    restart: &'static str,
+    /// Whether a successful `add` that printed something shows that output
+    /// instead of the generic message.
+    show_add_output: bool,
+}
+
+const CLAUDE_CLI: AgentCli = AgentCli {
+    label: "Claude Code",
+    program: "claude",
+    not_found: "Claude Code CLI not found. Install it from https://claude.ai/download \
+                then try again.",
+    add: &["mcp", "add", "--scope", "user", "ashlr-md"],
+    get: &[&["mcp", "get", "ashlr-md"]],
+    remove: &["mcp", "remove", "--scope", "user", "ashlr-md"],
+    restart: "Start a new Claude Code session to pick it up.",
+    show_add_output: true,
+};
+
+const CODEX_CLI: AgentCli = AgentCli {
+    label: "Codex",
+    program: "codex",
+    not_found: "Codex CLI not found. Install it (e.g. `npm i -g @openai/codex`) then try again.",
+    add: &["mcp", "add", "ashlr-md", "--"],
+    get: &[
+        &["mcp", "get", "ashlr-md", "--json"],
+        &["mcp", "get", "ashlr-md"],
+    ],
+    remove: &["mcp", "remove", "ashlr-md"],
+    restart: "Restart Codex to pick it up.",
+    show_add_output: false,
+};
+
+/// Runs `program` (resolved on `PATH`, see [`agent_cli_program`]).
+fn run_agent_cli(program: &str, args: &[&str]) -> std::io::Result<CliOutput> {
+    let output = Command::new(agent_cli_program(program))
+        .args(args)
+        .output()?;
+    Ok(CliOutput {
+        success: output.status.success(),
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// The command a client says its `ashlr-md` server runs, read from the output
+/// of its `mcp get`: JSON with `transport.command` (or `command`), as
+/// `codex mcp get --json` prints, or a `Command: <path>` line, as
+/// `claude mcp get` and `codex mcp get` print.
+fn registered_command(stdout: &str) -> Option<String> {
+    if let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) {
+        return v["transport"]["command"]
+            .as_str()
+            .or(v["command"].as_str())
+            .map(str::to_string)
+            .filter(|c| !c.is_empty());
+    }
+    stdout.lines().find_map(|line| {
+        let line = line.trim();
+        let (key, value) = line.split_once(':')?;
+        let value = value.trim();
+        (key.trim().eq_ignore_ascii_case("command") && !value.is_empty()).then(|| value.to_string())
+    })
+}
+
+/// Register `mcp_path` as the `ashlr-md` server with `cli`, running it through
+/// `run`; `exists` says whether a registered program is still on disk.
+///
+/// When the client says `ashlr-md` is already registered, the command it runs
+/// is checked. It used to be reported as success whatever it ran, so after
+/// the app was moved (say from Downloads to Applications) the button said
+/// "already registered" while the client failed to start the server. Now a
+/// registration that runs a program which no longer exists is removed and
+/// added again for `mcp_path`; one that runs some other program that does
+/// exist is the user's choice and is kept, and the message says so; and when
+/// the client does not say what it runs, the message says how to re-add it.
+fn connect_agent_cli(
+    cli: &AgentCli,
+    mcp_path: &str,
+    run: CliRunner,
+    exists: &dyn Fn(&str) -> bool,
+) -> Result<String, String> {
+    let spawn_error = |e: std::io::Error| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            cli.not_found.to_string()
+        } else {
+            format!("Failed to run {} CLI: {e}", cli.program)
+        }
+    };
+    let label = cli.label;
+    let add_args = [cli.add, &[mcp_path]].concat();
+    let add_cmd = format!("{} mcp add", cli.program);
+    let remove_cmd = format!("{} {}", cli.program, cli.remove.join(" "));
+
+    let added = run(&add_args).map_err(spawn_error)?;
+    if added.success {
+        let out = added.stdout.trim();
+        return Ok(if cli.show_add_output && !out.is_empty() {
+            format!("{out}\n{}", cli.restart)
+        } else {
+            format!(
+                "Ashlr MD registered as an MCP server in {label}.\n{}",
+                cli.restart
+            )
+        });
+    }
+    if !added.detail().to_lowercase().contains("already") {
+        return Err(added.failure(&add_cmd));
+    }
+
+    let registered = cli.get.iter().find_map(|args| {
+        run(args)
+            .ok()
+            .filter(|o| o.success)
+            .and_then(|o| registered_command(&o.stdout))
+    });
+    match registered {
+        Some(current) if current == mcp_path => Ok(format!(
+            "ashlr-md is already registered in {label}, running {mcp_path}. Restart \
+             {label} if you haven't already."
+        )),
+        Some(old) if !exists(&old) => {
+            let removed = run(cli.remove).map_err(spawn_error)?;
+            if !removed.success {
+                return Err(format!(
+                    "ashlr-md is registered in {label} with {old}, which no longer exists, \
+                     and `{remove_cmd}` failed: {}\nRun it, then connect again.",
+                    removed.failure(&remove_cmd)
+                ));
+            }
+            let again = run(&add_args).map_err(spawn_error)?;
+            if !again.success {
+                return Err(format!(
+                    "ashlr-md was registered in {label} with {old}, which no longer exists. \
+                     That registration was removed, but adding {mcp_path} failed: {}\n\
+                     Connect again to register it.",
+                    again.failure(&add_cmd)
+                ));
+            }
+            Ok(format!(
+                "ashlr-md was registered in {label} with {old}, which no longer exists (the \
+                 app was moved or reinstalled). It now runs {mcp_path}.\n{}",
+                cli.restart
+            ))
+        }
+        Some(other) => Ok(format!(
+            "ashlr-md is already registered in {label}, but it runs {other}, not this \
+             app's {mcp_path}. It was left as it is. To use this app's, run \
+             `{remove_cmd}` and connect again."
+        )),
+        None => Ok(format!(
+            "ashlr-md is already registered in {label}, but {label} did not say which \
+             program it runs. If Ashlr MD has moved since it was registered, run \
+             `{remove_cmd}` and connect again."
+        )),
+    }
+}
+
 // ── Claude Code ───────────────────────────────────────────────────────────────
 
 /// Register Ashlr MD as an MCP server in Claude Code (user scope).
@@ -106,66 +315,17 @@ fn cursor_installed() -> bool {
 ///
 /// The `--scope user` flag registers it in the user scope (`~/.claude.json`) so
 /// the server is available across all projects, not just the current directory.
-/// The command is idempotent in recent Claude Code versions — re-running it
-/// when the server is already registered is safe (it may print a warning that
-/// we capture and surface as a success message).
+/// When it is already registered, the path it runs is checked and a stale one
+/// repointed: see [`connect_agent_cli`].
 #[tauri::command]
 pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
     let mcp_path = resolve_mcp_binary_path(&app)?;
-
-    let output = Command::new(agent_cli_program("claude"))
-        .args(["mcp", "add", "--scope", "user", "ashlr-md", &mcp_path])
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "Claude Code CLI not found. Install it from https://claude.ai/download \
-                 then try again."
-                    .to_string()
-            } else {
-                format!("Failed to run claude CLI: {e}")
-            }
-        })?;
-
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let msg = if stdout.trim().is_empty() {
-            "Ashlr MD registered as an MCP server in Claude Code.\n\
-                 Start a new Claude Code session to pick it up."
-                .to_string()
-        } else {
-            format!(
-                "{}\nRestart Claude Code to pick up the new server.",
-                stdout.trim()
-            )
-        };
-        Ok(msg)
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let detail = [stdout.trim(), stderr.trim()]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        // Treat "already exists" variants as success.
-        let detail_lc = detail.to_lowercase();
-        if detail_lc.contains("already") || detail_lc.contains("exists") {
-            return Ok("ashlr-md is already registered in Claude Code. \
-                 Restart Claude Code if you haven't already."
-                .to_string());
-        }
-
-        Err(if detail.is_empty() {
-            format!(
-                "claude mcp add exited with code {}.",
-                output.status.code().unwrap_or(-1)
-            )
-        } else {
-            detail
-        })
-    }
+    connect_agent_cli(
+        &CLAUDE_CLI,
+        &mcp_path,
+        &|args| run_agent_cli(CLAUDE_CLI.program, args),
+        &|p| std::path::Path::new(p).is_file(),
+    )
 }
 
 // ── Cursor ────────────────────────────────────────────────────────────────────
@@ -289,48 +449,17 @@ fn merge_cursor_config(existing: Option<&str>, mcp_path: &str) -> Result<String,
 /// Runs: `codex mcp add ashlr-md -- <mcp-binary-path>`, which
 /// writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
 /// consumes MCP *tools* (not resources/prompts) — exactly what ashlr-md exposes
-/// for agent control.
+/// for agent control. An existing registration is checked as for Claude Code
+/// (see [`connect_agent_cli`]).
 #[tauri::command]
 pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
     let mcp_path = resolve_mcp_binary_path(&app)?;
-
-    let output = Command::new(agent_cli_program("codex"))
-        .args(["mcp", "add", "ashlr-md", "--", &mcp_path])
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "Codex CLI not found. Install it (e.g. `npm i -g @openai/codex`) then try again."
-                    .to_string()
-            } else {
-                format!("Failed to run codex CLI: {e}")
-            }
-        })?;
-
-    if output.status.success() {
-        Ok("Ashlr MD registered as an MCP server in Codex.\nRestart Codex to pick it up."
-            .to_string())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let detail = [stdout.trim(), stderr.trim()]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n");
-        let lc = detail.to_lowercase();
-        if lc.contains("already") || lc.contains("exists") {
-            return Ok("ashlr-md is already registered in Codex.".to_string());
-        }
-        Err(if detail.is_empty() {
-            format!(
-                "codex mcp add exited with code {}.",
-                output.status.code().unwrap_or(-1)
-            )
-        } else {
-            detail
-        })
-    }
+    connect_agent_cli(
+        &CODEX_CLI,
+        &mcp_path,
+        &|args| run_agent_cli(CODEX_CLI.program, args),
+        &|p| std::path::Path::new(p).is_file(),
+    )
 }
 
 // ── Claude Code auto-open hook ──────────────────────────────────────────────────
@@ -751,6 +880,200 @@ mod tests {
         ] {
             assert_eq!(our_hook_path(not_ours), None, "{not_ours}");
         }
+    }
+
+    /// A scripted client CLI: answers each argument list from `script` (a
+    /// missing one fails), and records every call.
+    struct FakeCli {
+        script: Vec<(String, CliOutput)>,
+        calls: std::cell::RefCell<Vec<String>>,
+    }
+
+    fn ok(stdout: &str) -> CliOutput {
+        CliOutput {
+            success: true,
+            code: Some(0),
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+        }
+    }
+
+    fn fail(stderr: &str) -> CliOutput {
+        CliOutput {
+            success: false,
+            code: Some(1),
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+        }
+    }
+
+    impl FakeCli {
+        fn new(script: &[(&str, CliOutput)]) -> Self {
+            Self {
+                script: script
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+                calls: Default::default(),
+            }
+        }
+
+        fn run(&self, args: &[&str]) -> std::io::Result<CliOutput> {
+            let key = args.join(" ");
+            self.calls.borrow_mut().push(key.clone());
+            Ok(self
+                .script
+                .iter()
+                .rev()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| fail("unknown command")))
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    const OLD_MCP: &str = "/Users/me/Downloads/Ashlr MD.app/Contents/Resources/mdopener-mcp";
+    const CLAUDE_EXISTS: &str = "MCP server ashlr-md already exists in user config";
+
+    fn claude_get(command: &str) -> String {
+        format!(
+            "ashlr-md:\n  Scope: User config (available in all your projects)\n  \
+             Status: x Failed to connect\n  Type: stdio\n  Command: {command}\n  Args: \n"
+        )
+    }
+
+    #[test]
+    fn stale_claude_registration_is_removed_and_added_again() {
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        // `add` answers "already exists" until the stale entry is removed.
+        let cli = FakeCli::new(&[
+            (&add, fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(OLD_MCP))),
+            ("mcp remove --scope user ashlr-md", ok("Removed")),
+        ]);
+        let removed_then_added = |args: &[&str]| {
+            let removed = cli
+                .calls()
+                .contains(&"mcp remove --scope user ashlr-md".to_string());
+            if removed && args.join(" ") == add {
+                cli.calls.borrow_mut().push(add.clone());
+                return Ok(ok(""));
+            }
+            cli.run(args)
+        };
+        let msg =
+            connect_agent_cli(&CLAUDE_CLI, MCP, &removed_then_added, &|p| p != OLD_MCP).unwrap();
+        assert_eq!(
+            cli.calls(),
+            [
+                add.clone(),
+                "mcp get ashlr-md".to_string(),
+                "mcp remove --scope user ashlr-md".to_string(),
+                add.clone(),
+            ]
+        );
+        assert!(
+            msg.contains(OLD_MCP) && msg.contains("no longer exists"),
+            "{msg}"
+        );
+        assert!(msg.contains(&format!("now runs {MCP}")), "{msg}");
+    }
+
+    #[test]
+    fn current_claude_registration_is_reported_with_its_path_and_kept() {
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        let cli = FakeCli::new(&[
+            (&add, fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(MCP))),
+        ]);
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        assert!(
+            msg.contains("already registered") && msg.contains(MCP),
+            "{msg}"
+        );
+        assert_eq!(cli.calls(), [add, "mcp get ashlr-md".to_string()]);
+    }
+
+    #[test]
+    fn another_existing_registration_is_kept_and_named() {
+        let other = "/usr/local/bin/mdopener-mcp";
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        let cli = FakeCli::new(&[
+            (&add, fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(other))),
+        ]);
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        assert!(
+            msg.contains(other) && msg.contains("left as it is"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("claude mcp remove --scope user ashlr-md"),
+            "{msg}"
+        );
+        assert!(!cli.calls().iter().any(|c| c.contains("remove")));
+    }
+
+    #[test]
+    fn unreadable_registration_says_how_to_re_add() {
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        let cli = FakeCli::new(&[(&add, fail(CLAUDE_EXISTS))]);
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        assert!(
+            msg.contains("did not say which program")
+                && msg.contains("claude mcp remove --scope user ashlr-md"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn stale_codex_registration_is_read_from_json_and_repointed() {
+        let add = format!("mcp add ashlr-md -- {MCP}");
+        let get = json!({
+            "name": "ashlr-md",
+            "enabled": true,
+            "transport": { "type": "stdio", "command": OLD_MCP, "args": [] }
+        })
+        .to_string();
+        let cli = FakeCli::new(&[
+            (&add, fail("Error: MCP server 'ashlr-md' already exists")),
+            ("mcp get ashlr-md --json", ok(&get)),
+            ("mcp remove ashlr-md", ok("")),
+        ]);
+        let then_ok = |args: &[&str]| {
+            if args.join(" ") == add && cli.calls().iter().any(|c| c == "mcp remove ashlr-md") {
+                cli.calls.borrow_mut().push(add.clone());
+                return Ok(ok(""));
+            }
+            cli.run(args)
+        };
+        let msg = connect_agent_cli(&CODEX_CLI, MCP, &then_ok, &|_| false).unwrap();
+        assert!(msg.contains(&format!("now runs {MCP}")), "{msg}");
+        assert_eq!(cli.calls().last(), Some(&add));
+
+        // Without `--json` (an older Codex), the text form is read instead.
+        assert_eq!(
+            registered_command("ashlr-md\n  enabled: true\n  command: /a b/mcp\n  args: -\n")
+                .as_deref(),
+            Some("/a b/mcp")
+        );
+    }
+
+    #[test]
+    fn a_failed_add_that_is_not_already_registered_is_an_error() {
+        // "does not exist" used to read as "already exists" (it contains
+        // "exists"), and was reported as success.
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        let cli = FakeCli::new(&[(&add, fail("Error: path does not exist"))]);
+        let err = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap_err();
+        assert_eq!(err, "Error: path does not exist");
+        let missing =
+            |_: &[&str]| -> std::io::Result<CliOutput> { Err(std::io::ErrorKind::NotFound.into()) };
+        let err = connect_agent_cli(&CODEX_CLI, MCP, &missing, &|_| true).unwrap_err();
+        assert!(err.starts_with("Codex CLI not found"), "{err}");
     }
 
     #[test]
