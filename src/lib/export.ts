@@ -289,13 +289,16 @@ function escapeHtml(s: string): string {
  * Uses `write_markdown_file` (text) since HTML is UTF-8 text — no new
  * Rust command needed for this format.
  */
-export async function exportHtml(title: string): Promise<void> {
+export async function exportHtml(title: string, outputPath?: string): Promise<void> {
   const html = buildStandaloneHtmlWithActiveTemplate(title); // throws if not in read view
 
-  const path = await save({
-    defaultPath: `${sanitizeFileName(title)}.html`,
-    filters: [{ name: "HTML", extensions: ["html"] }],
-  });
+  // An agent-supplied destination (MCP `export` with `output_path`) skips the dialog.
+  const path =
+    outputPath ??
+    (await save({
+      defaultPath: `${sanitizeFileName(title)}.html`,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    }));
   if (!path) return; // user cancelled — no toast
 
   try {
@@ -318,7 +321,7 @@ export async function exportHtml(title: string): Promise<void> {
  * and returns a Blob.  We convert that to Uint8Array and write via the Rust
  * `write_file_bytes` command for an atomic save.
  */
-export async function exportDocx(title: string): Promise<void> {
+export async function exportDocx(title: string, outputPath?: string): Promise<void> {
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
   // Dynamic import so the rest of the app loads even if html-to-docx is absent.
@@ -335,10 +338,12 @@ export async function exportDocx(title: string): Promise<void> {
     throw "html-to-docx is not installed. Run: bun add html-to-docx";
   }
 
-  const path = await save({
-    defaultPath: `${sanitizeFileName(title)}.docx`,
-    filters: [{ name: "Word Document", extensions: ["docx"] }],
-  });
+  const path =
+    outputPath ??
+    (await save({
+      defaultPath: `${sanitizeFileName(title)}.docx`,
+      filters: [{ name: "Word Document", extensions: ["docx"] }],
+    }));
   if (!path) return; // user cancelled — no toast
 
   const result = await HTMLtoDOCX(bodyHtml, null, {
@@ -542,7 +547,7 @@ export function buildEpubChapters(bodyHtml: string, title: string): EpubChapter[
  * Requires: `epub-gen-memory` must be installed (`bun add epub-gen-memory`).
  * The import is dynamic so the rest of the app loads even if it is absent.
  */
-export async function exportEpub(title: string): Promise<void> {
+export async function exportEpub(title: string, outputPath?: string): Promise<void> {
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
   // children of the parse container.
@@ -564,10 +569,12 @@ export async function exportEpub(title: string): Promise<void> {
     throw "epub-gen-memory is not installed. Run: bun add epub-gen-memory";
   }
 
-  const path = await save({
-    defaultPath: `${sanitizeFileName(title)}.epub`,
-    filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
-  });
+  const path =
+    outputPath ??
+    (await save({
+      defaultPath: `${sanitizeFileName(title)}.epub`,
+      filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
+    }));
   if (!path) return; // user cancelled — no toast
 
   const theme = currentTheme();

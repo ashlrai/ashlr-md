@@ -216,7 +216,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
-| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok }` | Trigger an export of the open document. Omitting `output_path` lets the app prompt for a location. |
+| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document. With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. |
 | `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer` | `{ verdict, reviewId, comments }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path` or `content` is required. |
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus GFM task-checkbox states parsed from the live document. Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
@@ -373,7 +373,7 @@ into **`~/.claude/settings.json`** (idempotently — it won't add a duplicate):
         "hooks": [
           {
             "type": "command",
-            "command": "<mdopen> --hook",
+            "command": "'<mdopen>' --hook",
             "if": "Write(*.md)|Edit(*.md)"
           }
         ]
@@ -384,7 +384,11 @@ into **`~/.claude/settings.json`** (idempotently — it won't add a duplicate):
 ```
 
 The `matcher` fires on the `Edit` and `Write` tools; the `if` guard narrows it to
-`*.md` files. After installing, **restart Claude Code** to pick it up.
+`*.md` files. The `mdopen` path is single-quoted so the space in "Ashlr MD" does
+not split it; re-running the installer repairs an unquoted entry that earlier
+versions wrote for the same path. After installing, **restart Claude Code** to
+pick it up. The quoting targets the POSIX shell Claude Code runs hooks with; it
+has not been verified on an installed Windows build.
 
 > If `~/.claude/settings.json` already has a non-object `hooks` value or a
 > non-array `hooks.PostToolUse`, the installer **bails with an error** rather than
@@ -407,8 +411,9 @@ Or via the build-from-source installer (macOS/Linux):
 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 ```
 
-On **Windows**, the installer places `mdopen.exe` alongside the app. The in-app
-prompt handles adding it to your `PATH` via the system environment variable dialog.
+On **Windows**, the app installer places `mdopen.exe` alongside the app, and
+**Install mdopen** copies it to `%USERPROFILE%\.local\bin\mdopen.exe`. Neither
+folder is on `PATH` by default, so add one of them to your user `PATH` yourself.
 
 ### Usage
 
@@ -578,5 +583,6 @@ On macOS/Linux, make sure `/usr/local/bin` (or `~/.local/bin`) is on your `$PATH
 echo $PATH          # check
 mdopen --help       # verify
 ```
-On Windows, confirm `mdopen.exe`'s directory is in your user or system `PATH`
-(the in-app installer handles this; restart your terminal after installing).
+On Windows, add the folder holding `mdopen.exe` (`%USERPROFILE%\.local\bin`
+after **Install mdopen**, or the app's install folder) to your user `PATH`, then
+restart your terminal. The in-app installer does not change `PATH`.

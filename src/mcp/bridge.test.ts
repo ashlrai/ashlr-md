@@ -885,7 +885,7 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     resetDocumentStore({ path: "/notes/spec.md", fileName: "spec.md" });
     mountBridge();
     await fireEvent("mcp://export", { format: "docx", outputPath: "/tmp/spec.docx" });
-    expect(exportDocxMock).toHaveBeenCalledWith("spec");
+    expect(exportDocxMock).toHaveBeenCalledWith("spec", "/tmp/spec.docx");
     expect(exportPdfMock).not.toHaveBeenCalled();
     expect(exportHtmlMock).not.toHaveBeenCalled();
   });
@@ -911,7 +911,7 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     resetDocumentStore({ path: "/notes/index.md", fileName: "index.md" });
     mountBridge();
     await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/index.html" });
-    expect(exportHtmlMock).toHaveBeenCalledWith("index");
+    expect(exportHtmlMock).toHaveBeenCalledWith("index", "/tmp/index.html");
     expect(exportPdfMock).not.toHaveBeenCalled();
     expect(exportDocxMock).not.toHaveBeenCalled();
   });
@@ -937,14 +937,14 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     resetDocumentStore({ path: "/docs/readme.md", fileName: "readme.md" });
     mountBridge();
     await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/readme.html" });
-    expect(exportHtmlMock).toHaveBeenCalledWith("readme");
+    expect(exportHtmlMock).toHaveBeenCalledWith("readme", "/tmp/readme.html");
   });
 
   it("strips .markdown extension when deriving the title", async () => {
     resetDocumentStore({ path: "/docs/notes.markdown", fileName: "notes.markdown" });
     mountBridge();
     await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/notes.html" });
-    expect(exportHtmlMock).toHaveBeenCalledWith("notes");
+    expect(exportHtmlMock).toHaveBeenCalledWith("notes", "/tmp/notes.html");
   });
 
   it("falls back to 'export' when fileName is empty", async () => {
