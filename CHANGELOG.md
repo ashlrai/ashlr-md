@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code extension hands off only files the app opens.** It took any
+  file in the Markdown language mode, or with a Markdown extension, including
+  dotfiles (`.notes.md`), but the app ignores a link to a dotfile or a file
+  without a Markdown extension, so nothing opened and no message said why.
+  It now applies the app's rule and says so for any other file.
 - **The Obsidian plugin offers Ashlr MD only for notes it opens.** "Open in
   Ashlr MD" was in the menu of every file, and its commands ran for any
   active file, but the app ignores a link to anything other than a Markdown

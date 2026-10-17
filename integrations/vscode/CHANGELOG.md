@@ -2,6 +2,15 @@
 
 All notable changes to the **Open in Ashlr MD** VS Code extension.
 
+## [Unreleased]
+
+### Fixed
+
+- Only files Ashlr MD opens are handed off: a Markdown extension (`.md`,
+  `.markdown`, `.mdown`, `.mkd`, `.mdx`) and a name that is not a dotfile.
+  A dotfile, or a file merely in the Markdown language mode, used to be sent
+  as a link the app ignores, so nothing opened and nothing said why.
+
 ## [1.0.0]
 
 ### Added

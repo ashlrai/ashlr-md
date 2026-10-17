@@ -46,7 +46,10 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 ### Edge cases handled
 
 - **No active editor:** informational message.
-- **Non-Markdown file:** informational message.
+- **Not a file Ashlr MD opens:** informational message. Ashlr MD opens only
+  Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not
+  dotfiles, and ignores a link to any other file, so a dotfile (`.notes.md`)
+  or a file merely shown in the Markdown language mode is not handed off.
 - **Untitled / never-saved file:** prompts you to save first (there is no
   on-disk path to hand off). Saved-but-dirty files open their last-saved
   on-disk version (the extension does not auto-save).
