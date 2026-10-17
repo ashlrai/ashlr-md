@@ -261,10 +261,12 @@ wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
 naming the argument; an undeclared one also lists the arguments the tool
 takes and the closest match. Every integer argument declares a `minimum` in
 its schema (`0`, or `1` for the `limit` of `search_vault`, `list_recent` and
-`get_conversation_context`), and a value
+`get_conversation_context`, and for `request_review` the `5000` of
+`timeout_ms` and the `1000` of `wait_ms`), and a value
 below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
 of falling back to the default. An integer above its declared `maximum`
-(`list_recent`'s `limit` declares `200`) is refused the same way. A string outside the property's `enum`
+(`list_recent`'s `limit` declares `200`, and `request_review`'s
+`timeout_ms` and `wait_ms` `600000`) is refused the same way. A string outside the property's `enum`
 (`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
 `"move"`) is refused the same way, and the message lists the allowed values
 (`` `mode` must be one of `read`, `edit`, got a string ("view") ``). A string
@@ -493,8 +495,12 @@ before proceeding.
   during a call (the first one, or one resumed with `review_id`) with no
   decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
   review never waits past its window.
-- `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
-  blocks. Raise it only if your client allows longer tool calls.
+- `wait_ms` (default `50000`, must be **1 000–600 000**): the most one call
+  blocks. Raise it only if your client allows longer tool calls. A value
+  outside that range (or not a whole number) is refused with an
+  invalid-params error naming the range, and no review is registered; it
+  used to be clamped in silence. To return without waiting, pass
+  `blocking: false`.
 - `review_id` — resume waiting on a review an earlier call returned as pending
   (no new review is registered). An empty or blank `review_id` is refused with
   `-32602`; it used to be read as absent, so the call registered a new review

@@ -7896,7 +7896,9 @@ fn every_declared_argument_passes_the_check() {
             let v = match prop["type"].as_str() {
                 Some("string") => json!("x"),
                 Some("boolean") => json!(true),
-                Some("integer") => json!(1),
+                // At least the declared minimum (`request_review`'s
+                // `timeout_ms` starts at 5000).
+                Some("integer") => json!(prop["minimum"].as_i64().unwrap_or(1).max(1)),
                 Some("number") => json!(1.5),
                 Some("array") => json!([]),
                 Some("object") => json!({}),
@@ -8401,12 +8403,12 @@ fn integer_below_its_minimum_is_refused() {
         (
             "request_review",
             json!({ "content": "x", "timeout_ms": -1 }),
-            "`timeout_ms` must be at least 0, got -1",
+            "`timeout_ms` must be at least 5000, got -1",
         ),
         (
             "request_review",
             json!({ "content": "x", "wait_ms": -1000 }),
-            "`wait_ms` must be at least 0, got -1000",
+            "`wait_ms` must be at least 1000, got -1000",
         ),
         (
             "stream_edit",
@@ -8438,6 +8440,52 @@ fn integer_below_its_minimum_is_refused() {
     for n in [json!(0), json!(u64::MAX)] {
         let args = json!({ "find": "a", "replace": "b", "match_index": n });
         assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+    }
+}
+
+/// `request_review` clamped `wait_ms` to 1000 to 600000 in silence while its
+/// schema said `minimum: 0`, so `wait_ms: 0` still blocked for a second. The
+/// schema now declares the range the tool takes, for `timeout_ms` too, and
+/// the tool refuses a value outside it before registering a review.
+#[test]
+fn request_review_wait_ms_outside_its_range_is_refused() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "request_review")
+        .unwrap();
+    let props = &def.input_schema["properties"];
+    assert_eq!(props["wait_ms"]["minimum"], 1000);
+    assert_eq!(props["wait_ms"]["maximum"], 600_000);
+    assert_eq!(props["timeout_ms"]["minimum"], 5000);
+    assert_eq!(props["timeout_ms"]["maximum"], 600_000);
+    assert!(param_error(&call_tool(
+        "request_review",
+        json!({ "content": "x", "wait_ms": 0 })
+    ))
+    .contains("`wait_ms` must be at least 1000, got 0"));
+    assert!(param_error(&call_tool(
+        "request_review",
+        json!({ "content": "x", "wait_ms": 600_001 })
+    ))
+    .contains("`wait_ms` must be at most 600000, got 600001"));
+    for bad in [json!(0), json!(999), json!(600_001), json!(1500.5)] {
+        let ipc = MockIpc::new();
+        let resp = tool_request_review(id(1), &json!({ "content": "x", "wait_ms": bad }), &ipc);
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with(
+                "`wait_ms` must be a whole number of milliseconds between 1000 and 600000"
+            ),
+            "{bad}: {msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{bad}: no review registered");
+    }
+    for ok in [json!(1000), json!(600_000)] {
+        let args = json!({ "content": "x", "wait_ms": ok });
+        assert!(
+            mdopener_mcp::check_tool_arguments(&def, &args).is_ok(),
+            "{ok}"
+        );
     }
 }
 
