@@ -1023,7 +1023,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns { sessionId, messages: [{ id, sessionId, role, content, citedDocs, timestampMs }], count, recentDocs } (timestampMs in milliseconds since the Unix epoch); `messages` is empty when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1052,7 +1052,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`).",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`). Returns { ok, messageId, sessionId, role, timestampMs, dropped?, note? }; a message that cannot be written to disk is not saved and is an error.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

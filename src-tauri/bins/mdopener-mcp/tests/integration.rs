@@ -9044,6 +9044,66 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
     }
 }
 
+/// get_conversation_context and save_conversation_message said what they
+/// recover or store but not what they return, so an agent learned
+/// `messageId`, `timestampMs` and each message's fields by calling them.
+/// The named fields are exactly the ones the tools return.
+#[test]
+fn conversation_tool_descriptions_name_their_results() {
+    let session = unique_session();
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let keys = |v: &Value| {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort_unstable();
+        k
+    };
+    let d = desc("save_conversation_message");
+    assert!(
+        d.contains("{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }"),
+        "{d}"
+    );
+    let ipc = MockIpc::new();
+    let saved = content_text(&call(
+        "save_conversation_message",
+        json!({ "session_id": session, "role": "agent", "content": "did it" }),
+        &ipc,
+    ));
+    assert_eq!(
+        keys(&saved),
+        ["messageId", "ok", "role", "sessionId", "timestampMs"]
+    );
+    let d = desc("get_conversation_context");
+    assert!(
+        d.contains(
+            "{ sessionId, messages: [{ id, sessionId, role, content, citedDocs, timestampMs }], count, recentDocs }"
+        ),
+        "{d}"
+    );
+    let got = content_text(&call(
+        "get_conversation_context",
+        json!({ "session_id": session }),
+        &ipc,
+    ));
+    assert_eq!(keys(&got), ["count", "messages", "recentDocs", "sessionId"]);
+    assert_eq!(
+        keys(&got["messages"][0]),
+        [
+            "citedDocs",
+            "content",
+            "id",
+            "role",
+            "sessionId",
+            "timestampMs"
+        ]
+    );
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

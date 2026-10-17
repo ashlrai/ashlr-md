@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_conversation_context` and `save_conversation_message` name their
+  results.** Their descriptions said what each stores or recovers but not
+  what comes back. They now give `{ sessionId, messages: [{ id, sessionId,
+  role, content, citedDocs, timestampMs }], count, recentDocs }` and
+  `{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }`, and
+  docs/AGENTS.md's row gives each message's fields.
 - **`export_text` and `export_metadata` name their result fields.** Their
   descriptions listed what they extract but not the field names, and
   docs/AGENTS.md ended `export_metadata`'s shape with "…". They now give
