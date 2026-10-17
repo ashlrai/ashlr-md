@@ -1064,7 +1064,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty path is refused."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -3320,7 +3320,12 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    if let Some(i) = cited.iter().position(|v| v.as_str() == Some("")) {
+    // A blank one (only whitespace) too: it named no document, and resolved
+    // against the working directory it became a path to a file named "  ".
+    if let Some(i) = cited
+        .iter()
+        .position(|v| v.as_str().is_some_and(|d| d.trim().is_empty()))
+    {
         return Response::err(id, -32602, format!("`cited_docs[{i}]` must not be empty"));
     }
     // Stored as absolute paths, as the schema says: a relative one used to be

@@ -36,6 +36,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`cited_docs` refuses a blank path.** An empty path was refused, but one
+  of only spaces was stored (and, resolved against the working directory,
+  became a path to a file named by those spaces). It is now `-32602` too.
 - **`request_review` refuses whitespace-only inline `content`.** An empty
   `content` was refused, but one of only spaces or newlines still registered
   a review with nothing to read. It is now `-32602` "`content` must not be

@@ -8622,6 +8622,18 @@ fn empty_cited_doc_is_refused() {
             "cited_docs": ["/a.md"] }),
     );
     assert!(!is_error(&ok), "{ok:?}");
+    // A blank path names no document either, and is refused the same way.
+    let resp = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did y",
+            "cited_docs": ["/a.md", "  "] }),
+    );
+    assert_eq!(param_error(&resp), "`cited_docs[1]` must not be empty");
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(ctx["count"], 1, "{ctx}");
 }
 
 /// `cited_docs` is described as absolute paths, but a relative one was
