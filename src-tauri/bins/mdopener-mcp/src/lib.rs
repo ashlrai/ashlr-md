@@ -3756,12 +3756,40 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let mut semantic = None;
         // Query-string encoding: `+` is a space (the listed example is
         // `?q=my+topic`), and `%2B` a literal plus.
-        let decode = |val: &str| {
+        let lossy = |val: &str| {
             let val = val.replace('+', " ");
             urlencoding::decode(&val)
                 .map(|s| s.into_owned())
                 .unwrap_or(val)
         };
+        // A malformed escape (`%ZZ`, a lone `%`) used to be searched for
+        // literally, and a repeated parameter (`q=a&q=b`) kept only its
+        // last value, so the search ran on something the agent never sent.
+        let mut seen: Vec<&str> = Vec::new();
+        for part in qs.split('&').filter(|p| !p.is_empty()) {
+            let name = part.split('=').next().unwrap_or(part);
+            if VAULT_SEARCH_PARAMS.contains(&name) && part.contains('=') {
+                if seen.contains(&name) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!(
+                            "text://vault-search: `{name}` is given more than once; pass it once."
+                        ),
+                    );
+                }
+                seen.push(name);
+                let val = &part[name.len() + 1..];
+                if let Err(e) = percent_decode_path(&val.replace('+', " ")) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("text://vault-search: `{name}` is not valid URI encoding: {e}"),
+                    );
+                }
+            }
+        }
+        let decode = lossy;
         for part in qs.split('&') {
             if let Some(val) = part.strip_prefix("q=") {
                 query = decode(val);

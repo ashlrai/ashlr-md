@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`text://vault-search` refuses a repeated parameter and a malformed
+  escape.** `?q=a&q=b` searched for `b` alone, and `?q=%ZZ` (or a lone `%`)
+  searched for the literal text, so the search ran on something the agent
+  never meant. Both are now `-32602` naming the parameter, as a `file://`
+  URI's malformed escape already is.
 - **`edit_canvas` `add_edge` refuses values JSON Canvas does not allow.** An
   edge's `fromSide`/`toSide` (top, right, bottom, left), `fromEnd`/`toEnd`
   (none, arrow), `color` and `label` were written as given and reported as

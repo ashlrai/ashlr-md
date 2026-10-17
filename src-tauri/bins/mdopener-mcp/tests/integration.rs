@@ -9620,3 +9620,44 @@ fn edit_canvas_add_edge_refuses_values_json_canvas_does_not_allow() {
     );
     assert!(resp.error.is_none(), "{:?}", resp.error);
 }
+
+/// `text://vault-search?q=a&q=b` searched for `b` alone, and `q=%ZZ` searched
+/// for the literal text `%ZZ`: the search ran on something the agent never
+/// meant. Both are now -32602, before anything is searched.
+#[test]
+fn vault_search_resource_refuses_repeated_and_malformed_parameters() {
+    let ipc = app_down_ipc();
+    for (uri, want) in [
+        ("text://vault-search?q=a&q=b", "`q` is given more than once"),
+        (
+            "text://vault-search?q=a&limit=5&limit=6",
+            "`limit` is given more than once",
+        ),
+        ("text://vault-search?q=%ZZ", "`q` is not valid URI encoding"),
+        ("text://vault-search?q=a%", "`q` is not valid URI encoding"),
+        (
+            "text://vault-search?q=a&vault=%FF",
+            "`vault` is not valid URI encoding",
+        ),
+    ] {
+        let msg = param_error(&handle_resource_read(id(1), uri, &ipc));
+        assert!(msg.contains(want), "{uri}: {msg}");
+    }
+    // Correct encodings still read as before: `+` and `%20` are spaces,
+    // `%2B` a plus, `%25` a percent sign.
+    let dir = tempfile::tempdir().unwrap();
+    let vault = dir.path().join("vault");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::write(vault.join("a.md"), "c+d 100%\n").unwrap();
+    let d = vault.to_string_lossy().into_owned();
+    let uri = format!("text://vault-search?q=c%2Bd+100%25&semantic=false&vault={d}");
+    let resp = handle_resource_read(id(2), &uri, &ipc);
+    let text: Value = serde_json::from_str(
+        resp.result.as_ref().unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(text["query"], "c+d 100%");
+    assert_eq!(text["results"].as_array().unwrap().len(), 1, "{text}");
+}

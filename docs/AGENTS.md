@@ -374,7 +374,10 @@ below; it needs no app.
   `&semantic=false` or `true` to force grep or semantic search, like
   `search_vault`'s `semantic`; any other value, a `limit` that is not a
   whole number from 1 to 200, a parameter with no value, or any other
-  parameter (a misspelt `lmit=5`) is `-32602`, naming the closest one).
+  parameter (a misspelt `lmit=5`) is `-32602`, naming the closest one; so
+  is a parameter given twice (`q=a&q=b` used to search for `b` alone) and a
+  malformed escape (`q=%ZZ` used to search for the literal `%ZZ`; write a
+  literal `%` as `%25`, a `+` as `%2B`)).
   Returns `{ results, mode, query, note?, vault?, truncated?, depthCut? }`,
   with the same `note`, `truncated` and `depthCut` as `search_vault` when it
   fell back or did not search every file; an error when the app is not
