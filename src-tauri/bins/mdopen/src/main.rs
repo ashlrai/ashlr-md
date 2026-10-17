@@ -166,15 +166,31 @@ fn version_line() -> String {
     format!("mdopen {}", env!("CARGO_PKG_VERSION"))
 }
 
-/// Resolve `target` to an absolute path of an existing regular file.
+/// Resolve `target` to an absolute path of an existing regular file that is a
+/// Markdown document and not a dotfile (checked after resolving symlinks),
+/// the only files the app opens.
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
     let p = std::fs::canonicalize(target)
         .map_err(|e| format!("cannot resolve path {target:?}: {e}"))?;
     if !p.is_file() {
         return Err(format!("{target:?} is not a file"));
     }
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let markdown = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    if !markdown || name.starts_with('.') {
+        return Err(format!(
+            "{target:?} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
+            MD_EXTENSIONS.join(", .")
+        ));
+    }
     Ok(p)
 }
+
+/// Extensions the app opens (mirrors `MD_EXTENSIONS` in src-tauri/src/document.rs).
+const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 
 /// Read stdin into a temp `.md` file and return its path.
 fn read_stdin_to_temp() -> PathBuf {
@@ -346,7 +362,8 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage, unresolvable path or not a file, or the app is not running
+    1  bad usage, unresolvable path, not a file or not a Markdown document
+       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case.
     --hook always exits 0 and prints nothing
@@ -481,6 +498,27 @@ mod tests {
         assert!(resolve_file(s.0.join("nope.md").to_str().unwrap())
             .unwrap_err()
             .contains("cannot resolve path"));
+    }
+
+    #[test]
+    fn resolve_file_refuses_what_the_app_will_not_open() {
+        // The app opens only Markdown documents that are not dotfiles; handing
+        // it anything else used to exit 0 with nothing opened.
+        let s = Scratch::new("markdown-only");
+        for name in ["notes.txt", "Makefile", ".env.md"] {
+            let f = s.file(name);
+            let err = resolve_file(f.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("not a Markdown document"), "{name}: {err}");
+        }
+        assert!(resolve_file(s.file("Plan.MD").to_str().unwrap()).is_ok());
+        #[cfg(unix)]
+        {
+            let secret = s.file("secret.txt");
+            let link = s.0.join("link.md");
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            let err = resolve_file(link.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("not a Markdown document"), "{err}");
+        }
     }
 
     #[test]
