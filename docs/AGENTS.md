@@ -355,9 +355,11 @@ The server implements `resources/list` and `resources/read`.
   An app with no recents gives an empty list;
   an app that cannot be reached is `-32000`, as for `mdopener://current` (it
   used to be an empty list too).
-- **`file://<path>` (vault files)** — every file the app advertises as part of
-  the **vault** (watched folder) plus **recents** is listed as an individually
-  readable resource. When the app cannot be asked for them (it is not
+- **`file://<path>` (vault files)** — every file the app lists in the
+  **vault** (watched folder) is listed as an individually readable resource.
+  Recently opened files are not listed as `file://` entries (read
+  `mdopener://recent-documents` for them), but a recent's `file://<path>` is
+  still readable through `resources/read`. When the app cannot be asked for them (it is not
   running, or it refused), the list has none, and the result carries
   `_meta: { "mdopener/vaultFilesUnlisted": "<reason>" }` (also logged on
   stderr) so a client can tell that from a vault with no files; a listing
