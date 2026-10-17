@@ -1943,11 +1943,27 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         return handle_recent_documents_resource(id, ipc);
     }
 
-    if let Some(p) = uri.strip_prefix("file://") {
-        if !is_advertised_path(p, ipc) {
-            return Response::err(id, -32002, format!("Resource not in vault: {uri}"));
-        }
-        return match read_regular_file(p) {
+    if let Some(raw) = uri.strip_prefix("file://") {
+        // `file://localhost/a` names the same file as `file:///a`.
+        let raw = match raw.strip_prefix("localhost/") {
+            Some(_) => &raw["localhost".len()..],
+            None => raw,
+        };
+        // resources/list advertises `file://<path>` unencoded, but clients
+        // percent-encode URIs (`My%20Notes.md`). The decoded path is what
+        // must be advertised: the scope check runs after decoding, so
+        // encoding cannot name a file outside the vault.
+        let decoded = urlencoding::decode(raw).ok().map(|d| d.into_owned());
+        let advertised = |p: &str| is_advertised_path(p, ipc);
+        let p = if advertised(raw) {
+            raw.to_string()
+        } else {
+            match decoded {
+                Some(d) if d != raw && advertised(&d) => d,
+                _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+            }
+        };
+        return match read_regular_file(&p) {
             Ok(text) => Response::ok(id, json!({
                 "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }]
             })),

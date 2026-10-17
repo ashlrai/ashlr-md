@@ -3986,3 +3986,51 @@ fn unclosed_leading_fence_is_not_frontmatter() {
     assert_eq!(strip_markdown(dots).trim(), "Body");
     assert_eq!(extract_frontmatter(dots), json!({ "title": "Plan" }));
 }
+
+// ── file:// resource URIs are percent-decoded ─────────────────────────────────
+
+/// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server
+/// compared the encoded text with the advertised path and answered "not in
+/// vault". Decoding happens before the advertised-path check, so encoding
+/// cannot reach a file outside the vault.
+#[test]
+fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("My Notes.md");
+    let secret = dir.join("secret.md");
+    std::fs::write(&doc, "# Notes\n").unwrap();
+    std::fs::write(&secret, "# Secret\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "My Notes.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+
+    let encoded = format!("file://{}", doc.replace(' ', "%20"));
+    let resp = handle_resource_read(id(1), &encoded, &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let contents = &resp.result.as_ref().unwrap()["contents"][0];
+    assert_eq!(contents["text"], "# Notes\n");
+    assert_eq!(contents["uri"], encoded.as_str());
+
+    // `file://localhost/...` is the same file.
+    let resp = handle_resource_read(id(2), &format!("file://localhost{doc}"), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    // The unencoded form resources/list advertises still works.
+    let resp = handle_resource_read(id(2), &format!("file://{doc}"), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+
+    // Encoding does not get around the scope check.
+    let dir_s = dir.to_string_lossy().into_owned();
+    let leaf = dir.file_name().unwrap().to_string_lossy().into_owned();
+    for uri in [
+        format!("file://{}", secret.to_string_lossy().replace('s', "%73")),
+        format!("file://{}/My%20Notes.md%2F..%2Fsecret.md", dir_s),
+        format!("file://{dir_s}/%2E%2E/{leaf}/secret.md"),
+    ] {
+        let resp = handle_resource_read(id(3), &uri, &ipc);
+        let err = resp.error.expect("must be refused");
+        let msg = err.message;
+        assert!(msg.contains("not in vault"), "{uri}: {msg}");
+    }
+}

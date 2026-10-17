@@ -285,7 +285,10 @@ The server implements `resources/list` and `resources/read`.
 `resources/read` is **scoped**: a `file://` URI is only readable if it is one of
 the paths the app currently advertises in the vault or recents. Any other path
 is rejected (`-32002`), so the resource channel can't be used as an
-arbitrary-filesystem read primitive.
+arbitrary-filesystem read primitive. Percent-encoded URIs
+(`file:///notes/My%20Notes.md`) and `file://localhost/...` are accepted; the
+check runs on the decoded path, so encoding cannot reach a file outside the
+vault.
 
 ---
 
