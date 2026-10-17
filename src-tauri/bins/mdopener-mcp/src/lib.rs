@@ -3074,6 +3074,9 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, json!({ "resources": resources }))
 }
 
+/// The query parameters `text://vault-search` takes.
+const VAULT_SEARCH_PARAMS: &[&str] = &["q", "limit", "semantic", "vault"];
+
 pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Response {
     if uri == "mdopener://current" {
         return match ipc.get("/content") {
@@ -3099,7 +3102,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
 
     // text://vault-search?q={query} — on-demand semantic/grep search resource.
     // Agents can read this URI to perform a search without calling the tool.
-    if let Some(rest) = uri.strip_prefix("text://vault-search") {
+    // Only the URI itself or its `?query`: `text://vault-searchx` is some
+    // other (unknown) resource, not this one.
+    let vault_search_query = uri
+        .strip_prefix("text://vault-search")
+        .filter(|rest| rest.is_empty() || rest.starts_with('?'));
+    if let Some(rest) = vault_search_query {
         // Parse query string: ?q=... (&limit=... optional)
         let qs = rest.strip_prefix('?').unwrap_or("");
         let mut query = String::new();
@@ -3154,6 +3162,29 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                         )
                     }
                 };
+            } else if !part.is_empty() {
+                // A misspelt parameter (`lmit=5`) used to be dropped, so the
+                // search ran with the default; tool arguments are refused the
+                // same way.
+                let name = part.split('=').next().unwrap_or(part);
+                if VAULT_SEARCH_PARAMS.contains(&name) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("text://vault-search: `{name}` needs a value, as `{name}=…`."),
+                    );
+                }
+                let hint = closest_name(name, VAULT_SEARCH_PARAMS)
+                    .map(|n| format!(" Did you mean `{n}`?"))
+                    .unwrap_or_default();
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "text://vault-search: unknown query parameter `{name}`: it takes `q`, \
+                         `limit`, `semantic` and `vault`.{hint}"
+                    ),
+                );
             }
         }
         if query.is_empty() {

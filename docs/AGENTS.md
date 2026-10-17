@@ -332,8 +332,9 @@ The server implements `resources/list` and `resources/read`.
 - **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
   `&semantic=false` or `true` to force grep or semantic search, like
-  `search_vault`'s `semantic`; any other value, or a `limit` that is not a
-  whole number, is an error).
+  `search_vault`'s `semantic`; any other value, a `limit` that is not a
+  whole number of at least 1, a parameter with no value, or any other
+  parameter (a misspelt `lmit=5`) is `-32602`, naming the closest one).
   Returns `{ results, mode, query, note?, vault? }`, with the same `note` as
   `search_vault` when it fell back; an error when the app is not running and
   no `vault` is given.

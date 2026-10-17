@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`text://vault-search` refuses parameters it does not take.** A misspelt
+  query parameter (`lmit=5`) was dropped and the search ran with the default,
+  and any URI that merely started with `text://vault-search` was read as it.
+  An unknown parameter, or a known one with no value, is now `-32602` naming
+  the closest parameter, as unknown tool arguments are.
 - **`search_vault`'s `limit` means the same in every mode.** The app's own
   search returned at most 200 results and turned `limit: 0` into 1, while the
   on-disk greps and semantic search returned as many as asked, up to every

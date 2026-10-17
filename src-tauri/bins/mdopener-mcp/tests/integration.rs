@@ -3162,6 +3162,45 @@ fn resource_read_vault_search_rejects_a_non_numeric_limit() {
     assert!(ok.error.is_none(), "{:?}", ok.error);
 }
 
+/// A misspelt query parameter (`lmit=5`) was dropped, so the search ran with
+/// the default, and `text://vault-searchx` was read as this resource.
+#[test]
+fn resource_read_vault_search_refuses_unknown_parameters() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(id(316), "text://vault-search?q=x&lmit=5", &ipc);
+    let err = resp.error.expect("an unknown parameter is an error");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("unknown query parameter `lmit`"),
+        "{}",
+        err.message
+    );
+    assert!(
+        err.message.contains("Did you mean `limit`?"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let resp = handle_resource_read(id(319), "text://vault-search?q=x&limit", &ipc);
+    let err = resp.error.expect("a parameter with no value is an error");
+    assert!(
+        err.message.contains("`limit` needs a value"),
+        "{}",
+        err.message
+    );
+    // An empty part (`&&`, a trailing `&`) is not a parameter.
+    let ok = handle_resource_read(id(317), "text://vault-search?q=x&&limit=3&", &ipc);
+    assert!(ok.error.is_none(), "{:?}", ok.error);
+    // Another URI that merely starts with this one is not this resource.
+    let resp = handle_resource_read(id(318), "text://vault-searches?q=x", &MockIpc::new());
+    let err = resp.error.expect("an unknown resource is an error");
+    assert!(
+        err.message.starts_with("Unknown resource URI"),
+        "{}",
+        err.message
+    );
+}
+
 /// `search_vault` with `semantic: "false"` (a string) silently auto-detected
 /// instead of forcing grep.
 #[test]
