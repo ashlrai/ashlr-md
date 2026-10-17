@@ -913,6 +913,59 @@ fn list_recent_custom_limit_clamped() {
     assert!(calls[0].1.contains("limit=5"));
 }
 
+/// A `limit` that is not a whole number from 1 to 200 used to become the
+/// default (2.5) or reach the app unchecked (0, a huge value). It is refused,
+/// before the app is asked, both by the tool and by the schema check.
+#[test]
+fn list_recent_refuses_a_limit_out_of_range_or_not_whole() {
+    for bad in [
+        json!(0),
+        json!(2.5),
+        json!(201),
+        json!(1_000_000_000_000u64),
+        json!(-1),
+    ] {
+        let ipc = MockIpc::new().on_get("/recent", Ok(json!([])));
+        let resp = tool_list_recent(id(1), &json!({ "limit": bad }), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{bad} was accepted"));
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message
+                .contains("`limit` must be a whole number from 1 to 200"),
+            "{}",
+            err.message
+        );
+        assert!(ipc.calls().is_empty(), "{bad} reached the app");
+
+        let msg = param_error(&call_tool("list_recent", json!({ "limit": bad })));
+        assert!(msg.contains("`limit`"), "{msg}");
+    }
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 0 })));
+    assert_eq!(msg, "`limit` must be at least 1, got 0");
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 500 })));
+    assert_eq!(msg, "`limit` must be at most 200, got 500");
+
+    // The bounds themselves, `2.0` as a whole number, and `null` (the default).
+    for (limit, want) in [
+        (json!(1), "limit=1"),
+        (json!(200), "limit=200"),
+        (json!(3.0), "limit=3"),
+        (json!(null), "limit=10"),
+    ] {
+        let ipc = MockIpc::new().on_get("/recent", Ok(json!([])));
+        let resp = tool_list_recent(id(1), &json!({ "limit": limit }), &ipc);
+        assert!(resp.error.is_none(), "{limit}: {:?}", resp.error);
+        assert!(
+            ipc.calls()[0].1.ends_with(want),
+            "{limit}: {:?}",
+            ipc.calls()
+        );
+    }
+}
+
 #[test]
 fn list_recent_returns_files_array() {
     let files = json!(["/a.md", "/b.md", "/c.md"]);
@@ -8048,7 +8101,7 @@ fn integer_below_its_minimum_is_refused() {
         (
             "list_recent",
             json!({ "limit": -5 }),
-            "`limit` must be at least 0, got -5",
+            "`limit` must be at least 1, got -5",
         ),
         (
             "search_vault",

@@ -821,8 +821,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "minimum": 0,
-                        "description": "Maximum number of entries to return. Defaults to 10."
+                        "minimum": 1,
+                        "maximum": LIST_RECENT_MAX,
+                        "description": "Maximum number of entries to return, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 10. The app keeps at most 12 recent files."
                     }
                 }
             }),
@@ -1434,6 +1435,7 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 ///   element whose type differs from the declared `items.type`;
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`);
+/// - a number above the declared `maximum` (`list_recent`'s `limit`);
 /// - a value outside the declared `enum`, at the top level or in a field of an
 ///   array element (`ops[0].type`), with the allowed values listed.
 ///
@@ -1504,6 +1506,11 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
                 return Err(format!("`{key}` must be at least {min}, got {value}"));
+            }
+        }
+        if let (Some(max), Some(n)) = (prop["maximum"].as_i64(), value.as_f64()) {
+            if n > max as f64 {
+                return Err(format!("`{key}` must be at most {max}, got {value}"));
             }
         }
         // JSON Schema counts characters (code points), not bytes.
@@ -1919,8 +1926,31 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
     }
 }
 
+/// Largest `limit` `list_recent` accepts: the cap `search_vault` and
+/// `get_conversation_context` hold their `limit` to. The app keeps far fewer
+/// recents (12), so no list is ever cut by this cap.
+pub const LIST_RECENT_MAX: u64 = 200;
+
 pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let limit = whole_number(args, "limit").unwrap_or(10);
+    // A `limit` that is not a whole number from 1 to LIST_RECENT_MAX used to
+    // become the default (2.5) or reach the app unchecked (0, 10^15), which
+    // answered with an empty list or every recent. Omitted keeps the default.
+    let limit = match &args["limit"] {
+        Value::Null => 10,
+        v => match whole_number_value(v).filter(|n| (1..=LIST_RECENT_MAX).contains(n)) {
+            Some(n) => n,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {LIST_RECENT_MAX}, got {v}; \
+                         omit it for the default of 10"
+                    ),
+                )
+            }
+        },
+    };
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
