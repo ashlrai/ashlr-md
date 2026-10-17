@@ -41,14 +41,61 @@ pub fn write_markdown_file(path: String, content: String) -> Result<(), String> 
     if path_targets_obsidian_dir(&path) {
         return Err("Refusing to write inside an Obsidian .obsidian/ config folder.".into());
     }
-    let tmp = format!("{path}.mdopener.tmp");
-    std::fs::write(&tmp, content.as_bytes()).map_err(|e| format!("Could not write {path}: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        // Best-effort cleanup of the temp file if the rename failed.
+    write_atomic(Path::new(&path), content.as_bytes())
+        .map_err(|e| format!("Could not save {path}: {e}"))
+}
+
+/// Write `bytes` to `path` atomically: into a new sibling temp file, then
+/// renamed over `path` (atomic on one filesystem, so a crash never leaves a
+/// half-written file). Every app write goes through here.
+///
+/// The temp file is created new (`O_EXCL`) under a random name, never opened
+/// if something is already there. It used to be the fixed `<path>.mdopener.tmp`
+/// written with `std::fs::write`, which follows a symlink: a vault (a cloned
+/// repository, a shared folder) that ships `notes.md.mdopener.tmp ->
+/// ~/.bashrc` had the next save of `notes.md` written into `~/.bashrc`.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let (tmp, mut file) = create_temp_sibling(path)?;
+    let written = file
+        .write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&tmp, path)
+        });
+    if written.is_err() {
+        // Best-effort cleanup of the temp file if the write or rename failed.
         let _ = std::fs::remove_file(&tmp);
-        format!("Could not save {path}: {e}")
-    })?;
-    Ok(())
+    }
+    written
+}
+
+/// Create a new, empty `<path>.<random>.mdopener.tmp` next to `path` (the
+/// Activity drawer ignores that suffix). `create_new` refuses an existing
+/// name, a symlink included, so another name is tried.
+fn create_temp_sibling(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    for _ in 0..16 {
+        let mut nonce = [0u8; 8];
+        getrandom::getrandom(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;
+        let hex: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".{hex}.mdopener.tmp"));
+        let tmp = std::path::PathBuf::from(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => return Ok((tmp, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not create a temporary file next to it",
+    ))
 }
 
 /// Return the subset of `paths` that still exist as files on disk.
@@ -522,13 +569,7 @@ fn write_pasted_image_under(
     }
 
     // Atomic write: temp sibling then rename, matching write_markdown_file.
-    let target_str = target.to_string_lossy().into_owned();
-    let tmp = format!("{target_str}.mdopener.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("Could not write the image: {e}"))?;
-    std::fs::rename(&tmp, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("Could not save the image: {e}")
-    })?;
+    write_atomic(&target, bytes).map_err(|e| format!("Could not save the image: {e}"))?;
     Ok((target, name))
 }
 
@@ -650,6 +691,45 @@ mod tests {
         assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
         assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
         assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    /// The temp file was the fixed `<path>.mdopener.tmp`, written through
+    /// whatever was there: a planted symlink sent the save elsewhere.
+    #[cfg(unix)]
+    #[test]
+    fn saves_never_write_through_a_planted_temp_symlink() {
+        let root = make_tree();
+        let outside = root.join("bashrc");
+        std::fs::write(&outside, "keep me").unwrap();
+        let doc = root.join("notes.md");
+        std::fs::write(&doc, "old").unwrap();
+        let planted = root.join("notes.md.mdopener.tmp");
+        std::os::unix::fs::symlink(&outside, &planted).unwrap();
+
+        write_markdown_file(s(&doc), "new".into()).unwrap();
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
+        assert!(!std::fs::symlink_metadata(&doc)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+
+        let out = root.join("out.docx");
+        std::os::unix::fs::symlink(&outside, root.join("out.docx.mdopener.tmp")).unwrap();
+        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"PK");
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+
+        // No temp file is left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name().to_string_lossy().ends_with(".mdopener.tmp")
+                    && !e.file_type().unwrap().is_symlink()
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 
     #[test]

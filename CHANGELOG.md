@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Saves never write through a planted temp-file symlink.** Every app
+  write (saving a document, an export, a pasted image) went to the fixed
+  `<path>.mdopener.tmp` with a write that follows symlinks, so a vault (a
+  cloned repository, a shared folder) shipping `notes.md.mdopener.tmp ->
+  ~/.bashrc` had the next save of `notes.md` written into `~/.bashrc`. The
+  temp file is now created new under a random name and never opened when
+  something is already there.
 - **`mdopener://` links open only Markdown documents.** Any web page or
   program can launch the URL scheme, and `mdopener://open?path=` (and
   `export`) opened whatever path it named, such as `~/.ssh/id_rsa`: the
