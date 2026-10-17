@@ -149,8 +149,8 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
         match arg.as_str() {
             // `--` ends flags, so `mdopen -- -notes.md` opens `-notes.md`.
             "--" => flags_done = true,
-            "--edit" | "-e" => mode = Some("edit"),
-            "--read" | "-r" => mode = Some("read"),
+            "--edit" | "-e" => mode = set_mode(mode, "edit")?,
+            "--read" | "-r" => mode = set_mode(mode, "read")?,
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(format!("unknown flag: {flag}"));
             }
@@ -169,6 +169,19 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             "expected one file, got {}; run mdopen once per file",
             many.len()
         )),
+    }
+}
+
+/// Record a `--edit`/`--read` flag. Both on one command line used to open
+/// in whichever came last, silently dropping the other; now that is a usage
+/// error. Repeating the same flag is harmless.
+fn set_mode(
+    current: Option<&'static str>,
+    wanted: &'static str,
+) -> Result<Option<&'static str>, String> {
+    match current {
+        Some(m) if m != wanted => Err("--edit and --read conflict; pass one of them".to_string()),
+        _ => Ok(Some(wanted)),
     }
 }
 
@@ -465,6 +478,22 @@ mod tests {
             format!("mdopen {}", env!("CARGO_PKG_VERSION"))
         );
         assert!(HELP.contains("--version"));
+    }
+
+    #[test]
+    fn edit_and_read_together_are_a_usage_error() {
+        for a in [["--edit", "--read"], ["-r", "-e"]] {
+            let err = parse_args(&args(&[a[0], a[1], "x.md"])).unwrap_err();
+            assert!(err.contains("--edit and --read conflict"), "{err}");
+        }
+        // Repeating one flag is fine.
+        assert_eq!(
+            parse_args(&args(&["-e", "--edit", "x.md"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: "x.md".into()
+            })
+        );
     }
 
     #[test]

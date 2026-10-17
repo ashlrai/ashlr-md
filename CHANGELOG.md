@@ -36,6 +36,25 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP tools refuse arguments they do not declare or cannot use.** Every tool
+  read only the arguments it knew and defaulted any of the wrong type, so a
+  typo (`export_metadata` with `pth`, `list_ai_actions` with
+  `include_prompt`) or a mistyped value (`"include_prompts": "no"`,
+  `"limit": "5"`, a number in `cited_docs`) was silently ignored and the call
+  succeeded with defaults the agent never asked for. `tools/call` now checks
+  `arguments` against the tool's `inputSchema` first and returns `-32602`
+  naming the argument, the arguments the tool takes and the closest match.
+  `arguments` that is not an object is refused the same way; `null` still
+  means not given, and `export` keeps its own `theme` message.
+- **An unknown MCP tool name says what to call instead.** `Unknown tool:
+  Open_File` gave no next step; it now suggests the closest tool
+  (`open_file`) and points to `tools/list`. A blank `name` says so.
+- **Blank `session_id` is refused.** `save_conversation_message` accepted
+  `"   "` and stored it as `~/.mdopener/sessions/%20%20%20.json`; both
+  conversation tools now return `-32602` for a whitespace-only id.
+- **`mdopen --edit --read` is a usage error.** It opened in whichever mode
+  came last and dropped the other flag without a word; it now exits 1 and
+  says the flags conflict.
 - **MCP `export` with `output_path` writes that file.** The app ignored
   `output_path`: it opened its save dialog (or the print dialog) while the tool
   had already returned `{ "ok": true }`, so an agent believed a file existed that

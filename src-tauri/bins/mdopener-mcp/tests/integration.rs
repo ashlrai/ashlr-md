@@ -480,7 +480,11 @@ fn open_file_ipc_success_returns_opened_path() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
     // Use /tmp which is guaranteed to exist for canonicalize
     let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
-    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "unexpected RPC error: {:?}",
+        resp.error
+    );
     assert!(!is_error(&resp));
     let text = content_text(&resp);
     assert!(text["opened"].as_str().is_some());
@@ -1247,8 +1251,7 @@ fn present_document_no_path_uses_current_doc() {
 
 #[test]
 fn present_document_with_path_sends_canonicalized() {
-    let ipc = MockIpc::new()
-        .on_post("/present", Ok(json!({ "ok": true })));
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
     let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
@@ -5533,4 +5536,163 @@ fn open_file_does_not_relaunch_a_path_the_app_refused() {
         &|_| panic!("must not launch"),
     );
     assert!(tool_error_text(&resp).contains("Refusing to open"));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// tools/call argument checking against the declared inputSchema
+// ════════════════════════════════════════════════════════════════════════════
+
+fn call_tool(name: &str, arguments: Value) -> mdopener_mcp::Response {
+    let ipc = MockIpc::new();
+    dispatch(
+        dispatch_req(
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        ),
+        &ipc,
+    )
+    .unwrap()
+}
+
+fn param_error(resp: &mdopener_mcp::Response) -> String {
+    let err = resp
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected a -32602 error, got {:?}", resp.result));
+    assert_eq!(err.code, -32602, "{}", err.message);
+    err.message.clone()
+}
+
+#[test]
+fn undeclared_argument_is_refused_with_the_declared_ones() {
+    // `pth` used to be ignored: export_metadata then read the open document
+    // (or failed with "not running") instead of the path the agent meant.
+    let msg = param_error(&call_tool("export_metadata", json!({ "pth": "a.md" })));
+    assert!(
+        msg.contains("Unknown argument `pth` for `export_metadata`"),
+        "{msg}"
+    );
+    assert!(msg.contains("it takes `path`"), "{msg}");
+    assert!(msg.contains("Did you mean `path`?"), "{msg}");
+
+    // A typo of a boolean flag used to return the full prompts anyway.
+    let msg = param_error(&call_tool(
+        "list_ai_actions",
+        json!({ "include_prompt": false }),
+    ));
+    assert!(msg.contains("Did you mean `include_prompts`?"), "{msg}");
+
+    // A tool with no parameters says so.
+    let msg = param_error(&call_tool("get_current_content", json!({ "x": 1 })));
+    assert!(msg.contains("it takes no arguments"), "{msg}");
+}
+
+#[test]
+fn mistyped_argument_is_refused_instead_of_defaulted() {
+    // `"no"` used to fall back to the default (true) and return prompts.
+    let msg = param_error(&call_tool(
+        "list_ai_actions",
+        json!({ "include_prompts": "no" }),
+    ));
+    assert_eq!(
+        msg,
+        "`include_prompts` must be a boolean, got a string (\"no\")"
+    );
+
+    let msg = param_error(&call_tool(
+        "get_conversation_context",
+        json!({ "session_id": "s", "limit": "5" }),
+    ));
+    assert!(msg.contains("`limit` must be an integer"), "{msg}");
+
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 2.5 })));
+    assert!(
+        msg.contains("`limit` must be an integer, got a number (2.5)"),
+        "{msg}"
+    );
+
+    // Array elements are checked against `items.type`: a number in
+    // `cited_docs` used to be dropped without a word.
+    let msg = param_error(&call_tool(
+        "save_conversation_message",
+        json!({ "session_id": "s", "role": "agent", "content": "x", "cited_docs": ["a.md", 7] }),
+    ));
+    assert!(msg.contains("`cited_docs[1]` must be a string"), "{msg}");
+
+    let msg = param_error(&call_tool("diff_documents", json!("a.md")));
+    assert!(
+        msg.contains("`arguments` for `diff_documents` must be an object"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn well_formed_arguments_still_reach_the_tool() {
+    // null means "not given", and `theme` keeps the export tool's own message.
+    let resp = call_tool("list_ai_actions", json!({ "include_prompts": null }));
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let msg = param_error(&call_tool(
+        "export",
+        json!({ "format": "html", "theme": "dark" }),
+    ));
+    assert!(msg.contains("`theme` is not supported"), "{msg}");
+    // No `arguments` at all is still the tool's own "required" error.
+    let ipc = MockIpc::new();
+    let resp = dispatch(
+        dispatch_req("tools/call", json!({ "name": "diff_documents" })),
+        &ipc,
+    )
+    .unwrap();
+    assert_eq!(param_error(&resp), "`path_a` is required");
+}
+
+#[test]
+fn every_declared_argument_passes_the_check() {
+    // Build arguments of the declared type for every property of every tool:
+    // none may be refused as undeclared or mistyped.
+    for def in tool_registry() {
+        let mut args = serde_json::Map::new();
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            let v = match prop["type"].as_str() {
+                Some("string") => json!("x"),
+                Some("boolean") => json!(true),
+                Some("integer") => json!(1),
+                Some("number") => json!(1.5),
+                Some("array") => json!([]),
+                Some("object") => json!({}),
+                _ => json!("x"),
+            };
+            args.insert(k.clone(), v);
+        }
+        let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
+        assert!(r.is_ok(), "{}: {:?}", def.name, r);
+    }
+}
+
+#[test]
+fn unknown_tool_names_the_closest_tool_and_tools_list() {
+    let msg = param_error(&call_tool("Open_File", json!({})));
+    assert!(msg.starts_with("Unknown tool: Open_File."), "{msg}");
+    assert!(msg.contains("Did you mean `open_file`?"), "{msg}");
+    assert!(msg.contains("Call tools/list"), "{msg}");
+
+    let msg = param_error(&call_tool("", json!({})));
+    assert!(msg.contains("`name` is missing or blank"), "{msg}");
+    assert!(!msg.contains("Did you mean"), "{msg}");
+}
+
+#[test]
+fn blank_session_id_is_refused() {
+    use_temp_sessions_dir();
+    let resp = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": "   ", "role": "agent", "content": "did x" }),
+    );
+    assert_eq!(param_error(&resp), "`session_id` must not be blank");
+    assert!(
+        !session_file_path("   ").unwrap().exists(),
+        "no session file for a blank id"
+    );
+    let resp = tool_get_conversation_context(json!(1), &json!({ "session_id": "\t" }));
+    assert_eq!(param_error(&resp), "`session_id` must not be blank");
 }
