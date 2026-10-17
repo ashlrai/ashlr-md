@@ -1030,6 +1030,21 @@ fn edit_document_missing_find_returns_error() {
 }
 
 #[test]
+fn edit_document_empty_find_is_refused_without_the_app() {
+    // The app is closed: an empty `find` must still be named as the problem,
+    // not answered with "start the app".
+    let ipc = MockIpc::new().on_post("/edit", Err("Could not connect to IPC server".into()));
+    let resp = tool_edit_document(id(1), &json!({ "find": "", "replace": "x" }), &ipc);
+    let err = resp
+        .error
+        .as_ref()
+        .expect("an empty find must be a param error");
+    assert_eq!(err.code, -32602);
+    assert_eq!(err.message, "`find` must not be empty");
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
+}
+
+#[test]
 fn edit_document_missing_replace_returns_error() {
     let ipc = MockIpc::new();
     let resp = tool_edit_document(id(1), &json!({ "find": "old" }), &ipc);
@@ -1397,6 +1412,16 @@ fn get_user_annotations_missing_path_returns_error() {
     let ipc = MockIpc::new();
     let resp = tool_get_annotations(id(1), &json!({}), &ipc);
     assert_eq!(resp.error.as_ref().unwrap().code, -32602);
+}
+
+#[test]
+fn get_user_annotations_empty_path_is_refused_without_the_app() {
+    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+    let resp = tool_get_annotations(id(1), &json!({ "path": "" }), &ipc);
+    let err = resp.error.as_ref().expect("an empty path is a param error");
+    assert_eq!(err.code, -32602);
+    assert_eq!(err.message, "`path` must not be empty");
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
 }
 
 #[test]
@@ -4419,6 +4444,35 @@ fn recent_docs_deduplicates_repeated_paths() {
     );
 }
 
+#[test]
+fn recent_docs_are_newest_first_and_stable() {
+    let sess = unique_session();
+    // Enough distinct paths that a HashSet order would almost never match.
+    for i in 0..12 {
+        store_append_message(&sess, "agent", "Read.", vec![format!("/v/{i}.md")]).unwrap();
+    }
+    // Citing 3.md again makes it the most recent one.
+    store_append_message(
+        &sess,
+        "agent",
+        "Again.",
+        vec!["/v/3.md".into(), "/v/new.md".into()],
+    )
+    .unwrap();
+
+    let mut expected = vec!["/v/3.md".to_string(), "/v/new.md".to_string()];
+    expected.extend(
+        (0..12)
+            .rev()
+            .filter(|i| *i != 3)
+            .map(|i| format!("/v/{i}.md")),
+    );
+    for _ in 0..3 {
+        let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+        assert_eq!(content_text(&resp)["recentDocs"], json!(expected));
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
@@ -5071,6 +5125,120 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
         diff.ends_with("+eighteen\n 19\n 20\n\\ No newline at end of file"),
         "{diff}"
     );
+}
+
+// ── text://vault-search: the documented fields are the real ones ─────────────
+
+/// The field names of a documented shape such as `{ a, b?, c? }`, each with
+/// whether it is optional.
+fn documented_fields(shape: &str) -> Vec<(String, bool)> {
+    shape
+        .trim_matches(|c| c == '{' || c == '}' || c == ' ')
+        .split(',')
+        .map(|f| {
+            let f = f.trim();
+            match f.strip_suffix('?') {
+                Some(name) => (name.to_string(), true),
+                None => (f.to_string(), false),
+            }
+        })
+        .collect()
+}
+
+fn vault_search_payload(uri: &str, ipc: &MockIpc) -> Value {
+    let resp = handle_resource_read(id(1), uri, ipc);
+    assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    serde_json::from_str(&text).unwrap()
+}
+
+/// The `text://vault-search` descriptions used to say `{ results, mode,
+/// query, note? }` while a read also returned `vault`, `truncated` and
+/// `depthCut`. Every documented place now states the same field list, and
+/// reads that exercise each optional field return only documented fields.
+#[test]
+fn vault_search_resource_documents_every_field_it_returns() {
+    use mdopener_mcp::{resource_templates, DISK_VAULT_MAX_DEPTH, VAULT_SEARCH_RESOURCE_FIELDS};
+    let shape = VAULT_SEARCH_RESOURCE_FIELDS;
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let entry = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .cloned()
+        .unwrap();
+    let template = &resource_templates()[0];
+    for (place, text) in [
+        ("resources/list", entry["description"].as_str().unwrap()),
+        (
+            "resources/templates/list",
+            template["description"].as_str().unwrap(),
+        ),
+        ("docs/AGENTS.md", include_str!("../../../../docs/AGENTS.md")),
+    ] {
+        assert!(text.contains(shape), "{place} must state {shape}");
+    }
+    let fields = documented_fields(shape);
+
+    // The app answers, with a vault list cut short by depth.
+    let app = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
+            "query": "x",
+            "results": [],
+            "truncated": true,
+            "depthCut": true,
+            "note": "Some files were not searched."
+        })),
+    );
+    let from_app = vault_search_payload("text://vault-search?q=x&semantic=false", &app);
+
+    // The app is down: an on-disk vault with a folder too deep to enter.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deep = dir.path().to_path_buf();
+    for level in 0..=DISK_VAULT_MAX_DEPTH {
+        deep = deep.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(dir.path().join("a.md"), "x marks it\n").unwrap();
+    std::fs::write(deep.join("b.md"), "x marks it\n").unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let gone = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let vault = urlencoding::encode(dir.path().to_str().unwrap()).into_owned();
+    let from_disk = vault_search_payload(
+        &format!("text://vault-search?q=x&semantic=false&vault={vault}"),
+        &gone,
+    );
+
+    let mut seen = std::collections::HashSet::new();
+    for payload in [&from_app, &from_disk] {
+        let obj = payload.as_object().unwrap();
+        for key in obj.keys() {
+            assert!(
+                fields.iter().any(|(name, _)| name == key),
+                "`{key}` is returned but not documented in {shape}: {payload}"
+            );
+            seen.insert(key.clone());
+        }
+        for (name, optional) in &fields {
+            assert!(
+                *optional || obj.contains_key(name),
+                "`{name}` missing: {payload}"
+            );
+        }
+    }
+    for (name, _) in &fields {
+        assert!(
+            seen.contains(name),
+            "`{name}` is documented but never returned"
+        );
+    }
 }
 
 // ── search_vault / text://vault-search when the app is down ─────────────────

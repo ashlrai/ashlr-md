@@ -1010,7 +1010,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2498,7 +2498,10 @@ fn decided_review(resp: &Value, review_id: &str) -> Value {
 }
 
 pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty `path` is refused here: the app refuses it too, but with the
+    // app closed the agent was told to start the app instead.
     let path = match args["path"].as_str() {
+        Some("") => return Response::err(id, -32602, "`path` must not be empty"),
         Some(p) => p,
         None => return Response::err(id, -32602, "`path` is required"),
     };
@@ -2514,8 +2517,12 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 // ── Document edit / search / present tools ───────────────────────────────────
 
 pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty `find` is refused here, as `stream_edit` does: the app refuses
+    // it too, but with the app closed the agent was told to start the app
+    // instead of being told what is wrong with its call.
     let find = match args["find"].as_str() {
-        Some(f) => f.to_string(),
+        Some(f) if !f.is_empty() => f.to_string(),
+        Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
         None => return Response::err(id, -32602, "`find` is required"),
     };
     let replace = match args["replace"].as_str() {
@@ -3072,11 +3079,16 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
+            // Newest first, each path once: agents read `recentDocs[0]` as
+            // the most recently cited document. This used to go through a
+            // HashSet, so the order changed from one call to the next.
+            let mut seen = std::collections::HashSet::new();
             let cited_docs: Vec<String> = messages
                 .iter()
-                .flat_map(|m| m.cited_docs.iter().cloned())
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
+                .rev()
+                .flat_map(|m| m.cited_docs.iter())
+                .filter(|d| seen.insert(d.as_str()))
+                .cloned()
                 .collect();
 
             tool_result(
@@ -3335,7 +3347,11 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
+        "description": ([
+            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
+            VAULT_SEARCH_RESOURCE_FIELDS,
+            ", shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable, `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
+        ].concat()),
         "mimeType": "application/json"
     }));
 
@@ -3392,6 +3408,15 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, result)
 }
 
+/// The fields a `text://vault-search` read returns, as its `resources/list`
+/// and `resources/templates/list` descriptions state them (`?` marks one that
+/// is present only sometimes). The descriptions used to list only
+/// `{ results, mode, query, note? }`, leaving out `vault`, `truncated` and
+/// `depthCut`, which the result carries when it searched a folder on disk or
+/// did not search every file.
+pub const VAULT_SEARCH_RESOURCE_FIELDS: &str =
+    "{ results, mode, query, note?, vault?, truncated?, depthCut? }";
+
 /// The `resources/templates/list` entries: `text://vault-search`, which is
 /// read with a query (`?q=…`) and so is a URI template, not a fixed resource.
 /// The method used to be unknown (`-32601`), so a client that discovers
@@ -3401,7 +3426,11 @@ pub fn resource_templates() -> Value {
     json!([{
         "uriTemplate": "text://vault-search?q={query}",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: { results, mode, query, note? }.",
+        "description": ([
+            "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: ",
+            VAULT_SEARCH_RESOURCE_FIELDS,
+            ", as resources/list describes."
+        ].concat()),
         "mimeType": "application/json"
     }])
 }
