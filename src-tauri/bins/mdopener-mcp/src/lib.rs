@@ -720,13 +720,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "description": "Max number of results to return. Defaults to 50." },
-                    "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." }
+                    "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
+                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -1757,6 +1758,10 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => return Response::err(id, -32602, "`query` is required"),
     };
     let limit = args["limit"].as_u64().unwrap_or(50);
+    let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
+        Ok(v) => v,
+        Err(e) => return tool_error(id, e),
+    };
 
     // Determine search mode: explicit override or auto-detect via Ollama.
     let use_semantic = match args["semantic"].as_bool() {
@@ -1764,7 +1769,14 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => ollama_available(),
     };
 
-    match search_vault(&query, limit, use_semantic, ipc) {
+    match search_vault_in(
+        &query,
+        limit,
+        use_semantic,
+        vault.as_deref(),
+        ipc,
+        &ollama_embed,
+    ) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, e),
     }
@@ -1794,16 +1806,47 @@ pub fn search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Value, String> {
+    search_vault_in(query, limit, use_semantic, None, ipc, embed)
+}
+
+/// [`search_vault_with`] that, when the app cannot be reached (not when it
+/// refuses), searches the Markdown files under `vault` on disk instead: a
+/// directory already checked by [`disk_vault_dir`]. Results from disk carry
+/// mode `grep-disk` (or `semantic`), the `vault` searched, and a `note`.
+pub fn search_vault_in(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    vault: Option<&std::path::Path>,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Value, String> {
+    // The vault file list: from the app, or from `vault` on disk when the app
+    // is unreachable. Fetched once, and only when needed.
+    let mut listed: Option<Result<VaultFiles, String>> = None;
+    let mut files = || {
+        listed
+            .get_or_insert_with(|| vault_files(ipc, vault))
+            .clone()
+    };
     // Why semantic search was tried but not used, said in words so an agent
     // that asked for it does not read keyword hits as meaning matches.
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_hits(query, limit, ipc, embed) {
-            Ok(hits) => {
+        match files().and_then(|f| semantic_hits(query, limit, &f.paths, embed).map(|h| (f, h))) {
+            Ok((f, hits)) => {
                 let mut v = json!({ "results": hits.results, "mode": "semantic" });
-                if let Some(note) = hits.skipped_note() {
+                let note = [f.disk_note(), hits.skipped_note()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !note.is_empty() {
                     v["note"] = json!(note);
+                }
+                if let Some(dir) = &f.disk_vault {
+                    v["vault"] = json!(dir);
                 }
                 return Ok(v);
             }
@@ -1831,12 +1874,27 @@ pub fn search_vault_with(
         }
         Err(ipc_err) => {
             // The app's search failed: grep the vault files on disk. The file
-            // list comes from the app too, so this errors if it is not running.
-            // Keep the app's reason: a refusal is the agent's to see, not
-            // something an on-disk grep should paper over.
+            // list comes from the app too, or from `vault` when the app is
+            // unreachable. Keep the app's reason: a refusal is the agent's to
+            // see, not something an on-disk grep should paper over.
             let refused = app_refused(&ipc_err);
-            match grep_vault(query, limit, ipc) {
-                Ok(results) => {
+            match files() {
+                Ok(f) if f.disk_vault.is_some() => {
+                    let results = grep_paths(query, limit, &f.paths);
+                    let note = [semantic_note, f.disk_note()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    Ok(json!({
+                        "results": results,
+                        "mode": "grep-disk",
+                        "vault": f.disk_vault,
+                        "note": note
+                    }))
+                }
+                Ok(f) => {
+                    let results = grep_paths(query, limit, &f.paths);
                     let verb = if refused { "refused" } else { "failed" };
                     let search_note = format!(
                         "Ashlr MD's own search {verb} ({ipc_err}), so these results \
@@ -1853,9 +1911,139 @@ pub fn search_vault_with(
                     }))
                 }
                 Err(_) if refused => Err(ipc_err),
+                Err(e) if app_unreachable(&e) => Err(format!(
+                    "{} To search without the app, pass `vault`: the directory of \
+                     Markdown files to grep on disk.",
+                    app_not_running_msg(&e)
+                )),
                 Err(e) => Err(app_not_running_msg(&e)),
             }
         }
+    }
+}
+
+/// True when an IPC error means no app could be reached at all (no port or
+/// token file, or nothing listening), as opposed to the app refusing or
+/// failing a request.
+fn app_unreachable(err: &str) -> bool {
+    err.contains("ipc-port not found")
+        || err.contains("ipc-token not found")
+        || err.contains("Cannot determine home directory")
+        || err.starts_with("Could not connect to IPC server")
+}
+
+/// Most Markdown files a `vault` walk collects, and how deep it goes.
+pub const DISK_VAULT_MAX_FILES: usize = 5_000;
+const DISK_VAULT_MAX_DEPTH: usize = 16;
+
+/// Resolve a `vault` argument (relative to the server's working directory)
+/// to the canonical directory to search on disk; anything that is not an
+/// existing directory is refused. Only the documents [`disk_vault_files`]
+/// finds under it are read. Errors are for `isError`.
+pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
+    let dir =
+        std::fs::canonicalize(raw).map_err(|e| format!("`vault` '{}': {e}", agent_path(raw)))?;
+    if !dir.is_dir() {
+        return Err(format!(
+            "`vault` '{}' is not a directory: name the folder of Markdown files to search.",
+            dir.display()
+        ));
+    }
+    Ok(dir)
+}
+
+/// The Markdown documents under `dir` that a path-taking tool could read
+/// ([`checked_document_path`]), sorted, without entering hidden directories,
+/// `node_modules` or `target`, or following directory symlinks. Returns the
+/// canonical paths and whether [`DISK_VAULT_MAX_FILES`] cut the walk short.
+pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
+    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                let skip = name == "node_modules" || name == "target";
+                if !skip && depth < DISK_VAULT_MAX_DEPTH && walk(&path, depth + 1, out) {
+                    return true;
+                }
+            } else if let Ok(p) = checked_document_path(&path.to_string_lossy(), "vault") {
+                if std::path::Path::new(&p).is_file() && !out.contains(&p) {
+                    if out.len() == DISK_VAULT_MAX_FILES {
+                        return true;
+                    }
+                    out.push(p);
+                }
+            }
+        }
+        false
+    }
+    let mut out = Vec::new();
+    let truncated = walk(dir, 0, &mut out);
+    (out, truncated)
+}
+
+/// The files a vault search reads, and where the list came from.
+#[derive(Clone)]
+struct VaultFiles {
+    paths: Vec<String>,
+    /// Set when the app was unreachable and `vault` was walked on disk.
+    disk_vault: Option<String>,
+    /// Why the app was not asked, quoted in the note.
+    app_error: String,
+    truncated: bool,
+}
+
+impl VaultFiles {
+    /// Says the results come from the disk, not the app, when they do.
+    fn disk_note(&self) -> Option<String> {
+        let dir = self.disk_vault.as_deref()?;
+        let mut note = format!(
+            "Ashlr MD could not be reached ({}), so these results come from searching \
+             the {} Markdown files under {dir} on disk.",
+            self.app_error,
+            self.paths.len()
+        );
+        if self.truncated {
+            note.push_str(&format!(
+                " Only the first {DISK_VAULT_MAX_FILES} files were searched."
+            ));
+        }
+        Some(note)
+    }
+}
+
+/// The vault file list from the app, or from walking `vault` on disk when the
+/// app cannot be reached. A refusal or other failure is still an error.
+fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
+    match (vault_file_paths(ipc), vault) {
+        (Ok(paths), _) => Ok(VaultFiles {
+            paths,
+            disk_vault: None,
+            app_error: String::new(),
+            truncated: false,
+        }),
+        (Err(e), Some(dir)) if app_unreachable(&e) => {
+            let (paths, truncated) = disk_vault_files(dir);
+            Ok(VaultFiles {
+                paths,
+                disk_vault: Some(dir.to_string_lossy().into_owned()),
+                app_error: e,
+                truncated,
+            })
+        }
+        (Err(e), _) => Err(e),
     }
 }
 
@@ -2144,7 +2332,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
         "mimeType": "application/json"
     }));
 
@@ -2205,14 +2393,23 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let qs = rest.strip_prefix('?').unwrap_or("");
         let mut query = String::new();
         let mut limit: u64 = 50;
+        let mut vault = None;
+        // Query-string encoding: `+` is a space (the listed example is
+        // `?q=my+topic`), and `%2B` a literal plus.
+        let decode = |val: &str| {
+            let val = val.replace('+', " ");
+            urlencoding::decode(&val)
+                .map(|s| s.into_owned())
+                .unwrap_or(val)
+        };
         for part in qs.split('&') {
             if let Some(val) = part.strip_prefix("q=") {
-                // Query-string encoding: `+` is a space (the listed example is
-                // `?q=my+topic`), and `%2B` a literal plus.
-                let val = val.replace('+', " ");
-                query = urlencoding::decode(&val)
-                    .map(|s| s.into_owned())
-                    .unwrap_or(val);
+                query = decode(val);
+            } else if let Some(val) = part.strip_prefix("vault=") {
+                match disk_vault_dir(&decode(val)) {
+                    Ok(dir) => vault = Some(dir),
+                    Err(e) => return Response::err(id, -32602, e),
+                }
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = val.parse().unwrap_or(50);
             }
@@ -2225,10 +2422,19 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             );
         }
 
-        // The same search as `search_vault`, notes included. Every path needs
-        // the app (it supplies the vault file list), so failing to reach it is
-        // an error rather than an empty result set.
-        let mut payload = match search_vault(&query, limit, ollama_available(), ipc) {
+        // The same search as `search_vault`, notes included. Without `vault`
+        // every path needs the app (it supplies the vault file list), so
+        // failing to reach it is an error rather than an empty result set.
+        let semantic = ollama_available();
+        let found = search_vault_in(
+            &query,
+            limit,
+            semantic,
+            vault.as_deref(),
+            ipc,
+            &ollama_embed,
+        );
+        let mut payload = match found {
             Ok(v) => v,
             Err(e) => return Response::err(id, -32000, e),
         };
@@ -2543,7 +2749,7 @@ pub fn semantic_search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Vec<Value>, String> {
-    semantic_hits(query, limit, ipc, embed).map(|hits| hits.results)
+    semantic_hits(query, limit, &vault_file_paths(ipc)?, embed).map(|hits| hits.results)
 }
 
 /// What [`semantic_hits`] found, and how many documents it had to leave out
@@ -2576,16 +2782,15 @@ impl SemanticHits {
 fn semantic_hits(
     query: &str,
     limit: u64,
-    ipc: &dyn IpcClient,
+    paths: &[String],
     embed: Embedder,
 ) -> Result<SemanticHits, String> {
-    let paths = vault_file_paths(ipc)?;
     let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
     let mut embed_error = None;
     let mut skipped = 0;
 
-    for path in &paths {
+    for path in paths {
         let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2633,14 +2838,15 @@ fn semantic_hits(
 /// fails).  The file list still comes from the app, so this errors when the
 /// app is not running.
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
-    let paths = vault_file_paths(ipc)?;
-    if paths.is_empty() {
-        return Ok(vec![]);
-    }
+    Ok(grep_paths(query, limit, &vault_file_paths(ipc)?))
+}
+
+/// Grep `paths` on disk for `query` (case-insensitive), best match ratio first.
+fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let lower_query = query.to_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
 
-    for path in &paths {
+    for path in paths {
         let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2675,7 +2881,7 @@ pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Va
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     results.truncate(limit as usize);
-    Ok(results.iter().map(|r| r.to_json()).collect())
+    results.iter().map(|r| r.to_json()).collect()
 }
 
 /// Find the line in `content` most relevant to `query` (case-insensitive

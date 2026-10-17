@@ -2553,6 +2553,38 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     assert!(msg.contains("search is disabled"), "got: {msg}");
 }
 
+/// `vault` is searched on disk only when the app cannot be reached: a refusal
+/// stays the error, and an unreachable app falls back with a note.
+#[test]
+fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
+    let vault = dir.path().to_str().unwrap();
+    let args = json!({ "query": "target", "semantic": false, "vault": vault });
+
+    let refused = "IPC server returned HTTP 403: vault is disabled";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(refused.into()))
+        .on_get("/search", Err(refused.into()));
+    let msg = tool_error_text(&tool_search_vault(id(1), &args, &ipc));
+    assert!(msg.contains("vault is disabled"), "{msg}");
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(note.contains(down) && note.contains("on disk"), "{note}");
+
+    // A `vault` that is not a directory is an error result, app or not.
+    let bad = json!({ "query": "target", "vault": dir.path().join("a.md") });
+    let msg = tool_error_text(&tool_search_vault(id(3), &bad, &ipc));
+    assert!(msg.contains("not a directory"), "{msg}");
+}
+
 /// When every document's embedding fails, semantic search compared nothing,
 /// so it falls back to grep with a note instead of returning no results.
 #[test]

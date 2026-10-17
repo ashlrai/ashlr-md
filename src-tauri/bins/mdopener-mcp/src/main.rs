@@ -9,7 +9,9 @@
 //! If the file is absent, tools that need the app return an error. `open_file`
 //! can launch the app via the `mdopener://` URL scheme. `diff_documents`,
 //! `edit_canvas`, `list_ai_actions`, the two conversation tools, and
-//! `export_text` / `export_metadata` given a `path` work without the app.
+//! `export_text` / `export_metadata` given a `path` work without the app, and
+//! `search_vault` given a `vault` directory greps it on disk when the app is
+//! unreachable.
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
