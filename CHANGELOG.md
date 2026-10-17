@@ -43,6 +43,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   package descriptions shown in app metadata used em dashes (and two en
   dashes). They now use plain punctuation. A test parses the UI sources and
   fails on a dash in a string literal, template text or JSX text.
+- **A whitespace-only `edit_id` or canvas id is refused like an empty one.**
+  `stream_edit_apply`'s `edit_id: " "` and an `edit_canvas` op `id`,
+  `reorder_edges` `ids` element, `node.id`, `edge.id`, `edge.fromNode` or
+  `edge.toNode` of only whitespace passed the empty checks. They are now
+  `-32602` saying the field must not be empty, as an empty one is.
 - **`edit_canvas` refuses an empty id before reading the file.** An op with
   `id: ""` read the canvas and came back as "node `` not found". An empty
   op `id`, `reorder_edges` `ids` element, `add_node` `node.id`, or
