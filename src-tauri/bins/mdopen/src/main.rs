@@ -610,8 +610,8 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage (including --edit with --read or an empty path), unresolvable
-       path, a directory, not a file or not a Markdown document
+    1  bad usage (including --edit with --read or an empty path), a missing
+       or unresolvable path, a directory, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an argument that is
        not valid UTF-8, `-` with empty stdin or
        more than 16 MiB of it, or the app is not running
@@ -704,6 +704,15 @@ mod tests {
         assert_eq!(parse_args(&args(&["--help"])), Ok(Cli::Help));
         assert_eq!(parse_args(&args(&["x.md", "-h"])), Ok(Cli::Help));
         assert!(HELP.contains("--hook"));
+    }
+
+    /// The exit-status text names a missing file, the commonest exit 1,
+    /// which "unresolvable path" alone did not say.
+    #[test]
+    fn help_exit_status_names_a_missing_path() {
+        let status = HELP.split("EXIT STATUS:").nth(1).unwrap();
+        let flat = status.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("a missing or unresolvable path"), "{flat}");
     }
 
     #[test]

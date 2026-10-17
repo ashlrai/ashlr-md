@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --help` names a missing file under EXIT STATUS.** Exit 1 listed
+  an "unresolvable path", which did not say that a file that does not exist
+  (the commonest case) is one. It now reads "a missing or unresolvable
+  path", and docs/PHANTOM.md's exit-code table says the same.
 - **`open_file` refuses a non-Markdown file in its own words.** It said
   "Refusing to read `path` ...: only Markdown documents ... can be read",
   though the call is an open. It now says "Refusing to open ... can be
