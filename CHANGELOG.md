@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A slow export no longer turns other agent requests away.** A headless
+  export waits up to 30 s for the window, in one of the two slots edits,
+  opens, presents and reviews also wait in, so two exports in flight made the
+  app refuse all of those as busy until they finished. Headless exports now
+  have one slot of their own; a second one sent meanwhile is refused at once,
+  saying another export is being written.
 - **"The 200 newest files" are the folder's true newest.** Listing the watched
   folder stopped collecting at 2000 files and only then sorted by date, so in a
   bigger folder the Activity drawer and `search_vault` saw the newest of

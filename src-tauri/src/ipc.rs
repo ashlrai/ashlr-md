@@ -972,18 +972,20 @@ fn window_round_trip(
     event: &str,
     payload: serde_json::Value,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
-    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT)
+    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT, &EDIT_SLOTS)
 }
 
-/// [`window_round_trip`] waiting up to `timeout` for the window's answer.
+/// [`window_round_trip`] waiting up to `timeout` for the window's answer, in
+/// a slot of `slots`. `None` when that budget is full.
 fn window_round_trip_within(
     app: &AppHandle,
     prefix: &str,
     event: &str,
     mut payload: serde_json::Value,
     timeout: Duration,
+    slots: &'static SlotBudget,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
-    let _inflight = InflightEdit::acquire()?;
+    let _inflight = InflightEdit::acquire_in(slots)?;
     let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     payload["editId"] = serde_json::Value::String(edit_id.clone());
     let (tx, rx) = mpsc::channel::<EditOutcome>();
@@ -1118,7 +1120,9 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             });
             // A headless export waits for the window to report it written
             // (or why not) through `mcp_edit_result`; one for the dialog
-            // returns once the window is told.
+            // returns once the window is told. It can wait up to 30 s, so it
+            // waits in its own slot ([`EXPORT_SLOTS`]): a slow export never
+            // takes the slots edits, opens and reviews answer in.
             let reply = match output_path {
                 Some(out) => match window_round_trip_within(
                     app,
@@ -1126,9 +1130,10 @@ fn handle_export(mut req: Request, app: &AppHandle) {
                     "mcp://export",
                     payload,
                     EXPORT_ROUNDTRIP_TIMEOUT,
+                    &EXPORT_SLOTS,
                 ) {
                     Some(outcome) => export_reply(outcome, &out),
-                    None => window_busy("export", &out),
+                    None => export_busy(&out),
                 },
                 None => emitted_reply(
                     app.emit("mcp://export", payload),
@@ -1656,29 +1661,54 @@ const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(4);
 /// would overwrite one sender and make both round-trips spuriously time out).
 static EDIT_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Cap on edit round-trips parked on worker threads at once. With `WORKERS = 4`,
-/// holding this to 2 guarantees at least one worker stays free for `/content`,
-/// `/review/result` and `/health` even when a review poll is also parked.
+/// Cap on edit round-trips (`/edit`, `/content`, `/open`, `/present`, the
+/// review's open, `/stream-edit`) parked on worker threads at once.
 const MAX_INFLIGHT_EDITS: usize = 2;
-static INFLIGHT_EDITS: AtomicUsize = AtomicUsize::new(0);
+/// Cap on headless `/export` round-trips parked at once, in a budget of their
+/// own: one waits up to [`EXPORT_ROUNDTRIP_TIMEOUT`] (30 s, against 4 s for an
+/// edit), so sharing the edit slots let two slow exports refuse every other
+/// window request for that long. With `WORKERS = 4`, 2 edits plus 1 export
+/// still leave a worker free for `/health`, `/review/result` and the reads.
+const MAX_INFLIGHT_EXPORTS: usize = 1;
 
-/// RAII admission guard: lets at most [`MAX_INFLIGHT_EDITS`] edit round-trips run
+/// A number of round-trip slots and how many are taken.
+struct SlotBudget {
+    inflight: AtomicUsize,
+    cap: usize,
+}
+impl SlotBudget {
+    const fn new(cap: usize) -> Self {
+        SlotBudget {
+            inflight: AtomicUsize::new(0),
+            cap,
+        }
+    }
+}
+static EDIT_SLOTS: SlotBudget = SlotBudget::new(MAX_INFLIGHT_EDITS);
+static EXPORT_SLOTS: SlotBudget = SlotBudget::new(MAX_INFLIGHT_EXPORTS);
+
+/// RAII admission guard: lets at most a budget's `cap` round-trips run
 /// concurrently and releases the slot on every return path (success, soft-fail,
 /// timeout) via `Drop`.
-struct InflightEdit;
+struct InflightEdit(&'static SlotBudget);
 impl InflightEdit {
+    /// A slot of [`EDIT_SLOTS`].
     fn acquire() -> Option<Self> {
-        if INFLIGHT_EDITS.fetch_add(1, Ordering::AcqRel) >= MAX_INFLIGHT_EDITS {
-            INFLIGHT_EDITS.fetch_sub(1, Ordering::AcqRel);
+        Self::acquire_in(&EDIT_SLOTS)
+    }
+
+    fn acquire_in(slots: &'static SlotBudget) -> Option<Self> {
+        if slots.inflight.fetch_add(1, Ordering::AcqRel) >= slots.cap {
+            slots.inflight.fetch_sub(1, Ordering::AcqRel);
             None
         } else {
-            Some(InflightEdit)
+            Some(InflightEdit(slots))
         }
     }
 }
 impl Drop for InflightEdit {
     fn drop(&mut self) {
-        INFLIGHT_EDITS.fetch_sub(1, Ordering::AcqRel);
+        self.0.inflight.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -1752,6 +1782,21 @@ fn window_busy(doing: &str, path: &str) -> serde_json::Value {
         "error": format!(
             "The app is busy finishing other agent requests, so it did not {doing} \
              {path} — retry in a moment."
+        ),
+    })
+}
+
+/// The headless `/export` reply when another export is still being written:
+/// it can take up to [`EXPORT_ROUNDTRIP_TIMEOUT`], so the agent is told to
+/// retry once that one finishes, not "in a moment".
+fn export_busy(path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "path": path,
+        "error": format!(
+            "Another headless export is still being written, so the app did not export \
+             {path}. Retry once it finishes (it takes at most {}s).",
+            EXPORT_ROUNDTRIP_TIMEOUT.as_secs()
         ),
     })
 }
@@ -2135,7 +2180,7 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
-        same_path, search_body, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
+        same_path, search_body, InflightEdit, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
 
@@ -2227,8 +2272,30 @@ mod tests {
         }
     }
 
+    /// A second headless export is refused at once, saying another export
+    /// is being written and how long that can take, not "in a moment".
+    #[test]
+    fn a_busy_export_says_another_export_holds_the_slot() {
+        let r = super::export_busy("/tmp/out.pdf");
+        assert_eq!(r["ok"], false);
+        assert_eq!(r["path"], "/tmp/out.pdf");
+        let e = r["error"].as_str().unwrap();
+        assert!(e.contains("Another headless export is still being written"), "{e}");
+        assert!(e.contains("at most 30s"), "{e}");
+    }
+
     #[test]
     fn inflight_edit_guard_caps_concurrency() {
+        // Headless exports wait up to 30 s in their own budget: with every
+        // export slot taken, edits (and opens, presents, reviews) still get
+        // all of theirs. They shared one budget, so two slow exports refused
+        // every other window request until they finished.
+        let mut exports: Vec<InflightEdit> = Vec::new();
+        while let Some(g) = InflightEdit::acquire_in(&EXPORT_SLOTS) {
+            exports.push(g);
+            assert!(exports.len() <= 8, "the export budget is bounded");
+        }
+        assert!(!exports.is_empty(), "an export gets a slot");
         // Admits up to the cap, refuses beyond it, and frees a slot on Drop so a
         // burst of /edit requests can never park every worker thread.
         let mut guards: Vec<InflightEdit> = Vec::new();
@@ -2248,10 +2315,12 @@ mod tests {
         drop(extra);
         drop(guards);
         assert_eq!(
-            INFLIGHT_EDITS.load(Ordering::Acquire),
+            EDIT_SLOTS.inflight.load(Ordering::Acquire),
             0,
             "every slot is released once guards drop"
         );
+        drop(exports);
+        assert_eq!(EXPORT_SLOTS.inflight.load(Ordering::Acquire), 0);
     }
 
     #[test]
