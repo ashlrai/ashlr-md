@@ -8769,6 +8769,42 @@ fn request_review_description_says_a_call_can_return_pending() {
     );
 }
 
+/// list_recent, get_user_annotations and present_document described what
+/// they do but not what they return, so an agent learned the field names
+/// (and that `verdict` is null with no review) by calling them.
+#[test]
+fn tool_descriptions_name_their_result_shapes() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    for (tool, wants) in [
+        (
+            "list_recent",
+            &["[{ path, fileName, openedAt }]", "most recent first"][..],
+        ),
+        (
+            "get_user_annotations",
+            &[
+                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }",
+                "null when no review",
+            ][..],
+        ),
+        (
+            "present_document",
+            &["{ ok, path }", "not a dotfile", "does not exist is refused"][..],
+        ),
+    ] {
+        let d = desc(tool);
+        for want in wants {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+    }
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

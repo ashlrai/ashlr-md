@@ -826,7 +826,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_recent",
-            description: "Return the list of recently opened files.",
+            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -901,7 +901,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_user_annotations",
-            description: "Return the human's current review verdict, comments, and task-checkbox states for a document.",
+            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -984,7 +984,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

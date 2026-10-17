@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`list_recent`, `get_user_annotations` and `present_document` name their
+  results.** Their descriptions said what they do but not what comes back.
+  They now give `[{ path, fileName, openedAt }]` (most recent first),
+  `{ path, verdict, comments, late, tasks, tasksNote? }` (with `verdict` and
+  `comments` null when no review was requested) and `{ ok, path }`, and
+  `present_document` names the Markdown-only and missing-file refusals.
 - **`open_file`'s description names what it refuses and returns.** It said
   only "Open a Markdown file in Ashlr MD. Launches the app if it is not
   already running." It now names the Markdown extensions, the dotfile and
