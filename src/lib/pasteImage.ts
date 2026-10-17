@@ -92,13 +92,14 @@ export async function handleImagePasteWithSettings(
     const bytes = Array.from(buf);
 
     if (target === "downloads") {
-      // Rust returns the full absolute path; we insert it as-is so the editor
-      // can render or link to the file outside the vault.
+      // Rust returns the full absolute path, so the editor can render or link
+      // to the file outside the vault. It can hold spaces (a home folder named
+      // "Jane Doe"), which end a bare link destination.
       const absPath = await invoke<string>("save_pasted_image_to_downloads", {
         bytes,
         ext,
       });
-      return `![](${absPath})`;
+      return imageMarkdown(absPath);
     }
 
     // doc-relative (default)
@@ -112,6 +113,15 @@ export async function handleImagePasteWithSettings(
     toast.error(`Could not save pasted image: ${String(e)}`);
     return null;
   }
+}
+
+/**
+ * `![](<dest>)`: in angle brackets a link destination may hold spaces and
+ * parentheses, so a path with them stays one image. `<` and `>` are the only
+ * characters to escape there.
+ */
+export function imageMarkdown(dest: string): string {
+  return `![](<${dest.replace(/[<>]/g, (c) => `\\${c}`)}>)`;
 }
 
 /** True if the clipboard carries at least one supported image file. */

@@ -7,6 +7,9 @@
  *     markdown output format, unsaved-doc guard, toast messages
  */
 
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { visit } from "unist-util-visit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock Tauri invoke before importing the module under test ──────────────────
@@ -485,7 +488,22 @@ describe("handleImagePasteWithSettings — downloads mode", () => {
     invokeMock.mockResolvedValue("/Users/user/Downloads/mdopener-paste/img.png");
     const dt = makeDataTransfer(makeItem("image/png"));
     const md = await handleImagePasteWithSettings(dt, "downloads");
-    expect(md).toBe("![](/Users/user/Downloads/mdopener-paste/img.png)");
+    expect(md).toBe("![](</Users/user/Downloads/mdopener-paste/img.png>)");
+  });
+
+  it("keeps a path with spaces one image", async () => {
+    const abs = "/Users/Jane Doe/Downloads/mdopener-paste/img (1).png";
+    invokeMock.mockResolvedValue(abs);
+    const dt = makeDataTransfer(makeItem("image/png"));
+    const md = await handleImagePasteWithSettings(dt, "downloads");
+    const tree = unified()
+      .use(remarkParse)
+      .parse(md ?? "");
+    const images: string[] = [];
+    visit(tree, "image", (n: { url: string }) => {
+      images.push(n.url);
+    });
+    expect(images).toEqual([abs]);
   });
 
   it("passes bytes and ext but NOT docPath to the downloads Rust command", async () => {
