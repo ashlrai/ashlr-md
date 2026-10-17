@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`export`'s description names its results.** It said when the call
+  returns but not what comes back. It now gives `{ ok, format, path, bytes }`
+  for a written file and `{ ok, format, dialog: true }` for the dialog, and
+  names the 30 s write limit and the one-headless-export-at-a-time refusal,
+  as docs/AGENTS.md already did.
 - **`stream_edit` names its result and refusals.** Its description said it
   returns diffs but not the fields, and docs/AGENTS.md gave "the app's diff
   preview". Both now give `{ ok, editId, diff, candidates, matchCount,

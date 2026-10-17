@@ -8958,6 +8958,41 @@ fn stream_edit_description_names_its_result_and_refusals() {
     assert_eq!(tool_error_text(&resp), refusal);
 }
 
+/// export's description said when the call returns but not what it
+/// returns, though docs/AGENTS.md gave both shapes. The named shapes are the
+/// tool's own results, for a written file and for the dialog.
+#[test]
+fn export_description_names_its_results() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "export")
+        .unwrap()
+        .description;
+    for want in [
+        "{ ok, format, path, bytes }",
+        "{ ok, format, dialog: true }",
+        "30 s",
+        "second headless export",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
+    let v = content_text(&tool_export(id(1), &json!({ "format": "docx" }), &ipc));
+    assert_eq!(v, json!({ "ok": true, "format": "docx", "dialog": true }));
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("plan.html");
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &exporting_app(true),
+        SHORT,
+    );
+    let v = content_text(&resp);
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["bytes", "format", "ok", "path"], "{v}");
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

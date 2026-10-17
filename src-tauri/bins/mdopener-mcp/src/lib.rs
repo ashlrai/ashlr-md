@@ -849,7 +849,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme. Returns { ok, format, path, bytes } once the file is written (`path` absolute, `bytes` its size), or { ok, format, dialog: true } when the dialog was opened. A file not written within 30 s is an error, and so is a second headless export sent while one is being written (retry once it finishes).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
