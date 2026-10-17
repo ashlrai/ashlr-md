@@ -8489,6 +8489,38 @@ fn request_review_wait_ms_outside_its_range_is_refused() {
     }
 }
 
+/// `get_conversation_context` clamped a `limit` above 200 in silence while
+/// `list_recent` refused one. Both now refuse a value outside 1 to 200, in
+/// the schema (`maximum`) and in the tool itself.
+#[test]
+fn conversation_limit_outside_1_to_200_is_refused_like_list_recent() {
+    use_temp_sessions_dir();
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "get_conversation_context")
+        .unwrap();
+    assert_eq!(def.input_schema["properties"]["limit"]["maximum"], 200);
+    let msg = param_error(&call_tool(
+        "get_conversation_context",
+        json!({ "session_id": "s", "limit": 201 }),
+    ));
+    assert_eq!(msg, "`limit` must be at most 200, got 201");
+    let session = unique_session();
+    for bad in [json!(0), json!(201), json!(1_000_000), json!(2.5)] {
+        let resp =
+            tool_get_conversation_context(id(1), &json!({ "session_id": session, "limit": bad }));
+        assert_eq!(
+            param_error(&resp),
+            format!("`limit` must be a whole number from 1 to 200, got {bad}; omit it for the default of 20"),
+        );
+    }
+    for ok in [json!(1), json!(200), json!(20.0)] {
+        let resp =
+            tool_get_conversation_context(id(1), &json!({ "session_id": session, "limit": ok }));
+        assert!(!is_error(&resp) && resp.error.is_none(), "{ok}: {resp:?}");
+    }
+}
+
 fn prompt_get(params: Value) -> mdopener_mcp::Response {
     let ipc = MockIpc::new();
     dispatch(dispatch_req("prompts/get", params), &ipc).unwrap()

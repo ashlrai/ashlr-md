@@ -1024,7 +1024,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, min 1, max 200."
+                        "maximum": MAX_MESSAGES_PER_SESSION,
+                        "description": "Maximum number of messages to return: the most recent N, in chronological order. A whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 20."
                     }
                 },
                 "required": ["session_id"]
@@ -3156,9 +3157,26 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         Err(msg) => return Response::err(id, -32602, msg),
     };
 
-    let limit = whole_number(args, "limit")
-        .unwrap_or(20)
-        .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
+    // A `limit` above MAX_MESSAGES_PER_SESSION used to be clamped in silence
+    // while `list_recent` refused one; both now refuse a value outside 1 to
+    // 200 (a session keeps at most 200 messages). Omitted keeps the default.
+    let max = MAX_MESSAGES_PER_SESSION as u64;
+    let limit = match &args["limit"] {
+        Value::Null => 20,
+        v => match whole_number_value(v).filter(|n| (1..=max).contains(n)) {
+            Some(n) => n as usize,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {max}, got {v}; \
+                         omit it for the default of 20"
+                    ),
+                )
+            }
+        },
+    };
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
