@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` names the target of a refused link.** `notes.md` linking to
+  `.env` was refused as `"notes.md" is not a Markdown document`, though its
+  name is one. It now reads `"notes.md" links to /abs/.env, which is not a
+  Markdown document`.
 - **`mdopen` says when a file does not exist, and where it looked.** A
   missing file read `cannot resolve path "nope.md": No such file or
   directory (os error 2)`. It is now `"nope.md" does not exist (looked for

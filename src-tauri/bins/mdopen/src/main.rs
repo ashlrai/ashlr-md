@@ -272,8 +272,15 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
         return Err(format!("{target:?} is not a file"));
     }
     if !is_markdown_document_name(&p) {
+        // `notes.md` linking to `.env` used to be called "not a Markdown
+        // document" by its own, Markdown, name; the error names the target.
+        let what = if is_markdown_document_name(Path::new(target)) {
+            format!("{target:?} links to {}, which", p.display())
+        } else {
+            format!("{target:?}")
+        };
         return Err(format!(
-            "{target:?} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
+            "{what} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
             MD_EXTENSIONS.join(", .")
         ));
     }
@@ -903,7 +910,17 @@ mod tests {
             std::os::unix::fs::symlink(&secret, &link).unwrap();
             let err = resolve_file(link.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{err}");
+            // The error names the file the link points at, not only the
+            // link's own Markdown name.
+            let target = std::fs::canonicalize(&secret).unwrap();
+            assert!(
+                err.contains(&format!("links to {}, which is not", target.display())),
+                "{err}"
+            );
         }
+        // A name that is itself not a document does not claim a link.
+        let err = resolve_file(s.file("notes.txt").to_str().unwrap()).unwrap_err();
+        assert!(!err.contains("links to"), "{err}");
     }
 
     #[test]
