@@ -1006,7 +1006,10 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             }
             // The window writes `outputPath` without asking, so the app holds
             // it to the same rule the MCP tool does, whoever is calling.
-            let checked = b.output_path.as_deref().map(|p| app_export_path(p, &b.format));
+            let checked = b
+                .output_path
+                .as_deref()
+                .map(|p| app_export_path(p, &b.format));
             let output_path = match checked.transpose() {
                 Ok(p) => p.map(|p| p.to_string_lossy().into_owned()),
                 Err(e) => return send_error(req, 400, &e),
@@ -1165,20 +1168,25 @@ fn review_open_refusal(
 }
 
 /// The percent-decoded value of `key` in a query string, or `None` when it is
-/// absent or does not decode to UTF-8.
-fn query_param(query: &str, key: &str) -> Option<String> {
+/// absent. A value that does not decode to UTF-8 is an error (a 400), not
+/// read as absent or empty: `/search` used to answer it with no results.
+fn query_param(query: &str, key: &str) -> Result<Option<String>, String> {
     query
         .split('&')
         .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
-        .and_then(|v| urlencoding::decode(v).ok())
-        .map(|v| v.into_owned())
+        .map(|v| {
+            urlencoding::decode(v)
+                .map(|v| v.into_owned())
+                .map_err(|_| format!("the {key} query param is not percent-encoded UTF-8: '{v}'"))
+        })
+        .transpose()
 }
 
 /// The `limit` query param, or `default` when it is absent. A value that is
 /// not a whole number is refused rather than read as the default, so a
 /// caller's `limit=ten` does not quietly get a different count.
 fn limit_param(query: &str, default: usize) -> Result<usize, String> {
-    match query_param(query, "limit") {
+    match query_param(query, "limit")? {
         None => Ok(default),
         Some(v) => v.parse().map_err(|_| {
             format!(
@@ -1201,7 +1209,10 @@ fn review_status(r: &ReviewRecord, now: u64) -> &str {
 }
 
 fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
-    let id = query_param(query, "id").unwrap_or_default();
+    let id = match query_param(query, "id") {
+        Ok(id) => id.unwrap_or_default(),
+        Err(e) => return send_error(req, 400, &e),
+    };
     let id = id.as_str();
     if id.is_empty() {
         return send_error(req, 400, "id query param required");
@@ -1300,7 +1311,7 @@ fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
 /// read tasks from or match reviews against, and the reply used to be an
 /// empty result for the path "", which reads as "no tasks, no verdict".
 fn annotations_path(query: &str) -> Result<String, String> {
-    query_param(query, "path")
+    query_param(query, "path")?
         .filter(|p| !p.is_empty())
         .ok_or_else(|| {
             "path query param required: /annotations?path=<percent-encoded path of the document>"
@@ -1366,11 +1377,10 @@ fn handle_vault(req: Request, app: &AppHandle) {
 
 /// GET /search?q=…&limit=N — full-text search across the vault + recents.
 fn handle_search(req: Request, query: &str, app: &AppHandle) {
-    let q = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("q="))
-        .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
-        .unwrap_or_default();
+    let q = match query_param(query, "q") {
+        Ok(q) => q.unwrap_or_default(),
+        Err(e) => return send_error(req, 400, &e),
+    };
     let limit = match limit_param(query, 50) {
         Ok(l) => l.clamp(1, 200),
         Err(e) => return send_error(req, 400, &e),
@@ -2363,10 +2373,13 @@ mod tests {
             "/notes/a b.md"
         );
         assert_eq!(annotations_path("x=1&path=/a.md").unwrap(), "/a.md");
-        for query in ["", "path=", "x=1", "path=%FF"] {
+        for query in ["", "path=", "x=1"] {
             let err = annotations_path(query).unwrap_err();
             assert!(err.contains("path query param required"), "{query}: {err}");
         }
+        // An undecodable path says so, rather than that none was given.
+        let err = annotations_path("path=%FF").unwrap_err();
+        assert!(err.contains("not percent-encoded UTF-8"), "{err}");
     }
 
     #[test]
@@ -2566,13 +2579,35 @@ mod tests {
     #[test]
     fn query_params_are_percent_decoded() {
         use super::query_param;
-        assert_eq!(query_param("id=rev_1", "id").as_deref(), Some("rev_1"));
+        assert_eq!(query_param("id=rev_1", "id"), Ok(Some("rev_1".into())));
         assert_eq!(
-            query_param("x=1&id=my%20review%26co", "id").as_deref(),
-            Some("my review&co")
+            query_param("x=1&id=my%20review%26co", "id"),
+            Ok(Some("my review&co".into()))
         );
-        assert_eq!(query_param("idx=1", "id"), None);
-        assert_eq!(query_param("", "id"), None);
+        assert_eq!(query_param("idx=1", "id"), Ok(None));
+        assert_eq!(query_param("", "id"), Ok(None));
+        assert_eq!(query_param("q=", "q"), Ok(Some(String::new())));
+    }
+
+    /// A query param that does not decode to UTF-8 is refused (`/search`
+    /// answered it with no results, which reads as "nothing matches").
+    #[test]
+    fn an_undecodable_query_param_is_an_error_not_empty() {
+        use super::{annotations_path, limit_param, query_param};
+        let err = query_param("q=%FF%FE&limit=5", "q").unwrap_err();
+        assert!(
+            err.contains("q query param is not percent-encoded UTF-8"),
+            "{err}"
+        );
+        assert!(err.contains("%FF%FE"), "{err}");
+        // Other params of the same query still read.
+        assert_eq!(query_param("q=%FF&limit=5", "limit"), Ok(Some("5".into())));
+        assert!(limit_param("limit=%C3", 50)
+            .unwrap_err()
+            .contains("limit query param"));
+        assert!(annotations_path("path=%80.md")
+            .unwrap_err()
+            .contains("path query param"));
     }
 
     #[test]
