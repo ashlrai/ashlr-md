@@ -263,8 +263,18 @@ pub fn persist_session(session_id: &str, log: &SessionLog) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(json) = serde_json::to_string_pretty(log) {
-        let _ = std::fs::write(&path, json);
+    let Ok(json) = serde_json::to_string_pretty(log) else { return };
+    // Write a sibling temp file and rename it into place. Other server
+    // processes re-read this file on every get and append, and an in-place
+    // write lets them read a truncated log, fail to parse it, and write their
+    // own copy back over every message they did not see.
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut tmp = path.clone().into_os_string();
+    tmp.push(format!(".{}-{seq}.tmp", std::process::id()));
+    let tmp = std::path::PathBuf::from(tmp);
+    if std::fs::write(&tmp, json).is_err() || std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 

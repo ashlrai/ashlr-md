@@ -3801,3 +3801,42 @@ fn resumed_review_times_out_when_its_window_has_closed() {
     );
     assert_eq!(content_text(&resp)["status"], "pending");
 }
+
+/// The session log is replaced by a rename, never rewritten in place: another
+/// server process re-reads it on every get and append, and a torn read there
+/// (truncated JSON) made that process write its own copy back over the log.
+#[cfg(unix)]
+#[test]
+fn persist_session_replaces_the_log_atomically() {
+    use mdopener_mcp::persist_session;
+    let sess = format!("atomic-persist-{}-{:?}", std::process::id(), std::time::Instant::now())
+        .replace(|c: char| !c.is_alphanumeric(), "-");
+    store_append_message(&sess, "agent", "first", vec![]).unwrap();
+    let path = session_file_path(&sess).unwrap();
+    // A reader holding the old file (here, a hard link to it) keeps a whole,
+    // parseable log while the next version is written.
+    let reader = path.with_extension("reader");
+    std::fs::hard_link(&path, &reader).unwrap();
+    let before = std::fs::read_to_string(&reader).unwrap();
+
+    let mut log = load_session_from_disk(&sess).unwrap();
+    let mut next = log.messages[0].clone();
+    next.id = "msg-next".into();
+    next.content = "second".into();
+    log.messages.push(next);
+    persist_session(&sess, &log);
+
+    assert_eq!(std::fs::read_to_string(&reader).unwrap(), before, "written in place");
+    assert_eq!(load_session_from_disk(&sess).unwrap().messages.len(), 2);
+    let dir = path.parent().unwrap();
+    let stem = path.file_name().unwrap().to_str().unwrap().to_string();
+    let leftovers: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&stem) && n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+    let _ = std::fs::remove_file(&reader);
+    let _ = std::fs::remove_file(&path);
+}
