@@ -1063,8 +1063,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "cited_docs": {
                         "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced."
+                        "items": { "type": "string", "minLength": 1 },
+                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced. An empty path is refused."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1546,6 +1546,18 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     "`{key}[{i}]` must be {}, got {}",
                     type_phrase(want),
                     json_type_phrase(bad)
+                ));
+            }
+        }
+        if let (Some(min), Some(items)) = (prop["items"]["minLength"].as_u64(), value.as_array()) {
+            if let Some((i, bad)) = items
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.as_str().is_some_and(|t| (t.chars().count() as u64) < min))
+            {
+                return Err(format!(
+                    "`{key}[{i}]` must be at least {min} character{} long, got {bad}",
+                    if min == 1 { "" } else { "s" }
                 ));
             }
         }
@@ -3275,14 +3287,19 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         None => return Response::err(id, -32602, "`content` is required"),
     };
 
-    let cited_docs: Vec<String> = args["cited_docs"]
+    // An empty path used to be stored and come back in `recentDocs`, where
+    // agents read the first entry as the most recently cited document.
+    let cited = args["cited_docs"]
         .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if let Some(i) = cited.iter().position(|v| v.as_str() == Some("")) {
+        return Response::err(id, -32602, format!("`cited_docs[{i}]` must not be empty"));
+    }
+    let cited_docs: Vec<String> = cited
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
 
     match append_message(&session_id, role, &content, cited_docs) {
         Ok((msg, dropped)) => {

@@ -8463,6 +8463,36 @@ fn required_strings_refused_when_empty_declare_min_length() {
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
 
+/// An empty path in `cited_docs` used to be stored, and came back in
+/// `recentDocs` (as its first entry when it was the latest citation). It is
+/// refused by the schema check and by the tool, and nothing is saved.
+#[test]
+fn empty_cited_doc_is_refused() {
+    use_temp_sessions_dir();
+    let sess = format!("empty-cited-{}", unique_session());
+    let args = json!({ "session_id": sess, "role": "agent", "content": "did x",
+        "cited_docs": ["/a.md", ""] });
+    let msg = param_error(&call_tool("save_conversation_message", args.clone()));
+    assert_eq!(
+        msg,
+        "`cited_docs[1]` must be at least 1 character long, got \"\""
+    );
+    let resp = tool_save_conversation_message(json!(1), &args);
+    assert_eq!(param_error(&resp), "`cited_docs[1]` must not be empty");
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(ctx["count"], 0, "{ctx}");
+    // A list of real paths is still saved.
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["/a.md"] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
+}
+
 #[test]
 fn blank_session_id_is_refused() {
     use_temp_sessions_dir();
