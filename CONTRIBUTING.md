@@ -25,7 +25,7 @@ bun run tauri dev -- /path/to/file.md
 
 ### Check the frontend without the desktop shell
 
-On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. They were run on Linux with Bun 1.4.2: install about 1 s, typecheck about 8 s, 61 test files and 2301 tests in about 30 s, production build about 27 s. `bun run tauri dev` was not run there and needs the Tauri system libraries.
+On a machine with no Rust toolchain or display (for example a Linux CI box), these run the web part only. They were run on Linux with Bun 1.4.2: install about 1 s, typecheck about 8 s, 61 test files and 2304 tests in about 30 s, production build about 27 s. `bun run tauri dev` was not run there and needs the Tauri system libraries.
 
 ```bash
 bun install --frozen-lockfile
