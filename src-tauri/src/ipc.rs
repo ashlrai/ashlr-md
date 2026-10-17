@@ -264,9 +264,13 @@ pub fn mcp_sync_state(
     *recent_mirror.0.lock().unwrap() = recents;
 }
 
+/// The verdicts the review panel may record. `timeout` is the panel's own
+/// countdown running out with no decision; `dismissed` is the human closing it.
+const REVIEW_VERDICTS: &[&str] = &["approved", "changes_requested", "dismissed", "timeout"];
+
 /// Called by the frontend review panel when the human clicks Approve / Request-
-/// changes / Dismiss. Records the verdict so the polling MCP binary returns it
-/// to the agent.
+/// changes / Dismiss, or when its countdown runs out. Records the verdict so
+/// the polling MCP binary returns it to the agent.
 #[tauri::command]
 pub fn set_review_verdict(
     review_id: String,
@@ -274,7 +278,7 @@ pub fn set_review_verdict(
     comments: Option<String>,
     state: tauri::State<ReviewState>,
 ) -> Result<(), String> {
-    if !["approved", "changes_requested", "dismissed"].contains(&verdict.as_str()) {
+    if !REVIEW_VERDICTS.contains(&verdict.as_str()) {
         return Err(format!("Invalid verdict: {verdict}"));
     }
     let mut map = state.0.lock().unwrap();
@@ -1995,6 +1999,16 @@ mod tests {
             created_at,
             timeout_ms,
         }
+    }
+
+    #[test]
+    fn the_panel_can_record_a_timeout_verdict() {
+        // The countdown running out is not the human dismissing the review.
+        assert!(super::REVIEW_VERDICTS.contains(&"timeout"));
+        assert!(super::REVIEW_VERDICTS.contains(&"dismissed"));
+        // A recorded timeout reads back as timeout, which the MCP tool reports.
+        let r = review("timeout", None, 1_000, 5_000);
+        assert_eq!(super::review_status(&r, 2_000), "timeout");
     }
 
     #[test]

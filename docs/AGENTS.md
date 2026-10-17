@@ -330,6 +330,8 @@ before proceeding.
    **Dismiss** — optionally leaving comments.
 4. **The agent receives the verdict** as the tool result:
    `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
+   `dismissed` means the human closed the panel. If the panel's countdown runs
+   out with no decision, the verdict is `timeout`.
 
 ### Parameters
 
