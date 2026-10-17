@@ -8735,6 +8735,23 @@ fn integer_below_its_minimum_is_refused() {
     }
 }
 
+/// `request_review` refused an empty inline `content` but registered a
+/// review of whitespace only, which the human could only approve or reject
+/// blind. Blank content is refused the same way, before the app is asked.
+#[test]
+fn request_review_refuses_whitespace_only_content() {
+    for blank in ["   ", "\n\t\n"] {
+        let ipc = MockIpc::new();
+        let resp = mdopener_mcp::tool_request_review(
+            id(1),
+            &json!({ "content": blank, "blocking": false }),
+            &ipc,
+        );
+        assert_eq!(param_error(&resp), "`content` must not be empty");
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
+}
+
 /// `request_review` clamped `wait_ms` to 1000 to 600000 in silence while its
 /// schema said `minimum: 0`, so `wait_ms: 0` still blocked for a second. The
 /// schema now declares the range the tool takes, for `timeout_ms` too, and

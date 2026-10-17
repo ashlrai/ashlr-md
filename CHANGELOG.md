@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`request_review` refuses whitespace-only inline `content`.** An empty
+  `content` was refused, but one of only spaces or newlines still registered
+  a review with nothing to read. It is now `-32602` "`content` must not be
+  empty" too, before the app is asked.
 - **`cited_docs` paths are stored absolute.** `save_conversation_message`
   described `cited_docs` as absolute paths but stored a relative one as
   given, so `recentDocs` returned a path no agent could match. A relative
