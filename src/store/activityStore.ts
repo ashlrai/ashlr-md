@@ -21,7 +21,8 @@ import { useSettingsStore } from "./settingsStore";
 import { toast } from "./toastStore";
 import { useUiStore } from "./uiStore";
 
-const MAX_FILES = 200;
+/** Most files the drawer lists and the agents' `/vault` (search_vault) searches. */
+export const MAX_FILES = 200;
 
 // ── New-file toast coalescing ──────────────────────────────────────────────
 // When the drawer is closed and an agent writes new Markdown, surface a single
@@ -99,6 +100,11 @@ interface ActivityState {
   unseen: string[];
   /** Last error string from a backend call, or null. */
   lastError: string | null;
+  /**
+   * True when the folder holds more Markdown files than {@link MAX_FILES}, so
+   * `files` (and what agents search) is only the newest of them. Runtime only.
+   */
+  truncated: boolean;
 
   /** Set (or clear) the watched folder. Does NOT issue the watch itself. */
   setWatchedDir: (dir: string | null) => void;
@@ -135,6 +141,7 @@ export const useActivityStore = create<ActivityState>()(
       files: [],
       unseen: [],
       lastError: null,
+      truncated: false,
 
       setWatchedDir: (dir) => {
         // The listing and badges belong to the folder they were read from: a
@@ -142,7 +149,13 @@ export const useActivityStore = create<ActivityState>()(
         // the agents' `/vault` (search_vault) never show the old folder's files
         // as the new one's, also when that listing fails.
         if (dir !== get().watchedDir) {
-          set({ watchedDir: dir, files: [], unseen: [], lastError: null });
+          set({
+            watchedDir: dir,
+            files: [],
+            unseen: [],
+            lastError: null,
+            truncated: false,
+          });
         } else {
           set({ lastError: null });
         }
@@ -160,11 +173,16 @@ export const useActivityStore = create<ActivityState>()(
         try {
           // Ask for as many files as the store keeps: the backend's default
           // (100) silently left half of them out of the drawer and of what
-          // search_vault searches.
-          const files = await listMarkdownFiles(dir, MAX_FILES);
+          // search_vault searches. One more than that says whether the folder
+          // has more, so the drawer and agents are told the list is cut short.
+          const listed = await listMarkdownFiles(dir, MAX_FILES + 1);
           // The folder changed while this listing ran: it is not this one's.
           if (get().watchedDir !== dir) return;
-          set({ files, lastError: null });
+          set({
+            files: listed.slice(0, MAX_FILES),
+            truncated: listed.length > MAX_FILES,
+            lastError: null,
+          });
         } catch (e) {
           if (get().watchedDir !== dir) return;
           set({ lastError: e instanceof Error ? e.message : String(e) });
@@ -185,6 +203,10 @@ export const useActivityStore = create<ActivityState>()(
         if (isNovel) queueNewFileToast(toFileInfo(ev));
         set((s) => ({
           files: upsert(s.files, toFileInfo(ev)),
+          // A new file pushed the oldest one out of a full list.
+          truncated:
+            s.truncated ||
+            (s.files.length >= MAX_FILES && !s.files.some((f) => f.path === ev.path)),
           unseen:
             drawerOpen || s.unseen.includes(ev.path)
               ? s.unseen
@@ -200,7 +222,13 @@ export const useActivityStore = create<ActivityState>()(
       markAllSeen: () => set({ unseen: [] }),
 
       clearWatch: () =>
-        set({ watchedDir: null, files: [], unseen: [], lastError: null }),
+        set({
+          watchedDir: null,
+          files: [],
+          unseen: [],
+          lastError: null,
+          truncated: false,
+        }),
     }),
     {
       name: "mdopener-activity",

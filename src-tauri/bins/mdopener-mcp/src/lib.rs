@@ -704,7 +704,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": { "type": "string", "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
-                    "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
+                    "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
@@ -966,7 +966,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
                                 "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
-                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RRGGBB'. Omit to clear (set_node_color)." },
+                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
                                     "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
@@ -1267,7 +1267,9 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an argument whose JSON type differs from the declared `type`, or an array
 ///   element whose type differs from the declared `items.type`;
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
-///   back to the default, since the tools read it with `as_u64`).
+///   back to the default, since the tools read it with `as_u64`);
+/// - a value outside the declared `enum`, at the top level or in a field of an
+///   array element (`ops[0].type`), with the allowed values listed.
 ///
 /// - a `required` argument that is missing, as "`name` is required" (the first
 ///   missing one in the schema's `required` order), and a call that gives none
@@ -1329,6 +1331,9 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     json_type_phrase(value)
                 ));
             }
+        }
+        if let Some(msg) = enum_problem(key, prop, value) {
+            return Err(msg);
         }
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
@@ -1441,6 +1446,9 @@ fn check_item_fields(
                 ));
             }
         }
+        if let Some(msg) = enum_problem(&format!("{at}.{k}"), field, v) {
+            return Err(msg);
+        }
         if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
             if let Some((j, bad)) = elems
                 .iter()
@@ -1466,6 +1474,29 @@ fn check_item_fields(
         }
     }
     Ok(())
+}
+
+/// A value outside the property's declared `enum`, as "`at` must be one of
+/// `a`, `b`, got ...". The tools checked some of these themselves (`mode`,
+/// `format`, `role`), each in its own words and some only after reaching the
+/// app; others (`ops[].type`) only once earlier ops had run.
+fn enum_problem(at: &str, prop: &Value, value: &Value) -> Option<String> {
+    let allowed = prop["enum"].as_array()?;
+    if allowed.contains(value) {
+        return None;
+    }
+    let names = allowed
+        .iter()
+        .map(|a| match a {
+            Value::String(s) => format!("`{s}`"),
+            other => format!("`{other}`"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "`{at}` must be one of {names}, got {}",
+        json_type_phrase(value)
+    ))
 }
 
 fn json_type_matches(want: &str, value: &Value) -> bool {
@@ -2187,32 +2218,45 @@ pub fn tool_request_review_with(
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(this_call);
     let endpoint = format!("/review/result?id={}", urlencoding::encode(&review_id));
-    loop {
-        let now = std::time::Instant::now();
-        if now >= deadline {
-            if window_ends {
-                return respond(
-                    id,
-                    json!({
-                        "verdict": "timeout",
-                        "reviewId": review_id,
-                        "message": "No verdict received within the timeout period."
-                    }),
-                );
-            }
+    let undecided = |id: Value, window_closed: bool| -> Response {
+        if window_closed {
             return respond(
                 id,
                 json!({
-                    "status": "pending",
+                    "verdict": "timeout",
                     "reviewId": review_id,
-                    "message": "No verdict yet. Call request_review again with this review_id to keep waiting."
+                    "message": "No verdict received within the timeout period."
                 }),
             );
         }
-        std::thread::sleep(poll.min(deadline - now));
+        respond(
+            id,
+            json!({
+                "status": "pending",
+                "reviewId": review_id,
+                "message": "No verdict yet. Call request_review again with this review_id to keep waiting."
+            }),
+        )
+    };
+    // A resumed call with `blocking: false` reads the review's state once and
+    // returns it: it used to wait up to `wait_ms` like a blocking one.
+    let check_once = resumed && !blocking;
+    loop {
+        if !check_once {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return undecided(id, window_ends);
+            }
+            std::thread::sleep(poll.min(deadline - now));
+        }
         match ipc.get(&endpoint) {
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
+                "pending" if check_once => {
+                    let closed = review_window_end_ms(&review_id)
+                        .is_some_and(|end| unix_ms() >= end + REVIEW_RESUME_GRACE_MS);
+                    return undecided(id, closed);
+                }
                 "pending" => continue,
                 "timeout" => {
                     return respond(
@@ -2421,6 +2465,9 @@ pub fn search_vault_in(
                 if let Some(dir) = &f.disk_vault {
                     v["vault"] = json!(dir);
                 }
+                if f.truncated {
+                    v["truncated"] = json!(true);
+                }
                 return Ok(v);
             }
             Err(e) => {
@@ -2459,12 +2506,16 @@ pub fn search_vault_in(
                         .flatten()
                         .collect::<Vec<_>>()
                         .join(" ");
-                    Ok(json!({
+                    let mut v = json!({
                         "results": results,
                         "mode": "grep-disk",
                         "vault": f.disk_vault,
                         "note": note
-                    }))
+                    });
+                    if f.truncated {
+                        v["truncated"] = json!(true);
+                    }
+                    Ok(v)
                 }
                 Ok(f) => {
                     let results = grep_paths(query, limit, &f.paths);
@@ -2473,15 +2524,20 @@ pub fn search_vault_in(
                         "Ashlr MD's own search {verb} ({ipc_err}), so these results \
                          come from grepping the vault files on disk."
                     );
-                    let note = match semantic_note {
-                        Some(n) => format!("{n} {search_note}"),
-                        None => search_note,
-                    };
-                    Ok(json!({
+                    let note = [semantic_note, Some(search_note), f.disk_note()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let mut v = json!({
                         "results": results,
                         "mode": "grep-local",
                         "note": note
-                    }))
+                    });
+                    if f.truncated {
+                        v["truncated"] = json!(true);
+                    }
+                    Ok(v)
                 }
                 Err(_) if refused => Err(ipc_err),
                 Err(e) if app_unreachable(&e) => Err(format!(
@@ -2593,9 +2649,16 @@ struct VaultFiles {
 }
 
 impl VaultFiles {
-    /// Says the results come from the disk, not the app, when they do.
+    /// Says the results come from the disk, not the app, when they do, and
+    /// that the list was cut short when it was.
     fn disk_note(&self) -> Option<String> {
-        let dir = self.disk_vault.as_deref()?;
+        let Some(dir) = self.disk_vault.as_deref() else {
+            return self.truncated.then(|| {
+                "The watched folder has more Markdown files than Ashlr MD lists, so only \
+                 its 200 most recently changed files (and the recent documents) were searched."
+                    .to_string()
+            });
+        };
         let mut note = format!(
             "Ashlr MD could not be reached ({}), so these results come from searching \
              the {} Markdown files under {dir} on disk.",
@@ -2614,12 +2677,12 @@ impl VaultFiles {
 /// The vault file list from the app, or from walking `vault` on disk when the
 /// app cannot be reached. A refusal or other failure is still an error.
 fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
-    match (vault_file_paths(ipc), vault) {
-        (Ok(paths), _) => Ok(VaultFiles {
+    match (vault_listing(ipc), vault) {
+        (Ok((paths, truncated)), _) => Ok(VaultFiles {
             paths,
             disk_vault: None,
             app_error: String::new(),
-            truncated: false,
+            truncated,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -3106,14 +3169,19 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // percent-encode URIs (`My%20Notes.md`). The decoded path is what
         // must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
-        let decoded = urlencoding::decode(raw).ok().map(|d| d.into_owned());
         let advertised = |p: &str| is_advertised_path(p, ipc);
         let p = if advertised(raw) {
             raw.to_string()
         } else {
-            match decoded {
-                Some(d) if d != raw && advertised(&d) => d,
-                _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+            // A malformed escape (`%ZZ`, a lone `%`) or one that decodes to
+            // invalid UTF-8 (`%FF`) used to be answered "not in vault", as if
+            // the file were the problem.
+            match percent_decode_path(raw) {
+                Err(e) => {
+                    return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
+                }
+                Ok(d) if d != raw && advertised(&d) => d,
+                Ok(_) => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
             }
         };
         // Advertised is not enough: a vault `notes.md` that is a symlink to
@@ -3134,6 +3202,39 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
     }
     Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// Percent-decode the path of a `file://` URI, refusing a `%` that is not
+/// followed by two hex digits and escapes that do not decode to UTF-8 (which
+/// `urlencoding::decode` would pass through or reject without saying where).
+fn percent_decode_path(raw: &str) -> Result<String, String> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes
+                .get(i + 1..i + 3)
+                .and_then(|h| std::str::from_utf8(h).ok());
+            match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                Some(b) => {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+                None => {
+                    let shown: String = raw[i..].chars().take(3).collect();
+                    return Err(format!(
+                        "`{shown}` is not a percent-encoded byte (`%` must be followed by two \
+                         hex digits; write a literal `%` as `%25`)."
+                    ));
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).map_err(|_| "its percent-encoded bytes are not valid UTF-8.".to_string())
 }
 
 /// Resource URIs `resources/read` serves besides advertised `file://` paths.
@@ -3390,7 +3491,14 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// app.  The list comes from the app over IPC, so this errors when the app is
 /// not running (an empty list would read as "no matches").
 pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
+    vault_listing(ipc).map(|(paths, _)| paths)
+}
+
+/// [`vault_file_paths`], and whether the app said its vault list is cut
+/// short (the watched folder has more files than it lists).
+fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
     let v = ipc.get("/vault")?;
+    let truncated = v["truncated"].as_bool() == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3409,7 +3517,7 @@ pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
             }
         }
     }
-    Ok(paths)
+    Ok((paths, truncated))
 }
 
 /// Turns text into an embedding vector: [`ollama_embed`] in the server.
@@ -4551,6 +4659,16 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         node.remove("color");
                     }
                     Some(v) => {
+                        if let Some(c) = v.as_str().filter(|c| !is_canvas_color(c)) {
+                            return Response::err(
+                                id,
+                                -32602,
+                                format!(
+                                    "op[{i}] set_node_color: {}",
+                                    canvas_color_problem("color", c)
+                                ),
+                            );
+                        }
                         node.insert("color".into(), v.clone());
                     }
                 }
@@ -4958,7 +5076,30 @@ fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> 
             ));
         }
     }
+    if let Some(c) = node
+        .get("color")
+        .and_then(Value::as_str)
+        .filter(|c| !is_canvas_color(c))
+    {
+        return Some(canvas_color_problem("node.color", c));
+    }
     None
+}
+
+/// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /
+/// `#rrggbb`. Anything else (`"red"`, `"7"`, `"#abcd"`) was written as given
+/// and the app then showed the node with no colour or a broken one.
+fn is_canvas_color(c: &str) -> bool {
+    if matches!(c, "1" | "2" | "3" | "4" | "5" | "6") {
+        return true;
+    }
+    c.strip_prefix('#').is_some_and(|hex| {
+        matches!(hex.len(), 3 | 6) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
+    })
+}
+
+fn canvas_color_problem(field: &str, c: &str) -> String {
+    format!("{field} must be a preset \"1\"..\"6\" or a hex colour #rgb or #rrggbb, got {c:?}")
 }
 
 fn find_node_mut<'a>(

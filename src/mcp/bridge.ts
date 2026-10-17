@@ -86,44 +86,6 @@ export async function persistSession(sessionId: string): Promise<void> {
   });
 }
 
-/**
- * Load a prior session's messages from disk (via Rust) and restore them into
- * the in-memory conversation store.  Called on app start to resume sessions
- * that survived a restart.
- *
- * Returns the number of messages restored (0 when no session file exists).
- */
-export async function loadSession(sessionId: string): Promise<number> {
-  try {
-    const messages = await invoke<
-      Array<{
-        id: string;
-        sessionId: string;
-        role: "agent" | "human" | "system";
-        content: string;
-        citedDocs: string[];
-        timestampMs: number;
-      }>
-    >("mcp_load_session", { sessionId });
-
-    if (!messages || messages.length === 0) return 0;
-
-    const existing = useConversationStore.getState().messages;
-    const existingIds = new Set(existing.map((m) => m.id));
-    const newMessages = messages.filter((m) => !existingIds.has(m.id));
-    if (newMessages.length > 0) {
-      useConversationStore.setState((s) => ({
-        messages: [...s.messages, ...newMessages],
-        currentSessionId: s.currentSessionId ?? sessionId,
-      }));
-    }
-    return newMessages.length;
-  } catch (e) {
-    console.warn("[mcp bridge] mcp_load_session failed:", e);
-    return 0;
-  }
-}
-
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useMcpBridge(): void {
@@ -151,10 +113,11 @@ export function useMcpBridge(): void {
     };
 
     const syncVaultNow = () => {
-      const { watchedDir, files } = useActivityStore.getState();
+      const { watchedDir, files, truncated } = useActivityStore.getState();
       invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
+        truncated,
       }).catch((e) => {
         console.warn("[mcp bridge] mcp_sync_vault failed:", e);
       });

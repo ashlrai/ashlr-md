@@ -2606,6 +2606,61 @@ fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     assert!(note.contains("search is disabled"), "note: {note}");
 }
 
+/// The app lists at most 200 files of the watched folder; search_vault said
+/// nothing when the folder had more, so "no hits" read as "not in the folder".
+#[test]
+fn search_vault_says_when_the_apps_vault_list_is_truncated() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let vault = json!({ "files": [{ "path": path }], "recents": [], "truncated": true });
+    // The app's own search failed: grep the listed files locally.
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(vault.clone()))
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(text["mode"], "grep-local", "{text}");
+    assert_eq!(text["truncated"], true, "{text}");
+    assert!(
+        text["note"]
+            .as_str()
+            .unwrap()
+            .contains("200 most recently changed"),
+        "{text}"
+    );
+    // Semantic search over the listed files says so too.
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = mdopener_mcp::search_vault_in("target topic", 5, true, None, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    assert!(
+        v["note"]
+            .as_str()
+            .unwrap()
+            .contains("200 most recently changed"),
+        "{v}"
+    );
+    // A complete list says nothing.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(2),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert!(text.get("truncated").is_none(), "{text}");
+}
+
 #[test]
 fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     let reason = "IPC server returned HTTP 403: search is disabled";
@@ -5254,6 +5309,69 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     );
 }
 
+/// A resumed call with `blocking: false` used to wait up to `wait_ms` like a
+/// blocking one; it now reads the review's state once and returns it.
+#[test]
+fn resumed_non_blocking_review_returns_its_state_at_once() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::{Duration, Instant};
+    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+    let v = content_text(&tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "blocking": false }),
+        &ipc,
+        Duration::ZERO,
+    ));
+    let review_id = v["reviewId"].as_str().unwrap().to_string();
+    // A poll interval far longer than the test may take: a call that waits
+    // at all would sleep through it.
+    let poll = Duration::from_secs(30);
+    let pending = MockIpc::new().on_get("/review/result", Ok(json!({ "status": "pending" })));
+    let started = Instant::now();
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": review_id, "blocking": false, "wait_ms": 50_000 }),
+        &pending,
+        poll,
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["status"], "pending", "{v}");
+    assert_eq!(v["reviewId"], review_id.as_str());
+    assert_eq!(pending.calls().len(), 1, "one look at the review");
+
+    let done = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "done", "verdict": "approved", "comments": "ok" })),
+    );
+    let resp = tool_request_review_with(
+        id(3),
+        &json!({ "review_id": review_id, "blocking": false }),
+        &done,
+        poll,
+    );
+    assert_eq!(content_text(&resp)["verdict"], "approved");
+
+    // A review whose window has closed reports timeout, still at once.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let started = Instant::now();
+    let resp = tool_request_review_with(
+        id(4),
+        &json!({ "review_id": format!("rev_1_00000001_{}", now - 60_000), "blocking": false }),
+        &pending,
+        poll,
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(content_text(&resp)["verdict"], "timeout");
+}
+
 /// A resumed call (`review_id`) cannot change the review, so it used to
 /// ignore `path`, `content` and `timeout_ms` without a word: an agent that
 /// edited its plan and resent it with the old id got the verdict on the old
@@ -5988,6 +6106,51 @@ fn edit_canvas_add_node_refuses_a_node_the_app_would_drop() {
     );
 }
 
+/// `set_node_color` (and `add_node`'s `node.color`) wrote any string, so
+/// `"red"` or `"7"` was saved and the app showed the node without its colour.
+#[test]
+fn edit_canvas_refuses_a_colour_json_canvas_does_not_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    for bad in [
+        "red", "0", "7", "12", "", "#abcd", "#ggg", "#12345", "abc", "# abc",
+    ] {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": bad }] }),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with("op[0] set_node_color: color must be a preset"),
+            "{bad}: {msg}"
+        );
+        let node = json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9, "color": bad });
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "add_node", "node": node }] }),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with("op[0] add_node: node.color must be a preset"),
+            "{bad}: {msg}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            raw,
+            "file untouched"
+        );
+    }
+    for good in ["1", "6", "#abc", "#A1b2C3"] {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": good }], "save": false }),
+        );
+        assert!(!is_error(&resp), "{good}: {resp:?}");
+    }
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]
@@ -6212,6 +6375,40 @@ fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
         let err = resp.error.expect("must be refused");
         let msg = err.message;
         assert!(msg.contains("not in vault"), "{uri}: {msg}");
+    }
+}
+
+/// A malformed escape in a `file://` URI (`%ZZ`, a lone `%`, `%FF` that is
+/// not UTF-8) was answered "Resource not in vault", as if the file were the
+/// problem; it is now -32602 naming the bad escape.
+#[test]
+fn file_resource_uris_with_invalid_percent_encoding_are_refused_clearly() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("100% done.md");
+    std::fs::write(&doc, "# Done\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "100% done.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let d = dir.to_string_lossy().into_owned();
+    for (uri, bad) in [
+        (format!("file://{d}/a%ZZ.md"), "`%ZZ`"),
+        (format!("file://{d}/a%2.md"), "`%2.`"),
+        (format!("file://{d}/a%"), "`%`"),
+        (format!("file://{d}/a%FF.md"), "UTF-8"),
+    ] {
+        let msg = param_error(&handle_resource_read(id(1), &uri, &ipc));
+        assert!(msg.starts_with("Invalid `file://` URI"), "{uri}: {msg}");
+        assert!(msg.contains(bad), "{uri}: {msg}");
+    }
+    // The advertised (unencoded) path is still served as written, `%` and all,
+    // and so is its correct encoding.
+    for uri in [
+        format!("file://{doc}"),
+        format!("file://{}", doc.replace('%', "%25").replace(' ', "%20")),
+    ] {
+        let resp = handle_resource_read(id(2), &uri, &ipc);
+        assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
     }
 }
 
@@ -6631,6 +6828,10 @@ fn every_declared_argument_passes_the_check() {
     for def in tool_registry() {
         let mut args = serde_json::Map::new();
         for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            if let Some(first) = prop["enum"].as_array().and_then(|e| e.first()) {
+                args.insert(k.clone(), first.clone());
+                continue;
+            }
             let v = match prop["type"].as_str() {
                 Some("string") => json!("x"),
                 Some("boolean") => json!(true),
@@ -6753,6 +6954,20 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                 msg.starts_with(&format!("`{k}` must be ")),
                 "{name}.{k}: {msg}"
             );
+            // A value of the right type outside the declared `enum` is
+            // refused too, and the message lists the allowed values.
+            if let Some(allowed) = prop["enum"].as_array() {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("not-an-allowed-value"));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(
+                    msg.starts_with(&format!("`{k}` must be one of ")),
+                    "{name}.{k}: {msg}"
+                );
+                for a in allowed {
+                    assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}: {msg}");
+                }
+            }
             if let Some(items) = prop.get("items") {
                 let mut args = valid.clone();
                 args.insert(k.clone(), json!([sample_of(items).1]));
@@ -6774,6 +6989,18 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                     let msg = refused_before_the_tool(name, Value::Object(args));
                     let want = format!("`{k}[0].{f}` must be ");
                     assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                    if let Some(allowed) = fprop["enum"].as_array() {
+                        let mut bad = item.clone();
+                        bad.insert(f.clone(), json!("not-an-allowed-value"));
+                        let mut args = valid.clone();
+                        args.insert(k.clone(), json!([bad]));
+                        let msg = refused_before_the_tool(name, Value::Object(args));
+                        let want = format!("`{k}[0].{f}` must be one of ");
+                        assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                        for a in allowed {
+                            assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}.{f}: {msg}");
+                        }
+                    }
                 }
                 for req in prop["items"]["required"].as_array().into_iter().flatten() {
                     let req = req.as_str().unwrap();

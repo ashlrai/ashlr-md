@@ -104,6 +104,7 @@ vi.mock("../store/activityStore", () => ({
         { path: "/vault/a.md", name: "a.md", dir: "/vault", mtimeMs: 1000, size: 100 },
         { path: "/vault/b.md", name: "b.md", dir: "/vault", mtimeMs: 2000, size: 200 },
       ],
+      truncated: true,
     }),
     subscribe: vi.fn(() => vi.fn()),
   },
@@ -254,7 +255,7 @@ describe("useMcpBridge — mount", () => {
     mountBridge();
     const vaultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_sync_vault");
     expect(vaultCall).toBeDefined();
-    expect(vaultCall![1]).toMatchObject({ watchedDir: "/vault" });
+    expect(vaultCall![1]).toMatchObject({ watchedDir: "/vault", truncated: true });
   });
 
   it("does not open export dialog on mount", () => {

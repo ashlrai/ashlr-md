@@ -224,6 +224,9 @@ pub struct VaultFileEntry {
 pub struct VaultInner {
     pub watched_dir: Option<String>,
     pub files: Vec<VaultFileEntry>,
+    /// The watched folder has more Markdown files than the frontend lists
+    /// (its 200 newest), so `files` is not all of them.
+    pub truncated: bool,
 }
 
 #[derive(Default)]
@@ -368,9 +371,14 @@ fn record_verdict(r: &mut ReviewRecord, verdict: String, comments: Option<String
 pub fn mcp_sync_vault(
     watched_dir: Option<String>,
     files: Vec<VaultFileEntry>,
+    truncated: Option<bool>,
     vault: tauri::State<VaultMirror>,
 ) {
-    *vault.0.lock_recover() = VaultInner { watched_dir, files };
+    *vault.0.lock_recover() = VaultInner {
+        watched_dir,
+        files,
+        truncated: truncated.unwrap_or(false),
+    };
 }
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
@@ -1508,6 +1516,7 @@ fn handle_vault(req: Request, app: &AppHandle) {
     send_json(req, serde_json::json!({
         "watchedDir": vault.watched_dir,
         "files": vault.files,
+        "truncated": vault.truncated,
         "recents": recents,
     }));
 }
@@ -1530,9 +1539,11 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let truncated;
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
+        truncated = vault.truncated;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1550,8 +1561,25 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, serde_json::json!({ "query": q, "results": results }));
+    send_json(req, search_body(&q, results, truncated));
 }
+
+/// The `/search` reply. When the vault list is cut short it says so, since
+/// the files left out were not searched.
+fn search_body(q: &str, results: impl Serialize, vault_truncated: bool) -> serde_json::Value {
+    let mut body = serde_json::json!({ "query": q, "results": results });
+    if vault_truncated {
+        body["truncated"] = serde_json::json!(true);
+        body["note"] = serde_json::json!(VAULT_TRUNCATED_NOTE);
+    }
+    body
+}
+
+/// Said by `/search` (and `search_vault`) when the watched folder has more
+/// Markdown files than the app lists.
+const VAULT_TRUNCATED_NOTE: &str = "The watched folder has more Markdown files than \
+    Ashlr MD lists, so only its 200 most recently changed files (and the recent \
+    documents) were searched.";
 
 /// Apply a single exact find→replace, requiring the `find` string to appear
 /// EXACTLY once. Returns the new content, or a human-readable error explaining
@@ -2071,9 +2099,20 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
-        same_path, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
+        same_path, search_body, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
+
+    /// `/search` said nothing when the vault list was cut at 200 files, so an
+    /// agent read "no hits" as "not in the folder".
+    #[test]
+    fn search_body_says_when_the_vault_list_is_truncated() {
+        let full = search_body("q", Vec::<String>::new(), false);
+        assert!(full.get("truncated").is_none(), "{full}");
+        let cut = search_body("q", Vec::<String>::new(), true);
+        assert_eq!(cut["truncated"], true);
+        assert!(cut["note"].as_str().unwrap().contains("200"), "{cut}");
+    }
 
     #[test]
     fn a_poisoned_lock_is_recovered_not_a_panic() {

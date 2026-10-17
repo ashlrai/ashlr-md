@@ -36,6 +36,31 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A badly encoded `file://` resource URI says so.** `resources/read` with
+  `%ZZ`, a lone `%` or `%FF` (not UTF-8) in the path answered "Resource not
+  in vault", as if the file were the problem. It is now `-32602` naming the
+  bad escape.
+- **A vault list cut at 200 files says so.** The app lists the watched
+  folder's 200 most recently changed Markdown files, and `search_vault`
+  searched only those without a word, so "no hits" read as "not in the
+  folder". `search_vault` now returns `truncated: true` with a note, and the
+  Activity drawer says it shows only the newest 200.
+- **A non-blocking `request_review` resume returns at once.** A call with
+  `review_id` and `blocking: false` still waited up to `wait_ms` (50 s by
+  default) like a blocking one. It now reads the review once and returns its
+  verdict, `pending`, or `timeout` once the window has closed.
+- **`edit_canvas` refuses colours JSON Canvas does not allow.**
+  `set_node_color` and `add_node` wrote any string as a node colour, so
+  `"red"` or `"7"` was saved and the node showed without its colour. Only a
+  preset `"1"`..`"6"` or a hex `#rgb` / `#rrggbb` is accepted now; anything
+  else is `-32602` and the file is left as it was.
+- **MCP arguments outside a schema `enum` are refused up front.** The
+  argument check enforced types, `minimum` and `required` but not `enum`, so
+  each tool checked its own enumerated arguments in its own words, and an
+  `edit_canvas` op `type` such as `"move"` was only refused once the canvas
+  file had been read. A value outside a property's `enum` (top level or an
+  op field) is now `-32602` before the tool runs, listing the allowed values,
+  and the test that walks `tools/list` probes every `enum`.
 - **Session files the app writes are private too.** The window persisted a
   conversation session with a `0644` file in a `0755` directory, undoing the
   `0700`/`0600` that `save_conversation_message` sets. The app now makes the

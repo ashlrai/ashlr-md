@@ -61,6 +61,7 @@ function reset() {
     files: [],
     unseen: [],
     lastError: null,
+    truncated: false,
   });
   toastInfoMock.mockClear();
   listMock.mockReset();
@@ -138,6 +139,8 @@ describe("activityStore", () => {
     useActivityStore.getState().applyEvent(makeEvent("new.md", "created"));
     expect(useActivityStore.getState().files).toHaveLength(200);
     expect(useActivityStore.getState().files[0].name).toBe("new.md");
+    // The oldest file left the list, so it no longer holds every file.
+    expect(useActivityStore.getState().truncated).toBe(true);
   });
 
   // ── Unseen badge ────────────────────────────────────────────────────────
@@ -195,7 +198,24 @@ describe("activityStore", () => {
     useActivityStore.setState({ watchedDir: "/watch" });
     listMock.mockResolvedValue([]);
     await useActivityStore.getState().loadFiles();
-    expect(listMock).toHaveBeenCalledWith("/watch", 200);
+    expect(listMock).toHaveBeenCalledWith("/watch", 201);
+  });
+
+  it("loadFiles says when the folder has more files than the list keeps", async () => {
+    useActivityStore.setState({ watchedDir: "/watch" });
+    listMock.mockResolvedValue(
+      Array.from({ length: 201 }, (_, i) => makeFile(`f${i}.md`, i)),
+    );
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().files).toHaveLength(200);
+    expect(useActivityStore.getState().truncated).toBe(true);
+
+    listMock.mockResolvedValue(
+      Array.from({ length: 200 }, (_, i) => makeFile(`f${i}.md`, i)),
+    );
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().files).toHaveLength(200);
+    expect(useActivityStore.getState().truncated).toBe(false);
   });
 
   it("switching folders clears the old folder's files and badges", () => {
