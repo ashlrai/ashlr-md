@@ -140,57 +140,73 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
       }
     }
 
-    const liveContent = useDocumentStore.getState().content;
+    // Any throw below still gets a reply, so the agent sees the reason
+    // instead of waiting out the round-trip timeout.
+    try {
+      const liveContent = useDocumentStore.getState().content;
 
-    if (!preview) {
-      const outcome = applyUniqueEdit(liveContent, find, replace);
-      if (outcome.ok && outcome.content !== undefined) {
-        useDocumentStore.getState().setContent(outcome.content);
-        syncNow();
+      if (!preview) {
+        const outcome = applyUniqueEdit(liveContent, find, replace);
+        if (outcome.ok && outcome.content !== undefined) {
+          useDocumentStore.getState().setContent(outcome.content);
+          syncNow();
+        }
+        await invoke("mcp_stream_edit_preview", {
+          editId,
+          ok: outcome.ok,
+          diff: "",
+          candidates: null,
+          matchCount: outcome.ok ? 1 : 0,
+          previewLines,
+          error: outcome.error ?? null,
+        }).catch(() => {
+          /* non-fatal */
+        });
+        return;
       }
+
+      const label = useDocumentStore.getState().path ?? "document";
+      const result = computeStreamEditDiff(
+        liveContent,
+        find,
+        replace,
+        previewLines,
+        label,
+      );
+
+      const candidates: StreamEditCandidateResult[] | null = result.candidates
+        ? result.candidates.map((c) => ({
+            matchIndex: c.matchIndex,
+            startLine: c.startLine,
+            diff: c.diff,
+            rank: c.rank,
+          }))
+        : null;
+
       await invoke("mcp_stream_edit_preview", {
         editId,
-        ok: outcome.ok,
-        diff: "",
-        candidates: null,
-        matchCount: outcome.ok ? 1 : 0,
+        ok: result.ok,
+        diff: result.diff ?? "",
+        candidates,
+        matchCount: result.matchCount,
         previewLines,
-        error: outcome.error ?? null,
+        error: result.error ?? null,
       }).catch(() => {
         /* non-fatal */
       });
-      return;
+    } catch (err) {
+      await invoke("mcp_stream_edit_preview", {
+        editId,
+        ok: false,
+        diff: "",
+        candidates: null,
+        matchCount: 0,
+        previewLines,
+        error: `stream-edit failed in app: ${String(err)}`,
+      }).catch(() => {
+        /* non-fatal */
+      });
     }
-
-    const label = useDocumentStore.getState().path ?? "document";
-    const result = computeStreamEditDiff(
-      liveContent,
-      find,
-      replace,
-      previewLines,
-      label,
-    );
-
-    const candidates: StreamEditCandidateResult[] | null = result.candidates
-      ? result.candidates.map((c) => ({
-          matchIndex: c.matchIndex,
-          startLine: c.startLine,
-          diff: c.diff,
-          rank: c.rank,
-        }))
-      : null;
-
-    await invoke("mcp_stream_edit_preview", {
-      editId,
-      ok: result.ok,
-      diff: result.diff ?? "",
-      candidates,
-      matchCount: result.matchCount,
-      previewLines,
-      error: result.error ?? null,
-    }).catch(() => {
-      /* non-fatal */
-    });
   });
 }
 

@@ -502,3 +502,34 @@ describe("handlers integration — open and present report the outcome", () => {
     expect(reply()).toMatchObject({ editId: "p1", ok: false });
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// stream-edit answers even when applying throws
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — stream-edit failures are replied", () => {
+  it("preview: false replies with the error when applying throws", async () => {
+    useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    const setContent = vi
+      .spyOn(useDocumentStore.getState(), "setContent")
+      .mockImplementation(() => {
+        throw new Error("editor gone");
+      });
+    await fireEvent("mcp://stream-edit", {
+      editId: "s1",
+      find: "hello",
+      replace: "hi",
+      preview: false,
+    });
+    setContent.mockRestore();
+    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
+    expect(call).toBeDefined();
+    const r = call![1] as Record<string, unknown>;
+    expect(r).toMatchObject({ editId: "s1", ok: false });
+    expect(String(r.error)).toContain("editor gone");
+  });
+});
