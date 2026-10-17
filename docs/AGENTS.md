@@ -478,7 +478,9 @@ before proceeding.
 ### Parameters
 
 - `path` *or* `content` — **one is required.** `path` opens that file for review;
-  `content` reviews inline Markdown.
+  `content` reviews inline Markdown, which the review panel shows as text
+  (it used to show only "inline content", so the human never saw what they
+  were approving).
 - `blocking` (default `true`) — if `false`, the review is registered and the call
   returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
   Call `request_review` with that `review_id` to wait for the verdict. A
