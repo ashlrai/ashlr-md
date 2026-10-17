@@ -5767,6 +5767,13 @@ fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
         for tool in ["export_text", "export_metadata"] {
             let resp = call(tool, json!({ "path": bad }), &ipc);
             assert_refused(&resp, &format!("{tool} {bad}"));
+            // The read tools keep their own words.
+            let err = tool_error_text(&resp);
+            assert!(
+                err.starts_with("Refusing to read `path` '"),
+                "{tool}: {err}"
+            );
+            assert!(err.ends_with("can be read."), "{tool}: {err}");
         }
     }
     #[cfg(unix)]
@@ -8074,9 +8081,20 @@ fn path_handing_tools_refuse_non_markdown_files() {
         });
         let present = tool_present_document(id(2), &json!({ "path": path }), &ipc);
         let review = tool_request_review(id(3), &json!({ "path": path, "blocking": false }), &ipc);
-        for resp in [open, present, review] {
+        // Each says what it refuses to do: the call is an open, a present
+        // or a review, not a read.
+        for (resp, verb, done) in [
+            (open, "open", "opened"),
+            (present, "present", "presented"),
+            (review, "review", "reviewed"),
+        ] {
             let err = tool_error_text(&resp);
             assert!(err.contains("Markdown"), "{path}: {err}");
+            assert!(
+                err.starts_with(&format!("Refusing to {verb} `path` '")),
+                "{path}: {err}"
+            );
+            assert!(err.ends_with(&format!("can be {done}.")), "{path}: {err}");
         }
         assert!(ipc.calls().is_empty(), "{path}: {:?}", ipc.calls());
     }

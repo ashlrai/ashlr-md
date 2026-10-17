@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`open_file` refuses a non-Markdown file in its own words.** It said
+  "Refusing to read `path` ...: only Markdown documents ... can be read",
+  though the call is an open. It now says "Refusing to open ... can be
+  opened", and `present_document` and `request_review` say "present" and
+  "review"; the read tools keep "Refusing to read".
 - **The guides under `docs/` and the integration READMEs have no em or en
   dashes.** INSTALL, OBSIDIAN, RELEASING and VISION and the Obsidian plugin
   and VS Code extension READMEs use colons, semicolons, commas and

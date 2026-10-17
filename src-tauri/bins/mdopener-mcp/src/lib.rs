@@ -2085,9 +2085,21 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
 /// Markdown document that is not a dotfile, checked like the tools that read
 /// a path from disk ([`checked_document_path`]). The app shows what it opens
 /// and `get_current_content` returns it, so opening `~/.ssh/id_rsa` would
-/// otherwise read it. The app makes the same check.
+/// otherwise read it. The app makes the same check. A refusal says
+/// "Refusing to open", the call's own verb; [`presentable_document_path`]
+/// and [`reviewable_document_path`] say "present" and "review".
 pub fn openable_document_path(raw: &str) -> Result<String, String> {
-    checked_document_path(&agent_path(raw), "path")
+    checked_document_for(&agent_path(raw), "path", Use::Open).map(|c| c.path)
+}
+
+/// [`openable_document_path`] for `present_document`, refusing in its words.
+pub fn presentable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_for(&agent_path(raw), "path", Use::Present).map(|c| c.path)
+}
+
+/// [`openable_document_path`] for `request_review`, refusing in its words.
+pub fn reviewable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_for(&agent_path(raw), "path", Use::Review).map(|c| c.path)
 }
 
 /// True when an IPC error is the running app refusing the request (an HTTP
@@ -2489,7 +2501,7 @@ pub fn tool_request_review_with(
     let path = match args["path"]
         .as_str()
         .filter(|_| resume.is_none())
-        .map(openable_document_path)
+        .map(reviewable_document_path)
         .transpose()
     {
         Ok(p) => p,
@@ -3252,7 +3264,7 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Ok(p) => p,
         Err(e) => return Response::err(id, -32602, e),
     };
-    let path = match path.map(openable_document_path).transpose() {
+    let path = match path.map(presentable_document_path).transpose() {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -4514,6 +4526,34 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// [`checked_document_path`], keeping the identity of the file checked so
 /// that [`CheckedDocument::read`] reads that file and no other.
 pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String> {
+    checked_document_for(raw, arg, Use::Read)
+}
+
+/// What a tool does with a checked document, for the words of a refusal:
+/// a tool that asks the app to open a file says it refuses to open it, not
+/// to read it.
+#[derive(Clone, Copy)]
+enum Use {
+    Read,
+    Open,
+    Present,
+    Review,
+}
+
+impl Use {
+    /// The verb and its past participle: "read"/"read", "open"/"opened".
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            Use::Read => ("read", "read"),
+            Use::Open => ("open", "opened"),
+            Use::Present => ("present", "presented"),
+            Use::Review => ("review", "reviewed"),
+        }
+    }
+}
+
+fn checked_document_for(raw: &str, arg: &str, why: Use) -> Result<CheckedDocument, String> {
+    let (verb, done) = why.words();
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
     let hidden = p
@@ -4528,8 +4568,8 @@ pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String>
         .unwrap_or(false);
     if hidden || !markdown {
         return Err(format!(
-            "Refusing to read `{arg}` '{abs}': only Markdown documents ({}) that are not \
-             dotfiles can be read.",
+            "Refusing to {verb} `{arg}` '{abs}': only Markdown documents ({}) that are not \
+             dotfiles can be {done}.",
             MD_EXTENSIONS
                 .iter()
                 .map(|e| format!(".{e}"))
@@ -4548,7 +4588,7 @@ pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String>
         Ok(meta) if meta.is_file() => Some(FileIdentity::of(&meta)),
         Ok(_) => {
             return Err(format!(
-                "Refusing to read `{arg}` '{abs}': it is not a regular file."
+                "Refusing to {verb} `{arg}` '{abs}': it is not a regular file."
             ))
         }
         Err(_) => None,
