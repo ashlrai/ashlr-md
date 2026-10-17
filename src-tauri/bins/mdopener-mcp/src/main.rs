@@ -39,7 +39,7 @@
 //!   and file://<path> for each vault file. `export:current` is not served;
 //!   reading it returns a -32002 error.
 
-use std::io::{self, BufRead, IsTerminal as _, Write as _};
+use std::io::{self, BufRead, IsTerminal as _, Write};
 
 use mdopener_mcp::{dispatch, invalid_envelope, IpcClient, RealIpcClient, Request, Response};
 use serde_json::Value;
@@ -79,22 +79,38 @@ fn main() {
         eprintln!("{note}");
     }
 
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-    let ipc = RealIpcClient;
+    serve(io::stdin().lock(), io::stdout().lock(), &RealIpcClient);
+}
 
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) if l.trim().is_empty() => continue,
-            Ok(l) => l,
-            Err(_) => break,
+/// Answer each newline-delimited JSON-RPC message read from `input` on
+/// `output`, until `input` ends or cannot be read.
+///
+/// A line that is not UTF-8 is answered with a `-32700` parse error and the
+/// session goes on. It used to be read with `BufRead::lines`, whose
+/// `InvalidData` error ended the loop, so one stray byte from a client shut
+/// the server down without a word and every later request went unanswered.
+fn serve(mut input: impl BufRead, mut output: impl Write, ipc: &dyn IpcClient) {
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match input.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let reply = match std::str::from_utf8(&buf) {
+            Ok(line) if line.trim().is_empty() => continue,
+            Ok(line) => handle_line(line, ipc),
+            Err(e) => Some(to_line(&Response::err(
+                Value::Null,
+                -32700,
+                format!("Parse error: the message is not valid UTF-8 ({e})"),
+            ))),
         };
-
         // Notifications (and batches made only of notifications) get no reply.
-        if let Some(mut out) = handle_line(&line, &ipc) {
+        if let Some(mut out) = reply {
             out.push('\n');
-            let _ = stdout.write_all(out.as_bytes());
-            let _ = stdout.flush();
+            let _ = output.write_all(out.as_bytes());
+            let _ = output.flush();
         }
     }
 }
@@ -188,7 +204,58 @@ fn to_line(response: &Response) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::startup_notes;
+    use super::{serve, startup_notes};
+    use mdopener_mcp::IpcClient;
+    use serde_json::Value;
+
+    /// An app that is never running: these tests only need the protocol.
+    struct NoApp;
+    impl IpcClient for NoApp {
+        fn get(&self, _: &str) -> Result<Value, String> {
+            Err("~/.mdopener/ipc-port not found".to_string())
+        }
+        fn post(&self, _: &str, _: Value) -> Result<Value, String> {
+            Err("~/.mdopener/ipc-port not found".to_string())
+        }
+    }
+
+    fn replies(input: &[u8]) -> Vec<Value> {
+        let mut out = Vec::new();
+        serve(input, &mut out, &NoApp);
+        String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn a_line_that_is_not_utf8_gets_a_parse_error_and_the_session_goes_on() {
+        let mut input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n".to_vec();
+        input.extend_from_slice(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"p\xffing\"}\n");
+        input.extend_from_slice(b"\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}");
+        let got = replies(&input);
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert_eq!(got[0]["id"], 1);
+        assert_eq!(got[0]["result"], serde_json::json!({}));
+        assert_eq!(got[1]["id"], Value::Null);
+        assert_eq!(got[1]["error"]["code"], -32700);
+        let msg = got[1]["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("not valid UTF-8"), "{msg}");
+        // The request after the bad line is still answered (it has no
+        // trailing newline: the last line of a closed stdin).
+        assert_eq!(got[2]["id"], 3);
+        assert_eq!(got[2]["result"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn crlf_lines_and_notifications_are_handled_as_before() {
+        let input = b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\r\n\
+                      {\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"ping\"}\r\n";
+        let got = replies(input);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0]["id"], "a");
+    }
 
     #[test]
     fn startup_notes_warn_once_and_hint_only_on_a_terminal() {

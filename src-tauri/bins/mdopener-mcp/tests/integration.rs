@@ -1809,6 +1809,88 @@ fn list_ai_actions_system_prompts_are_non_empty() {
 
 /// Verify the ai_actions_registry() raw output matches what tool_list_ai_actions
 /// builds its response from — no mismatch between the source and the tool handler.
+/// `{arg}` used to appear in two actions' templates with nothing saying what
+/// it is, so an agent could not fill it in (translate's target language).
+#[test]
+fn list_ai_actions_says_what_arg_is_wherever_a_template_uses_it() {
+    for include_prompts in [true, false] {
+        let resp = tool_list_ai_actions(id(1), &json!({ "include_prompts": include_prompts }));
+        let text = content_text(&resp);
+        for (listed, full) in text["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(ai_actions_registry().as_array().unwrap())
+        {
+            let uses_arg = ["systemPrompt", "userPromptTemplate"]
+                .iter()
+                .any(|k| full[k].as_str().unwrap().contains("{arg}"));
+            let argument = listed["argument"].as_str();
+            if uses_arg {
+                let a = argument.unwrap_or_else(|| {
+                    panic!("action {} uses {{arg}} but has no `argument`", full["id"])
+                });
+                assert!(a.contains("{arg}"), "{}: {a}", full["id"]);
+            } else {
+                assert!(argument.is_none(), "{} has no {{arg}}", full["id"]);
+            }
+        }
+    }
+    let resp = tool_list_ai_actions(id(1), &json!({}));
+    let actions = content_text(&resp)["actions"].clone();
+    let translate = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "translate")
+        .unwrap()
+        .clone();
+    assert!(
+        translate["argument"].as_str().unwrap().contains("Spanish"),
+        "{translate}"
+    );
+}
+
+/// The registry claims to mirror src/ai/actions.ts; check the ids, labels,
+/// short labels and icons there, in order, so the two cannot drift apart.
+#[test]
+fn ai_actions_registry_matches_actions_ts() {
+    let ts = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../src/ai/actions.ts"),
+    )
+    .unwrap();
+    let quoted = |line: &str, key: &str| -> Option<String> {
+        let rest = line.trim().strip_prefix(key)?.strip_prefix(": \"")?;
+        Some(rest[..rest.find('"')?].to_string())
+    };
+    let mut from_ts: Vec<(String, String, String, String)> = Vec::new();
+    let lines: Vec<&str> = ts.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let Some(id) = quoted(line, "id") else {
+            continue;
+        };
+        let field = |key: &str| {
+            lines[i + 1..(i + 4).min(lines.len())]
+                .iter()
+                .find_map(|l| quoted(l, key))
+        };
+        let label = field("label").unwrap();
+        // Document actions have no shortLabel; the registry uses the label.
+        let short = field("shortLabel").unwrap_or_else(|| label.clone());
+        from_ts.push((id, label, short, field("icon").unwrap()));
+    }
+    let registry: Vec<(String, String, String, String)> = ai_actions_registry()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            let s = |k: &str| a[k].as_str().unwrap().to_string();
+            (s("id"), s("label"), s("shortLabel"), s("icon"))
+        })
+        .collect();
+    assert_eq!(registry, from_ts);
+}
+
 #[test]
 fn ai_actions_registry_count_matches_tool_response() {
     let registry = ai_actions_registry();

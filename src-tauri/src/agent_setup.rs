@@ -213,29 +213,17 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
     }
 
-    // Read existing config or start fresh.
-    let mut root: Value = if config_path.exists() {
-        let raw = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?;
-        serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
+    // Read the existing config (if any) and merge our entry into it.
+    let existing = if config_path.exists() {
+        Some(
+            fs::read_to_string(&config_path)
+                .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?,
+        )
     } else {
-        json!({})
+        None
     };
-
-    // Ensure the "mcpServers" key exists and is an object.
-    if !root.get("mcpServers").map(|v| v.is_object()).unwrap_or(false) {
-        root["mcpServers"] = json!({});
-    }
-
-    // Merge our entry (overwrites any previous ashlr-md entry).
-    root["mcpServers"]["ashlr-md"] = json!({
-        "command": mcp_path,
-        "args": []
-    });
-
-    // Write back with pretty-printing (Cursor displays this file in its UI).
-    let serialised = serde_json::to_string_pretty(&root)
-        .map_err(|e| format!("JSON serialisation error: {e}"))?;
+    let serialised = merge_cursor_config(existing.as_deref(), &mcp_path)
+        .map_err(|why| format!("{} {why}", config_path.display()))?;
 
     fs::write(&config_path, serialised)
         .map_err(|e| format!("Cannot write {}: {e}", config_path.display()))?;
@@ -245,6 +233,53 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
          Restart Cursor (or reload the MCP servers in Settings → MCP) to pick it up.",
         config_path.display()
     ))
+}
+
+/// The text of `~/.cursor/mcp.json` with an `ashlr-md` entry for `mcp_path`
+/// merged into `existing` (the file's current text, `None` when there is
+/// none): other servers and keys are kept, and an earlier `ashlr-md` entry is
+/// overwritten with the current path. Pretty-printed, as Cursor shows this
+/// file in its UI.
+///
+/// A file that is not valid JSON, not a JSON object, or has a `mcpServers`
+/// that is not an object is refused (the message is appended to the path).
+/// It used to be replaced by `{}`, which deleted every other MCP server the
+/// user had configured, and a top-level array or string panicked the command.
+fn merge_cursor_config(existing: Option<&str>, mcp_path: &str) -> Result<String, String> {
+    let mut root: Value = match existing.map(str::trim) {
+        None | Some("") => json!({}),
+        Some(raw) => serde_json::from_str(raw).map_err(|e| {
+            format!(
+                "is not valid JSON ({e}), so it was not changed. Fix it (comments and \
+                 trailing commas cannot be merged) or add the ashlr-md entry by hand, \
+                 then retry."
+            )
+        })?,
+    };
+    if root.is_null() {
+        root = json!({});
+    }
+    let Some(obj) = root.as_object_mut() else {
+        return Err(
+            "is not a JSON object, so it was not changed. Fix it manually and retry.".to_string(),
+        );
+    };
+    let servers = obj.entry("mcpServers").or_insert_with(|| json!({}));
+    if servers.is_null() {
+        *servers = json!({});
+    }
+    let Some(servers) = servers.as_object_mut() else {
+        return Err(
+            "has a `mcpServers` value that is not an object, so it was not changed. \
+                    Fix it manually and retry."
+                .to_string(),
+        );
+    };
+    servers.insert(
+        "ashlr-md".to_string(),
+        json!({ "command": mcp_path, "args": [] }),
+    );
+    serde_json::to_string_pretty(&root).map_err(|e| format!("JSON serialisation error: {e}"))
 }
 
 // ── Codex ─────────────────────────────────────────────────────────────────────
@@ -310,8 +345,9 @@ pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
 ///                "if": "Write(*.md)|Edit(*.md)" } ] } ] } }
 /// ```
 /// The `mdopen` path is POSIX single-quoted (see [`mcp_command::hook_command`]).
-/// Idempotent: re-running won't add a duplicate hook, and an entry an earlier
-/// version wrote unquoted for the same path is repaired in place.
+/// Idempotent: re-running won't add a duplicate hook, an entry an earlier
+/// version wrote unquoted for the same path is repaired in place, and our
+/// entry for an `mdopen` that no longer exists is pointed at this app's.
 #[tauri::command]
 pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
     let mdopen = resolve_sidecar_binary(&app, "mdopen")?;
@@ -351,6 +387,12 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
              space in \"Ashlr MD\" no longer breaks it. Restart Claude Code to pick it up.",
             settings_path.display()
         ),
+        HookMerge::Moved(old) => format!(
+            "Auto-open hook updated in {}: it ran {old}, which no longer exists (the app \
+             was moved or reinstalled), and now runs {mdopen}. Restart Claude Code to pick \
+             it up.",
+            settings_path.display()
+        ),
         _ => format!(
             "Auto-open hook installed in {}.\n\
              Claude Code will now open Markdown files in Ashlr MD as it writes them. \
@@ -366,6 +408,9 @@ enum HookMerge {
     Installed,
     /// Our earlier unquoted `<mdopen> --hook` entry was rewritten in place.
     Repaired,
+    /// Our quoted entry ran an `mdopen` that no longer exists (the path it
+    /// ran is carried); it now runs this app's.
+    Moved(String),
     AlreadyInstalled,
 }
 
@@ -374,6 +419,37 @@ enum HookMerge {
 /// Unexpected `hooks` / `hooks.PostToolUse` shapes are an error (the message
 /// is appended to the settings path) rather than silently overwritten.
 fn merge_hook(root: &mut Value, mdopen: &str) -> Result<HookMerge, &'static str> {
+    merge_hook_with(root, mdopen, &|p| std::path::Path::new(p).is_file())
+}
+
+/// The `mdopen` path a hook `command` runs, when it is the form we write,
+/// `'<path>' --hook` with the path POSIX single-quoted and its file named
+/// `mdopen` (or `mdopen.exe`). `None` for any other command.
+fn our_hook_path(command: &str) -> Option<String> {
+    let quoted = command.strip_suffix(" --hook")?;
+    let inner = quoted.strip_prefix('\'')?.strip_suffix('\'')?;
+    // Inside the quotes, a `'` only ever appears as the `'\''` escape.
+    if inner.replace("'\\''", "").contains('\'') {
+        return None;
+    }
+    let path = inner.replace("'\\''", "'");
+    let name = path.rsplit(['/', '\\']).next()?;
+    matches!(name, "mdopen" | "mdopen.exe").then_some(path)
+}
+
+/// [`merge_hook`] with the file-existence check injected for tests.
+///
+/// An entry we wrote for an `mdopen` that no longer exists (the app was moved,
+/// e.g. from Downloads to Applications, or reinstalled elsewhere) is pointed
+/// at `mdopen`. It used to count as installed, so the button said "already
+/// installed" while the hook failed on every write. An entry running some
+/// other `mdopen` that does exist (say one the CLI installer put on `PATH`)
+/// is kept.
+fn merge_hook_with(
+    root: &mut Value,
+    mdopen: &str,
+    exists: &dyn Fn(&str) -> bool,
+) -> Result<HookMerge, &'static str> {
     let command = mcp_command::hook_command(mdopen);
     let legacy = mcp_command::legacy_hook_command(mdopen);
 
@@ -422,6 +498,38 @@ fn merge_hook(root: &mut Value, mdopen: &str) -> Result<HookMerge, &'static str>
     }
     if repaired {
         return Ok(HookMerge::Repaired);
+    }
+
+    // When the current command is already there, a dangling copy is left for
+    // the user: repointing it would run the hook twice on every write.
+    let has_current = arr.iter().any(|entry| {
+        entry["hooks"].as_array().is_some_and(|hs| {
+            hs.iter()
+                .any(|h| h["command"].as_str() == Some(command.as_str()))
+        })
+    });
+    let mut moved = None;
+    for entry in arr.iter_mut().filter(|_| !has_current) {
+        let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for hook in hooks.iter_mut().filter(|h| h.is_object()) {
+            let Some(old) = hook
+                .get("command")
+                .and_then(Value::as_str)
+                .filter(|c| *c != command)
+                .and_then(our_hook_path)
+            else {
+                continue;
+            };
+            if !exists(&old) {
+                hook["command"] = json!(command);
+                moved.get_or_insert(old);
+            }
+        }
+    }
+    if let Some(old) = moved {
+        return Ok(HookMerge::Moved(old));
     }
 
     // Idempotency: skip if any existing hook already runs our `mdopen --hook`.
@@ -527,6 +635,122 @@ mod tests {
             merge_hook(&mut root, MDOPEN),
             Ok(HookMerge::AlreadyInstalled)
         );
+    }
+
+    const MCP: &str = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp";
+
+    #[test]
+    fn cursor_config_keeps_other_servers_and_updates_ours() {
+        let existing = r#"{ "theme": "dark", "mcpServers": {
+            "other": { "command": "/bin/other", "args": ["-x"] },
+            "ashlr-md": { "command": "/old/path/mdopener-mcp", "args": [] } } }"#;
+        let out: Value =
+            serde_json::from_str(&merge_cursor_config(Some(existing), MCP).unwrap()).unwrap();
+        assert_eq!(out["theme"], "dark");
+        assert_eq!(out["mcpServers"]["other"]["command"], "/bin/other");
+        assert_eq!(out["mcpServers"]["ashlr-md"]["command"], MCP);
+        for fresh in [None, Some(""), Some("  \n"), Some("null"), Some("{}")] {
+            let out: Value =
+                serde_json::from_str(&merge_cursor_config(fresh, MCP).unwrap()).unwrap();
+            assert_eq!(
+                out,
+                json!({ "mcpServers": { "ashlr-md": { "command": MCP, "args": [] } } })
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_config_that_cannot_be_merged_is_refused_not_replaced() {
+        // A comment or trailing comma used to make the whole file `{}` plus
+        // our entry, deleting the user's other servers; a top-level array
+        // or string panicked on `root["mcpServers"]`.
+        let with_comment =
+            "{\n  // mine\n  \"mcpServers\": { \"other\": { \"command\": \"x\" } }\n}";
+        let err = merge_cursor_config(Some(with_comment), MCP).unwrap_err();
+        assert!(
+            err.contains("not valid JSON") && err.contains("not changed"),
+            "{err}"
+        );
+        for bad in [
+            r#"[1, 2]"#,
+            r#""text""#,
+            r#"{ "mcpServers": [] }"#,
+            r#"{ "mcpServers": "x" }"#,
+        ] {
+            let err = merge_cursor_config(Some(bad), MCP).unwrap_err();
+            assert!(err.contains("not changed"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn hook_for_an_mdopen_that_is_gone_is_pointed_at_this_app() {
+        let old = "/Users/me/Downloads/Ashlr MD.app/Contents/Resources/mdopen";
+        let other = "/usr/local/bin/mdopen";
+        let mut root = json!({ "hooks": { "PostToolUse": [
+            { "matcher": "Bash", "hooks": [{ "type": "command", "command": "echo hi" }] },
+            { "matcher": "Edit|Write", "hooks": [{
+                "type": "command",
+                "command": mcp_command::hook_command(old),
+                "if": "Write(*.md)|Edit(*.md)"
+            }] }
+        ] } });
+        let gone = |p: &str| p != old;
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &gone),
+            Ok(HookMerge::Moved(old.to_string()))
+        );
+        assert_eq!(
+            commands(&root),
+            ["echo hi".to_string(), mcp_command::hook_command(MDOPEN)]
+        );
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &gone),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+
+        // A dangling entry next to the current one is not duplicated.
+        let mut root = json!({ "hooks": { "PostToolUse": [{ "matcher": "Edit|Write",
+            "hooks": [
+                { "type": "command", "command": mcp_command::hook_command(old) },
+                { "type": "command", "command": mcp_command::hook_command(MDOPEN) }
+            ] }] } });
+        let before = root.clone();
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &gone),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+        assert_eq!(root, before);
+
+        // Another mdopen that still exists is the user's choice: kept.
+        let mut root = json!({ "hooks": { "PostToolUse": [{ "matcher": "Edit|Write",
+            "hooks": [{ "type": "command", "command": mcp_command::hook_command(other) }] }] } });
+        let before = root.clone();
+        assert_eq!(
+            merge_hook_with(&mut root, MDOPEN, &|_| true),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+        assert_eq!(root, before);
+    }
+
+    #[test]
+    fn only_our_quoted_mdopen_form_is_read_as_our_hook() {
+        assert_eq!(
+            our_hook_path("'/tmp/O'\\''Brien/mdopen' --hook").as_deref(),
+            Some("/tmp/O'Brien/mdopen")
+        );
+        assert_eq!(
+            our_hook_path("'C:\\Ashlr MD\\mdopen.exe' --hook").as_deref(),
+            Some("C:\\Ashlr MD\\mdopen.exe")
+        );
+        for not_ours in [
+            "/usr/bin/mdopen --hook",
+            "'/usr/bin/mdopen' --hook && rm -rf x",
+            "'/usr/bin/mdopen-wrapper' --hook",
+            "'/a'b/mdopen' --hook",
+            "echo mdopen --hook",
+        ] {
+            assert_eq!(our_hook_path(not_ours), None, "{not_ours}");
+        }
     }
 
     #[test]
