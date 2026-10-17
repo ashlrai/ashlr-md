@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md puts `stream_edit`'s `applied: true` with `preview: false`.**
+  The row read as if a refused `preview_lines` came back with
+  `applied: true`; the sentence now follows `preview: false`, the case the
+  tool sets it for, and says a preview has `applied: false`.
 - **`list_recent`, `get_user_annotations` and `present_document` name their
   results.** Their descriptions said what they do but not what comes back.
   They now give `[{ path, fileName, openedAt }]` (most recent first),
