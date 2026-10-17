@@ -850,6 +850,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "output_path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
                     }
                 },
@@ -916,7 +917,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "description": "Optional: assert this is the open document (errors if a different file is open)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -1207,7 +1208,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open)."
+                        "minLength": 1,
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1253,7 +1255,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Optional path assertion — errors if a different file is open."
+                        "minLength": 1,
+                        "description": "Optional path assertion: errors if a different file is open. An empty string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -2084,9 +2087,12 @@ pub fn tool_export_with(
         );
     }
 
-    let output_path = match args["output_path"].as_str() {
-        None => None,
-        Some(raw) => match export_output_path(raw, &format) {
+    // An empty `output_path` used to come back as "cannot make an empty path
+    // absolute"; it is refused in the words the other tools use.
+    let output_path = match non_empty_str(args, "output_path") {
+        Err(e) => return Response::err(id, -32602, e),
+        Ok(None) => None,
+        Ok(Some(raw)) => match export_output_path(raw, &format) {
             Ok(p) => Some(p),
             Err(e) => return Response::err(id, -32602, e),
         },
@@ -2614,9 +2620,15 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
+    // An empty `path` used to reach the app, which answered that "" is not
+    // the open document; it is refused here like an empty `find`.
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let mut body = json!({ "find": find, "replace": replace, "save": save });
-    if let Some(p) = args["path"].as_str() {
+    if let Some(p) = path {
         body["path"] = json!(agent_path(p));
     }
 
@@ -6124,7 +6136,10 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
     let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
-    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let body = json!({
         "find": find,
@@ -6171,7 +6186,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
-    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let body = json!({
         "editId": edit_id,

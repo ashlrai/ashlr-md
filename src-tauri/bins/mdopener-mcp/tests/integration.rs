@@ -8233,6 +8233,12 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
 /// and the tools refuse an empty value themselves with "must not be empty".
 /// So does `request_review.content`, which used to register a review of no
 /// text when no path was given.
+///
+/// The optional `path` of `edit_document`, `stream_edit` and
+/// `stream_edit_apply` reached the app when empty and came back as "not the
+/// open document", and `export.output_path` as "cannot make an empty path
+/// absolute". They are refused the same way (omitting them stays allowed),
+/// and every `path` or `*_path` string argument must be on the list.
 #[test]
 fn required_strings_refused_when_empty_declare_min_length() {
     let must = [
@@ -8254,6 +8260,10 @@ fn required_strings_refused_when_empty_declare_min_length() {
         ("request_review", "path"),
         ("request_review", "content"),
         ("search_vault", "vault"),
+        ("edit_document", "path"),
+        ("stream_edit", "path"),
+        ("stream_edit_apply", "path"),
+        ("export", "output_path"),
     ];
     // Empty is a real value: replacing with nothing, an empty document.
     // A path or format is checked by the tool (or the enum) in its own words.
@@ -8290,12 +8300,20 @@ fn required_strings_refused_when_empty_declare_min_length() {
                 if def.name == "save_conversation_message" {
                     args.insert("role".into(), json!("agent"));
                 }
+                if def.name == "export" {
+                    args.insert("format".into(), json!("html"));
+                }
                 args.insert(k.clone(), json!(""));
                 let msg = param_error(&call_tool(def.name, Value::Object(args)));
                 assert_eq!(
                     msg,
                     format!("`{k}` must be at least 1 character long, got \"\""),
                     "{}.{k}",
+                    def.name
+                );
+            } else if prop["type"] == "string" && (k == "path" || k.ends_with("_path")) {
+                panic!(
+                    "{}.{k} is a path: refuse it when empty and list it",
                     def.name
                 );
             } else if prop["type"] == "string" && required.contains(&k.as_str()) {
@@ -8316,7 +8334,7 @@ fn required_strings_refused_when_empty_declare_min_length() {
     // Called directly, past the schema check, the tools refuse an empty
     // path themselves rather than reporting a file error.
     let ipc = MockIpc::new();
-    let direct: [(&str, mdopener_mcp::Response); 9] = [
+    let direct: [(&str, mdopener_mcp::Response); 13] = [
         ("path", tool_open_file(id(1), &json!({ "path": "" }), &ipc)),
         (
             "path",
@@ -8357,6 +8375,34 @@ fn required_strings_refused_when_empty_declare_min_length() {
         (
             "vault",
             mdopener_mcp::tool_search_vault(id(1), &json!({ "query": "x", "vault": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_edit_document(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_stream_edit(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_stream_edit_apply(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "output_path",
+            mdopener_mcp::tool_export(id(1), &json!({ "format": "html", "output_path": "" }), &ipc),
         ),
     ];
     for (k, resp) in direct {
