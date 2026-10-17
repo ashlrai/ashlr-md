@@ -52,6 +52,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   package descriptions shown in app metadata used em dashes (and two en
   dashes). They now use plain punctuation. A test parses the UI sources and
   fails on a dash in a string literal, template text or JSX text.
+  The test now also covers the shell page (`index.html`), every string in
+  the Tauri configs (window titles, bundle descriptions, file association
+  names) and the string literals of the Rust app and its `mdopen` and
+  `mdopener-mcp` binaries (dialog, menu, tray and notification text and the
+  errors the window reports), outside comments and test modules. None of
+  them held a dash.
 - **The app saves a path cited twice in one message once.** The window's
   session writer stored a message's `citedDocs` as given, so a path cited
   twice was written twice, while `save_conversation_message` keeps it once.
