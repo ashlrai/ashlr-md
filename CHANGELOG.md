@@ -36,6 +36,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Agent reads take the file that was checked.** Every agent read from disk
+  (the MCP tools that read a path, `file://` resources, recent-document
+  previews, the grep fallback, and the app's `/search` and `/annotations`)
+  resolved the path, checked it was a Markdown document, and then opened it
+  again, so a `notes.md` swapped for a link to `~/.ssh/id_rsa` in between, or
+  the folder above it swapped for a link to another folder, was followed. On
+  Unix the read now refuses a link in the file's own name (`O_NOFOLLOW`) and
+  any file that is not the one the check saw (same device and inode).
 - **"Apply hunk" never patches hidden files or follows a link out of the
   folder.** A diff block names its target file, and an agent writes the diff:
   one naming `.git/config` (git runs `core.fsmonitor` as a command) or `.env`

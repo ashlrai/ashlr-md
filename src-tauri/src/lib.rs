@@ -7,6 +7,7 @@ mod ai;
 mod cli_install;
 mod deep_link;
 mod default_handler;
+mod doc_read;
 mod document;
 mod embed;
 mod export;

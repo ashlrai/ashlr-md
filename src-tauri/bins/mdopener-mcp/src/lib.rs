@@ -3648,11 +3648,11 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // after resolving symlinks.
         // Read the checked (canonical) path: reading `p` again would follow
         // a link re-pointed after the check.
-        let checked = match checked_document_path(&p, "uri") {
+        let checked = match checked_document(&p, "uri") {
             Ok(c) => c,
             Err(e) => return Response::err(id, -32002, e),
         };
-        return match read_document_file(&checked) {
+        return match checked.read() {
             Ok(text) => Response::ok(
                 id,
                 json!({
@@ -3880,16 +3880,109 @@ pub fn canonicalize_path(raw: &str) -> String {
 /// Read a file as UTF-8 text, refusing anything that is not a regular file
 /// (after following symlinks). Opening a FIFO for reading blocks until a
 /// writer appears, and a device or socket is never a document, so every disk
-/// read goes through here rather than `std::fs::read_to_string`.
+/// read goes through here rather than `std::fs::read_to_string`. The file is
+/// opened non-blocking and judged by the opened handle, so a FIFO put in its
+/// place after the check cannot block the read either.
 pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    use std::io::Read as _;
     let path = path.as_ref();
     if !std::fs::metadata(path)?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
+        return Err(not_regular());
     }
-    std::fs::read_to_string(path)
+    let mut file = open_for_read(path, false)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_regular());
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+fn not_regular() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file")
+}
+
+/// Open `path` for reading without blocking on a FIFO (Unix `O_NONBLOCK`,
+/// which has no effect on reads of a regular file) and, with `no_follow`,
+/// without following a symlink in its last component (`O_NOFOLLOW`: such a
+/// link is refused with "it is a symbolic link"). Elsewhere a plain open.
+fn open_for_read(path: &std::path::Path, no_follow: bool) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut flags = libc::O_NONBLOCK;
+        if no_follow {
+            flags |= libc::O_NOFOLLOW;
+        }
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(path)
+            .map_err(|e| {
+                // ELOOP on Linux and macOS, EMLINK on FreeBSD.
+                let link = matches!(e.raw_os_error(), Some(libc::ELOOP) | Some(libc::EMLINK));
+                if no_follow && link {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "it is a symbolic link (it was replaced by one after it was checked)",
+                    )
+                } else {
+                    e
+                }
+            })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = no_follow;
+        std::fs::File::open(path)
+    }
+}
+
+/// Which file a path named when it was checked: its device and inode on
+/// Unix, compared with those of the file a read then opens. Elsewhere it
+/// carries nothing and every file matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileIdentity {
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
+impl FileIdentity {
+    pub fn of(meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            FileIdentity {
+                dev: meta.dev(),
+                ino: meta.ino(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = meta;
+            FileIdentity {}
+        }
+    }
+}
+
+/// A document path that passed [`checked_document`], with the identity of
+/// the file it named then (`None` when it did not exist). Read it with
+/// [`CheckedDocument::read`], never by reopening `path` some other way.
+#[derive(Clone, Debug)]
+pub struct CheckedDocument {
+    /// The canonical path.
+    pub path: String,
+    identity: Option<FileIdentity>,
+}
+
+impl CheckedDocument {
+    /// [`read_document_file`], refusing the file unless it is the one that
+    /// was checked.
+    pub fn read(&self) -> std::io::Result<String> {
+        read_document_at(std::path::Path::new(&self.path), self.identity)
+    }
 }
 
 /// Largest document (Markdown or canvas file) a tool or resource reads from
@@ -3900,15 +3993,55 @@ pub const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
 
 /// [`read_regular_file`] for a document, refusing one larger than
 /// [`MAX_DOCUMENT_BYTES`] (before reading it, and if it grows while read).
+/// `path` is a canonical path (every caller resolves it first), so on Unix a
+/// symlink in its last component is refused rather than followed, and the
+/// file opened must be the one `lstat` saw just before: a component swapped
+/// for a link in between is not followed to another file.
 pub fn read_document_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    read_document_at(path.as_ref(), None)
+}
+
+/// [`read_document_file`], also requiring the opened file to be `expected`
+/// (the file a check saw) when given. The check and the read each resolve
+/// the path, so between them a final or intermediate component swapped for
+/// a symlink would otherwise be followed: `notes.md` re-pointed at
+/// `~/.ssh/id_rsa`, or the folder above it at another folder.
+fn read_document_at(
+    path: &std::path::Path,
+    expected: Option<FileIdentity>,
+) -> std::io::Result<String> {
     use std::io::Read as _;
-    let path = path.as_ref();
-    let meta = std::fs::metadata(path)?;
-    if !meta.is_file() {
+    let changed = || {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "it changed after it was checked (a link or another file took its place), \
+             so it was not read",
+        )
+    };
+    #[cfg(unix)]
+    let before = std::fs::symlink_metadata(path)?;
+    #[cfg(not(unix))]
+    let before = std::fs::metadata(path)?;
+    if before.file_type().is_symlink() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "not a regular file",
+            "it is a symbolic link (it was replaced by one after it was checked)",
         ));
+    }
+    if !before.is_file() {
+        return Err(not_regular());
+    }
+    let seen = FileIdentity::of(&before);
+    if expected.is_some_and(|e| e != seen) {
+        return Err(changed());
+    }
+    let file = open_for_read(path, true)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(not_regular());
+    }
+    if FileIdentity::of(&meta) != seen {
+        return Err(changed());
     }
     let too_large = |len: u64| {
         std::io::Error::new(
@@ -3924,8 +4057,7 @@ pub fn read_document_file(path: impl AsRef<std::path::Path>) -> std::io::Result<
         return Err(too_large(meta.len()));
     }
     let mut text = String::new();
-    std::fs::File::open(path)?
-        .take(MAX_DOCUMENT_BYTES + 1)
+    file.take(MAX_DOCUMENT_BYTES + 1)
         .read_to_string(&mut text)?;
     if text.len() as u64 > MAX_DOCUMENT_BYTES {
         return Err(too_large(text.len() as u64));
@@ -3943,8 +4075,16 @@ pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// `.env` is refused too. Dotfiles (`.env.md`, `.secrets.md`) are refused even
 /// with a Markdown extension, and so is anything that exists but is not a
 /// regular file (a FIFO named `x.md` would block the read forever). Returns
-/// the canonical path, or a message for an `isError` result.
+/// the canonical path, or a message for an `isError` result. A caller that
+/// then reads the file uses [`checked_document`] instead, which also says
+/// which file was checked.
 pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
+    checked_document(raw, arg).map(|c| c.path)
+}
+
+/// [`checked_document_path`], keeping the identity of the file checked so
+/// that [`CheckedDocument::read`] reads that file and no other.
+pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String> {
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
     let hidden = p
@@ -3968,15 +4108,26 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
                 .join(", ")
         ));
     }
+    // The canonical path names no link, so on Unix it is judged without
+    // following one: a link here now was put in place since it was resolved.
+    #[cfg(unix)]
+    let meta = std::fs::symlink_metadata(p);
+    #[cfg(not(unix))]
+    let meta = std::fs::metadata(p);
     // A missing file falls through so the caller reports "No such file".
-    if let Ok(meta) = std::fs::metadata(p) {
-        if !meta.is_file() {
+    let identity = match meta {
+        Ok(meta) if meta.is_file() => Some(FileIdentity::of(&meta)),
+        Ok(_) => {
             return Err(format!(
                 "Refusing to read `{arg}` '{abs}': it is not a regular file."
-            ));
+            ))
         }
-    }
-    Ok(abs)
+        Err(_) => None,
+    };
+    Ok(CheckedDocument {
+        path: abs,
+        identity,
+    })
 }
 
 /// Collect candidate file paths from the vault and recents advertised by the
@@ -4157,8 +4308,7 @@ fn semantic_hits(
 /// every one, returning lines of a dropped `.env` or of a `notes.md` link to
 /// `~/.ssh/id_rsa` that every other read refuses.
 fn searchable_document(path: &str) -> Option<String> {
-    let checked = checked_document_path(path, "path").ok()?;
-    read_document_file(checked).ok()
+    checked_document(path, "path").ok()?.read().ok()
 }
 
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
@@ -4523,18 +4673,18 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         // Skip a recent that is (or now links to) something other than a
         // Markdown non-dotfile, as `file://` reads do: its preview would
         // otherwise show the first 200 characters of the link's target.
-        let Ok(checked) = checked_document_path(path, "path") else {
+        let Ok(doc) = checked_document(path, "path") else {
             not_document += 1;
             continue;
         };
-        // Skip paths that no longer exist on disk. The checked (canonical)
-        // path is read, so a link re-pointed after the check is not followed.
-        let content = match read_document_file(&checked) {
+        // Skip paths that no longer exist on disk. The checked file is read,
+        // so a link put in its place after the check is not followed.
+        let content = match doc.read() {
             Ok(c) => c,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     missing += 1;
-                } else if std::fs::metadata(&checked).is_ok_and(|m| m.len() > MAX_DOCUMENT_BYTES) {
+                } else if std::fs::metadata(&doc.path).is_ok_and(|m| m.len() > MAX_DOCUMENT_BYTES) {
                     too_large += 1;
                 } else {
                     unreadable += 1;
@@ -4544,7 +4694,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         };
 
         // mtime in milliseconds since the Unix epoch.
-        let mtime_ms: u64 = std::fs::metadata(&checked)
+        let mtime_ms: u64 = std::fs::metadata(&doc.path)
             .ok()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -4622,20 +4772,21 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
     // Clamped: a huge value would overflow the hunk arithmetic.
     let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
 
-    let path_a = match checked_document_path(&raw_a, "path_a") {
+    let doc_a = match checked_document(&raw_a, "path_a") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
-    let path_b = match checked_document_path(&raw_b, "path_b") {
+    let doc_b = match checked_document(&raw_b, "path_b") {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
+    let (path_a, path_b) = (doc_a.path.clone(), doc_b.path.clone());
 
-    let content_a = match read_document_file(&path_a) {
+    let content_a = match doc_a.read() {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match read_document_file(&path_b) {
+    let content_b = match doc_b.read() {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -6338,8 +6489,9 @@ pub fn count_words(text: &str) -> usize {
 /// is an error rather than an empty document.
 fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
     if let Some(raw) = args["path"].as_str() {
-        let abs = checked_document_path(raw, "path")?;
-        return match read_document_file(&abs) {
+        let doc = checked_document(raw, "path")?;
+        let abs = doc.path.clone();
+        return match doc.read() {
             Ok(c) => Ok((without_bom(c), Some(abs))),
             Err(e) => Err(format!("Cannot read '{abs}': {e}")),
         };

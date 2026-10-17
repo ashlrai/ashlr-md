@@ -701,7 +701,11 @@ The integration is **local-only and token-authenticated**:
   `get_user_annotations` for a file that is not the open document) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
-  refused with `isError: true`. The tools that ask the app to open a path
+  refused with `isError: true`. The read then takes only the file the check
+  saw: on Unix a link put in the file's place afterwards is not followed
+  (`O_NOFOLLOW`), and a file with another device and inode (its folder
+  swapped for a link, say) is refused. The app's `/search` and
+  `/annotations` read the same way. The tools that ask the app to open a path
   (`open_file`, `present_document`, `request_review` with `path`) make the
   same check, since the app would then show the file and
   `get_current_content` would return it; the app's `/open`, `/present` and

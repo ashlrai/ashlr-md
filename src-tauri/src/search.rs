@@ -5,6 +5,7 @@
 //! file into memory. Case-insensitive substring match; returns per-file line
 //! matches with a trimmed snippet around each hit.
 
+use crate::doc_read::{CheckedDocument, MAX_DOCUMENT_BYTES};
 use serde::Serialize;
 use std::path::Path;
 
@@ -38,6 +39,41 @@ pub fn search_files(
     query: String,
     limit: Option<usize>,
 ) -> Vec<FileSearchResult> {
+    search_with(
+        paths,
+        query,
+        limit,
+        |p| p.as_str(),
+        |p| std::fs::read_to_string(p).ok(),
+    )
+}
+
+/// [`search_files`] for an agent (`/search`): each document is read only if
+/// it is still the file its path check saw, so a link swapped in after the
+/// check is not followed (see [`crate::doc_read`]).
+pub(crate) fn search_checked(
+    docs: Vec<CheckedDocument>,
+    query: String,
+    limit: Option<usize>,
+) -> Vec<FileSearchResult> {
+    search_with(
+        docs,
+        query,
+        limit,
+        |d| d.path.as_str(),
+        |d| d.read_capped(MAX_DOCUMENT_BYTES).ok(),
+    )
+}
+
+/// The search itself: `read` gives an item's text, or `None` to skip it
+/// (moved, deleted, binary or refused).
+fn search_with<T>(
+    items: Vec<T>,
+    query: String,
+    limit: Option<usize>,
+    path_of: impl Fn(&T) -> &str,
+    read: impl Fn(&T) -> Option<String>,
+) -> Vec<FileSearchResult> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Vec::new();
@@ -45,11 +81,11 @@ pub fn search_files(
     let cap = limit.unwrap_or(200);
     let mut results = Vec::new();
 
-    for path in paths {
+    for item in items {
         if results.len() >= cap {
             break;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else {
+        let Some(content) = read(&item) else {
             continue; // moved/deleted/binary — skip silently
         };
 
@@ -67,6 +103,7 @@ pub fn search_files(
         }
 
         if !matches.is_empty() {
+            let path = path_of(&item).to_string();
             let file_name = Path::new(&path)
                 .file_name()
                 .and_then(|n| n.to_str())

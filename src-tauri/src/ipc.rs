@@ -965,6 +965,16 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 /// the endpoint would otherwise answer `ok` for an open that never happens.
 /// Returns the canonical path.
 pub(crate) fn checked_agent_path(raw: &str) -> Result<String, String> {
+    checked_agent_document(raw).map(|d| d.path)
+}
+
+/// [`checked_agent_path`], keeping the identity of the file checked so a read
+/// ([`crate::doc_read::CheckedDocument::read_capped`]) takes that file and no
+/// other: a final or intermediate component swapped for a link after the
+/// check is not followed.
+pub(crate) fn checked_agent_document(
+    raw: &str,
+) -> Result<crate::doc_read::CheckedDocument, String> {
     let abs = std::fs::canonicalize(raw)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| raw.to_string());
@@ -977,17 +987,21 @@ pub(crate) fn checked_agent_path(raw: &str) -> Result<String, String> {
         .file_name()
         .and_then(|n| n.to_str())
         .is_none_or(|n| n.starts_with('.'));
-    let not_a_file = std::fs::metadata(p).is_ok_and(|m| !m.is_file());
+    let meta = crate::doc_read::checked_metadata(p).ok();
+    let not_a_file = meta.as_ref().is_some_and(|m| !m.is_file());
     if !markdown || hidden || not_a_file {
         return Err(format!(
             "Refusing to open '{abs}': agents can open only Markdown documents (.md, \
              .markdown, .mdown, .mkd, .mdx) that are not dotfiles."
         ));
     }
-    if !p.exists() {
+    let Some(meta) = meta else {
         return Err(format!("Cannot open '{abs}': the file does not exist."));
-    }
-    Ok(abs)
+    };
+    Ok(crate::doc_read::CheckedDocument {
+        path: abs,
+        identity: Some(crate::doc_read::FileIdentity::of(&meta)),
+    })
 }
 
 /// POST /content — replace the open document (and save it when asked).
@@ -1473,7 +1487,7 @@ fn same_path(a: &str, b: &str) -> bool {
 /// Largest file `/annotations` reads its task list from: the 16 MiB a
 /// document may be (the IPC body cap, and what mdopener-mcp reads from disk).
 /// The file used to be read whole however large it was.
-const MAX_ANNOTATION_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_ANNOTATION_FILE_BYTES: u64 = crate::doc_read::MAX_DOCUMENT_BYTES;
 
 /// The GFM task checkboxes of the file `requested`: from the live buffer when
 /// it is the open document, else read from disk when it is a Markdown file
@@ -1490,51 +1504,19 @@ fn annotation_tasks(
     if open_path.is_some_and(|o| same_path(requested, o)) {
         return (parse_tasks(open_content), None);
     }
-    let Ok(canon) = std::fs::canonicalize(requested) else {
+    // The same check as `/open` (Markdown, not a dotfile, after resolving
+    // links), and the read takes the file it saw: a link swapped in after
+    // the check is not followed.
+    let Ok(doc) = checked_agent_document(requested) else {
         return (vec![], None);
     };
-    let markdown = canon.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        ["md", "markdown", "mdown", "mkd", "mdx"].contains(&e.to_ascii_lowercase().as_str())
-    });
-    let hidden = canon
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_none_or(|n| n.starts_with('.'));
-    if !markdown || hidden || !canon.is_file() {
-        return (vec![], None);
-    }
-    match read_capped_text(&canon, MAX_ANNOTATION_FILE_BYTES) {
+    match doc.read_capped(MAX_ANNOTATION_FILE_BYTES) {
         Ok(c) => (parse_tasks(&c), None),
         Err(e) => (
             vec![],
-            Some(format!("The tasks of {} were not read: {e}.", canon.display())),
+            Some(format!("The tasks of {} were not read: {e}.", doc.path)),
         ),
     }
-}
-
-/// Read `path` as UTF-8 text, refusing it (before reading, and if it grows
-/// while read) when it is larger than `max` bytes.
-fn read_capped_text(path: &std::path::Path, max: u64) -> Result<String, String> {
-    use std::io::Read as _;
-    let too_large = |len: u64| {
-        format!(
-            "it is {:.1} MiB, more than the {} MiB a document may be",
-            len as f64 / (1024.0 * 1024.0),
-            max / (1024 * 1024)
-        )
-    };
-    let len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if len > max {
-        return Err(too_large(len));
-    }
-    let mut text = String::new();
-    std::fs::File::open(path)
-        .and_then(|f| f.take(max + 1).read_to_string(&mut text))
-        .map_err(|e| e.to_string())?;
-    if text.len() as u64 > max {
-        return Err(too_large(text.len() as u64));
-    }
-    Ok(text)
 }
 
 fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
@@ -1669,7 +1651,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
     let paths = searchable_documents(listed);
 
-    let results = crate::search::search_files(paths, q.clone(), Some(limit));
+    let results = crate::search::search_checked(paths, q.clone(), Some(limit));
     send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut));
 }
 
@@ -1678,14 +1660,15 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
 /// [`checked_agent_path`] does for `/open`). Recents hold whatever the human
 /// opened (a dropped `.env`, a `notes.md` later re-pointed at `~/.ssh/id_rsa`),
 /// and searching them used to hand the agent their matching lines, though
-/// every other agent read refuses such files. Returns the canonical paths, so
-/// a link re-pointed after this check is not followed when the file is read.
-fn searchable_documents(listed: Vec<String>) -> Vec<String> {
+/// every other agent read refuses such files. Returns the checked documents,
+/// read by [`crate::search::search_checked`] so that a link put in place
+/// after this check is not followed when the file is read.
+fn searchable_documents(listed: Vec<String>) -> Vec<crate::doc_read::CheckedDocument> {
     let mut seen = std::collections::HashSet::new();
     listed
         .iter()
-        .filter_map(|p| checked_agent_path(p).ok())
-        .filter(|p| seen.insert(p.clone()))
+        .filter_map(|p| checked_agent_document(p).ok())
+        .filter(|d| seen.insert(d.path.clone()))
         .collect()
 }
 
@@ -3305,10 +3288,30 @@ mod tests {
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
         let canon = std::fs::canonicalize(&md).unwrap();
-        assert_eq!(
-            searchable_documents(listed),
-            vec![canon.to_string_lossy().into_owned()]
-        );
+        let docs: Vec<String> = searchable_documents(listed)
+            .into_iter()
+            .map(|d| d.path)
+            .collect();
+        assert_eq!(docs, vec![canon.to_string_lossy().into_owned()]);
+    }
+
+    /// `/search` and `/annotations` checked a path and then opened it again,
+    /// so `notes.md` swapped for a link to a secret after the check had the
+    /// secret's lines returned. The search reads the file the check saw.
+    #[cfg(unix)]
+    #[test]
+    fn search_refuses_a_document_swapped_for_a_link_after_the_check() {
+        let d = Scratch::new("search-swap");
+        let md = d.0.join("notes.md");
+        std::fs::write(&md, "TOKEN in notes").unwrap();
+        let key = d.0.join("id_rsa");
+        std::fs::write(&key, "TOKEN private key").unwrap();
+        let docs = searchable_documents(vec![md.to_string_lossy().into_owned()]);
+        assert_eq!(docs.len(), 1);
+        std::fs::remove_file(&md).unwrap();
+        std::os::unix::fs::symlink(&key, &md).unwrap();
+        let hits = crate::search::search_checked(docs, "token".into(), None);
+        assert!(hits.is_empty(), "the secret was searched");
     }
 
     /// A scratch directory removed on drop (the app crate has no tempfile).

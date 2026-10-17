@@ -8258,6 +8258,60 @@ fn document_reads_refuse_a_file_larger_than_16_mib() {
     );
 }
 
+/// A tool checked a path (`checked_document_path` resolves it and judges the
+/// canonical name) and then opened it again to read it, so a final or an
+/// intermediate component swapped for a symlink in between was followed:
+/// `notes.md` re-pointed at a secret, or the folder above it at another
+/// folder. The read now refuses a link in the last component (`O_NOFOLLOW`)
+/// and any file that is not the one the check saw (device and inode).
+#[cfg(unix)]
+#[test]
+fn checked_document_reads_refuse_a_link_swapped_in_after_the_check() {
+    use mdopener_mcp::{checked_document, read_document_file};
+    let dir = tempfile::Builder::new().prefix("swap-").tempdir().unwrap();
+    let secret = dir.path().join("id_rsa");
+    std::fs::write(&secret, "BEGIN PRIVATE KEY").unwrap();
+
+    // The file itself, swapped for a link to the secret.
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, "# notes\n").unwrap();
+    let doc = checked_document(&notes.to_string_lossy(), "path").unwrap();
+    assert_eq!(doc.read().unwrap(), "# notes\n");
+    std::fs::remove_file(&notes).unwrap();
+    std::os::unix::fs::symlink(&secret, &notes).unwrap();
+    let err = doc.read().unwrap_err().to_string();
+    assert!(err.contains("symbolic link"), "{err}");
+    let err = read_document_file(&doc.path).unwrap_err().to_string();
+    assert!(err.contains("symbolic link"), "{err}");
+
+    // The folder above it, swapped for a link to a folder holding another
+    // `plan.md`.
+    let real = dir.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::write(real.join("plan.md"), "# plan\n").unwrap();
+    let other = dir.path().join("other");
+    std::fs::create_dir(&other).unwrap();
+    std::fs::write(other.join("plan.md"), "SECRET PLAN").unwrap();
+    let doc = checked_document(&real.join("plan.md").to_string_lossy(), "path").unwrap();
+    std::fs::rename(&real, dir.path().join("real-old")).unwrap();
+    std::os::unix::fs::symlink(&other, &real).unwrap();
+    let err = doc.read().unwrap_err().to_string();
+    assert!(err.contains("changed after it was checked"), "{err}");
+
+    // A FIFO put in its place after the check is refused, not waited on.
+    let pipe = dir.path().join("pipe.md");
+    std::fs::write(&pipe, "# pipe\n").unwrap();
+    let doc = checked_document(&pipe.to_string_lossy(), "path").unwrap();
+    std::fs::remove_file(&pipe).unwrap();
+    let status = std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap();
+    assert!(status.success(), "mkfifo failed");
+    let err = doc.read().unwrap_err().to_string();
+    assert!(err.contains("not a regular file"), "{err}");
+}
+
 /// `search_vault` with an empty or whitespace-only query reached the app, so
 /// with the app closed the agent was told "app not running" instead of that
 /// its query was empty. Both are now `-32602` before any IPC: an empty one by
