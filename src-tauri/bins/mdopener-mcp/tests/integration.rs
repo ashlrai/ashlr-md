@@ -2568,6 +2568,45 @@ fn search_vault_falls_back_when_every_embedding_fails() {
     assert_eq!(v["results"].as_array().unwrap().len(), 1);
 }
 
+/// When only some documents fail to embed, the semantic results leave them
+/// out, and the note says how many, so their absence is not read as
+/// "unrelated to the query".
+#[test]
+fn search_vault_notes_documents_whose_embedding_failed() {
+    use mdopener_mcp::search_vault_with;
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = Vec::new();
+    for (name, body) in [
+        ("a.md", "# A\nthe target topic"),
+        ("big1.md", "# Big one\nTOO BIG"),
+        ("big2.md", "# Big two\nTOO BIG"),
+    ] {
+        let p = dir.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        files.push(json!({ "path": p.to_str().unwrap() }));
+    }
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": files, "recents": [] })));
+    let embed = |text: &str| {
+        if text.contains("TOO BIG") {
+            Err("Ollama embed request failed: HTTP 500".to_string())
+        } else {
+            Ok(vec![1.0, 0.0])
+        }
+    };
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "semantic");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1);
+    let note = v["note"].as_str().expect("the skipped documents are said");
+    assert!(note.contains("2 of 3 documents"), "{note}");
+    assert!(note.contains("HTTP 500"), "{note}");
+
+    // With every document embedded there is nothing to note.
+    let embed_all = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed_all).unwrap();
+    assert_eq!(v["results"].as_array().unwrap().len(), 3);
+    assert!(v.get("note").is_none(), "{v}");
+}
+
 // ── text://vault-search resource ──────────────────────────────────────────────
 
 #[test]

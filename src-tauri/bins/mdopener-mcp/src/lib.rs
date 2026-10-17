@@ -720,7 +720,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1791,8 +1791,14 @@ pub fn search_vault_with(
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_search_vault_with(query, limit, ipc, embed) {
-            Ok(results) => return Ok(json!({ "results": results, "mode": "semantic" })),
+        match semantic_hits(query, limit, ipc, embed) {
+            Ok(hits) => {
+                let mut v = json!({ "results": hits.results, "mode": "semantic" });
+                if let Some(note) = hits.skipped_note() {
+                    v["note"] = json!(note);
+                }
+                return Ok(v);
+            }
             Err(e) => {
                 // Embedding failed — fall through to grep, and say so.
                 semantic_note = Some(format!(
@@ -2529,10 +2535,47 @@ pub fn semantic_search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Vec<Value>, String> {
+    semantic_hits(query, limit, ipc, embed).map(|hits| hits.results)
+}
+
+/// What [`semantic_hits`] found, and how many documents it had to leave out
+/// because their embedding failed.
+struct SemanticHits {
+    results: Vec<Value>,
+    /// Documents read but not ranked: embedding them failed.
+    skipped: usize,
+    /// Documents that were embedded and ranked.
+    compared: usize,
+    /// The last embedding error, quoted in the note.
+    skip_error: Option<String>,
+}
+
+impl SemanticHits {
+    /// Says how many documents the results leave out, so an agent does not
+    /// read their absence as "unrelated to the query".
+    fn skipped_note(&self) -> Option<String> {
+        let e = self.skip_error.as_deref()?;
+        let n = self.skipped;
+        let total = n + self.compared;
+        let docs = if n == 1 { "document was" } else { "documents were" };
+        Some(format!(
+            "{n} of {total} {docs} left out of these semantic results because \
+             embedding failed ({e})."
+        ))
+    }
+}
+
+fn semantic_hits(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<SemanticHits, String> {
     let paths = vault_file_paths(ipc)?;
     let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
     let mut embed_error = None;
+    let mut skipped = 0;
 
     for path in &paths {
         let content = match read_regular_file(path) {
@@ -2545,6 +2588,7 @@ pub fn semantic_search_vault_with(
             Ok(v) => v,
             Err(e) => {
                 embed_error = Some(e);
+                skipped += 1;
                 continue;
             }
         };
@@ -2558,17 +2602,23 @@ pub fn semantic_search_vault_with(
         });
     }
 
-    if let (true, Some(e)) = (scored.is_empty(), embed_error) {
+    if let (true, Some(e)) = (scored.is_empty(), &embed_error) {
         return Err(format!("embedding every document failed: {e}"));
     }
 
+    let compared = scored.len();
     scored.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     scored.truncate(limit as usize);
-    Ok(scored.iter().map(|r| r.to_json()).collect())
+    Ok(SemanticHits {
+        results: scored.iter().map(|r| r.to_json()).collect(),
+        skipped,
+        compared,
+        skip_error: embed_error,
+    })
 }
 
 /// Grep the vault files directly on disk (used when the app's own `/search`
