@@ -923,6 +923,10 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
+            let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+            if let Some(e) = export_refusal(&b.format, open.as_deref()) {
+                return send_error(req, 400, &e);
+            }
             let _ = app.emit("mcp://export", serde_json::json!({
                 "format": b.format,
                 "outputPath": b.output_path,
@@ -931,6 +935,19 @@ fn handle_export(mut req: Request, app: &AppHandle) {
         }
         Err((code, e)) => send_error(req, code, &e),
     }
+}
+
+/// Why `/export` cannot run, if it cannot. The window exports only the open
+/// document (with none it toasts and does nothing) and treats a format it
+/// does not know as html, so both are refused here rather than answered `ok`.
+fn export_refusal(format: &str, open: Option<&str>) -> Option<String> {
+    if !["pdf", "docx", "html", "epub"].contains(&format) {
+        return Some(format!(
+            "Unknown export format '{format}': use pdf, docx, html or epub."
+        ));
+    }
+    open.is_none()
+        .then(|| "No document is open; open one before exporting.".to_string())
 }
 
 // ── Review handlers ───────────────────────────────────────────────────────────
@@ -1839,6 +1856,20 @@ mod tests {
     // ── Paths an agent may open, present or send for review ─────────────────
 
     use super::checked_agent_path;
+
+    use super::export_refusal;
+
+    #[test]
+    fn export_needs_an_open_document_and_a_known_format() {
+        assert_eq!(export_refusal("html", Some("/notes/a.md")), None);
+        assert_eq!(export_refusal("pdf", Some("/notes/a.md")), None);
+        // The window would only toast "Open a document" and export nothing.
+        let err = export_refusal("docx", None).unwrap();
+        assert!(err.contains("No document is open"), "{err}");
+        // The frontend treats anything it does not know as html.
+        let err = export_refusal("rtf", Some("/notes/a.md")).unwrap();
+        assert!(err.contains("rtf"), "{err}");
+    }
 
     use super::present_target;
 
