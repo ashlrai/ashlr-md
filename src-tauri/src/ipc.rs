@@ -50,15 +50,15 @@ pub struct SessionMessage {
     pub session_id: String,
     pub role: String,
     pub content: String,
-    #[serde(rename = "citedDocs")]
+    #[serde(rename = "citedDocs", default)]
     pub cited_docs: Vec<String>,
     #[serde(rename = "timestampMs")]
     pub timestamp_ms: u64,
 }
 
 /// In-memory session store managed by Tauri — keyed by session_id.
-/// The frontend writes here via `mcp_persist_session` and reads back via
-/// `mcp_load_session` on cold start.
+/// `mcp_persist_session` and `mcp_load_session` keep it in step with the
+/// session files on disk, which are shared with mdopener-mcp.
 #[derive(Default)]
 pub struct SessionStore(pub Mutex<HashMap<String, Vec<SessionMessage>>>);
 
@@ -311,21 +311,169 @@ fn sessions_dir() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
 }
 
-/// Sanitise a session_id to a safe filename component.
-/// Keeps only alphanumeric characters, hyphens, and underscores.
-fn safe_session_filename(session_id: &str) -> String {
-    session_id
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect()
+/// The file name mdopener-mcp gives `session_id` (`session_file_path` in
+/// bins/mdopener-mcp/src/lib.rs): ASCII letters, digits, `-` and `_` are kept
+/// and every other byte is written as `%XX`, so distinct ids never share a
+/// file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Both processes read and
+/// write the same files, so the two mappings must stay identical.
+fn session_file_name(session_id: &str) -> String {
+    let mut safe = String::with_capacity(session_id.len() + 5);
+    for b in session_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+            safe.push(b as char);
+        } else {
+            safe.push_str(&format!("%{b:02X}"));
+        }
+    }
+    safe.push_str(".json");
+    safe
 }
 
-/// Called by the frontend to atomically persist a session's full message log to
-/// `~/.mdopener/sessions/{session_id}.json`.
-///
-/// Writes are atomic: the JSON is first written to a temp file in the same
-/// directory, then renamed over the target — so a crash mid-write never leaves
-/// a partial file on disk.
+/// The name earlier builds of both the app and mdopener-mcp used: every
+/// character other than an alphanumeric, `-` or `_` became `_`, so `a.b` and
+/// `a_b` shared `a_b.json`. Only read, as a fallback for older history.
+fn legacy_session_file_name(session_id: &str) -> String {
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    format!("{safe}.json")
+}
+
+/// A session file: mdopener-mcp's `{"messages":[…]}`, or the bare array
+/// earlier app builds wrote.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SessionFile {
+    Log { messages: Vec<SessionMessage> },
+    Bare(Vec<SessionMessage>),
+}
+
+#[derive(Serialize)]
+struct SessionFileOut<'a> {
+    messages: &'a [SessionMessage],
+}
+
+/// Messages per session kept on disk; matches mdopener-mcp's
+/// `MAX_MESSAGES_PER_SESSION`.
+const MAX_SESSION_MESSAGES: usize = 200;
+
+fn parse_session_file(path: &std::path::Path) -> Result<Vec<SessionMessage>, String> {
+    if !std::fs::metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+    {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    match serde_json::from_str::<SessionFile>(&text) {
+        Ok(SessionFile::Log { messages } | SessionFile::Bare(messages)) => Ok(messages),
+        Err(e) => Err(format!("{} is not a session file: {e}", path.display())),
+    }
+}
+
+/// `session_id`'s messages on disk, and whether its file also holds another
+/// session's messages (ids that differ only in case share a file on a
+/// case-insensitive file system). With no file of its own yet, the legacy
+/// file is read instead, keeping only this id's messages.
+fn load_own_session(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<(Vec<SessionMessage>, bool), String> {
+    let own = |mut messages: Vec<SessionMessage>| {
+        let before = messages.len();
+        messages.retain(|m| m.session_id == session_id);
+        let foreign = messages.len() != before;
+        (messages, foreign)
+    };
+    let name = session_file_name(session_id);
+    let path = dir.join(&name);
+    if path.exists() {
+        return parse_session_file(&path).map(own);
+    }
+    let legacy = legacy_session_file_name(session_id);
+    if legacy != name {
+        if let Ok(messages) = parse_session_file(&dir.join(legacy)) {
+            return Ok((own(messages).0, false));
+        }
+    }
+    Ok((vec![], false))
+}
+
+/// Hold the sessions directory's lock file while reading and rewriting a
+/// session, so the app and mdopener-mcp (which takes the same lock) never
+/// write back a stale copy over each other's appends.
+fn lock_sessions_dir(dir: &std::path::Path) -> Result<std::fs::File, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"))
+        .map_err(|e| format!("Cannot open the sessions lock: {e}"))?;
+    lock.lock()
+        .map_err(|e| format!("Cannot lock the sessions dir: {e}"))?;
+    Ok(lock)
+}
+
+/// Merge `messages` into `session_id`'s file in `dir` and return the merged
+/// log. Messages already on disk (some saved by mdopener-mcp, which the
+/// window never sees) are kept; new ones are added by id, in timestamp order,
+/// keeping the newest [`MAX_SESSION_MESSAGES`]. A file that cannot be parsed
+/// or that holds another id's messages is left untouched and is an error.
+fn write_session_file(
+    dir: &std::path::Path,
+    session_id: &str,
+    messages: &[SessionMessage],
+) -> Result<Vec<SessionMessage>, String> {
+    let _lock = lock_sessions_dir(dir)?;
+    let (mut merged, foreign) = load_own_session(dir, session_id)?;
+    let name = session_file_name(session_id);
+    if foreign {
+        return Err(format!(
+            "Session file {} also holds another session's messages; not overwriting it.",
+            dir.join(&name).display()
+        ));
+    }
+    let mut seen: std::collections::HashSet<String> = merged.iter().map(|m| m.id.clone()).collect();
+    for m in messages {
+        if m.session_id == session_id && seen.insert(m.id.clone()) {
+            merged.push(m.clone());
+        }
+    }
+    merged.sort_by_key(|m| m.timestamp_ms);
+    if merged.len() > MAX_SESSION_MESSAGES {
+        let excess = merged.len() - MAX_SESSION_MESSAGES;
+        merged.drain(..excess);
+    }
+
+    let json = serde_json::to_string_pretty(&SessionFileOut { messages: &merged })
+        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+    // Write a temp file and rename it over the target, so a reader never sees
+    // a torn file.
+    let target = dir.join(&name);
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Rename failed: {e}")
+    })?;
+    Ok(merged)
+}
+
+/// Read `session_id`'s messages from `dir` (empty when it has none).
+fn read_session_file(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    load_own_session(dir, session_id).map(|(messages, _)| messages)
+}
+
+/// Called by the frontend to persist a session's message log to
+/// `~/.mdopener/sessions/`, in the file and format mdopener-mcp uses for the
+/// same session (see [`session_file_name`]). Messages the MCP server saved
+/// are kept (see [`write_session_file`]), and the write is atomic.
 #[tauri::command]
 pub fn mcp_persist_session(
     session_id: String,
@@ -336,29 +484,26 @@ pub fn mcp_persist_session(
         return Err("`session_id` must not be empty".into());
     }
 
-    // Update in-memory mirror.
-    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id.clone(), messages.clone());
-
-    // Persist to disk.
-    let Some(dir) = sessions_dir() else { return Ok(()) };
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
-
-    let safe = safe_session_filename(&session_id);
-    let target = dir.join(format!("{safe}.json"));
-    let tmp = dir.join(format!("{safe}.json.tmp"));
-
-    let json = serde_json::to_string_pretty(&messages)
-        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
-
-    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
-    std::fs::rename(&tmp, &target).map_err(|e| format!("Rename failed: {e}"))?;
-
+    let Some(dir) = sessions_dir() else {
+        store
+            .0
+            .lock()
+            .map_err(|e| format!("Lock error: {e}"))?
+            .insert(session_id, messages);
+        return Ok(());
+    };
+    let merged = write_session_file(&dir, &session_id, &messages)?;
+    store
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .insert(session_id, merged);
     Ok(())
 }
 
 /// Called by the frontend on startup to restore a prior session's messages.
-/// First checks the in-memory store (hot reload scenario), then falls back to
-/// reading `~/.mdopener/sessions/{session_id}.json` from disk.
+/// The file on disk is authoritative (mdopener-mcp appends to it); the
+/// in-memory copy answers only when there is no file to read.
 #[tauri::command]
 pub fn mcp_load_session(
     session_id: String,
@@ -368,31 +513,18 @@ pub fn mcp_load_session(
         return Err("`session_id` must not be empty".into());
     }
 
-    // Fast path: already in memory.
-    {
-        let guard = store.0.lock().map_err(|e| format!("Lock error: {e}"))?;
-        if let Some(msgs) = guard.get(&session_id) {
-            return Ok(msgs.clone());
-        }
-    }
-
-    // Cold start: load from disk.
-    let Some(dir) = sessions_dir() else { return Ok(vec![]) };
-    let safe = safe_session_filename(&session_id);
-    let path = dir.join(format!("{safe}.json"));
-
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(_) => return Ok(vec![]), // File does not exist — empty session.
+    let from_disk = match sessions_dir() {
+        Some(dir) => Some(read_session_file(&dir, &session_id)?),
+        None => None,
     };
-
-    let messages: Vec<SessionMessage> =
-        serde_json::from_str(&text).map_err(|e| format!("JSON parse failed: {e}"))?;
-
-    // Warm the in-memory cache so subsequent calls skip disk.
-    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id, messages.clone());
-
-    Ok(messages)
+    let mut guard = store.0.lock().map_err(|e| format!("Lock error: {e}"))?;
+    match from_disk {
+        Some(messages) if !messages.is_empty() => {
+            guard.insert(session_id, messages.clone());
+            Ok(messages)
+        }
+        _ => Ok(guard.get(&session_id).cloned().unwrap_or_default()),
+    }
 }
 
 // ── IPC port file helpers ─────────────────────────────────────────────────────
@@ -1475,5 +1607,125 @@ mod tests {
                 "{p:?}"
             );
         }
+    }
+
+    // ── Session files shared with mdopener-mcp ───────────────────────────────
+
+    use super::{read_session_file, write_session_file, SessionMessage};
+
+    /// A scratch directory removed on drop (the app crate has no tempfile).
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let n = N.fetch_add(1, Ordering::Relaxed);
+            let p =
+                std::env::temp_dir().join(format!("ipc-sessions-{tag}-{}-{n}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&p);
+            std::fs::create_dir_all(&p).unwrap();
+            Scratch(p)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn msg(id: &str, session: &str, ts: u64) -> SessionMessage {
+        SessionMessage {
+            id: id.into(),
+            session_id: session.into(),
+            role: "agent".into(),
+            content: format!("{id} content"),
+            cited_docs: vec![],
+            timestamp_ms: ts,
+        }
+    }
+
+    fn ids(msgs: &[SessionMessage]) -> Vec<&str> {
+        msgs.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    /// What mdopener-mcp writes for one message (its `SessionLog`).
+    fn mcp_file(messages: &[SessionMessage]) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    #[test]
+    fn session_ids_that_used_to_collide_get_their_own_files() {
+        let d = Scratch::new("collide");
+        write_session_file(&d.0, "a.b", &[msg("m1", "a.b", 1)]).unwrap();
+        write_session_file(&d.0, "a_b", &[msg("m2", "a_b", 2)]).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+        // The same names mdopener-mcp uses (`session_file_path`).
+        assert!(d.0.join("a%2Eb.json").is_file());
+        assert!(d.0.join("a_b.json").is_file());
+    }
+
+    #[test]
+    fn reads_the_session_file_mdopener_mcp_wrote() {
+        let d = Scratch::new("read-mcp");
+        std::fs::write(d.0.join("a%2Eb.json"), mcp_file(&[msg("m1", "a.b", 1)])).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+    }
+
+    #[test]
+    fn writes_the_format_mdopener_mcp_reads() {
+        let d = Scratch::new("write-mcp");
+        write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(d.0.join("s1.json")).unwrap()).unwrap();
+        assert_eq!(v["messages"][0]["id"], "m1");
+        assert_eq!(v["messages"][0]["sessionId"], "s1");
+    }
+
+    #[test]
+    fn persisting_keeps_messages_the_mcp_server_appended() {
+        let d = Scratch::new("merge");
+        // The agent saved m1 through mdopener-mcp; the window only knows m2.
+        std::fs::write(d.0.join("s1.json"), mcp_file(&[msg("m1", "s1", 1)])).unwrap();
+        let written = write_session_file(&d.0, "s1", &[msg("m2", "s1", 2)]).unwrap();
+        assert_eq!(ids(&written), ["m1", "m2"]);
+        assert_eq!(ids(&read_session_file(&d.0, "s1").unwrap()), ["m1", "m2"]);
+        // Re-persisting the same messages adds no duplicates.
+        let again = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1), msg("m2", "s1", 2)]);
+        assert_eq!(ids(&again.unwrap()), ["m1", "m2"]);
+    }
+
+    #[test]
+    fn history_under_the_legacy_name_is_read_without_other_ids() {
+        let d = Scratch::new("legacy");
+        // Earlier builds (app: a bare array) wrote both ids to `a_b.json`.
+        let legacy = serde_json::to_string(&[msg("m1", "a.b", 1), msg("m2", "a_b", 2)]).unwrap();
+        std::fs::write(d.0.join("a_b.json"), legacy).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+        // The next write moves `a.b` to its own file; the legacy file stays.
+        write_session_file(&d.0, "a.b", &[msg("m3", "a.b", 3)]).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1", "m3"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+    }
+
+    #[test]
+    fn a_file_shared_with_another_id_or_unreadable_is_not_overwritten() {
+        let d = Scratch::new("refuse");
+        // A case-insensitive file system folds `Plan` and `plan` together.
+        let shared = mcp_file(&[msg("m1", "plan", 1)]);
+        std::fs::write(d.0.join("Plan.json"), &shared).unwrap();
+        assert!(read_session_file(&d.0, "Plan").unwrap().is_empty());
+        assert!(write_session_file(&d.0, "Plan", &[msg("m2", "Plan", 2)]).is_err());
+        assert_eq!(
+            std::fs::read_to_string(d.0.join("Plan.json")).unwrap(),
+            shared
+        );
+
+        std::fs::write(d.0.join("s1.json"), "{ torn").unwrap();
+        assert!(write_session_file(&d.0, "s1", &[msg("m2", "s1", 2)]).is_err());
+        assert_eq!(
+            std::fs::read_to_string(d.0.join("s1.json")).unwrap(),
+            "{ torn"
+        );
     }
 }

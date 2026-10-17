@@ -4099,3 +4099,57 @@ fn legacy_sanitized_session_file_is_still_read() {
     assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_json);
     assert_eq!(contents(&underscored), ["old underscored"]);
 }
+
+/// The desktop app persists the same sessions into the same directory.
+/// Earlier app builds wrote a bare JSON array instead of `{"messages":[…]}`;
+/// that history is read, and an append keeps it instead of overwriting the
+/// file with only the new message.
+#[test]
+fn session_file_written_by_the_app_is_read_and_kept() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let app_json = serde_json::json!([{
+        "id": "msg-from-app",
+        "sessionId": sid,
+        "role": "human",
+        "content": "typed in the window",
+        "citedDocs": [],
+        "timestampMs": 1u64,
+    }]);
+    std::fs::write(&path, app_json.to_string()).unwrap();
+
+    let contents = || -> Vec<String> {
+        store_get_context(&sid, 20)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect()
+    };
+    assert_eq!(contents(), ["typed in the window"]);
+
+    store_append_message(&sid, "agent", "saved by the agent", vec![]).unwrap();
+    assert_eq!(contents(), ["typed in the window", "saved by the agent"]);
+    let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(on_disk["messages"].as_array().unwrap().len(), 2);
+    // The write went through a temp file renamed into place; none is left.
+    let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+/// A session file this server cannot parse (torn, or not a session log) is
+/// an error for the append, not a reason to overwrite it with one message.
+#[test]
+fn unparsable_session_file_is_not_overwritten() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{ torn").unwrap();
+    assert!(store_append_message(&sid, "agent", "x", vec![]).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ torn");
+}

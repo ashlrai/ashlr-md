@@ -299,24 +299,72 @@ fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
 /// the legacy file name (filtered the same way, since that file may be shared
 /// with other ids). The next append writes them to the session's own file
 /// and leaves the legacy file untouched.
-fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
+///
+/// `Ok(None)` when the session has no file; an error when its own file
+/// exists but cannot be read or parsed (it is then never overwritten).
+fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, String> {
     let own = |mut log: SessionLog| {
         let before = log.messages.len();
         log.messages.retain(|m| m.session_id == session_id);
         let foreign = log.messages.len() != before;
         (log, foreign)
     };
-    let path = session_file_path(session_id)?;
+    let Some(path) = session_file_path(session_id) else {
+        return Ok(None);
+    };
     if path.exists() {
-        return load_session_from_disk(session_id).map(own);
+        let text =
+            read_regular_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+        return parse_session_log(&text)
+            .map(|log| Some(own(log)))
+            .map_err(|e| format!("{} is not a session file: {e}", path.display()));
     }
-    let legacy = legacy_session_file_path(session_id)?;
+    let Some(legacy) = legacy_session_file_path(session_id) else {
+        return Ok(None);
+    };
     if legacy == path {
-        return None;
+        return Ok(None);
     }
-    let text = read_regular_file(&legacy).ok()?;
-    let (log, _) = own(serde_json::from_str(&text).ok()?);
-    Some((log, false))
+    let Some(log) = read_regular_file(&legacy)
+        .ok()
+        .and_then(|text| parse_session_log(&text).ok())
+    else {
+        return Ok(None);
+    };
+    Ok(Some((own(log).0, false)))
+}
+
+/// Parse a session file: this server's `{"messages":[…]}`, or the bare
+/// array of messages that earlier builds of the desktop app wrote to the same
+/// directory (src-tauri/src/ipc.rs, which now writes this server's format).
+pub fn parse_session_log(text: &str) -> Result<SessionLog, String> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SessionFile {
+        Log(SessionLog),
+        Bare(Vec<ConversationMessage>),
+    }
+    match serde_json::from_str::<SessionFile>(text).map_err(|e| e.to_string())? {
+        SessionFile::Log(log) => Ok(log),
+        SessionFile::Bare(messages) => Ok(SessionLog { messages }),
+    }
+}
+
+/// Hold the sessions directory's lock file (`.lock`) for a read-modify-write
+/// of a session file. The desktop app takes the same lock when it persists a
+/// session, so neither process writes a stale copy over the other's appends.
+fn lock_sessions_dir() -> Result<std::fs::File, String> {
+    let dir = sessions_dir().ok_or("Cannot determine home directory")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"))
+        .map_err(|e| format!("Cannot open the sessions lock: {e}"))?;
+    lock.lock()
+        .map_err(|e| format!("Cannot lock {}: {e}", dir.display()))?;
+    Ok(lock)
 }
 
 /// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the
@@ -331,7 +379,18 @@ pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String>
     }
     let json =
         serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))
+    // Write a temp file and rename it into place, so a reader (the app, or
+    // another server process) never sees a torn file.
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, json).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Cannot write {}: {e}", path.display())
+    })
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
@@ -339,7 +398,7 @@ pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String>
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
     let text = read_regular_file(&path).ok()?;
-    serde_json::from_str(&text).ok()
+    parse_session_log(&text).ok()
 }
 
 /// Append a message to the in-process store and persist to disk.
@@ -375,11 +434,13 @@ pub fn store_append_message(
     };
 
     let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let _dir_lock = lock_sessions_dir().map_err(|e| format!("Message not saved: {e}"))?;
     // Continue the persisted log, re-read on every append: another server
-    // process (a second agent, or this agent after a restart) may have
-    // appended since this process cached it, and writing the cached copy
+    // process (a second agent, or this agent after a restart) or the app may
+    // have appended since this process cached it, and writing the cached copy
     // back would drop those messages.
-    let fresh = match load_own_session(session_id) {
+    let on_disk = load_own_session(session_id).map_err(|e| format!("Message not saved: {e}"))?;
+    let fresh = match on_disk {
         Some((_, true)) => {
             let path = session_file_path(session_id)
                 .map(|p| p.display().to_string())
@@ -421,7 +482,7 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read.
-    if let Some((log, _)) = load_own_session(session_id) {
+    if let Ok(Some((log, _))) = load_own_session(session_id) {
         store.insert(session_id.to_string(), log);
     }
 
