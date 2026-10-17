@@ -170,3 +170,37 @@ fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
     assert_eq!(out[3]["error"]["code"], -32700);
     assert_eq!(out[4], json!({"jsonrpc":"2.0","id":10,"result":{}}));
 }
+
+/// An unknown argument (a typo such as `--verison`) still serves, for
+/// clients that pass extra arguments, but says so in one stderr line; stdout
+/// stays protocol-only.
+#[test]
+fn unknown_arguments_warn_on_stderr_and_still_serve() {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .args(["--verison", "extra"])
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writeln!(
+        child.stdin.as_mut().unwrap(),
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"ping"})
+    )
+    .unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n");
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(stderr.lines().count(), 1, "one line: {stderr:?}");
+    assert!(
+        stderr.contains("--verison") && stderr.contains("extra") && stderr.contains("--help"),
+        "{stderr:?}"
+    );
+}

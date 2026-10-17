@@ -637,7 +637,10 @@ regenerates `~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`.
 Run `claude mcp list` to see the registered path, then verify the binary exists
 at that path and is executable (`chmod +x`). Running
 `<path> --version` prints `mdopener-mcp <version>` and exits, so it is a quick
-check that the path is right (`--help` prints usage).
+check that the path is right (`--help` prints usage). Any other argument is
+ignored with a one-line warning on stderr and the server still starts, and run
+from a terminal it says on stderr that it is waiting for JSON-RPC on stdin;
+stdout carries only protocol messages.
 
 **Cursor MCP panel shows the server as offline**
 Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
