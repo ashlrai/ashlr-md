@@ -3078,6 +3078,10 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
 /// A `limit` meant something different in each mode: the app's search
 /// returned at most 200 and turned 0 into 1, while the on-disk greps and
 /// semantic search returned as many as asked, up to every file in the vault.
+///
+/// A `limit` above 200 was then clamped in silence, while `list_recent` and
+/// `get_conversation_context` refused one; the tool and the resource now
+/// refuse it the same way.
 #[test]
 fn search_vault_limit_is_the_same_in_every_mode() {
     let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
@@ -3089,7 +3093,7 @@ fn search_vault_limit_is_the_same_in_every_mode() {
     let ipc = MockIpc::new()
         .on_get("/vault", Err(down.into()))
         .on_get("/search", Err(down.into()));
-    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 1000 });
+    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 200 });
     let v = content_text(&tool_search_vault(id(1), &args, &ipc));
     assert_eq!(v["mode"], "grep-disk", "{v}");
     assert_eq!(v["results"].as_array().unwrap().len(), 200, "grep-disk");
@@ -3102,11 +3106,34 @@ fn search_vault_limit_is_the_same_in_every_mode() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(
         id(2),
-        &json!({ "query": "t", "semantic": false, "limit": 1000 }),
+        &json!({ "query": "t", "semantic": false, "limit": 200 }),
         &ipc,
     );
     let asked: Vec<String> = ipc.calls().into_iter().map(|c| c.1).collect();
     assert_eq!(asked, ["/search?q=t&limit=200"], "{asked:?}");
+    // Above 200 is refused, by the schema check, by the tool called directly
+    // and by the resource, before anything is searched.
+    let msg = param_error(&call_tool(
+        "search_vault",
+        json!({ "query": "t", "limit": 201 }),
+    ));
+    assert_eq!(msg, "`limit` must be at most 200, got 201");
+    let ipc = MockIpc::new();
+    for bad in [json!(201), json!(1000), json!(0), json!(2.5)] {
+        let resp = tool_search_vault(id(4), &json!({ "query": "t", "limit": bad }), &ipc);
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`limit` must be a whole number from 1 to 200, got {bad}; \
+                 omit it for the default of 50"
+            )
+        );
+    }
+    let resp = mdopener_mcp::handle_resource_read(id(5), "text://vault-search?q=t&limit=201", &ipc);
+    let err = resp.error.as_ref().expect("refused");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("from 1 to 200"), "{}", err.message);
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
     // 0 is refused before the search, by the tool and by the resource.
     let msg = refused_before_the_tool("search_vault", json!({ "query": "t", "limit": 0 }));
     assert!(msg.starts_with("`limit` must be at least 1"), "{msg}");

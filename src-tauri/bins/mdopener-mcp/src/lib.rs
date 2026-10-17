@@ -957,7 +957,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -2669,7 +2669,25 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
-    let limit = whole_number(args, "limit").unwrap_or(50);
+    // A `limit` above SEARCH_MAX_RESULTS used to be clamped in silence while
+    // `list_recent` and `get_conversation_context` refused one; it is now
+    // refused the same way. Omitted keeps the default.
+    let limit = match &args["limit"] {
+        Value::Null => 50,
+        v => match whole_number_value(v).filter(|n| (1..=SEARCH_MAX_RESULTS).contains(n)) {
+            Some(n) => n,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {SEARCH_MAX_RESULTS}, got {v}; \
+                         omit it for the default of 50"
+                    ),
+                )
+            }
+        },
+    };
     let vault = match non_empty_str(args, "vault") {
         Ok(v) => v,
         Err(e) => return Response::err(id, -32602, e),
@@ -2744,6 +2762,8 @@ pub fn search_vault_in(
     // The app's own search returns at most SEARCH_MAX_RESULTS; the other
     // modes are held to the same, so a limit means the same in every mode
     // (an on-disk vault of 5000 files could otherwise return 5000 results).
+    // The tool and the resource refuse a limit outside that range; this
+    // clamp only holds direct callers of this function to it.
     let limit = limit.clamp(1, SEARCH_MAX_RESULTS);
     // The vault file list: from the app, or from `vault` on disk when the app
     // is unreachable. Fetched once, and only when needed.
@@ -3695,14 +3715,15 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = match val.parse() {
-                    Ok(l) if l > 0 => l,
+                    Ok(l) if (1..=SEARCH_MAX_RESULTS).contains(&l) => l,
                     _ => {
                         return Response::err(
                             id,
                             -32602,
                             format!(
-                                "text://vault-search: `limit` must be a whole number of at \
-                                 least 1, got {:?}. Omit it for the default of 50.",
+                                "text://vault-search: `limit` must be a whole number from 1 \
+                                 to {SEARCH_MAX_RESULTS}, got {:?}. Omit it for the default \
+                                 of 50.",
                                 decode(val)
                             ),
                         )
