@@ -6631,6 +6631,10 @@ fn every_declared_argument_passes_the_check() {
     for def in tool_registry() {
         let mut args = serde_json::Map::new();
         for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            if let Some(first) = prop["enum"].as_array().and_then(|e| e.first()) {
+                args.insert(k.clone(), first.clone());
+                continue;
+            }
             let v = match prop["type"].as_str() {
                 Some("string") => json!("x"),
                 Some("boolean") => json!(true),
@@ -6753,6 +6757,20 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                 msg.starts_with(&format!("`{k}` must be ")),
                 "{name}.{k}: {msg}"
             );
+            // A value of the right type outside the declared `enum` is
+            // refused too, and the message lists the allowed values.
+            if let Some(allowed) = prop["enum"].as_array() {
+                let mut args = valid.clone();
+                args.insert(k.clone(), json!("not-an-allowed-value"));
+                let msg = refused_before_the_tool(name, Value::Object(args));
+                assert!(
+                    msg.starts_with(&format!("`{k}` must be one of ")),
+                    "{name}.{k}: {msg}"
+                );
+                for a in allowed {
+                    assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}: {msg}");
+                }
+            }
             if let Some(items) = prop.get("items") {
                 let mut args = valid.clone();
                 args.insert(k.clone(), json!([sample_of(items).1]));
@@ -6774,6 +6792,18 @@ fn every_tool_schema_matches_what_the_argument_check_enforces() {
                     let msg = refused_before_the_tool(name, Value::Object(args));
                     let want = format!("`{k}[0].{f}` must be ");
                     assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                    if let Some(allowed) = fprop["enum"].as_array() {
+                        let mut bad = item.clone();
+                        bad.insert(f.clone(), json!("not-an-allowed-value"));
+                        let mut args = valid.clone();
+                        args.insert(k.clone(), json!([bad]));
+                        let msg = refused_before_the_tool(name, Value::Object(args));
+                        let want = format!("`{k}[0].{f}` must be one of ");
+                        assert!(msg.starts_with(&want), "{name}.{k}.{f}: {msg}");
+                        for a in allowed {
+                            assert!(msg.contains(a.as_str().unwrap()), "{name}.{k}.{f}: {msg}");
+                        }
+                    }
                 }
                 for req in prop["items"]["required"].as_array().into_iter().flatten() {
                     let req = req.as_str().unwrap();

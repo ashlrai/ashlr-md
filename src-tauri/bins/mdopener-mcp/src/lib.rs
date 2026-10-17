@@ -1267,7 +1267,9 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an argument whose JSON type differs from the declared `type`, or an array
 ///   element whose type differs from the declared `items.type`;
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
-///   back to the default, since the tools read it with `as_u64`).
+///   back to the default, since the tools read it with `as_u64`);
+/// - a value outside the declared `enum`, at the top level or in a field of an
+///   array element (`ops[0].type`), with the allowed values listed.
 ///
 /// - a `required` argument that is missing, as "`name` is required" (the first
 ///   missing one in the schema's `required` order), and a call that gives none
@@ -1329,6 +1331,9 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     json_type_phrase(value)
                 ));
             }
+        }
+        if let Some(msg) = enum_problem(key, prop, value) {
+            return Err(msg);
         }
         if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
             if n < min as f64 {
@@ -1441,6 +1446,9 @@ fn check_item_fields(
                 ));
             }
         }
+        if let Some(msg) = enum_problem(&format!("{at}.{k}"), field, v) {
+            return Err(msg);
+        }
         if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
             if let Some((j, bad)) = elems
                 .iter()
@@ -1466,6 +1474,29 @@ fn check_item_fields(
         }
     }
     Ok(())
+}
+
+/// A value outside the property's declared `enum`, as "`at` must be one of
+/// `a`, `b`, got ...". The tools checked some of these themselves (`mode`,
+/// `format`, `role`), each in its own words and some only after reaching the
+/// app; others (`ops[].type`) only once earlier ops had run.
+fn enum_problem(at: &str, prop: &Value, value: &Value) -> Option<String> {
+    let allowed = prop["enum"].as_array()?;
+    if allowed.contains(value) {
+        return None;
+    }
+    let names = allowed
+        .iter()
+        .map(|a| match a {
+            Value::String(s) => format!("`{s}`"),
+            other => format!("`{other}`"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "`{at}` must be one of {names}, got {}",
+        json_type_phrase(value)
+    ))
 }
 
 fn json_type_matches(want: &str, value: &Value) -> bool {

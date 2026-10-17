@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP arguments outside a schema `enum` are refused up front.** The
+  argument check enforced types, `minimum` and `required` but not `enum`, so
+  each tool checked its own enumerated arguments in its own words, and an
+  `edit_canvas` op `type` such as `"move"` was only refused once the canvas
+  file had been read. A value outside a property's `enum` (top level or an
+  op field) is now `-32602` before the tool runs, listing the allowed values,
+  and the test that walks `tools/list` probes every `enum`.
 - **Session files the app writes are private too.** The window persisted a
   conversation session with a `0644` file in a `0755` directory, undoing the
   `0700`/`0600` that `save_conversation_message` sets. The app now makes the
