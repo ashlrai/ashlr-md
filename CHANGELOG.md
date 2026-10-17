@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Session files the app writes are private too.** The window persisted a
+  conversation session with a `0644` file in a `0755` directory, undoing the
+  `0700`/`0600` that `save_conversation_message` sets. The app now makes the
+  directory owner-only and writes each session file `0600`.
 - **Recent files that are gone leave the list.** A recent whose file was
   deleted or moved stayed in the Recent list and in what `list_recent` gives
   agents for good, and opening it only failed. Recents are checked on launch,
