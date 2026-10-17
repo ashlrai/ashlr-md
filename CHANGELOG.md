@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` refuses colours JSON Canvas does not allow.**
+  `set_node_color` and `add_node` wrote any string as a node colour, so
+  `"red"` or `"7"` was saved and the node showed without its colour. Only a
+  preset `"1"`..`"6"` or a hex `#rgb` / `#rrggbb` is accepted now; anything
+  else is `-32602` and the file is left as it was.
 - **MCP arguments outside a schema `enum` are refused up front.** The
   argument check enforced types, `minimum` and `required` but not `enum`, so
   each tool checked its own enumerated arguments in its own words, and an

@@ -5988,6 +5988,51 @@ fn edit_canvas_add_node_refuses_a_node_the_app_would_drop() {
     );
 }
 
+/// `set_node_color` (and `add_node`'s `node.color`) wrote any string, so
+/// `"red"` or `"7"` was saved and the app showed the node without its colour.
+#[test]
+fn edit_canvas_refuses_a_colour_json_canvas_does_not_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    for bad in [
+        "red", "0", "7", "12", "", "#abcd", "#ggg", "#12345", "abc", "# abc",
+    ] {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": bad }] }),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with("op[0] set_node_color: color must be a preset"),
+            "{bad}: {msg}"
+        );
+        let node = json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9, "color": bad });
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "add_node", "node": node }] }),
+        );
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with("op[0] add_node: node.color must be a preset"),
+            "{bad}: {msg}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            raw,
+            "file untouched"
+        );
+    }
+    for good in ["1", "6", "#abc", "#A1b2C3"] {
+        let resp = mdopener_mcp::tool_edit_canvas(
+            id(1),
+            &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": good }], "save": false }),
+        );
+        assert!(!is_error(&resp), "{good}: {resp:?}");
+    }
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]

@@ -966,7 +966,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 "text": { "type": "string", "description": "New text content (edit_text)." },
                                 "url": { "type": "string", "description": "New URL (edit_link)." },
                                 "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
-                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RRGGBB'. Omit to clear (set_node_color)." },
+                                "color": { "type": "string", "description": "Color preset '1'–'6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
                                 "node": {
                                     "type": "object",
                                     "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
@@ -4582,6 +4582,16 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         node.remove("color");
                     }
                     Some(v) => {
+                        if let Some(c) = v.as_str().filter(|c| !is_canvas_color(c)) {
+                            return Response::err(
+                                id,
+                                -32602,
+                                format!(
+                                    "op[{i}] set_node_color: {}",
+                                    canvas_color_problem("color", c)
+                                ),
+                            );
+                        }
                         node.insert("color".into(), v.clone());
                     }
                 }
@@ -4989,7 +4999,30 @@ fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> 
             ));
         }
     }
+    if let Some(c) = node
+        .get("color")
+        .and_then(Value::as_str)
+        .filter(|c| !is_canvas_color(c))
+    {
+        return Some(canvas_color_problem("node.color", c));
+    }
     None
+}
+
+/// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /
+/// `#rrggbb`. Anything else (`"red"`, `"7"`, `"#abcd"`) was written as given
+/// and the app then showed the node with no colour or a broken one.
+fn is_canvas_color(c: &str) -> bool {
+    if matches!(c, "1" | "2" | "3" | "4" | "5" | "6") {
+        return true;
+    }
+    c.strip_prefix('#').is_some_and(|hex| {
+        matches!(hex.len(), 3 | 6) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
+    })
+}
+
+fn canvas_color_problem(field: &str, c: &str) -> String {
+    format!("{field} must be a preset \"1\"..\"6\" or a hex colour #rgb or #rrggbb, got {c:?}")
 }
 
 fn find_node_mut<'a>(
