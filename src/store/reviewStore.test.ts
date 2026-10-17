@@ -20,7 +20,12 @@ function makePending(overrides?: Partial<PendingReview>): PendingReview {
 }
 
 function reset() {
-  useReviewStore.setState({ pending: null, draftComment: "" });
+  useReviewStore.setState({
+    pending: null,
+    draftComment: "",
+    submitting: false,
+    submitError: null,
+  });
 }
 
 describe("reviewStore", () => {
@@ -77,6 +82,46 @@ describe("reviewStore", () => {
       verdict: "changes_requested",
       comments: null,
     });
+  });
+
+  it("submitVerdict keeps the panel open with the error when recording fails", async () => {
+    invokeMock.mockRejectedValueOnce("Review rev-001 not found");
+    useReviewStore.getState().registerReview(makePending());
+    useReviewStore.getState().setDraftComment("minor nits");
+    await useReviewStore.getState().submitVerdict("approved");
+    let s = useReviewStore.getState();
+    expect(s.pending?.reviewId).toBe("rev-001");
+    expect(s.draftComment).toBe("minor nits");
+    expect(s.submitting).toBe(false);
+    expect(s.submitError).toContain("not recorded");
+    expect(s.submitError).toContain("Review rev-001 not found");
+
+    // The human retries, and this time it is recorded.
+    invokeMock.mockResolvedValueOnce(undefined);
+    await useReviewStore.getState().submitVerdict("approved");
+    s = useReviewStore.getState();
+    expect(s.pending).toBeNull();
+    expect(s.submitError).toBeNull();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("submitVerdict leaves a review that replaced it while in flight alone", async () => {
+    let fail: (e: unknown) => void = () => {};
+    invokeMock.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    );
+    useReviewStore.getState().registerReview(makePending({ reviewId: "old" }));
+    const submitted = useReviewStore.getState().submitVerdict("approved");
+    expect(useReviewStore.getState().submitting).toBe(true);
+    useReviewStore.getState().registerReview(makePending({ reviewId: "new" }));
+    fail("gone");
+    await submitted;
+    const s = useReviewStore.getState();
+    expect(s.pending?.reviewId).toBe("new");
+    expect(s.submitError).toBeNull();
+    expect(s.submitting).toBe(false);
   });
 
   it("submitVerdict is a no-op when there is no pending review", async () => {

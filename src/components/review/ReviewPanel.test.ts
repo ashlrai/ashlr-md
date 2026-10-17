@@ -59,4 +59,28 @@ describe("ReviewPanel countdown", () => {
     );
     expect(useReviewStore.getState().pending).toBeNull();
   });
+
+  it("stays open and shows the error when the verdict is not recorded", async () => {
+    invokeMock.mockRejectedValueOnce("Review rev-2 not found");
+    useReviewStore.getState().registerReview({
+      reviewId: "rev-2",
+      path: "/notes/plan.md",
+      content: null,
+      timeoutMs: 60_000,
+      registeredAt: Date.now(),
+    });
+    act(() => root.render(createElement(ReviewPanel)));
+    const approve = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "Approve",
+    );
+    expect(approve).toBeDefined();
+    await act(async () => {
+      approve!.click();
+    });
+    expect(useReviewStore.getState().pending?.reviewId).toBe("rev-2");
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("not recorded");
+    expect(alert?.textContent).toContain("Review rev-2 not found");
+    expect(approve!.disabled).toBe(false);
+  });
 });

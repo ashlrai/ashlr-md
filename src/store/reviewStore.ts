@@ -25,6 +25,13 @@ export interface PendingReview {
 interface ReviewState {
   pending: PendingReview | null;
   draftComment: string;
+  /** True while a verdict is being recorded; the panel disables its buttons. */
+  submitting: boolean;
+  /**
+   * Why the last verdict was not recorded. The panel stays open showing it,
+   * with the comment kept, so the human can retry.
+   */
+  submitError: string | null;
   registerReview: (review: PendingReview) => void;
   setDraftComment: (text: string) => void;
   submitVerdict: (verdict: ReviewVerdict) => Promise<void>;
@@ -45,21 +52,36 @@ interface ReviewState {
 export const useReviewStore = create<ReviewState>((set, get) => ({
   pending: null,
   draftComment: "",
+  submitting: false,
+  submitError: null,
 
-  registerReview: (review) => set({ pending: review, draftComment: "" }),
+  registerReview: (review) =>
+    set({ pending: review, draftComment: "", submitting: false, submitError: null }),
   setDraftComment: (draftComment) => set({ draftComment }),
 
   submitVerdict: async (verdict) => {
-    const { pending, draftComment } = get();
-    if (!pending) return;
-    set({ pending: null, draftComment: "" });
-    await invoke("set_review_verdict", {
-      reviewId: pending.reviewId,
-      verdict,
-      comments: draftComment.trim() || null,
-    }).catch(() => {
-      // Verdict couldn't be recorded (app/IPC issue) — the agent will time out.
-    });
+    const { pending, draftComment, submitting } = get();
+    if (!pending || submitting) return;
+    set({ submitting: true, submitError: null });
+    let error: string | null = null;
+    try {
+      await invoke("set_review_verdict", {
+        reviewId: pending.reviewId,
+        verdict,
+        comments: draftComment.trim() || null,
+      });
+    } catch (e) {
+      error = `Your verdict was not recorded (${String(e)}). Try again, or dismiss the review.`;
+    }
+    // A newer review may have replaced this one while the verdict was in
+    // flight; leave that one alone.
+    if (get().pending?.reviewId !== pending.reviewId) return;
+    if (error === null) {
+      set({ pending: null, draftComment: "", submitting: false, submitError: null });
+    } else {
+      // Keep the panel (and the comment) so the human can retry.
+      set({ submitting: false, submitError: error });
+    }
   },
 
   dismiss: (reviewId?: string) => close(reviewId, "dismissed"),
@@ -81,5 +103,10 @@ function close(reviewId: string | undefined, verdict: "dismissed" | "timeout") {
     verdict,
     comments: null,
   }).catch(() => {});
-  useReviewStore.setState({ pending: null, draftComment: "" });
+  useReviewStore.setState({
+    pending: null,
+    draftComment: "",
+    submitting: false,
+    submitError: null,
+  });
 }
