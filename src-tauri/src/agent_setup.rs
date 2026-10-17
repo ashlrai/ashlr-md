@@ -1,11 +1,18 @@
-//! Agent setup — one-click MCP registration for Claude Code, Cursor, and Codex.
+//! Agent setup: one-click MCP registration for Claude Code, Cursor, and Codex,
+//! and the Claude Code auto-open hook.
 //!
-//! Exposes four Tauri commands:
+//! Exposes six Tauri commands:
 //!
-//!   `detect_agent_clis`   — probe which AI coding tools are installed
-//!   `connect_claude_code` — run `claude mcp add ashlr-md <path>` automatically
-//!   `connect_cursor`      — write/merge an entry in `~/.cursor/mcp.json`
-//!   `mcp_command_string`  — return the exact shell command for copy/manual use
+//!   `detect_agent_clis`   - probe which AI coding tools are installed
+//!   `connect_claude_code` - run `claude mcp add --scope user ashlr-md <path>`,
+//!                           repointing a stale registration
+//!   `connect_cursor`      - write/merge an entry in `~/.cursor/mcp.json`
+//!   `connect_codex`       - run `codex mcp add ashlr-md -- <path>`, repointing
+//!                           a stale registration
+//!   `install_claude_hook` - merge a `PostToolUse` hook into
+//!                           `~/.claude/settings.json` that opens Markdown
+//!                           Claude writes or edits in Ashlr MD
+//!   `mcp_command_string`  - return the exact shell command for copy/manual use
 //!
 //! All commands are synchronous (no async needed — process spawns are fast) and
 //! return `Result<_, String>` to surface friendly errors in the UI.
@@ -1195,6 +1202,42 @@ mod tests {
             |_: &[&str]| -> std::io::Result<CliOutput> { Err(std::io::ErrorKind::NotFound.into()) };
         let err = connect_agent_cli(&CODEX_CLI, MCP, &missing, &|_| true, false).unwrap_err();
         assert!(err.starts_with("Codex CLI not found"), "{err}");
+    }
+
+    /// The module header listed four of the six commands; every
+    /// `#[tauri::command]` here is now named there.
+    #[test]
+    fn module_header_names_every_command() {
+        let src = include_str!("agent_setup.rs");
+        let header: String = src
+            .lines()
+            .take_while(|l| l.starts_with("//!"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let lines: Vec<&str> = src.lines().collect();
+        let mut commands = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim() == "#[tauri::command]" {
+                let name = lines[i + 1]
+                    .trim()
+                    .strip_prefix("pub fn ")
+                    .and_then(|r| r.split('(').next())
+                    .unwrap();
+                commands.push(name);
+            }
+        }
+        assert_eq!(commands.len(), 6, "{commands:?}");
+        for name in &commands {
+            assert!(
+                header.contains(&format!("`{name}`")),
+                "header omits `{name}`"
+            );
+        }
+        let count = ["", "one", "two", "three", "four", "five", "six", "seven"][commands.len()];
+        assert!(
+            header.contains(&format!("Exposes {count} Tauri commands")),
+            "{header}"
+        );
     }
 
     #[test]
