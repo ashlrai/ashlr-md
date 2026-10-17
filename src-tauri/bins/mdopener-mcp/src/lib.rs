@@ -1261,7 +1261,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "match_index": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "0-based index of the candidate to apply. Defaults to 0 (first occurrence)."
+                        "maximum": STREAM_EDIT_MAX_MATCH_INDEX,
+                        "description": "0-based index of the candidate to apply, a whole number from 0 to 4294967295 (the app's 32-bit limit; a larger value is refused, not clamped). Defaults to 0 (first occurrence). An index past the document's last occurrence is refused by the app, saying how many there are."
                     },
                     "save": {
                         "type": "boolean",
@@ -6570,6 +6571,10 @@ pub struct StreamEditPayload {
 /// Most context lines `stream_edit` shows on each side of a diff hunk.
 pub const STREAM_EDIT_MAX_PREVIEW_LINES: u64 = 20;
 
+/// Largest `match_index` `stream_edit_apply` takes: the app reads it as a
+/// 32-bit unsigned integer, so a larger one cannot name an occurrence.
+pub const STREAM_EDIT_MAX_MATCH_INDEX: u64 = u32::MAX as u64;
+
 fn default_preview() -> bool {
     true
 }
@@ -6687,9 +6692,17 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let match_index = match u32::try_from(whole_number(args, "match_index").unwrap_or(0)) {
-        Ok(m) => m,
-        Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
+    // The app reads `matchIndex` as a u32, so the schema's maximum is that
+    // limit; a direct call past it is refused with the schema's message.
+    let match_index = match whole_number(args, "match_index").unwrap_or(0) {
+        m if m <= STREAM_EDIT_MAX_MATCH_INDEX => m as u32,
+        m => {
+            return Response::err(
+                id,
+                -32602,
+                format!("`match_index` must be at most {STREAM_EDIT_MAX_MATCH_INDEX}, got {m}"),
+            )
+        }
     };
     let save = args["save"].as_bool().unwrap_or(false);
     let path = match non_blank_str(args, "path") {

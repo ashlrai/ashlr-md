@@ -9239,15 +9239,73 @@ fn integer_below_its_minimum_is_refused() {
             }
         }
     }
-    // The minimum itself and values past i64 still pass.
+    // The minimum itself and the 32-bit maximum still pass.
     let def = tool_registry()
         .into_iter()
         .find(|t| t.name == "stream_edit_apply")
         .unwrap();
-    for n in [json!(0), json!(u64::MAX)] {
+    for n in [json!(0), json!(u32::MAX)] {
         let args = json!({ "find": "a", "replace": "b", "match_index": n });
         assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
     }
+}
+
+/// `stream_edit_apply`'s schema declared no `maximum` for `match_index`, so
+/// a client checking it let 2^32 through and the tool answered only
+/// "`match_index` is too large". The schema now declares the app's 32-bit
+/// limit, the description says it, and both refusals give the bound.
+#[test]
+fn stream_edit_apply_match_index_declares_its_32_bit_maximum() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap();
+    let prop = &def.input_schema["properties"]["match_index"];
+    assert_eq!(prop["maximum"], json!(u32::MAX));
+    assert_eq!(
+        mdopener_mcp::STREAM_EDIT_MAX_MATCH_INDEX,
+        u64::from(u32::MAX)
+    );
+    let d = prop["description"].as_str().unwrap();
+    assert!(d.contains("0 to 4294967295"), "{d}");
+    let over = u64::from(u32::MAX) + 1;
+    let want = format!("`match_index` must be at most 4294967295, got {over}");
+    for n in [json!(over), json!(u64::MAX)] {
+        let args = json!({ "find": "a", "replace": "b", "match_index": n });
+        let ipc = MockIpc::new();
+        let msg = param_error(&call("stream_edit_apply", args.clone(), &ipc));
+        assert!(
+            msg.starts_with("`match_index` must be at most 4294967295"),
+            "{msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+        // Called directly (past the schema check), the tool says the same.
+        let ipc = MockIpc::new();
+        let direct = mdopener_mcp::tool_stream_edit_apply(id(1), &args, &ipc);
+        let msg = param_error(&direct);
+        if n == json!(over) {
+            assert_eq!(msg, want);
+        }
+        assert!(
+            msg.starts_with("`match_index` must be at most 4294967295"),
+            "{msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
+    // The maximum itself reaches the app as that index.
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let resp = call(
+        "stream_edit_apply",
+        json!({ "find": "a", "replace": "b", "match_index": u32::MAX }),
+        &ipc,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(_, p, _)| p == "/stream-edit-apply")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["matchIndex"], json!(u32::MAX));
 }
 
 /// `request_review` refused an empty inline `content` but registered a

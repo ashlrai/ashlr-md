@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`stream_edit_apply`'s `match_index` declares its 32-bit maximum.** The
+  schema gave only `minimum: 0`, so a client validating against it let
+  `4294967296` through and the tool then answered "`match_index` is too
+  large" without the bound. The schema now declares `maximum: 4294967295`
+  (the app reads the index as a 32-bit unsigned integer), the description
+  and docs/AGENTS.md say so, and a larger value is refused with
+  "`match_index` must be at most 4294967295, got …".
 - **docs/AGENTS.md puts `stream_edit`'s `applied: true` with `preview: false`.**
   The row read as if a refused `preview_lines` came back with
   `applied: true`; the sentence now follows `preview: false`, the case the
