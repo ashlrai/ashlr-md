@@ -1569,6 +1569,11 @@ pub fn tool_request_review_with(
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
+                "timeout" => return tool_result(id, json!({
+                    "verdict": "timeout",
+                    "reviewId": review_id,
+                    "message": "The review window closed with no verdict."
+                })),
                 "not_found" => return tool_result(id, json!({
                     "verdict": "timeout",
                     "reviewId": review_id,

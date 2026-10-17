@@ -344,7 +344,8 @@ before proceeding.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
-  (no new review is registered).
+  (no new review is registered). Once its `timeout_ms` window has closed with
+  no verdict, the call returns `{ "verdict": "timeout", … }`.
   The app keeps a review for 30 minutes after its `timeout_ms` window closes,
   so resume within that time; later the call returns `verdict: "timeout"`
   (the record is gone). The newest review of each file is kept longer, for

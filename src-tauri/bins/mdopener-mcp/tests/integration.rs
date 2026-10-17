@@ -3789,6 +3789,26 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     assert!(done.calls().iter().all(|(m, _, _)| m == "GET"), "resume must not re-register");
 }
 
+/// A resumed review whose window closed with no verdict reports `timeout`,
+/// not a null verdict.
+#[test]
+fn request_review_resumed_after_its_window_reports_timeout() {
+    use mdopener_mcp::tool_request_review_with;
+    let ipc = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "timeout", "verdict": null, "comments": null })),
+    );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": "rev_1" }),
+        &ipc,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "timeout", "{v}");
+    assert_eq!(v["reviewId"], "rev_1");
+}
+
 // ── Disk reads only open regular files ────────────────────────────────────────
 
 /// Run `f` on a worker thread and fail (instead of hanging the suite) when it

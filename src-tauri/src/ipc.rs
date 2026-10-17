@@ -1023,6 +1023,18 @@ fn query_param(query: &str, key: &str) -> Option<String> {
         .map(|v| v.into_owned())
 }
 
+/// The status `/review/result` reports: the recorded one, except that a review
+/// still pending once its window has closed is `timeout`. The panel only
+/// expires the review it is showing, so one a newer review displaced would
+/// otherwise stay `pending` and a resuming agent would wait on it forever.
+fn review_status(r: &ReviewRecord, now: u64) -> &str {
+    if r.status == "pending" && now >= r.created_at.saturating_add(r.timeout_ms) {
+        "timeout"
+    } else {
+        &r.status
+    }
+}
+
 fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     let id = query_param(query, "id").unwrap_or_default();
     let id = id.as_str();
@@ -1035,8 +1047,14 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     let record = {
         let state = app.state::<ReviewState>();
         let map = state.0.lock().unwrap();
-        map.get(id)
-            .map(|r| (r.status.clone(), r.verdict.clone(), r.comments.clone()))
+        let now = now_ms();
+        map.get(id).map(|r| {
+            (
+                review_status(r, now).to_string(),
+                r.verdict.clone(),
+                r.comments.clone(),
+            )
+        })
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
@@ -1977,6 +1995,19 @@ mod tests {
             created_at,
             timeout_ms,
         }
+    }
+
+    #[test]
+    fn a_pending_review_past_its_window_reads_as_timeout() {
+        use super::review_status;
+        let t0 = 1_000_000;
+        let r = review("pending", Some("/a.md"), t0, 5_000);
+        assert_eq!(review_status(&r, t0 + 4_999), "pending");
+        // Nobody decided before the window closed (e.g. a newer review took
+        // the panel): an agent resuming it must not be told to keep waiting.
+        assert_eq!(review_status(&r, t0 + 5_000), "timeout");
+        let decided = review("approved", Some("/a.md"), t0, 5_000);
+        assert_eq!(review_status(&decided, t0 + 60_000), "approved");
     }
 
     #[test]
