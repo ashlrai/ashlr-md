@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}));
+
 import { getStoredState } from "../test-setup";
-import { type RecentFile, useRecentStore } from "./recentStore";
+import { isMissingFileError, type RecentFile, useRecentStore } from "./recentStore";
 
 const STORE_KEY = "mdopener-recents";
 
@@ -224,5 +230,72 @@ describe("recentStore", () => {
 
     const after = useRecentStore.getState().recents.map((r) => r.path);
     expect(after).toEqual(before);
+  });
+});
+
+describe("recentStore.pruneMissing", () => {
+  beforeEach(() => {
+    reset();
+    invokeMock.mockReset();
+  });
+
+  it("drops recents whose file no longer exists", async () => {
+    const { add } = useRecentStore.getState();
+    add("/a.md", "a.md", 1);
+    add("/gone.md", "gone.md", 2);
+    add("/b.md", "b.md", 3);
+    invokeMock.mockResolvedValueOnce(["/a.md", "/b.md"]);
+    expect(await useRecentStore.getState().pruneMissing()).toBe(1);
+    expect(invokeMock).toHaveBeenCalledWith("filter_existing", {
+      paths: ["/b.md", "/gone.md", "/a.md"],
+    });
+    expect(useRecentStore.getState().recents.map((r) => r.path)).toEqual([
+      "/b.md",
+      "/a.md",
+    ]);
+  });
+
+  it("keeps every recent when the check fails, and one added meanwhile", async () => {
+    useRecentStore.getState().add("/a.md", "a.md", 1);
+    invokeMock.mockRejectedValueOnce(new Error("ipc down"));
+    expect(await useRecentStore.getState().pruneMissing()).toBe(0);
+    expect(useRecentStore.getState().recents).toHaveLength(1);
+
+    let answer: (paths: string[]) => void = () => {};
+    invokeMock.mockImplementationOnce(
+      () =>
+        new Promise<string[]>((r) => {
+          answer = r;
+        }),
+    );
+    const pending = useRecentStore.getState().pruneMissing();
+    useRecentStore.getState().add("/new.md", "new.md", 2);
+    answer([]);
+    expect(await pending).toBe(1);
+    expect(useRecentStore.getState().recents.map((r) => r.path)).toEqual(["/new.md"]);
+  });
+
+  it("does not call the backend with no recents", async () => {
+    expect(await useRecentStore.getState().pruneMissing()).toBe(0);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("isMissingFileError matches only a not-found error", () => {
+    expect(
+      isMissingFileError(
+        "Could not read /x.md: No such file or directory (os error 2)",
+      ),
+    ).toBe(true);
+    expect(
+      isMissingFileError(
+        "Could not read C:\\x.md: The system cannot find the file specified. (os error 2)",
+      ),
+    ).toBe(true);
+    expect(
+      isMissingFileError("Could not read /x.md: Permission denied (os error 13)"),
+    ).toBe(false);
+    expect(
+      isMissingFileError("Could not read /x.md: invalid utf-8 (os error 22)"),
+    ).toBe(false);
   });
 });

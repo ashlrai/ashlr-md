@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Recent files that are gone leave the list.** A recent whose file was
+  deleted or moved stayed in the Recent list and in what `list_recent` gives
+  agents for good, and opening it only failed. Recents are checked on launch,
+  and one that fails to open because the file is not there is dropped.
 - **The watched-folder list (and what `search_vault` searches) follows the
   folder.** Switching folders kept the old folder's files until the new
   listing arrived, kept them for good when it failed, and a slow listing of
