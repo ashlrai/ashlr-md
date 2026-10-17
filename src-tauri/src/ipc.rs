@@ -996,11 +996,19 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
 }
 
-fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
-    let id = query
+/// The percent-decoded value of `key` in a query string, or `None` when it is
+/// absent or does not decode to UTF-8.
+fn query_param(query: &str, key: &str) -> Option<String> {
+    query
         .split('&')
-        .find_map(|kv| kv.strip_prefix("id="))
-        .unwrap_or("");
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+        .and_then(|v| urlencoding::decode(v).ok())
+        .map(|v| v.into_owned())
+}
+
+fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
+    let id = query_param(query, "id").unwrap_or_default();
+    let id = id.as_str();
     if id.is_empty() {
         return send_error(req, 400, "id query param required");
     }
@@ -2008,6 +2016,20 @@ mod tests {
             "the oldest decided review goes first"
         );
         assert!(map.contains_key(&format!("d{}", MAX_REVIEWS as u64 + 9)));
+    }
+
+    /// mdopener-mcp percent-encodes the review id it polls with, so a resumed
+    /// `review_id` with a space or `&` must be decoded to find its review.
+    #[test]
+    fn query_params_are_percent_decoded() {
+        use super::query_param;
+        assert_eq!(query_param("id=rev_1", "id").as_deref(), Some("rev_1"));
+        assert_eq!(
+            query_param("x=1&id=my%20review%26co", "id").as_deref(),
+            Some("my review&co")
+        );
+        assert_eq!(query_param("idx=1", "id"), None);
+        assert_eq!(query_param("", "id"), None);
     }
 
     #[test]
