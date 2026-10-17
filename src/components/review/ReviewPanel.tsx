@@ -2,7 +2,8 @@
  * ReviewPanel.tsx — the human-in-the-loop review surface.
  *
  * Appears as a bottom bar when an agent requests review (via the request_review
- * MCP tool). The human reads the opened doc, optionally comments, and clicks
+ * MCP tool). The human reads the opened doc (or, for a review of inline
+ * `content`, the text shown in the panel), optionally comments, and clicks
  * Approve / Request changes — the verdict flows back to the agent. A live
  * countdown shows the agent's timeout; on expiry the panel records `timeout`
  * and closes.
@@ -75,6 +76,15 @@ export function ReviewPanel() {
           ✕
         </button>
       </div>
+
+      {/* Inline content has no file to open, so the panel shows it: it used
+          to say "review of inline content" without showing the text, and the
+          human approved what they never saw (or the unrelated open doc). */}
+      {!pending.path && pending.content !== null && (
+        <pre className="review-panel__content" aria-label="Content to review">
+          {pending.content || "(empty)"}
+        </pre>
+      )}
 
       <textarea
         className="review-panel__comment"

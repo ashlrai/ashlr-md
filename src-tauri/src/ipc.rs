@@ -12,7 +12,7 @@
 //! | GET    | /content   | —                                     | Current document `{path, content}` |
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
-//! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
+//! | GET    | /recent    | `?limit=N` (default 10, 1 to 200)     | Recent-file list                   |
 //! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null"}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir) |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
@@ -1411,17 +1411,26 @@ fn query_param(query: &str, key: &str) -> Result<Option<String>, String> {
         .transpose()
 }
 
-/// The `limit` query param, or `default` when it is absent. A value that is
-/// not a whole number is refused rather than read as the default, so a
-/// caller's `limit=ten` does not quietly get a different count.
+/// The most a `limit` query param asks for (see [`limit_param`]).
+const MAX_LIMIT: usize = 200;
+
+/// The `limit` query param, or `default` when it is absent, clamped to 1 to
+/// [`MAX_LIMIT`] for every route that takes one (`/search`, `/recent`). A
+/// value that is not a whole number is refused rather than read as the
+/// default, so a caller's `limit=ten` does not quietly get a different count.
+/// `/recent` used to take any whole number as it came, so `limit=0` from
+/// another local client answered an empty list, while `/search` clamped.
 fn limit_param(query: &str, default: usize) -> Result<usize, String> {
     match query_param(query, "limit")? {
         None => Ok(default),
-        Some(v) => v.parse().map_err(|_| {
-            format!(
+        Some(v) => match v.parse::<usize>() {
+            Ok(n) => Ok(n.clamp(1, MAX_LIMIT)),
+            // Digits too large for a usize are a huge limit, not a malformed one.
+            Err(_) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => Ok(MAX_LIMIT),
+            Err(_) => Err(format!(
                 "limit must be a whole number, got '{v}'; omit it for the default of {default}."
-            )
-        }),
+            )),
+        },
     }
 }
 
@@ -1624,7 +1633,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
         Err(e) => return send_error(req, 400, &e),
     };
     let limit = match limit_param(query, 50) {
-        Ok(l) => l.clamp(1, 200),
+        Ok(l) => l,
         Err(e) => return send_error(req, 400, &e),
     };
 
@@ -2889,6 +2898,19 @@ mod tests {
 
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
+    /// `/recent` took `limit=0` (an empty list) and any huge value as they
+    /// came, while `/search` clamped to 1 to 200. Both now clamp the same way.
+    #[test]
+    fn a_limit_is_clamped_to_1_through_200_for_every_route() {
+        use super::limit_param;
+        assert_eq!(limit_param("limit=0", 10), Ok(1));
+        assert_eq!(limit_param("limit=1", 10), Ok(1));
+        assert_eq!(limit_param("limit=200", 10), Ok(200));
+        assert_eq!(limit_param("limit=201", 10), Ok(200));
+        assert_eq!(limit_param("limit=1000000", 10), Ok(200));
+        assert_eq!(limit_param("limit=99999999999999999999999", 10), Ok(200));
+    }
+
     #[test]
     fn a_limit_that_is_not_a_number_is_refused() {
         use super::limit_param;

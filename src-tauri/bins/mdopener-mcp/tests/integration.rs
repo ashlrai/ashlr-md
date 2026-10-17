@@ -7896,7 +7896,9 @@ fn every_declared_argument_passes_the_check() {
             let v = match prop["type"].as_str() {
                 Some("string") => json!("x"),
                 Some("boolean") => json!(true),
-                Some("integer") => json!(1),
+                // At least the declared minimum (`request_review`'s
+                // `timeout_ms` starts at 5000).
+                Some("integer") => json!(prop["minimum"].as_i64().unwrap_or(1).max(1)),
                 Some("number") => json!(1.5),
                 Some("array") => json!([]),
                 Some("object") => json!({}),
@@ -8223,6 +8225,12 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
 /// when empty now declares `minLength: 1`, and the rest are listed here as
 /// strings an empty value is meaningful for (or that are refused in their own
 /// words by the tool).
+///
+/// An empty path (`open_file`, `present_document`, `diff_documents`,
+/// `export_text`, `export_metadata`, `request_review`) or `search_vault.vault`
+/// reached the file checks and came back as "only Markdown documents can be
+/// read" or "No such file or directory". Those declare `minLength: 1` too,
+/// and the tools refuse an empty value themselves with "must not be empty".
 #[test]
 fn required_strings_refused_when_empty_declare_min_length() {
     let must = [
@@ -8235,18 +8243,23 @@ fn required_strings_refused_when_empty_declare_min_length() {
         ("get_conversation_context", "session_id"),
         ("save_conversation_message", "session_id"),
         ("save_conversation_message", "content"),
+        ("open_file", "path"),
+        ("present_document", "path"),
+        ("diff_documents", "path_a"),
+        ("diff_documents", "path_b"),
+        ("export_text", "path"),
+        ("export_metadata", "path"),
+        ("request_review", "path"),
+        ("search_vault", "vault"),
     ];
     // Empty is a real value: replacing with nothing, an empty document.
     // A path or format is checked by the tool (or the enum) in its own words.
     let may_be_empty = [
-        ("open_file", "path"),
         ("set_content", "content"),
         ("export", "format"),
         ("edit_document", "replace"),
         ("replace_document", "content"),
         ("save_conversation_message", "role"),
-        ("diff_documents", "path_a"),
-        ("diff_documents", "path_b"),
         ("stream_edit", "replace"),
         ("stream_edit_apply", "replace"),
     ];
@@ -8296,6 +8309,53 @@ fn required_strings_refused_when_empty_declare_min_length() {
         must.len(),
         "a listed argument is missing from the registry"
     );
+
+    // Called directly, past the schema check, the tools refuse an empty
+    // path themselves rather than reporting a file error.
+    let ipc = MockIpc::new();
+    let direct: [(&str, mdopener_mcp::Response); 8] = [
+        ("path", tool_open_file(id(1), &json!({ "path": "" }), &ipc)),
+        (
+            "path",
+            tool_present_document(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path_a",
+            mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": "", "path_b": "b.md" })),
+        ),
+        (
+            "path_b",
+            mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": "a.md", "path_b": "" })),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_export_text(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_export_metadata(id(1), &json!({ "path": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_request_review(
+                id(1),
+                &json!({ "path": "", "blocking": false }),
+                &ipc,
+            ),
+        ),
+        (
+            "vault",
+            mdopener_mcp::tool_search_vault(id(1), &json!({ "query": "x", "vault": "" }), &ipc),
+        ),
+    ];
+    for (k, resp) in direct {
+        assert_eq!(
+            param_error(&resp),
+            format!("`{k}` must not be empty"),
+            "{resp:?}"
+        );
+    }
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
 
 #[test]
@@ -8343,12 +8403,12 @@ fn integer_below_its_minimum_is_refused() {
         (
             "request_review",
             json!({ "content": "x", "timeout_ms": -1 }),
-            "`timeout_ms` must be at least 0, got -1",
+            "`timeout_ms` must be at least 5000, got -1",
         ),
         (
             "request_review",
             json!({ "content": "x", "wait_ms": -1000 }),
-            "`wait_ms` must be at least 0, got -1000",
+            "`wait_ms` must be at least 1000, got -1000",
         ),
         (
             "stream_edit",
@@ -8380,6 +8440,84 @@ fn integer_below_its_minimum_is_refused() {
     for n in [json!(0), json!(u64::MAX)] {
         let args = json!({ "find": "a", "replace": "b", "match_index": n });
         assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+    }
+}
+
+/// `request_review` clamped `wait_ms` to 1000 to 600000 in silence while its
+/// schema said `minimum: 0`, so `wait_ms: 0` still blocked for a second. The
+/// schema now declares the range the tool takes, for `timeout_ms` too, and
+/// the tool refuses a value outside it before registering a review.
+#[test]
+fn request_review_wait_ms_outside_its_range_is_refused() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "request_review")
+        .unwrap();
+    let props = &def.input_schema["properties"];
+    assert_eq!(props["wait_ms"]["minimum"], 1000);
+    assert_eq!(props["wait_ms"]["maximum"], 600_000);
+    assert_eq!(props["timeout_ms"]["minimum"], 5000);
+    assert_eq!(props["timeout_ms"]["maximum"], 600_000);
+    assert!(param_error(&call_tool(
+        "request_review",
+        json!({ "content": "x", "wait_ms": 0 })
+    ))
+    .contains("`wait_ms` must be at least 1000, got 0"));
+    assert!(param_error(&call_tool(
+        "request_review",
+        json!({ "content": "x", "wait_ms": 600_001 })
+    ))
+    .contains("`wait_ms` must be at most 600000, got 600001"));
+    for bad in [json!(0), json!(999), json!(600_001), json!(1500.5)] {
+        let ipc = MockIpc::new();
+        let resp = tool_request_review(id(1), &json!({ "content": "x", "wait_ms": bad }), &ipc);
+        let msg = param_error(&resp);
+        assert!(
+            msg.starts_with(
+                "`wait_ms` must be a whole number of milliseconds between 1000 and 600000"
+            ),
+            "{bad}: {msg}"
+        );
+        assert!(ipc.calls().is_empty(), "{bad}: no review registered");
+    }
+    for ok in [json!(1000), json!(600_000)] {
+        let args = json!({ "content": "x", "wait_ms": ok });
+        assert!(
+            mdopener_mcp::check_tool_arguments(&def, &args).is_ok(),
+            "{ok}"
+        );
+    }
+}
+
+/// `get_conversation_context` clamped a `limit` above 200 in silence while
+/// `list_recent` refused one. Both now refuse a value outside 1 to 200, in
+/// the schema (`maximum`) and in the tool itself.
+#[test]
+fn conversation_limit_outside_1_to_200_is_refused_like_list_recent() {
+    use_temp_sessions_dir();
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "get_conversation_context")
+        .unwrap();
+    assert_eq!(def.input_schema["properties"]["limit"]["maximum"], 200);
+    let msg = param_error(&call_tool(
+        "get_conversation_context",
+        json!({ "session_id": "s", "limit": 201 }),
+    ));
+    assert_eq!(msg, "`limit` must be at most 200, got 201");
+    let session = unique_session();
+    for bad in [json!(0), json!(201), json!(1_000_000), json!(2.5)] {
+        let resp =
+            tool_get_conversation_context(id(1), &json!({ "session_id": session, "limit": bad }));
+        assert_eq!(
+            param_error(&resp),
+            format!("`limit` must be a whole number from 1 to 200, got {bad}; omit it for the default of 20"),
+        );
+    }
+    for ok in [json!(1), json!(200), json!(20.0)] {
+        let resp =
+            tool_get_conversation_context(id(1), &json!({ "session_id": session, "limit": ok }));
+        assert!(!is_error(&resp) && resp.error.is_none(), "{ok}: {resp:?}");
     }
 }
 

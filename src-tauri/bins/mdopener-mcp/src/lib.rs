@@ -752,6 +752,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Absolute or relative path to the Markdown file to open."
                     },
                     "mode": {
@@ -869,11 +870,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
-                    "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
+                    "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
+                    "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped." },
                     "review_id": { "type": "string", "minLength": 1, "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one; an empty or blank id is refused. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
@@ -957,7 +958,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
-                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
+                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -976,7 +977,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -1023,7 +1024,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, min 1, max 200."
+                        "maximum": MAX_MESSAGES_PER_SESSION,
+                        "description": "Maximum number of messages to return: the most recent N, in chronological order. A whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 20."
                     }
                 },
                 "required": ["session_id"]
@@ -1081,8 +1083,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
-                    "path_b": { "type": "string", "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
+                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -1279,6 +1281,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
@@ -1307,6 +1310,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
@@ -1803,9 +1807,10 @@ pub fn tool_open_file_with(
     ipc: &dyn IpcClient,
     launcher: &dyn Fn(&str) -> launch::Launch,
 ) -> Response {
-    let raw_path = match args["path"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path` is required"),
+    let raw_path = match non_empty_str(args, "path") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
 
     let mode = match args["mode"].as_str() {
@@ -2156,6 +2161,30 @@ pub fn tool_export_with(
 /// and the agent calls again with `review_id` to keep waiting.
 pub const DEFAULT_REVIEW_WAIT_MS: u64 = 50_000;
 
+/// The shortest and longest `wait_ms` a `request_review` call accepts.
+pub const REVIEW_MIN_WAIT_MS: u64 = 1_000;
+pub const REVIEW_MAX_WAIT_MS: u64 = 600_000;
+
+/// `wait_ms` for `request_review`: [`DEFAULT_REVIEW_WAIT_MS`] when absent,
+/// else a whole number of milliseconds from [`REVIEW_MIN_WAIT_MS`] to
+/// [`REVIEW_MAX_WAIT_MS`]. It used to be clamped to that range in silence
+/// while the schema declared `minimum: 0`, so `wait_ms: 0` (meant as "do not
+/// block") blocked for a second, and a value past the range waited less
+/// than asked. Anything else is refused, as `timeout_ms` is.
+fn review_wait_arg(v: &Value) -> Result<u64, String> {
+    if v.is_null() {
+        return Ok(DEFAULT_REVIEW_WAIT_MS);
+    }
+    match whole_number_value(v) {
+        Some(t) if (REVIEW_MIN_WAIT_MS..=REVIEW_MAX_WAIT_MS).contains(&t) => Ok(t),
+        _ => Err(format!(
+            "`wait_ms` must be a whole number of milliseconds between \
+             {REVIEW_MIN_WAIT_MS} and {REVIEW_MAX_WAIT_MS}, got {v}; pass `blocking: false` \
+             to return without waiting"
+        )),
+    }
+}
+
 /// Extra time a resumed `request_review` polls after its window has closed,
 /// so the app's final verdict (the panel records `dismissed` at expiry) or a
 /// last-second decision is still picked up before reporting `timeout`.
@@ -2312,6 +2341,9 @@ pub fn tool_request_review_with(
     // that meant to resume (`{ "review_id": "", "content": ... }`) registered
     // a new review, which replaced and so ended the pending one the agent
     // meant to wait on.
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let resume = match args["review_id"].as_str() {
         Some(r) if r.trim().is_empty() => {
             return Response::err(
@@ -2325,6 +2357,10 @@ pub fn tool_request_review_with(
     };
     let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
         Ok(t) => t,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let wait_ms = match review_wait_arg(&args["wait_ms"]) {
+        Ok(w) => w,
         Err(e) => return Response::err(id, -32602, e),
     };
     // A resumed review opens nothing, so its `path` is only compared.
@@ -2346,9 +2382,6 @@ pub fn tool_request_review_with(
     };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let wait_ms = whole_number(args, "wait_ms")
-        .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
-        .clamp(1_000, 600_000);
 
     let resumed = resume.is_some();
     let respond = |id: Value, mut out: Value| -> Response {
@@ -2621,7 +2654,11 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => return Response::err(id, -32602, "`query` is required"),
     };
     let limit = whole_number(args, "limit").unwrap_or(50);
-    let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
+    let vault = match non_empty_str(args, "vault") {
+        Ok(v) => v,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let vault = match vault.map(disk_vault_dir).transpose() {
         Ok(v) => v,
         Err(e) => return tool_error(id, e),
     };
@@ -3070,11 +3107,11 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
 }
 
 pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = match args["path"]
-        .as_str()
-        .map(openable_document_path)
-        .transpose()
-    {
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let path = match path.map(openable_document_path).transpose() {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -3120,9 +3157,26 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         Err(msg) => return Response::err(id, -32602, msg),
     };
 
-    let limit = whole_number(args, "limit")
-        .unwrap_or(20)
-        .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
+    // A `limit` above MAX_MESSAGES_PER_SESSION used to be clamped in silence
+    // while `list_recent` refused one; both now refuse a value outside 1 to
+    // 200 (a session keeps at most 200 messages). Omitted keeps the default.
+    let max = MAX_MESSAGES_PER_SESSION as u64;
+    let limit = match &args["limit"] {
+        Value::Null => 20,
+        v => match whole_number_value(v).filter(|n| (1..=max).contains(n)) {
+            Some(n) => n as usize,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {max}, got {v}; \
+                         omit it for the default of 20"
+                    ),
+                )
+            }
+        },
+    };
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
@@ -4671,6 +4725,18 @@ pub fn whole_number(args: &Value, name: &str) -> Option<u64> {
     whole_number_value(&args[name])
 }
 
+/// `args[name]` as a string, `None` when absent (or not a string, which the
+/// schema check refuses first). An empty string is refused with the message
+/// the other tools use, "`name` must not be empty": as a path it used to
+/// reach the file checks, which answered with misleading errors such as
+/// "only Markdown documents can be read" or "No such file or directory".
+fn non_empty_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, String> {
+    match args[name].as_str() {
+        Some("") => Err(format!("`{name}` must not be empty")),
+        s => Ok(s),
+    }
+}
+
 fn whole_number_value(v: &Value) -> Option<u64> {
     v.as_u64().or_else(|| {
         v.as_f64()
@@ -4852,13 +4918,15 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 /// - `removed` — total lines removed
 /// - `path_a` / `path_b` — the resolved absolute paths
 pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
-    let raw_a = match args["path_a"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path_a` is required"),
+    let raw_a = match non_empty_str(args, "path_a") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path_a` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
-    let raw_b = match args["path_b"].as_str() {
-        Some(p) => p.to_string(),
-        None => return Response::err(id, -32602, "`path_b` is required"),
+    let raw_b = match non_empty_str(args, "path_b") {
+        Ok(Some(p)) => p.to_string(),
+        Ok(None) => return Response::err(id, -32602, "`path_b` is required"),
+        Err(e) => return Response::err(id, -32602, e),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
     let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
@@ -6608,6 +6676,9 @@ fn without_bom(content: String) -> String {
 }
 
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let (markdown, path_used) = match source_document(args, ipc) {
         Ok(doc) => doc,
         Err(e) => return tool_error(id, e),
@@ -7167,6 +7238,9 @@ pub fn count_embedded_images(content: &str) -> usize {
 /// }
 /// ```
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    if let Err(e) = non_empty_str(args, "path") {
+        return Response::err(id, -32602, e);
+    }
     let (markdown, path_used) = match source_document(args, ipc) {
         Ok(doc) => doc,
         Err(e) => return tool_error(id, e),

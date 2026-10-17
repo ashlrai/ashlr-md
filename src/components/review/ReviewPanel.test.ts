@@ -83,4 +83,32 @@ describe("ReviewPanel countdown", () => {
     expect(alert?.textContent).toContain("Review rev-2 not found");
     expect(approve!.disabled).toBe(false);
   });
+
+  // A review of inline `content` has no file to open. The panel used to say
+  // "review of inline content" without showing it, so the human approved
+  // text they never saw.
+  it("shows inline content under review, and nothing extra for a path", () => {
+    useReviewStore.getState().registerReview({
+      reviewId: "rev-3",
+      path: null,
+      content: "# Plan\n\n1. Drop the users table",
+      timeoutMs: 60_000,
+      registeredAt: Date.now(),
+    });
+    act(() => root.render(createElement(ReviewPanel)));
+    const shown = host.querySelector('[aria-label="Content to review"]');
+    expect(shown?.textContent).toBe("# Plan\n\n1. Drop the users table");
+    expect(host.textContent).toContain("inline content");
+
+    act(() =>
+      useReviewStore.getState().registerReview({
+        reviewId: "rev-4",
+        path: "/notes/plan.md",
+        content: null,
+        timeoutMs: 60_000,
+        registeredAt: Date.now(),
+      }),
+    );
+    expect(host.querySelector('[aria-label="Content to review"]')).toBeNull();
+  });
 });
