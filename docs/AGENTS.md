@@ -339,8 +339,10 @@ before proceeding.
   returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
   can later check the outcome via `get_user_annotations`.
 - `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  the human has to decide (the review panel's window). When it fits within
-  `wait_ms` and expires, the tool returns `{ "verdict": "timeout", … }`.
+  the human has to decide (the review panel's window). When the window closes
+  during a call (the first one, or one resumed with `review_id`) with no
+  decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
+  review never waits past its window.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
@@ -520,12 +522,17 @@ The integration is **local-only and token-authenticated**:
   avoid leaking a timing signal, and a mismatch returns `401`.
 - The MCP `resources/read` channel is **scoped to advertised vault/recents
   files** — it cannot be used to read arbitrary paths off disk.
-- The tools that read a path straight from disk (`diff_documents`, and
-  `export_text` / `export_metadata` with `path`) only read Markdown files
+- The tools that read a path straight from disk (`diff_documents`,
+  `export_text` / `export_metadata` with `path`, and the task list of
+  `get_user_annotations` for a file that is not the open document) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
   refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
   after resolving symlinks.
+- `export` with `output_path` writes that file without a dialog and replaces
+  an existing file of that name. It only accepts a non-dotfile path with the
+  format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
+  directory, so it cannot overwrite Markdown or other file types.
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files
   only, so a FIFO or device named `x.md` is refused (or skipped) instead of
