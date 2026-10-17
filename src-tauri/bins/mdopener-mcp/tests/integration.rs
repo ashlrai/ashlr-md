@@ -5117,6 +5117,120 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
     );
 }
 
+// ── text://vault-search: the documented fields are the real ones ─────────────
+
+/// The field names of a documented shape such as `{ a, b?, c? }`, each with
+/// whether it is optional.
+fn documented_fields(shape: &str) -> Vec<(String, bool)> {
+    shape
+        .trim_matches(|c| c == '{' || c == '}' || c == ' ')
+        .split(',')
+        .map(|f| {
+            let f = f.trim();
+            match f.strip_suffix('?') {
+                Some(name) => (name.to_string(), true),
+                None => (f.to_string(), false),
+            }
+        })
+        .collect()
+}
+
+fn vault_search_payload(uri: &str, ipc: &MockIpc) -> Value {
+    let resp = handle_resource_read(id(1), uri, ipc);
+    assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
+    let text = resp.result.unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    serde_json::from_str(&text).unwrap()
+}
+
+/// The `text://vault-search` descriptions used to say `{ results, mode,
+/// query, note? }` while a read also returned `vault`, `truncated` and
+/// `depthCut`. Every documented place now states the same field list, and
+/// reads that exercise each optional field return only documented fields.
+#[test]
+fn vault_search_resource_documents_every_field_it_returns() {
+    use mdopener_mcp::{resource_templates, DISK_VAULT_MAX_DEPTH, VAULT_SEARCH_RESOURCE_FIELDS};
+    let shape = VAULT_SEARCH_RESOURCE_FIELDS;
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let entry = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .cloned()
+        .unwrap();
+    let template = &resource_templates()[0];
+    for (place, text) in [
+        ("resources/list", entry["description"].as_str().unwrap()),
+        (
+            "resources/templates/list",
+            template["description"].as_str().unwrap(),
+        ),
+        ("docs/AGENTS.md", include_str!("../../../../docs/AGENTS.md")),
+    ] {
+        assert!(text.contains(shape), "{place} must state {shape}");
+    }
+    let fields = documented_fields(shape);
+
+    // The app answers, with a vault list cut short by depth.
+    let app = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
+            "query": "x",
+            "results": [],
+            "truncated": true,
+            "depthCut": true,
+            "note": "Some files were not searched."
+        })),
+    );
+    let from_app = vault_search_payload("text://vault-search?q=x&semantic=false", &app);
+
+    // The app is down: an on-disk vault with a folder too deep to enter.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deep = dir.path().to_path_buf();
+    for level in 0..=DISK_VAULT_MAX_DEPTH {
+        deep = deep.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(dir.path().join("a.md"), "x marks it\n").unwrap();
+    std::fs::write(deep.join("b.md"), "x marks it\n").unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let gone = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let vault = urlencoding::encode(dir.path().to_str().unwrap()).into_owned();
+    let from_disk = vault_search_payload(
+        &format!("text://vault-search?q=x&semantic=false&vault={vault}"),
+        &gone,
+    );
+
+    let mut seen = std::collections::HashSet::new();
+    for payload in [&from_app, &from_disk] {
+        let obj = payload.as_object().unwrap();
+        for key in obj.keys() {
+            assert!(
+                fields.iter().any(|(name, _)| name == key),
+                "`{key}` is returned but not documented in {shape}: {payload}"
+            );
+            seen.insert(key.clone());
+        }
+        for (name, optional) in &fields {
+            assert!(
+                *optional || obj.contains_key(name),
+                "`{name}` missing: {payload}"
+            );
+        }
+    }
+    for (name, _) in &fields {
+        assert!(
+            seen.contains(name),
+            "`{name}` is documented but never returned"
+        );
+    }
+}
+
 // ── search_vault / text://vault-search when the app is down ─────────────────
 
 /// Every IPC route fails the way it does when the app is not running.

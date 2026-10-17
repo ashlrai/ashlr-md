@@ -352,9 +352,10 @@ below; it needs no app.
   `search_vault`'s `semantic`; any other value, a `limit` that is not a
   whole number of at least 1, a parameter with no value, or any other
   parameter (a misspelt `lmit=5`) is `-32602`, naming the closest one).
-  Returns `{ results, mode, query, note?, vault? }`, with the same `note` as
-  `search_vault` when it fell back; an error when the app is not running and
-  no `vault` is given.
+  Returns `{ results, mode, query, note?, vault?, truncated?, depthCut? }`,
+  with the same `note`, `truncated` and `depthCut` as `search_vault` when it
+  fell back or did not search every file; an error when the app is not
+  running and no `vault` is given.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`), as `{ documents, count, skipped }`.

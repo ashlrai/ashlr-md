@@ -3344,7 +3344,11 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
+        "description": ([
+            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
+            VAULT_SEARCH_RESOURCE_FIELDS,
+            ", shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable, `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
+        ].concat()),
         "mimeType": "application/json"
     }));
 
@@ -3401,6 +3405,15 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, result)
 }
 
+/// The fields a `text://vault-search` read returns, as its `resources/list`
+/// and `resources/templates/list` descriptions state them (`?` marks one that
+/// is present only sometimes). The descriptions used to list only
+/// `{ results, mode, query, note? }`, leaving out `vault`, `truncated` and
+/// `depthCut`, which the result carries when it searched a folder on disk or
+/// did not search every file.
+pub const VAULT_SEARCH_RESOURCE_FIELDS: &str =
+    "{ results, mode, query, note?, vault?, truncated?, depthCut? }";
+
 /// The `resources/templates/list` entries: `text://vault-search`, which is
 /// read with a query (`?q=…`) and so is a URI template, not a fixed resource.
 /// The method used to be unknown (`-32601`), so a client that discovers
@@ -3410,7 +3423,11 @@ pub fn resource_templates() -> Value {
     json!([{
         "uriTemplate": "text://vault-search?q={query}",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: { results, mode, query, note? }.",
+        "description": ([
+            "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: ",
+            VAULT_SEARCH_RESOURCE_FIELDS,
+            ", as resources/list describes."
+        ].concat()),
         "mimeType": "application/json"
     }])
 }
