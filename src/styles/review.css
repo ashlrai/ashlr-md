@@ -127,6 +127,18 @@
   box-shadow: 0 0 0 2px var(--ring);
 }
 
+/* ── Verdict error ─────────────────────────────────────────────────────── */
+
+.review-panel__error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #dc2626;
+}
+:root[data-theme="midnight"] .review-panel__error {
+  color: #f87171;
+}
+
 /* ── Action buttons ────────────────────────────────────────────────────── */
 
 .review-panel__actions {
@@ -168,4 +180,8 @@
 }
 .review-panel__btn--approve:hover {
   opacity: 0.9;
+}
+.review-panel__btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }

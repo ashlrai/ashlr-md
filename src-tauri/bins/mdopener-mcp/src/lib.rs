@@ -311,24 +311,72 @@ fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
 /// the legacy file name (filtered the same way, since that file may be shared
 /// with other ids). The next append writes them to the session's own file
 /// and leaves the legacy file untouched.
-fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
+///
+/// `Ok(None)` when the session has no file; an error when its own file
+/// exists but cannot be read or parsed (it is then never overwritten).
+fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, String> {
     let own = |mut log: SessionLog| {
         let before = log.messages.len();
         log.messages.retain(|m| m.session_id == session_id);
         let foreign = log.messages.len() != before;
         (log, foreign)
     };
-    let path = session_file_path(session_id)?;
+    let Some(path) = session_file_path(session_id) else {
+        return Ok(None);
+    };
     if path.exists() {
-        return load_session_from_disk(session_id).map(own);
+        let text =
+            read_regular_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+        return parse_session_log(&text)
+            .map(|log| Some(own(log)))
+            .map_err(|e| format!("{} is not a session file: {e}", path.display()));
     }
-    let legacy = legacy_session_file_path(session_id)?;
+    let Some(legacy) = legacy_session_file_path(session_id) else {
+        return Ok(None);
+    };
     if legacy == path {
-        return None;
+        return Ok(None);
     }
-    let text = read_regular_file(&legacy).ok()?;
-    let (log, _) = own(serde_json::from_str(&text).ok()?);
-    Some((log, false))
+    let Some(log) = read_regular_file(&legacy)
+        .ok()
+        .and_then(|text| parse_session_log(&text).ok())
+    else {
+        return Ok(None);
+    };
+    Ok(Some((own(log).0, false)))
+}
+
+/// Parse a session file: this server's `{"messages":[…]}`, or the bare
+/// array of messages that earlier builds of the desktop app wrote to the same
+/// directory (src-tauri/src/ipc.rs, which now writes this server's format).
+pub fn parse_session_log(text: &str) -> Result<SessionLog, String> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SessionFile {
+        Log(SessionLog),
+        Bare(Vec<ConversationMessage>),
+    }
+    match serde_json::from_str::<SessionFile>(text).map_err(|e| e.to_string())? {
+        SessionFile::Log(log) => Ok(log),
+        SessionFile::Bare(messages) => Ok(SessionLog { messages }),
+    }
+}
+
+/// Hold the sessions directory's lock file (`.lock`) for a read-modify-write
+/// of a session file. The desktop app takes the same lock when it persists a
+/// session, so neither process writes a stale copy over the other's appends.
+fn lock_sessions_dir() -> Result<std::fs::File, String> {
+    let dir = sessions_dir().ok_or("Cannot determine home directory")?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"))
+        .map_err(|e| format!("Cannot open the sessions lock: {e}"))?;
+    lock.lock()
+        .map_err(|e| format!("Cannot lock {}: {e}", dir.display()))?;
+    Ok(lock)
 }
 
 /// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the
@@ -366,7 +414,7 @@ pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String>
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
     let text = read_regular_file(&path).ok()?;
-    serde_json::from_str(&text).ok()
+    parse_session_log(&text).ok()
 }
 
 /// Append a message to the in-process store and persist to disk.
@@ -405,14 +453,14 @@ pub fn store_append_message(
         timestamp_ms: ts,
     };
 
-    let mut store = conversation_store()
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let _dir_lock = lock_sessions_dir().map_err(|e| format!("Message not saved: {e}"))?;
     // Continue the persisted log, re-read on every append: another server
-    // process (a second agent, or this agent after a restart) may have
-    // appended since this process cached it, and writing the cached copy
+    // process (a second agent, or this agent after a restart) or the app may
+    // have appended since this process cached it, and writing the cached copy
     // back would drop those messages.
-    let fresh = match load_own_session(session_id) {
+    let on_disk = load_own_session(session_id).map_err(|e| format!("Message not saved: {e}"))?;
+    let fresh = match on_disk {
         Some((_, true)) => {
             let path = session_file_path(session_id)
                 .map(|p| p.display().to_string())
@@ -456,7 +504,7 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read.
-    if let Some((log, _)) = load_own_session(session_id) {
+    if let Ok(Some((log, _))) = load_own_session(session_id) {
         store.insert(session_id.to_string(), log);
     }
 
@@ -560,7 +608,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document. With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. A `theme` value is validated, but the app does not yet receive it, so exports always use the app's current theme.",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -572,11 +620,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "output_path": {
                         "type": "string",
                         "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
-                    },
-                    "theme": {
-                        "type": "string",
-                        "enum": ["paper", "sepia", "midnight"],
-                        "description": "Theme for HTML exports (paper/sepia/midnight). Validated here but not yet forwarded by the app, which uses its current theme."
                     }
                 },
                 "required": ["format"]
@@ -677,7 +720,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode }. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -898,8 +941,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 via mcp_stream_edit_preview so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match) — the agent selects a matchIndex and confirms \
-                via stream_edit_apply. For single-match or preview=false cases the edit can be applied \
-                immediately. Prefer this over edit_document for large files or when the agent needs to \
+                via stream_edit_apply. With preview=false the app applies the edit at once (unsaved; \
+                the find string must match exactly once) and the result has applied: true, so do not \
+                call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing.",
             input_schema: json!({
                 "type": "object",
@@ -946,7 +990,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "edit_id": {
                         "type": "string",
-                        "description": "Correlation id echoed from the stream_edit preview response."
+                        "description": "Optional: the editId of the stream_edit preview, for correlation only. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -969,7 +1013,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                         "description": "Optional path assertion — errors if a different file is open."
                     }
                 },
-                "required": ["edit_id", "find", "replace"]
+                "required": ["find", "replace"]
             }),
             annotations: Some(json!({
                 "title": "Apply Stream Edit",
@@ -987,7 +1031,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stripped while code block contents are preserved as-is. Returns the extracted text \
                 together with word and character counts. Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC.",
+                document via IPC (an error when nothing is open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1013,7 +1057,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC.",
+                reads the currently open document via IPC (an error when nothing is open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1167,17 +1211,25 @@ pub fn tool_open_file_with(
         }
     };
 
-    // A path that does not exist yet is allowed (the app opens it as a new
-    // document), but it is still made absolute against this server's working
-    // directory: the app resolves paths against its own, unrelated cwd.
-    let abs = std::fs::canonicalize(&raw_path)
-        .or_else(|_| std::path::absolute(&raw_path))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or(raw_path.clone());
+    // The path is made absolute against this server's working directory: the
+    // app resolves paths against its own, unrelated cwd. A missing file is
+    // left for the app to refuse ("does not exist") when it is running.
+    let abs = match openable_document_path(&raw_path) {
+        Ok(abs) => abs,
+        Err(e) => return tool_error(id, e),
+    };
 
     // Try IPC first (app already running).
     let ipc_error = match ipc.post("/open", json!({ "path": abs, "mode": mode })) {
+        // The app answers once its window has opened the document, so a
+        // failure there is the agent's to see, with the window's reason.
+        Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+            return tool_error(id, window_refusal(&resp, "open", &abs))
+        }
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
+        // The app is running and refused the request: say why, and do not
+        // retry it through the URL scheme.
+        Err(e) if app_refused(&e) => return tool_error(id, e),
         Err(e) => e,
     };
 
@@ -1214,6 +1266,14 @@ pub fn tool_open_file_with(
     }
 }
 
+/// The reason in an app reply of `ok: false` to `/open` or `/present`.
+fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
+    match resp["error"].as_str() {
+        Some(e) => e.to_string(),
+        None => format!("The app could not {doing} {what}."),
+    }
+}
+
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
         Ok(v) => tool_result(id, v),
@@ -1227,8 +1287,20 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`content` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
+    post_content(id, &content, save, ipc)
+}
 
+/// POST `/content` for `set_content` and `replace_document`. The app answers
+/// once the window has replaced the document, and saved it when `save` is
+/// set, so a refusal (`ok: false`) is the agent's to see as a tool error.
+fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Response {
     match ipc.post("/content", json!({ "content": content, "save": save })) {
+        Ok(v) if v["ok"].as_bool() == Some(false) => {
+            let msg = v["error"]
+                .as_str()
+                .unwrap_or("The app could not replace the document content.");
+            tool_error(id, msg.to_string())
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
@@ -1259,6 +1331,23 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
 /// directory and compares paths against its canonical open-document path, so
 /// forwarding the raw string misses for `plan.md`, `./plan.md`, or `/tmp/x`
 /// vs `/private/tmp/x` on macOS.
+/// [`agent_path`] for a document the app is asked to open (`open_file`,
+/// `present_document`, `request_review` with a path), refused unless it is a
+/// Markdown document that is not a dotfile, checked like the tools that read
+/// a path from disk ([`checked_document_path`]). The app shows what it opens
+/// and `get_current_content` returns it, so opening `~/.ssh/id_rsa` would
+/// otherwise read it. The app makes the same check.
+pub fn openable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_path(&agent_path(raw), "path")
+}
+
+/// True when an IPC error is the running app refusing the request (an HTTP
+/// 4xx other than 401), as opposed to the app being unreachable.
+fn app_refused(err: &str) -> bool {
+    err.strip_prefix("IPC server returned HTTP 4")
+        .is_some_and(|rest| !rest.starts_with("01"))
+}
+
 pub fn agent_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
         .or_else(|_| std::path::absolute(raw))
@@ -1353,19 +1442,15 @@ pub fn tool_export_with(
         None => return Response::err(id, -32602, "`format` is required"),
     };
 
-    // Validate theme when provided — only valid for html format.
-    let theme = args["theme"].as_str().map(str::to_string);
-    if let Some(ref t) = theme {
-        match t.as_str() {
-            "paper" | "sepia" | "midnight" => {}
-            other => {
-                return Response::err(
-                    id,
-                    -32602,
-                    format!("`theme` must be one of paper/sepia/midnight, got '{other}'"),
-                )
-            }
-        }
+    // The app renders exports in its current theme and takes no other, so a
+    // `theme` (offered by earlier versions of this tool) is refused rather
+    // than silently ignored.
+    if !args["theme"].is_null() {
+        return Response::err(
+            id,
+            -32602,
+            "`theme` is not supported: exports use the app's current theme (switch it in the app).",
+        );
     }
 
     let output_path = match args["output_path"].as_str() {
@@ -1382,7 +1467,6 @@ pub fn tool_export_with(
         json!({
             "format": format,
             "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
-            "theme": theme,
         }),
     ) {
         return tool_error(id, app_not_running_msg(&e));
@@ -1476,7 +1560,14 @@ pub fn tool_request_review_with(
         .as_str()
         .filter(|r| !r.is_empty())
         .map(str::to_string);
-    let path = args["path"].as_str().map(agent_path);
+    let path = match args["path"]
+        .as_str()
+        .map(openable_document_path)
+        .transpose()
+    {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
     let timeout_ms = args["timeout_ms"]
@@ -1571,26 +1662,21 @@ pub fn tool_request_review_with(
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
-                "not_found" => {
-                    return tool_result(
-                        id,
-                        json!({
-                            "verdict": "timeout",
-                            "reviewId": review_id,
-                            "message": "Review record lost (app may have restarted)."
-                        }),
-                    )
-                }
-                _ => {
-                    return tool_result(
-                        id,
-                        json!({
-                            "verdict": resp["verdict"],
-                            "reviewId": review_id,
-                            "comments": resp["comments"],
-                        }),
-                    )
-                }
+                "timeout" => return tool_result(id, json!({
+                    "verdict": "timeout",
+                    "reviewId": review_id,
+                    "message": "The review window closed with no verdict."
+                })),
+                "not_found" => return tool_result(id, json!({
+                    "verdict": "timeout",
+                    "reviewId": review_id,
+                    "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
+                })),
+                _ => return tool_result(id, json!({
+                    "verdict": resp["verdict"],
+                    "reviewId": review_id,
+                    "comments": resp["comments"],
+                })),
             },
         }
     }
@@ -1646,10 +1732,7 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         None => return Response::err(id, -32602, "`content` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
-    match ipc.post("/content", json!({ "content": content, "save": save })) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
-    }
+    post_content(id, &content, save, ipc)
 }
 
 pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
@@ -1665,56 +1748,109 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => ollama_available(),
     };
 
+    match search_vault(&query, limit, use_semantic, ipc) {
+        Ok(v) => tool_result(id, v),
+        Err(e) => tool_error(id, e),
+    }
+}
+
+/// The search behind both `search_vault` and the `text://vault-search`
+/// resource: `{ results, mode, note? }`, or the error the agent should see.
+///
+/// Semantic search (when `use_semantic`) falls back to the app's own search,
+/// and that to grepping the vault files on disk; each fallback is said in
+/// `note`, so keyword hits are never read as meaning matches and the app's
+/// refusal is never papered over.
+pub fn search_vault(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    ipc: &dyn IpcClient,
+) -> Result<Value, String> {
+    search_vault_with(query, limit, use_semantic, ipc, &ollama_embed)
+}
+
+/// [`search_vault`] with the embedder injected, so tests never need Ollama.
+pub fn search_vault_with(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Value, String> {
+    // Why semantic search was tried but not used, said in words so an agent
+    // that asked for it does not read keyword hits as meaning matches.
+    let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_search_vault(&query, limit, ipc) {
-            Ok(results) => {
-                return tool_result(
-                    id,
-                    json!({
-                        "results": results,
-                        "mode": "semantic"
-                    }),
-                );
-            }
-            Err(_) => {
-                // Embedding failed — fall through to grep.
+        match semantic_search_vault_with(query, limit, ipc, embed) {
+            Ok(results) => return Ok(json!({ "results": results, "mode": "semantic" })),
+            Err(e) => {
+                // Embedding failed — fall through to grep, and say so.
+                semantic_note = Some(format!(
+                    "Semantic search was unavailable ({e}), so these are keyword (grep) \
+                     results instead. Start Ollama with the nomic-embed-text model for \
+                     semantic search."
+                ));
             }
         }
     }
 
     // Grep fallback: ask the app's IPC layer (which does its own grep), or
     // grep the vault files on disk if that route fails.
-    let encoded = urlencoding::encode(&query);
+    let encoded = urlencoding::encode(query);
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
             v["mode"] = json!("grep");
-            tool_result(id, v)
+            if let Some(note) = semantic_note {
+                v["note"] = json!(note);
+            }
+            Ok(v)
         }
-        Err(_ipc_err) => {
+        Err(ipc_err) => {
             // The app's search failed: grep the vault files on disk. The file
             // list comes from the app too, so this errors if it is not running.
-            match grep_vault(&query, limit, ipc) {
-                Ok(results) => tool_result(
-                    id,
-                    json!({
+            // Keep the app's reason: a refusal is the agent's to see, not
+            // something an on-disk grep should paper over.
+            let refused = app_refused(&ipc_err);
+            match grep_vault(query, limit, ipc) {
+                Ok(results) => {
+                    let verb = if refused { "refused" } else { "failed" };
+                    let search_note = format!(
+                        "Ashlr MD's own search {verb} ({ipc_err}), so these results \
+                         come from grepping the vault files on disk."
+                    );
+                    let note = match semantic_note {
+                        Some(n) => format!("{n} {search_note}"),
+                        None => search_note,
+                    };
+                    Ok(json!({
                         "results": results,
-                        "mode": "grep-local"
-                    }),
-                ),
-                Err(e) => tool_error(id, app_not_running_msg(&e)),
+                        "mode": "grep-local",
+                        "note": note
+                    }))
+                }
+                Err(_) if refused => Err(ipc_err),
+                Err(e) => Err(app_not_running_msg(&e)),
             }
         }
     }
 }
 
 pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let path = args["path"].as_str().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    let path = match args["path"]
+        .as_str()
+        .map(openable_document_path)
+        .transpose()
+    {
+        Ok(p) => p,
+        Err(e) => return tool_error(id, e),
+    };
     match ipc.post("/present", json!({ "path": path })) {
+        Ok(v) if v["ok"].as_bool() == Some(false) => {
+            let what = path.as_deref().unwrap_or("the open document");
+            tool_error(id, window_refusal(&v, "present", what))
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
@@ -1986,7 +2122,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback. Returns JSON: { results: [{ path, snippet, lineNumber, score }], mode }.",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
         "mimeType": "application/json"
     }));
 
@@ -2067,31 +2203,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             );
         }
 
-        // Try semantic search, fall back to grep. Every path needs the app
-        // (it supplies the vault file list), so failing to reach it is an
-        // error rather than an empty result set.
-        let searched = if ollama_available() {
-            match semantic_search_vault(&query, limit, ipc) {
-                Ok(r) => Ok((r, "semantic")),
-                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
-            }
-        } else {
-            // Try IPC grep first.
-            let encoded = urlencoding::encode(&query);
-            match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
-                Ok(v) => {
-                    let results = v["results"].as_array().cloned().unwrap_or_default();
-                    Ok((results, "grep"))
-                }
-                Err(_) => grep_vault(&query, limit, ipc).map(|r| (r, "grep-local")),
-            }
+        // The same search as `search_vault`, notes included. Every path needs
+        // the app (it supplies the vault file list), so failing to reach it is
+        // an error rather than an empty result set.
+        let mut payload = match search_vault(&query, limit, ollama_available(), ipc) {
+            Ok(v) => v,
+            Err(e) => return Response::err(id, -32000, e),
         };
-        let (results, mode) = match searched {
-            Ok(found) => found,
-            Err(e) => return Response::err(id, -32000, app_not_running_msg(&e)),
-        };
-
-        let payload = json!({ "results": results, "mode": mode, "query": query });
+        payload["query"] = json!(query);
         return Response::ok(
             id,
             json!({
@@ -2377,6 +2496,9 @@ pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
     Ok(paths)
 }
 
+/// Turns text into an embedding vector: [`ollama_embed`] in the server.
+pub type Embedder<'a> = &'a dyn Fn(&str) -> Result<Vec<f64>, String>;
+
 /// Perform semantic search: embed the query and each candidate document,
 /// rank by cosine similarity, return top-`limit` results sorted by score.
 ///
@@ -2386,9 +2508,23 @@ pub fn semantic_search_vault(
     limit: u64,
     ipc: &dyn IpcClient,
 ) -> Result<Vec<Value>, String> {
+    semantic_search_vault_with(query, limit, ipc, &ollama_embed)
+}
+
+/// [`semantic_search_vault`] with the embedder injected. A document whose
+/// embedding fails is skipped, but when every embedding fails this is an
+/// error: an empty result would read as "nothing in the vault is related",
+/// when nothing was compared at all.
+pub fn semantic_search_vault_with(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Vec<Value>, String> {
     let paths = vault_file_paths(ipc)?;
-    let query_vec = ollama_embed(query)?;
+    let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
+    let mut embed_error = None;
 
     for path in &paths {
         let content = match read_regular_file(path) {
@@ -2397,9 +2533,12 @@ pub fn semantic_search_vault(
         };
         // Truncate to first 8 KB to stay within typical embedding context limits.
         let truncated: String = content.chars().take(8192).collect();
-        let doc_vec = match ollama_embed(&truncated) {
+        let doc_vec = match embed(&truncated) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                embed_error = Some(e);
+                continue;
+            }
         };
         let score = cosine_similarity(&query_vec, &doc_vec);
         let (line_number, snippet) = best_snippet_for_query(&content, query);
@@ -2409,6 +2548,10 @@ pub fn semantic_search_vault(
             line_number,
             score,
         });
+    }
+
+    if let (true, Some(e)) = (scored.is_empty(), embed_error) {
+        return Err(format!("embedding every document failed: {e}"));
     }
 
     scored.sort_by(|a, b| {
@@ -2616,7 +2759,14 @@ pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
                 );
             }
             if code >= 400 {
-                return Err(format!("IPC server returned HTTP {code}"));
+                // The app's error responses are `{"error": "<reason>"}`.
+                let reason = serde_json::from_slice::<Value>(&raw[body_start..])
+                    .ok()
+                    .and_then(|v| v["error"].as_str().map(str::to_string));
+                return Err(match reason {
+                    Some(r) => format!("IPC server returned HTTP {code}: {r}"),
+                    None => format!("IPC server returned HTTP {code}"),
+                });
             }
         }
     }
@@ -2654,6 +2804,11 @@ pub fn tool_error(id: Value, message: String) -> Response {
 }
 
 pub fn app_not_running_msg(err: &str) -> String {
+    // The running app refused the request: its reason (which may quote a
+    // path containing "connect" or "not found") is the agent's to see as is.
+    if app_refused(err) {
+        return err.to_string();
+    }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
         format!(
             "Ashlr MD does not appear to be running ({}). \
@@ -3779,11 +3934,14 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     });
 
     match ipc.post("/stream-edit", body) {
-        Ok(v) => {
+        Ok(mut v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit preview failed.");
                 return tool_error(id, msg.to_string());
             }
+            // Without a preview the app has already applied the edit (unsaved);
+            // calling stream_edit_apply on top would apply it a second time.
+            v["applied"] = json!(!preview);
             tool_result(id, v)
         }
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -3795,10 +3953,9 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// The agent sends this after reviewing the diff returned by `stream_edit`.
 /// `match_index` selects which candidate to apply when there are multiple matches.
 pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let edit_id = match args["edit_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`edit_id` is required"),
-    };
+    // Only correlates with a preview: the app re-finds `find` in the live
+    // document, so the apply does not depend on it.
+    let edit_id = args["edit_id"].as_str().unwrap_or("").to_string();
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
         Some(_) => return Response::err(id, -32602, "`find` must not be empty"),
@@ -4159,27 +4316,31 @@ pub fn count_words(text: &str) -> usize {
 /// When omitted, fetches the current document's content via IPC.
 ///
 /// Returns `{ text, word_count, char_count, path? }`.
+/// The Markdown `export_text` and `export_metadata` work on, with its path:
+/// the file `path` names (read from disk), else the document open in the app.
+/// With neither a path nor an open document there is nothing to read, which
+/// is an error rather than an empty document.
+fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
+    if let Some(raw) = args["path"].as_str() {
+        let abs = checked_document_path(raw, "path")?;
+        return match read_regular_file(&abs) {
+            Ok(c) => Ok((c, Some(abs))),
+            Err(e) => Err(format!("Cannot read '{abs}': {e}")),
+        };
+    }
+    let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
+    let content = v["content"].as_str().unwrap_or("").to_string();
+    let path = v["path"].as_str().map(str::to_string);
+    if path.is_none() && content.is_empty() {
+        return Err("No document is open in Ashlr MD; pass `path` to read a file.".to_string());
+    }
+    Ok((content, path))
+}
+
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    // Resolve source: explicit path → disk read; no path → IPC current content.
-    let (markdown, path_used) = match args["path"].as_str() {
-        Some(raw) => {
-            let abs = match checked_document_path(raw, "path") {
-                Ok(p) => p,
-                Err(e) => return tool_error(id, e),
-            };
-            match read_regular_file(&abs) {
-                Ok(c) => (c, Some(abs)),
-                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
-            }
-        }
-        None => match ipc.get("/content") {
-            Ok(v) => {
-                let content = v["content"].as_str().unwrap_or("").to_string();
-                let path = v["path"].as_str().map(str::to_string);
-                (content, path)
-            }
-            Err(e) => return tool_error(id, app_not_running_msg(&e)),
-        },
+    let (markdown, path_used) = match source_document(args, ipc) {
+        Ok(doc) => doc,
+        Err(e) => return tool_error(id, e),
     };
 
     let text = strip_markdown(&markdown);
@@ -4393,25 +4554,9 @@ pub fn count_embedded_images(content: &str) -> usize {
 /// }
 /// ```
 pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let (markdown, path_used) = match args["path"].as_str() {
-        Some(raw) => {
-            let abs = match checked_document_path(raw, "path") {
-                Ok(p) => p,
-                Err(e) => return tool_error(id, e),
-            };
-            match read_regular_file(&abs) {
-                Ok(c) => (c, Some(abs)),
-                Err(e) => return tool_error(id, format!("Cannot read '{abs}': {e}")),
-            }
-        }
-        None => match ipc.get("/content") {
-            Ok(v) => {
-                let content = v["content"].as_str().unwrap_or("").to_string();
-                let path = v["path"].as_str().map(str::to_string);
-                (content, path)
-            }
-            Err(e) => return tool_error(id, app_not_running_msg(&e)),
-        },
+    let (markdown, path_used) = match source_document(args, ipc) {
+        Ok(doc) => doc,
+        Err(e) => return tool_error(id, e),
     };
 
     let frontmatter = extract_frontmatter(&markdown);

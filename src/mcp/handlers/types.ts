@@ -5,43 +5,19 @@
  * give each handler module a single place to import its payload shapes from.
  */
 
-import type { CanvasEditOp } from "../../lib/canvas";
-import type { ExportProfileId } from "../../lib/exportTemplates";
-import type { OtComponent, VectorClock } from "../../lib/ot";
-
-// ── Atomic-edits ─────────────────────────────────────────────────────────────
-
-export interface AtomicEditEntry {
-  path: string;
-  find: string;
-  replace: string;
-  metadata?: {
-    dependsOn?: string[];
-    [key: string]: unknown;
-  };
-}
-
-export interface AtomicEditFileResult {
-  path: string;
-  ok: boolean;
-  replaced: number;
-  error?: string;
-}
-
-export interface AtomicEditsPayload {
-  atomicId: string;
-  entries: AtomicEditEntry[];
-  save?: boolean;
-}
-
 // ── Open / set-content / edit ─────────────────────────────────────────────────
 
 export interface OpenPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back; absent when
+   * a review opens its file and nobody waits on the outcome. */
+  editId?: string;
   path: string;
   mode?: "read" | "edit";
 }
 
 export interface SetContentPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back. */
+  editId?: string;
   content: string;
   save?: boolean;
 }
@@ -60,43 +36,6 @@ export interface ExportPayload {
   outputPath?: string | null;
 }
 
-export interface OutlineExportPayload {
-  format: "json" | "opml";
-  outputPath?: string | null;
-}
-
-export interface BatchExportEntry {
-  path: string;
-  format: "pdf" | "docx" | "html" | "epub";
-  outputDir?: string;
-}
-
-export interface BatchExportFileResult {
-  path: string;
-  format: string;
-  ok: boolean;
-  outputPath?: string;
-  error?: string;
-}
-
-export interface BatchExportPayload {
-  batchId: string;
-  exports: BatchExportEntry[];
-}
-
-export interface BatchExportProfilesPayload {
-  batchId: string;
-  profileIds?: ExportProfileId[];
-  content?: string;
-}
-
-export interface BatchExportProfileResult {
-  profileId: ExportProfileId;
-  ok: boolean;
-  html: string | null;
-  error?: string;
-}
-
 // ── Review / present ──────────────────────────────────────────────────────────
 
 export interface ReviewPayload {
@@ -107,83 +46,9 @@ export interface ReviewPayload {
 }
 
 export interface PresentPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back. */
+  editId?: string;
   path: string | null;
-}
-
-// ── Canvas ────────────────────────────────────────────────────────────────────
-
-export interface EditCanvasPayload {
-  editId: string;
-  path: string;
-  ops: CanvasEditOp[];
-  undo?: number;
-  redo?: number;
-  save?: boolean;
-}
-
-// ── Search ────────────────────────────────────────────────────────────────────
-
-export interface BatchReadPayload {
-  batchId: string;
-  paths: string[];
-}
-
-export interface BatchReadFileResult {
-  path: string;
-  ok: boolean;
-  content?: string;
-  headers?: Record<string, unknown>;
-  metadata?: { sizeBytes: number; mtimeMs: number };
-  error?: string;
-}
-
-export interface BatchEditPayload {
-  batchId: string;
-  ops: Array<{ path: string; find: string; replace: string; save?: boolean }>;
-}
-
-export interface BatchEditOpResult {
-  path: string;
-  ok: boolean;
-  replaced: number;
-  error?: string;
-  conflict?: string;
-}
-
-export interface SemanticSearchPayload {
-  searchId: string;
-  query: string;
-  k?: number;
-  rerank?: boolean;
-}
-
-export interface DiffDocsPayload {
-  diffId: string;
-  pathA: string;
-  pathB: string;
-  contextLines?: number;
-}
-
-// ── Conversation / memory ─────────────────────────────────────────────────────
-
-export interface OtOpPayload {
-  opId: string;
-  agentId: string;
-  seq: number;
-  clock: VectorClock;
-  components: OtComponent[];
-  save?: boolean;
-}
-
-export interface CopyRichTextPayload {
-  format?: "html" | "markdown" | "auto";
-}
-
-export interface ApplyDiffHunkPayload {
-  diffId: string;
-  diffText: string;
-  hunkIndex: number;
-  save?: boolean;
 }
 
 // ── Stream-edit ───────────────────────────────────────────────────────────────

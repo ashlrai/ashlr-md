@@ -65,7 +65,7 @@ pub fn filter_existing(paths: Vec<String>) -> Vec<String> {
 // Vault detection + wikilink resolution ([[target]] / ![[target]])
 // ---------------------------------------------------------------------------
 
-const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
+pub(crate) const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
 /// Cap the vault scan depth so resolution stays fast on big trees.
 const WIKILINK_MAX_DEPTH: usize = 12;
 /// Stop collecting candidates once we have this many — a safety valve on huge vaults.
@@ -421,6 +421,50 @@ const MAX_PASTE_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 /// dir. Size is capped to match `read_image_data_url`.
 #[tauri::command]
 pub fn save_pasted_image(doc_path: String, bytes: Vec<u8>, ext: String) -> Result<String, String> {
+    // The document's directory is the confinement root.
+    let doc = Path::new(&doc_path);
+    let base = doc
+        .parent()
+        .ok_or("The open document has no parent directory.")?;
+    let (_, name) =
+        write_pasted_image_under(base, "the document's own folder", "assets", &bytes, &ext)?;
+    // Return the path RELATIVE to the document for insertion (forward slashes so
+    // the Markdown is portable across platforms).
+    Ok(format!("assets/{name}"))
+}
+
+/// Save a pasted clipboard image into `<Downloads>/mdopener-paste/` and return
+/// its absolute path. This backs the opt-in "downloads" paste target, which
+/// works for an unsaved document too.
+///
+/// SECURITY: same confinement as [`save_pasted_image`], rooted at the user's
+/// Downloads folder: the filename is generated, `ext` is allowlisted, and the
+/// resolved target must stay under the canonical Downloads directory.
+#[tauri::command]
+pub fn save_pasted_image_to_downloads(bytes: Vec<u8>, ext: String) -> Result<String, String> {
+    let downloads = dirs::download_dir().ok_or("Could not find your Downloads folder.")?;
+    let (target, _) = write_pasted_image_under(
+        &downloads,
+        "the Downloads folder",
+        "mdopener-paste",
+        &bytes,
+        &ext,
+    )?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Write `bytes` as `<base>/<subdir>/pasted-<n>.<ext>` and return the written
+/// path plus its file name. The write is CONFINED to `base` using the same
+/// canonicalize-then-`starts_with` check as `apply_file_patch`; a symlinked
+/// `subdir` that points elsewhere is refused. `root_label` names `base` in
+/// error messages.
+fn write_pasted_image_under(
+    base: &Path,
+    root_label: &str,
+    subdir: &str,
+    bytes: &[u8],
+    ext: &str,
+) -> Result<(std::path::PathBuf, String), String> {
     if bytes.is_empty() {
         return Err("Pasted image is empty.".into());
     }
@@ -437,36 +481,33 @@ pub fn save_pasted_image(doc_path: String, bytes: Vec<u8>, ext: String) -> Resul
         ));
     }
 
-    // The document's directory is the confinement root. Canonicalize it first so
-    // the `starts_with` check below compares symlink-resolved paths.
-    let doc = Path::new(&doc_path);
-    let base = doc
-        .parent()
-        .ok_or("The open document has no parent directory.")?;
-    let base = std::fs::canonicalize(base)
-        .map_err(|e| format!("Cannot resolve the document's folder: {e}"))?;
+    // Canonicalize the root first so the `starts_with` checks below compare
+    // symlink-resolved paths.
+    let base =
+        std::fs::canonicalize(base).map_err(|e| format!("Cannot resolve {root_label}: {e}"))?;
 
-    // Ensure the assets/ subdir exists, then re-resolve it and confirm it stays
-    // under base (a symlinked `assets` can't redirect the write elsewhere).
-    let assets_dir = base.join("assets");
-    std::fs::create_dir_all(&assets_dir)
-        .map_err(|e| format!("Could not create the assets folder: {e}"))?;
-    let canon_assets = std::fs::canonicalize(&assets_dir)
-        .map_err(|e| format!("Cannot resolve the assets folder: {e}"))?;
-    if !canon_assets.starts_with(&base) {
-        return Err("Refusing to write outside the document's own folder.".into());
+    // Ensure the subdir exists, then re-resolve it and confirm it stays under
+    // base (a symlinked subdir can't redirect the write elsewhere).
+    let sub_dir = base.join(subdir);
+    std::fs::create_dir_all(&sub_dir)
+        .map_err(|e| format!("Could not create the {subdir} folder: {e}"))?;
+    let canon_sub = std::fs::canonicalize(&sub_dir)
+        .map_err(|e| format!("Cannot resolve the {subdir} folder: {e}"))?;
+    if !canon_sub.starts_with(&base) {
+        return Err(format!("Refusing to write outside {root_label}."));
     }
 
     // Pick a non-colliding `pasted-<n>.<ext>` filename.
     let mut n: u32 = 1;
-    let target = loop {
-        let candidate = canon_assets.join(format!("pasted-{n}.{ext}"));
+    let (target, name) = loop {
+        let name = format!("pasted-{n}.{ext}");
+        let candidate = canon_sub.join(&name);
         if !candidate.exists() {
-            break candidate;
+            break (candidate, name);
         }
         n += 1;
         if n > 100_000 {
-            return Err("Could not find a free filename in assets/.".into());
+            return Err(format!("Could not find a free filename in {subdir}/."));
         }
     };
 
@@ -477,21 +518,18 @@ pub fn save_pasted_image(doc_path: String, bytes: Vec<u8>, ext: String) -> Resul
     let canon_parent = std::fs::canonicalize(parent)
         .map_err(|e| format!("Cannot resolve the image target's folder: {e}"))?;
     if !canon_parent.starts_with(&base) {
-        return Err("Refusing to write outside the document's own folder.".into());
+        return Err(format!("Refusing to write outside {root_label}."));
     }
 
     // Atomic write: temp sibling then rename, matching write_markdown_file.
     let target_str = target.to_string_lossy().into_owned();
     let tmp = format!("{target_str}.mdopener.tmp");
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("Could not write the image: {e}"))?;
+    std::fs::write(&tmp, bytes).map_err(|e| format!("Could not write the image: {e}"))?;
     std::fs::rename(&tmp, &target).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("Could not save the image: {e}")
     })?;
-
-    // Return the path RELATIVE to the document for insertion (forward slashes so
-    // the Markdown is portable across platforms).
-    Ok(format!("assets/pasted-{n}.{ext}"))
+    Ok((target, name))
 }
 
 /// Open the given file in Obsidian via the `obsidian://open?path=…` URI scheme.
@@ -747,6 +785,45 @@ mod tests {
         let huge = vec![0u8; MAX_PASTE_IMAGE_BYTES + 1];
         let err = save_pasted_image(s(&doc), huge, "png".into()).unwrap_err();
         assert!(err.contains("too large"), "got: {err}");
+    }
+
+    #[test]
+    fn pasted_image_under_downloads_root_lands_in_mdopener_paste() {
+        // Exercise the downloads target's writer against a temp "Downloads" so
+        // the test never touches the real home directory.
+        let root = make_tree();
+        let (path, name) =
+            write_pasted_image_under(&root, "Downloads", "mdopener-paste", b"\x89PNG", "png")
+                .unwrap();
+        assert_eq!(name, "pasted-1.png");
+        let canon_root = std::fs::canonicalize(&root).unwrap();
+        assert_eq!(path, canon_root.join("mdopener-paste").join("pasted-1.png"));
+        assert!(path.is_absolute());
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG");
+    }
+
+    #[test]
+    fn pasted_image_under_downloads_root_refuses_traversal_in_extension() {
+        let root = make_tree();
+        let err = write_pasted_image_under(&root, "Downloads", "mdopener-paste", b"x", "../../x")
+            .unwrap_err();
+        assert!(err.contains("Unsupported"), "got: {err}");
+        assert!(!root.join("mdopener-paste").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pasted_image_under_downloads_root_refuses_symlinked_subdir_escape() {
+        let root = make_tree();
+        let downloads = root.join("Downloads");
+        std::fs::create_dir_all(&downloads).unwrap();
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, downloads.join("mdopener-paste")).unwrap();
+        let err = write_pasted_image_under(&downloads, "Downloads", "mdopener-paste", b"x", "png")
+            .unwrap_err();
+        assert!(err.contains("outside Downloads"), "got: {err}");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
     }
 
     #[cfg(unix)]

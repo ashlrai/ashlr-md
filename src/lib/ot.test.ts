@@ -8,7 +8,6 @@
  *  - compose: sequential operations compose correctly
  *  - transform: concurrent ops converge (diamond property)
  *  - vector clock utilities: tickClock, happenedBefore, concurrent
- *  - summarise: line-range and char-count metadata
  *  - Error paths: out-of-bounds, empty text, etc.
  */
 
@@ -26,7 +25,6 @@ import {
   type OtComponent,
   type OtOperation,
   retain,
-  summarise,
   tickClock,
   transform,
   type VectorClock,
@@ -500,60 +498,6 @@ describe("concurrent", () => {
 
   it("equal clocks are NOT concurrent (a ≤ b and b ≤ a)", () => {
     expect(concurrent({ a: 1 }, { a: 1 })).toBe(false);
-  });
-});
-
-// ── summarise ─────────────────────────────────────────────────────────────────
-
-describe("summarise", () => {
-  it("reports 0 insert/delete chars for identity op", () => {
-    const doc = "line one\nline two\n";
-    const o = op("x", "a", 0, {}, [retain(doc.length)]);
-    const s = summarise(o, doc);
-    expect(s.insertedChars).toBe(0);
-    expect(s.deletedChars).toBe(0);
-  });
-
-  it("reports inserted chars count for a single insert", () => {
-    const doc = "hello world";
-    const o = makeInsert(11, 5, "!!", "a", {}, 1);
-    const s = summarise(o, doc);
-    expect(s.insertedChars).toBe(2);
-    expect(s.deletedChars).toBe(0);
-  });
-
-  it("reports deleted chars count for a single delete", () => {
-    const doc = "hello world";
-    const o = makeDelete(11, 6, 5, "a", {}, 1);
-    const s = summarise(o, doc);
-    expect(s.deletedChars).toBe(5);
-    expect(s.insertedChars).toBe(0);
-  });
-
-  it("maps insert to the correct line (0-based)", () => {
-    const doc = "line 0\nline 1\nline 2\n";
-    // Insert at start of line 1 (offset 7)
-    const o = makeInsert(doc.length, 7, "X", "a", {}, 1);
-    const s = summarise(o, doc);
-    expect(s.firstLine).toBe(1);
-    expect(s.lastLine).toBe(1);
-  });
-
-  it("spans multiple lines for a multi-line insert", () => {
-    const doc = "hello\n";
-    const o = makeInsert(6, 6, "a\nb\nc", "a", {}, 1);
-    const s = summarise(o, doc);
-    expect(s.insertedChars).toBe(5);
-    // Inserted text spans 2 newlines, so lines 1, 2, 3
-    expect(s.lastLine).toBeGreaterThan(s.firstLine);
-  });
-
-  it("firstLine and lastLine are both >= 0", () => {
-    const doc = "abc";
-    const o = makeDelete(3, 0, 3, "a", {}, 1);
-    const s = summarise(o, doc);
-    expect(s.firstLine).toBeGreaterThanOrEqual(0);
-    expect(s.lastLine).toBeGreaterThanOrEqual(0);
   });
 });
 

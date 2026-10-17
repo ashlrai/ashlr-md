@@ -1,6 +1,5 @@
 /**
- * MCP conversation / memory handlers — open, present, ot-op, copy-rich-text,
- * lint-document, and apply-diff-hunk.
+ * MCP navigation handlers — open and present.
  *
  * Each exported function registers a single `listen()` call and returns the
  * resulting Promise<UnlistenFn> so the bridge can collect them for cleanup.
@@ -8,267 +7,86 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { buildHunkOp } from "../../components/viewer/DiffBlock";
-import { copyAsRichText } from "../../lib/copyRichText";
-import { parseDiffHunks } from "../../lib/diff";
-import { applyAllFixes, BUILTIN_RULES, lintDocument } from "../../lib/mdlint";
-import { type OtOperation, summarise } from "../../lib/ot";
 import { useDocumentStore } from "../../store/documentStore";
-import { useSettingsStore } from "../../store/settingsStore";
-import { toast } from "../../store/toastStore";
 import { useUiStore } from "../../store/uiStore";
-import type {
-  ApplyDiffHunkPayload,
-  CopyRichTextPayload,
-  OpenPayload,
-  OtOpPayload,
-  PresentPayload,
-} from "./types";
+import type { OpenPayload, PresentPayload } from "./types";
+
+/**
+ * Open `path` for an agent. Returns `null` once it is open, or the reason it
+ * is not. `openPath()` never rejects: it clears `error` before reading and
+ * reports a failed read only by setting it (leaving the previous document
+ * open), so the outcome is read back from the store.
+ */
+async function openForAgent(path: string): Promise<string | null> {
+  await useDocumentStore.getState().openPath(path);
+  const after = useDocumentStore.getState();
+  if (after.error !== null && after.path !== path) return after.error;
+  return null;
+}
+
+/**
+ * Report an open or present to the IPC round-trip waiting on
+ * `mcp_edit_result`. A payload with no `editId` (a review opening its file)
+ * has nobody waiting, so the failure is only logged.
+ */
+async function replyToAgent(
+  editId: string | undefined,
+  error: string | null,
+  what: string,
+): Promise<void> {
+  if (editId === undefined) {
+    if (error !== null) console.warn(`[mcp bridge] ${what} failed:`, error);
+    return;
+  }
+  await invoke("mcp_edit_result", {
+    editId,
+    ok: error === null,
+    replaced: error === null ? 1 : 0,
+    error,
+  }).catch((e2) => {
+    console.error(`[mcp bridge] mcp_edit_result reply for ${what} failed:`, e2);
+  });
+}
 
 // ── mcp://open ────────────────────────────────────────────────────────────────
 
 export function handleOpen(): Promise<UnlistenFn> {
-  return listen<OpenPayload>("mcp://open", (e) => {
-    const { path, mode } = e.payload;
-    useDocumentStore
-      .getState()
-      .openPath(path)
-      .then(() => {
-        if (mode === "edit") {
-          useDocumentStore.getState().setViewMode("edit");
-        } else if (mode === "read") {
-          useDocumentStore.getState().setViewMode("read");
-        }
-      });
+  return listen<OpenPayload>("mcp://open", async (e) => {
+    const { editId, path, mode } = e.payload;
+    let error: string | null;
+    try {
+      error = await openForAgent(path);
+      if (error === null && (mode === "edit" || mode === "read")) {
+        useDocumentStore.getState().setViewMode(mode);
+      }
+    } catch (err) {
+      error = `Opening ${path} failed in app: ${String(err)}`;
+    }
+    await replyToAgent(editId, error, "mcp://open");
   });
 }
 
 // ── mcp://present ─────────────────────────────────────────────────────────────
 
 export function handlePresent(): Promise<UnlistenFn> {
-  return listen<PresentPayload>("mcp://present", (e) => {
-    const doc = useDocumentStore.getState();
-    const enterPresent = () => {
-      useDocumentStore.getState().setViewMode("read");
-      useUiStore.getState().openZen();
-    };
-    const { path } = e.payload;
-    if (path) {
-      doc
-        .openPath(path)
-        .then(enterPresent)
-        .catch((err) => {
-          console.warn("[mcp bridge] mcp://present openPath failed:", err);
-        });
-    } else if (doc.path) {
-      enterPresent();
-    }
-  });
-}
-
-// ── mcp://ot-op ───────────────────────────────────────────────────────────────
-
-export function handleOtOp(syncNow: () => void): Promise<UnlistenFn> {
-  return listen<OtOpPayload>("mcp://ot-op", async (e) => {
-    const { opId, agentId, seq, clock, components, save } = e.payload;
-    const op: OtOperation = { id: opId, agentId, seq, clock, components };
-    const currentContent = useDocumentStore.getState().content;
+  return listen<PresentPayload>("mcp://present", async (e) => {
+    const { editId, path } = e.payload;
+    let error: string | null;
     try {
-      op.summary = summarise(op, currentContent);
-    } catch {
-      // summarise is best-effort — don't block the apply if it fails.
-    }
-    const ok = useDocumentStore.getState().applyOp(op);
-    if (ok) {
-      if (save) {
-        await useDocumentStore.getState().save();
+      if (path) {
+        error = await openForAgent(path);
+      } else {
+        error = useDocumentStore.getState().path
+          ? null
+          : "No document is open to present.";
       }
-      syncNow();
-      setTimeout(() => {
-        useDocumentStore.getState().clearPendingOps();
-      }, 4000);
-    } else {
-      toast.info(`OT op from ${agentId} could not be applied (doc state mismatch).`);
-    }
-    await invoke("mcp_ot_result", {
-      opId,
-      ok,
-      error: ok ? null : "OT op inconsistent with current document state",
-    }).catch((err) => {
-      console.error("[mcp bridge] mcp_ot_result reply failed:", err);
-    });
-  });
-}
-
-// ── mcp://copy-rich-text ──────────────────────────────────────────────────────
-
-export function handleCopyRichText(): Promise<UnlistenFn> {
-  return listen<CopyRichTextPayload>("mcp://copy-rich-text", async (e) => {
-    const { format = "auto" } = e.payload;
-    try {
-      await copyAsRichText(format);
-      await invoke("mcp_copy_rich_text_result", {
-        ok: true,
-        error: null,
-      }).catch(() => {
-        /* non-fatal */
-      });
+      if (error === null) {
+        useDocumentStore.getState().setViewMode("read");
+        useUiStore.getState().openZen();
+      }
     } catch (err) {
-      const errStr =
-        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-      await invoke("mcp_copy_rich_text_result", {
-        ok: false,
-        error: errStr,
-      }).catch(() => {
-        /* non-fatal */
-      });
+      error = `Presenting failed in app: ${String(err)}`;
     }
-  });
-}
-
-// ── mcp://lint-document ───────────────────────────────────────────────────────
-
-export function handleLintDocument(syncNow: () => void): Promise<UnlistenFn> {
-  return listen<{ lintId: string; autoFix?: boolean; content?: string }>(
-    "mcp://lint-document",
-    async (e) => {
-      const { lintId, autoFix = false, content: payloadContent } = e.payload;
-      try {
-        const doc = payloadContent ?? useDocumentStore.getState().content;
-        const { linterConfig } = useSettingsStore.getState();
-        const violations = lintDocument(doc, {
-          rules: BUILTIN_RULES,
-          disabledRules: linterConfig.disabledRules,
-        });
-        const serialisable = violations.map((v) => ({
-          ruleId: v.ruleId,
-          message: v.message,
-          severity: v.severity,
-          range: v.range
-            ? {
-                fromLine: v.range.from.line,
-                fromCol: v.range.from.col,
-                toLine: v.range.to.line,
-                toCol: v.range.to.col,
-              }
-            : null,
-          fixable: v.fix !== null,
-        }));
-
-        let resultContent = doc;
-        if (autoFix) {
-          resultContent = applyAllFixes(doc, violations);
-          if (!payloadContent) {
-            useDocumentStore.getState().setContent(resultContent);
-            syncNow();
-          }
-        }
-
-        await invoke("mcp_lint_document_result", {
-          lintId,
-          ok: true,
-          violations: serialisable,
-          content: autoFix ? resultContent : null,
-          error: null,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      } catch (err) {
-        const errStr =
-          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-        await invoke("mcp_lint_document_result", {
-          lintId,
-          ok: false,
-          violations: [],
-          content: null,
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
-    },
-  );
-}
-
-// ── mcp://apply-diff-hunk ─────────────────────────────────────────────────────
-
-export function handleApplyDiffHunk(syncNow: () => void): Promise<UnlistenFn> {
-  return listen<ApplyDiffHunkPayload>("mcp://apply-diff-hunk", async (e) => {
-    const { diffId, diffText, hunkIndex, save } = e.payload;
-    try {
-      const hunks = parseDiffHunks(diffText);
-      if (hunkIndex < 0 || hunkIndex >= hunks.length) {
-        await invoke("mcp_apply_diff_hunk_result", {
-          diffId,
-          ok: false,
-          hunkIndex,
-          error: `hunkIndex ${hunkIndex} out of bounds — diff has ${hunks.length} hunk(s)`,
-        }).catch(() => {
-          /* non-fatal */
-        });
-        return;
-      }
-      const hunk = hunks[hunkIndex];
-      const liveContent = useDocumentStore.getState().content;
-      const op = buildHunkOp(
-        liveContent,
-        hunk.find,
-        hunk.replace,
-        "mcp-agent",
-        {},
-        Date.now(),
-      );
-      if (!op) {
-        const occurrences = liveContent.split(hunk.find).length - 1;
-        const errMsg =
-          occurrences === 0
-            ? "Patch anchor not found in document"
-            : "Patch anchor is ambiguous — include more context lines";
-        await invoke("mcp_apply_diff_hunk_result", {
-          diffId,
-          ok: false,
-          hunkIndex,
-          error: errMsg,
-        }).catch(() => {
-          /* non-fatal */
-        });
-        return;
-      }
-      const applied = useDocumentStore.getState().applyOp(op);
-      if (!applied) {
-        await invoke("mcp_apply_diff_hunk_result", {
-          diffId,
-          ok: false,
-          hunkIndex,
-          error: "OT op inconsistent with current document state",
-        }).catch(() => {
-          /* non-fatal */
-        });
-        return;
-      }
-      if (save) {
-        await useDocumentStore.getState().save();
-      }
-      syncNow();
-      await invoke("mcp_apply_diff_hunk_result", {
-        diffId,
-        ok: true,
-        hunkIndex,
-        error: null,
-      }).catch(() => {
-        /* non-fatal */
-      });
-    } catch (err) {
-      const errStr =
-        typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-      await invoke("mcp_apply_diff_hunk_result", {
-        diffId,
-        ok: false,
-        hunkIndex,
-        error: errStr,
-      }).catch(() => {
-        /* non-fatal */
-      });
-    }
+    await replyToAgent(editId, error, "mcp://present");
   });
 }

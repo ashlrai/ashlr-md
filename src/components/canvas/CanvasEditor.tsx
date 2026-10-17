@@ -45,6 +45,7 @@ import {
   undoCanvasOp,
   type ViewTransform,
 } from "../../lib/canvas";
+import { toast } from "../../store/toastStore";
 import "../../styles/canvas.css";
 import "../../styles/canvas-editor.css";
 
@@ -253,9 +254,13 @@ export function CanvasEditor({
     const serialised = serializeCanvas(canvasEditorToCanvas(stateRef.current));
     if (filePath) {
       try {
-        await invoke("write_file", { path: filePath, content: serialised });
-      } catch {
-        // Silently fall back to calling onSave — let the parent handle storage.
+        // `write_markdown_file` is the app's atomic text writer; it only refuses
+        // paths inside an Obsidian `.obsidian/` folder, so it suits `.canvas` JSON.
+        await invoke("write_markdown_file", { path: filePath, content: serialised });
+      } catch (e) {
+        // Keep the canvas dirty so the unsaved edits are not reported as saved.
+        toast.error(`Could not save the canvas: ${String(e)}`);
+        return;
       }
     }
     onSave?.(serialised);

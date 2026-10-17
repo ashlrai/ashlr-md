@@ -479,21 +479,44 @@ fn open_file_missing_path_returns_error() {
 fn open_file_ipc_success_returns_opened_path() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
     // Use /tmp which is guaranteed to exist for canonicalize
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp" }), &ipc);
-    assert!(
-        resp.error.is_none(),
-        "unexpected RPC error: {:?}",
-        resp.error
-    );
+    let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
+    assert!(resp.error.is_none(), "unexpected RPC error: {:?}", resp.error);
     assert!(!is_error(&resp));
     let text = content_text(&resp);
     assert!(text["opened"].as_str().is_some());
 }
 
+/// The app answers `/open` once its window has tried to open the document;
+/// a failure there reaches the agent as a tool error with the window's
+/// reason, and is not retried through the URL scheme.
+#[test]
+fn open_file_reports_the_windows_failure() {
+    let ipc = MockIpc::new().on_post(
+        "/open",
+        Ok(json!({
+            "ok": false,
+            "path": "/tmp/mdopener-notes.md",
+            "error": "Could not read /tmp/mdopener-notes.md: Permission denied",
+        })),
+    );
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|url: &str| panic!("must not fall back to the URL scheme: {url}"),
+    );
+    let text = tool_error_text(&resp);
+    assert!(text.contains("Permission denied"), "{text}");
+}
+
 #[test]
 fn open_file_mode_read_forwarded_in_post_body() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp", "mode": "read" }), &ipc);
+    let resp = tool_open_file(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "read" }),
+        &ipc,
+    );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let post = calls.iter().find(|(m, p, _)| m == "POST" && p == "/open");
@@ -505,7 +528,11 @@ fn open_file_mode_read_forwarded_in_post_body() {
 #[test]
 fn open_file_mode_edit_forwarded_in_post_body() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
-    let resp = tool_open_file(id(1), &json!({ "path": "/tmp", "mode": "edit" }), &ipc);
+    let resp = tool_open_file(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit" }),
+        &ipc,
+    );
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let body = calls
@@ -526,7 +553,7 @@ fn open_file_ipc_failure_launches_url_scheme() {
     let seen = Mutex::new(Vec::<String>::new());
     let resp = tool_open_file_with(
         id(1),
-        &json!({ "path": "/tmp", "mode": "edit" }),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit" }),
         &ipc,
         &|url| {
             seen.lock().unwrap().push(url.to_string());
@@ -554,11 +581,14 @@ fn open_file_ipc_failure_launches_url_scheme() {
 #[test]
 fn open_file_headless_reports_no_launcher_honestly() {
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::NoLauncher {
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::NoLauncher {
             tried: vec!["xdg-open".into(), "gio".into()],
-        }
-    });
+        },
+    );
     let err = tool_error_text(&resp);
     assert!(err.contains("not running"), "{}", err);
     assert!(err.contains("xdg-open, gio"), "{}", err);
@@ -568,12 +598,15 @@ fn open_file_headless_reports_no_launcher_honestly() {
 #[test]
 fn open_file_launcher_failure_is_an_error() {
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::Failed {
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::Failed {
             launcher: "xdg-open".into(),
             code: Some(4),
-        }
-    });
+        },
+    );
     let err = tool_error_text(&resp);
     assert!(err.contains("status 4"), "{}", err);
 }
@@ -581,11 +614,14 @@ fn open_file_launcher_failure_is_an_error() {
 #[test]
 fn open_file_pending_launcher_is_unconfirmed_success() {
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(id(1), &json!({ "path": "/tmp" }), &ipc, &|_| {
-        Launch::Pending {
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| Launch::Pending {
             launcher: "xdg-open".into(),
-        }
-    });
+        },
+    );
     assert!(resp.error.is_none());
     let text = resp.result.as_ref().unwrap()["content"][0]["text"]
         .as_str()
@@ -602,7 +638,7 @@ fn open_file_rejects_unknown_mode_before_any_launch() {
     let ipc = MockIpc::new();
     let resp = tool_open_file_with(
         id(1),
-        &json!({ "path": "/tmp", "mode": "edit&path=/etc/passwd" }),
+        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit&path=/etc/passwd" }),
         &ipc,
         &|_| panic!("must not launch"),
     );
@@ -718,6 +754,32 @@ fn set_content_large_content_not_truncated() {
         .unwrap();
     let sent = body["content"].as_str().unwrap();
     assert_eq!(sent.len(), 11 * 1024 * 1024, "large content was truncated");
+}
+
+/// The app answers `/content` once the window has replaced the document (and
+/// saved it when asked). A refusal must reach the agent as a tool error, not
+/// as a success carrying `ok: false`.
+#[test]
+fn set_content_reports_a_failed_apply_or_save() {
+    let ipc = MockIpc::new().on_post(
+        "/content",
+        Ok(json!({ "ok": false, "error": "Content replaced in the open document but not saved: Permission denied" })),
+    );
+    let resp = tool_set_content(id(1), &json!({ "content": "# X", "save": true }), &ipc);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("not saved"), "{err}");
+    assert!(err.contains("Permission denied"), "{err}");
+
+    let resp = tool_replace_document(id(2), &json!({ "content": "# X", "save": true }), &ipc);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("Permission denied"), "{err}");
+}
+
+#[test]
+fn set_content_without_a_reason_still_fails() {
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": false })));
+    let resp = tool_set_content(id(1), &json!({ "content": "# X" }), &ipc);
+    assert!(!tool_error_text(&resp).is_empty());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1131,9 +1193,9 @@ fn present_document_no_path_uses_current_doc() {
 
 #[test]
 fn present_document_with_path_sends_canonicalized() {
-    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": true })));
-    // /tmp is a real path on macOS/Linux and will canonicalize successfully
-    let resp = tool_present_document(id(1), &json!({ "path": "/tmp" }), &ipc);
+    let ipc = MockIpc::new()
+        .on_post("/present", Ok(json!({ "ok": true })));
+    let resp = tool_present_document(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let body = calls
@@ -1145,6 +1207,23 @@ fn present_document_with_path_sends_canonicalized() {
         .unwrap();
     // Should have received a non-null path
     assert!(!body["path"].is_null(), "path should be set");
+}
+
+#[test]
+fn present_document_reports_the_windows_failure() {
+    let ipc = MockIpc::new().on_post(
+        "/present",
+        Ok(json!({ "ok": false, "error": "Could not read /tmp/x.md: No such file" })),
+    );
+    let text = tool_error_text(&tool_present_document(id(1), &json!({}), &ipc));
+    assert!(text.contains("No such file"), "{text}");
+
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": false })));
+    let text = tool_error_text(&tool_present_document(id(1), &json!({}), &ipc));
+    assert!(
+        text.contains("could not present the open document"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -1618,6 +1697,18 @@ fn app_not_running_msg_other_error_passthrough() {
     assert_eq!(msg, "IPC auth failed: token mismatch");
 }
 
+#[test]
+fn app_not_running_msg_keeps_the_apps_refusal() {
+    // The running app refused the request; its reason names a file whose path
+    // happens to contain "connect" / "not found". That is not an app-down error.
+    for refusal in [
+        "IPC server returned HTTP 400: Cannot open '/notes/connections.md': the file does not exist.",
+        "IPC server returned HTTP 400: Cannot open '/notes/not found.md': the file does not exist.",
+    ] {
+        assert_eq!(mdopener_mcp::app_not_running_msg(refusal), refusal);
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Export tool — comprehensive IPC integration tests
 // ════════════════════════════════════════════════════════════════════════════
@@ -1746,12 +1837,21 @@ fn export_tool_no_output_path_sends_null() {
     );
 }
 
-// ── HTML theme override ───────────────────────────────────────────────────────
+// ── No theme argument ─────────────────────────────────────────────────────────
 
+/// The app exports in its current theme and has no way to take another, so
+/// the tool must not offer a `theme` it would silently ignore.
 #[test]
-fn export_tool_html_with_paper_theme() {
+fn export_tool_offers_no_theme() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "export")
+        .unwrap();
+    assert!(def.input_schema["properties"]["theme"].is_null());
+    assert!(!def.description.contains("theme`"), "{}", def.description);
+
     let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(id(20), &json!({ "format": "html", "theme": "paper" }), &ipc);
+    let resp = tool_export(id(20), &json!({ "format": "html" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
     let body = calls
@@ -1761,88 +1861,19 @@ fn export_tool_html_with_paper_theme() {
         .2
         .as_ref()
         .unwrap();
-    assert_eq!(body["theme"], "paper");
+    assert!(body.get("theme").is_none(), "{body}");
 }
 
+/// A `theme` from a caller written against the old schema is refused rather
+/// than ignored, so it never believes a sepia or midnight export happened.
 #[test]
-fn export_tool_html_with_sepia_theme() {
+fn export_tool_refuses_a_theme() {
     let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(id(21), &json!({ "format": "html", "theme": "sepia" }), &ipc);
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    assert_eq!(body["theme"], "sepia");
-}
-
-#[test]
-fn export_tool_html_with_midnight_theme() {
-    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(
-        id(22),
-        &json!({ "format": "html", "theme": "midnight" }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    assert_eq!(body["theme"], "midnight");
-}
-
-#[test]
-fn export_tool_invalid_theme_returns_param_error() {
-    let ipc = MockIpc::new();
-    let resp = tool_export(
-        id(23),
-        &json!({ "format": "html", "theme": "dark-mode" }),
-        &ipc,
-    );
-    assert!(
-        resp.error.is_some(),
-        "invalid theme must produce an RPC error"
-    );
-    assert_eq!(
-        resp.error.as_ref().unwrap().code,
-        -32602,
-        "invalid theme must return -32602 (invalid params)"
-    );
-    let msg = &resp.error.unwrap().message;
-    assert!(
-        msg.contains("paper") || msg.contains("sepia") || msg.contains("midnight"),
-        "error should list valid values, got: {msg}"
-    );
-}
-
-#[test]
-fn export_tool_no_theme_sends_null() {
-    // When no theme is specified, the app uses its current theme.
-    // The IPC body should carry null so the app knows to use its own setting.
-    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
-    tool_export(id(24), &json!({ "format": "html" }), &ipc);
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    assert!(
-        body["theme"].is_null(),
-        "absent theme should be null in IPC body, got {:?}",
-        body["theme"]
-    );
+    let resp = tool_export(id(23), &json!({ "format": "html", "theme": "sepia" }), &ipc);
+    let err = resp.error.expect("a theme must be refused");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("current theme"), "{}", err.message);
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
 }
 
 // ── File-write error propagation ──────────────────────────────────────────────
@@ -2378,6 +2409,139 @@ fn search_vault_semantic_false_ipc_down_falls_back_to_local_grep() {
     assert!(!results.is_empty(), "local grep should find the match");
 }
 
+#[test]
+fn search_vault_semantic_true_with_ollama_down_says_it_fell_back() {
+    // Only meaningful when nothing listens on Ollama's port.
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": [], "recents": [] })))
+        .on_get(
+            "/search",
+            Ok(json!({
+                "results": [
+                    { "path": "/vault/a.md", "score": 0.8, "snippet": "hello", "lineNumber": 1 }
+                ]
+            })),
+        );
+    let resp = tool_search_vault(
+        id(202),
+        &json!({ "query": "hello", "semantic": true }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str(), Some("grep"));
+    let note = text["note"]
+        .as_str()
+        .expect("a fallback must be explained in words");
+    assert!(
+        note.contains("Semantic search was unavailable"),
+        "note: {note}"
+    );
+    assert!(note.contains("keyword"), "note: {note}");
+}
+
+#[test]
+fn search_vault_semantic_false_has_no_fallback_note() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = tool_search_vault(
+        id(203),
+        &json!({ "query": "hello", "semantic": false }),
+        &ipc,
+    );
+    let text = content_text(&resp);
+    assert!(text.get("note").is_none(), "no fallback happened: {text}");
+}
+
+#[test]
+fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let reason = "IPC server returned HTTP 403: search is disabled";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get("/search", Err(reason.into()));
+    let resp = tool_search_vault(
+        id(204),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let text = content_text(&resp);
+    assert_eq!(text["mode"].as_str(), Some("grep-local"));
+    let note = text["note"]
+        .as_str()
+        .expect("the app's refusal must be surfaced");
+    assert!(note.contains("refused"), "note: {note}");
+    assert!(note.contains("search is disabled"), "note: {note}");
+}
+
+#[test]
+fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
+    let reason = "IPC server returned HTTP 403: search is disabled";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Err("IPC server returned HTTP 403: vault is disabled".into()),
+        )
+        .on_get("/search", Err(reason.into()));
+    let resp = tool_search_vault(id(205), &json!({ "query": "x", "semantic": false }), &ipc);
+    let result = resp.result.as_ref().expect("tool error result");
+    assert_eq!(result["isError"], json!(true));
+    let msg = result["content"][0]["text"].as_str().unwrap_or("");
+    assert!(msg.contains("search is disabled"), "got: {msg}");
+}
+
+/// When every document's embedding fails, semantic search compared nothing,
+/// so it falls back to grep with a note instead of returning no results.
+#[test]
+fn search_vault_falls_back_when_every_embedding_fails() {
+    use mdopener_mcp::{search_vault_with, semantic_search_vault_with};
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get(
+            "/search",
+            Ok(json!({ "results": [{ "path": path, "matches": [] }] })),
+        );
+    // The query embeds; every document is too much for the model.
+    let embed = |text: &str| {
+        if text == "target topic" {
+            Ok(vec![1.0, 0.0])
+        } else {
+            Err("Ollama embed request failed: HTTP 500".to_string())
+        }
+    };
+
+    let err = semantic_search_vault_with("target topic", 50, &ipc, &embed).unwrap_err();
+    assert!(err.contains("HTTP 500"), "{err}");
+
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "grep");
+    let note = v["note"].as_str().expect("the fallback is said");
+    assert!(note.contains("Semantic search was unavailable"), "{note}");
+    assert!(note.contains("embedding every document failed"), "{note}");
+
+    // One document that embeds is a semantic answer, as before.
+    let embed_all = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed_all).unwrap();
+    assert_eq!(v["mode"], "semantic");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1);
+}
+
 // ── text://vault-search resource ──────────────────────────────────────────────
 
 #[test]
@@ -2523,6 +2687,71 @@ fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
     )
     .unwrap();
     assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
+}
+
+/// The resource falls back the way `search_vault` does and says so: a grep
+/// of the files on disk carries the app's own reason for not searching.
+#[test]
+fn resource_read_vault_search_says_when_it_fell_back() {
+    use std::io::Write;
+    // Only meaningful when nothing listens on Ollama's port.
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Project notes\nThis has the query term inside.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    for (reason, verb) in [
+        (
+            "IPC server returned HTTP 403: search is disabled",
+            "refused",
+        ),
+        ("IPC read error: connection reset", "failed"),
+    ] {
+        let ipc = MockIpc::new()
+            .on_get(
+                "/vault",
+                Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+            )
+            .on_get("/search", Err(reason.into()));
+        let resp = handle_resource_read(id(1), "text://vault-search?q=query+term", &ipc);
+        assert!(resp.error.is_none(), "{:?}", resp.error);
+        let payload: Value = serde_json::from_str(
+            resp.result.as_ref().unwrap()["contents"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["mode"], "grep-local");
+        assert_eq!(payload["query"], "query term");
+        let note = payload["note"].as_str().expect("the fallback is said");
+        assert!(note.contains(verb), "{note}");
+        assert!(note.contains(reason), "{note}");
+    }
+}
+
+/// A refusal from the app is the resource's error too, not "is it running?".
+#[test]
+fn resource_read_vault_search_reports_the_apps_refusal() {
+    if mdopener_mcp::ollama_available() {
+        return;
+    }
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Err("IPC server returned HTTP 403: vault is disabled".into()),
+        )
+        .on_get(
+            "/search",
+            Err("IPC server returned HTTP 403: search is disabled".into()),
+        );
+    let resp = handle_resource_read(id(1), "text://vault-search?q=x", &ipc);
+    let err = resp.error.expect("a refusal is an error");
+    assert!(
+        err.message.contains("search is disabled"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -3603,6 +3832,21 @@ fn export_text_missing_path_and_no_ipc_returns_error() {
     );
 }
 
+#[test]
+fn export_text_and_metadata_with_nothing_open_are_errors() {
+    // No path and no document open: there is nothing to extract, so an empty
+    // text / zero word count would read as an empty document.
+    let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    for resp in [
+        tool_export_text(json!(1), &json!({}), &ipc),
+        tool_export_metadata(json!(2), &json!({}), &ipc),
+    ] {
+        let text = tool_error_text(&resp);
+        assert!(text.contains("No document is open"), "{text}");
+        assert!(text.contains("`path`"), "{text}");
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool: export_metadata — frontmatter, headings, wikilinks, images, word count
 // ════════════════════════════════════════════════════════════════════════════
@@ -4257,6 +4501,50 @@ fn edit_tools_assert_the_canonical_path() {
     }
 }
 
+/// `preview: false` applies the edit at once; the result must say so, or an
+/// agent that then calls stream_edit_apply edits the document twice.
+#[test]
+fn stream_edit_reports_whether_it_applied_the_edit() {
+    let reply = json!({ "ok": true, "editId": "sedit_1", "diff": "", "matchCount": 1 });
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply));
+    let previewed = content_text(&tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b" }),
+        &ipc,
+    ));
+    assert_eq!(previewed["applied"], false, "{previewed}");
+    let applied = content_text(&tool_stream_edit(
+        id(2),
+        &json!({ "find": "a", "replace": "b", "preview": false }),
+        &ipc,
+    ));
+    assert_eq!(applied["applied"], true, "{applied}");
+}
+
+/// The app re-finds `find` in the live document, so `edit_id` only
+/// correlates with a preview; applying without one is allowed.
+#[test]
+fn stream_edit_apply_does_not_need_an_edit_id() {
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": true, "replaced": 1, "matchIndex": 1 })),
+    );
+    let resp = tool_stream_edit_apply(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "match_index": 1 }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    assert_eq!(content_text(&resp)["replaced"], 1);
+    let required = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap()
+        .to_json()["inputSchema"]["required"]
+        .clone();
+    assert_eq!(required, json!(["find", "replace"]));
+}
+
 /// The frontend checks a stream edit's `path` against the open document's
 /// path as a string, and a document opened by drag and drop, a dialog or the
 /// file tree keeps the (symlinked) path it was opened by. Naming that file,
@@ -4619,6 +4907,26 @@ fn persist_session_replaces_the_log_atomically() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// A resumed review whose window closed with no verdict reports `timeout`,
+/// not a null verdict.
+#[test]
+fn request_review_resumed_after_its_window_reports_timeout() {
+    use mdopener_mcp::tool_request_review_with;
+    let ipc = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "timeout", "verdict": null, "comments": null })),
+    );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": "rev_1" }),
+        &ipc,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "timeout", "{v}");
+    assert_eq!(v["reviewId"], "rev_1");
+}
+
 // ── Disk reads only open regular files ────────────────────────────────────────
 
 /// Run `f` on a worker thread and fail (instead of hanging the suite) when it
@@ -4967,4 +5275,126 @@ fn legacy_sanitized_session_file_is_still_read() {
     // The legacy file is left as it was for the id that still owns it.
     assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_json);
     assert_eq!(contents(&underscored), ["old underscored"]);
+}
+
+/// The desktop app persists the same sessions into the same directory.
+/// Earlier app builds wrote a bare JSON array instead of `{"messages":[…]}`;
+/// that history is read, and an append keeps it instead of overwriting the
+/// file with only the new message.
+#[test]
+fn session_file_written_by_the_app_is_read_and_kept() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let app_json = serde_json::json!([{
+        "id": "msg-from-app",
+        "sessionId": sid,
+        "role": "human",
+        "content": "typed in the window",
+        "citedDocs": [],
+        "timestampMs": 1u64,
+    }]);
+    std::fs::write(&path, app_json.to_string()).unwrap();
+
+    let contents = || -> Vec<String> {
+        store_get_context(&sid, 20)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.content)
+            .collect()
+    };
+    assert_eq!(contents(), ["typed in the window"]);
+
+    store_append_message(&sid, "agent", "saved by the agent", vec![]).unwrap();
+    assert_eq!(contents(), ["typed in the window", "saved by the agent"]);
+    let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(on_disk["messages"].as_array().unwrap().len(), 2);
+    // The write went through a temp file renamed into place; none is left.
+    let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+/// A session file this server cannot parse (torn, or not a session log) is
+/// an error for the append, not a reason to overwrite it with one message.
+#[test]
+fn unparsable_session_file_is_not_overwritten() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{ torn").unwrap();
+    assert!(store_append_message(&sid, "agent", "x", vec![]).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ torn");
+}
+
+/// The app answers a refused request with `{"error": …}`; that reason must
+/// reach the agent instead of a bare status code.
+#[test]
+fn parse_http_body_400_carries_the_apps_reason() {
+    let raw = b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{\"error\":\"Refusing to open '/x/id_rsa'\"}";
+    let err = mdopener_mcp::parse_http_body(raw).unwrap_err();
+    assert!(err.contains("400"), "{err}");
+    assert!(err.contains("Refusing to open '/x/id_rsa'"), "{err}");
+}
+
+/// open_file, present_document and request_review hand a path to the app,
+/// which opens it; get_current_content then returns whatever it read. The
+/// tools that read a path from disk accept Markdown only, so these refuse a
+/// non-Markdown file or a dotfile before the app (or the URL-scheme
+/// launcher) ever sees it.
+#[test]
+fn path_handing_tools_refuse_non_markdown_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let secret = dir.path().join("id_rsa");
+    std::fs::write(&secret, "PRIVATE KEY").unwrap();
+    let dotfile = dir.path().join(".env.md");
+    std::fs::write(&dotfile, "TOKEN=1").unwrap();
+    let mut refused = vec![
+        secret.to_string_lossy().into_owned(),
+        dotfile.to_string_lossy().into_owned(),
+        dir.path().to_string_lossy().into_owned(),
+    ];
+    #[cfg(unix)]
+    {
+        let link = dir.path().join("notes.md");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        refused.push(link.to_string_lossy().into_owned());
+    }
+    for path in &refused {
+        let ipc = MockIpc::new()
+            .on_post("/open", Ok(json!({ "ok": true })))
+            .on_post("/present", Ok(json!({ "ok": true })))
+            .on_post("/review", Ok(json!({ "ok": true })));
+        let open = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| {
+            panic!("must not launch")
+        });
+        let present = tool_present_document(id(2), &json!({ "path": path }), &ipc);
+        let review = tool_request_review(id(3), &json!({ "path": path, "blocking": false }), &ipc);
+        for resp in [open, present, review] {
+            let err = tool_error_text(&resp);
+            assert!(err.contains("Markdown"), "{path}: {err}");
+        }
+        assert!(ipc.calls().is_empty(), "{path}: {:?}", ipc.calls());
+    }
+}
+
+/// When the running app refuses `/open`, open_file reports the reason and
+/// does not retry through the URL scheme (which would bypass the refusal).
+#[test]
+fn open_file_does_not_relaunch_a_path_the_app_refused() {
+    let ipc = MockIpc::new().on_post(
+        "/open",
+        Err("IPC server returned HTTP 400: Refusing to open '/tmp/mdopener-notes.md'".into()),
+    );
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|_| panic!("must not launch"),
+    );
+    assert!(tool_error_text(&resp).contains("Refusing to open"));
 }

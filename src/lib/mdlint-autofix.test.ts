@@ -16,6 +16,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearLintHistory,
+  fixAllViolations,
   getLintHistory,
   type LintHistoryEntry,
 } from "../components/LinterToast";
@@ -335,6 +336,23 @@ describe("LinterToast violation history", () => {
     expect(typeof entry.message).toBe("string");
     expect(typeof entry.fixedAt).toBe("number");
     expect(typeof entry.docSnippet).toBe("string");
+  });
+
+  it("Fix all applies every fix without corrupting later offsets", () => {
+    // The image fix lengthens the text before the link, so applying fixes in
+    // document order would splice the link fix at a stale offset.
+    const doc = "See ![](a.png) and [link]().\n";
+    const violations = lintDocument(doc, {
+      rules: [ruleMissingAltText, ruleInvalidLinkTarget],
+    });
+    expect(violations).toHaveLength(2);
+    expect(fixAllViolations(doc, violations)).toBe(
+      "See ![TODO: describe image](a.png) and [link](TODO).\n",
+    );
+    expect(getLintHistory().map((e) => e.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
   });
 });
 

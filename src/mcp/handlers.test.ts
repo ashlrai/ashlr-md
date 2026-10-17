@@ -3,7 +3,7 @@
  * integrate correctly with bridge.ts.
  *
  * These tests verify that:
- *  1. All 19 mcp:// listeners are registered when bridge mounts (handlers are wired)
+ *  1. Every mcp:// listener is registered when bridge mounts (handlers are wired)
  *  2. Each handler module's exported function is callable and registers the right event
  *  3. The bridge remains a thin wiring layer — no handler logic leaks back into it
  *
@@ -51,7 +51,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("../store/recentStore", () => ({
   useRecentStore: {
-    getState: () => ({ recents: [] }),
+    getState: () => ({ recents: [], add: vi.fn() }),
     subscribe: vi.fn(() => vi.fn()),
   },
 }));
@@ -76,66 +76,9 @@ vi.mock("../lib/export", () => ({
   exportDocx: vi.fn().mockResolvedValue(undefined),
   exportHtml: vi.fn().mockResolvedValue(undefined),
   exportEpub: vi.fn().mockResolvedValue(undefined),
-  exportOutline: vi.fn().mockResolvedValue("/out/outline.json"),
-  buildBatchExportProfiles: vi.fn().mockResolvedValue([]),
   buildStandaloneHtml: vi.fn(),
   buildStandaloneHtmlWithActiveTemplate: vi.fn(),
   cloneWithoutInjectedChrome: vi.fn((el: Element) => el),
-}));
-
-vi.mock("../lib/exportTemplates", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../lib/exportTemplates")>();
-  return {
-    ...actual,
-    ALL_PROFILE_IDS: [],
-  };
-});
-
-vi.mock("../lib/crossSearch", () => ({
-  searchFiles: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock("../lib/embedSearch", () => ({
-  embedSearch: vi.fn().mockResolvedValue([]),
-  embedAvailable: vi.fn().mockResolvedValue(null),
-  embedIndex: vi.fn().mockResolvedValue(null),
-  embedStatus: vi.fn().mockResolvedValue(null),
-  invalidateEmbedAvailable: vi.fn(),
-}));
-
-vi.mock("../lib/copyRichText", () => ({
-  copyAsRichText: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../lib/mdlint", () => ({
-  lintDocument: vi.fn().mockReturnValue([]),
-  applyAllFixes: vi.fn((doc: string) => doc),
-  BUILTIN_RULES: [],
-}));
-
-vi.mock("../lib/canvas", () => ({
-  parseCanvas: vi.fn().mockReturnValue({ ok: false, error: "mock" }),
-  buildCanvasEditor: vi.fn(),
-  canvasEditorToCanvas: vi.fn(),
-  serializeCanvas: vi.fn().mockReturnValue("{}"),
-  applyCanvasOp: vi.fn().mockReturnValue({ ok: true }),
-  undoCanvasOp: vi.fn(),
-  redoCanvasOp: vi.fn(),
-}));
-
-vi.mock("../lib/diff", () => ({
-  parseDiffHunks: vi.fn().mockReturnValue([]),
-}));
-
-vi.mock("../lib/ot", () => ({
-  summarise: vi.fn().mockReturnValue("summary"),
-}));
-
-vi.mock("../components/viewer/DiffBlock", () => ({
-  buildHunkOp: vi.fn().mockReturnValue(null),
-  buildInverseHunkOp: vi.fn().mockReturnValue(null),
-  buildHunkLines: vi.fn().mockReturnValue([]),
-  DiffBlock: vi.fn(),
 }));
 
 // ─── Import bridge after mocks ────────────────────────────────────────────────
@@ -199,118 +142,32 @@ afterEach(() => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// Wiring: all 19 listeners registered from handler modules
+// Wiring: every listener registered from handler modules
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("handlers integration — bridge wires all handler modules", () => {
-  it("registers all 19 mcp:// event listeners on mount", () => {
+  it("registers every mcp:// event listener on mount", () => {
     mountBridge();
 
     const expected = [
       // conversation
       "mcp://open",
       "mcp://present",
-      "mcp://ot-op",
-      "mcp://copy-rich-text",
-      "mcp://lint-document",
-      "mcp://apply-diff-hunk",
       // review
       "mcp://review",
       // edit
       "mcp://set-content",
       "mcp://edit",
-      "mcp://batch-edit",
-      "mcp://atomic-edits",
       "mcp://stream-edit",
       "mcp://stream-edit-apply",
-      // search
-      "mcp://batch-read",
-      "mcp://semantic-search",
-      "mcp://diff-docs",
       // export
       "mcp://export",
-      "mcp://export-outline",
-      "mcp://batch-export",
-      "mcp://batch-export-profiles",
-      // canvas
-      "mcp://edit-canvas",
     ];
 
     for (const ev of expected) {
       expect(listenHandlers.has(ev), `listener for "${ev}" not registered`).toBe(true);
     }
-  });
-
-  it("each handler is registered exactly once", () => {
-    // listenHandlers is a Map so duplicate registrations would overwrite;
-    // verify count matches expected number of unique event names.
-    mountBridge();
-    expect(listenHandlers.size).toBeGreaterThanOrEqual(19);
-  });
-
-  it("export module registers 4 listeners", () => {
-    mountBridge();
-    const exportEvents = [
-      "mcp://export",
-      "mcp://export-outline",
-      "mcp://batch-export",
-      "mcp://batch-export-profiles",
-    ];
-    for (const ev of exportEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("edit module registers 6 listeners", () => {
-    mountBridge();
-    const editEvents = [
-      "mcp://set-content",
-      "mcp://edit",
-      "mcp://batch-edit",
-      "mcp://atomic-edits",
-      "mcp://stream-edit",
-      "mcp://stream-edit-apply",
-    ];
-    for (const ev of editEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("search module registers 3 listeners", () => {
-    mountBridge();
-    const searchEvents = [
-      "mcp://batch-read",
-      "mcp://semantic-search",
-      "mcp://diff-docs",
-    ];
-    for (const ev of searchEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("conversation module registers 6 listeners", () => {
-    mountBridge();
-    const convEvents = [
-      "mcp://open",
-      "mcp://present",
-      "mcp://ot-op",
-      "mcp://copy-rich-text",
-      "mcp://lint-document",
-      "mcp://apply-diff-hunk",
-    ];
-    for (const ev of convEvents) {
-      expect(listenHandlers.has(ev), `${ev} not registered`).toBe(true);
-    }
-  });
-
-  it("review module registers 1 listener", () => {
-    mountBridge();
-    expect(listenHandlers.has("mcp://review")).toBe(true);
-  });
-
-  it("canvas module registers 1 listener", () => {
-    mountBridge();
-    expect(listenHandlers.has("mcp://edit-canvas")).toBe(true);
+    expect(listenHandlers.size).toBe(expected.length);
   });
 });
 
@@ -388,23 +245,6 @@ describe("handlers integration — smoke tests per module", () => {
     expect(result![1]).toMatchObject({ ok: true });
   });
 
-  // search module
-  it("search handler: batch-read invokes read_batch_files", async () => {
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-    mountBridge();
-    invokeMock.mockClear();
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_batch_files") return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-    await fireEvent("mcp://batch-read", { batchId: "br1", paths: ["/a.md"] });
-    const call = invokeMock.mock.calls.find((c) => c[0] === "read_batch_files");
-    expect(call).toBeDefined();
-  });
-
   // review module
   it("review handler: registers review in store", async () => {
     mountBridge();
@@ -415,21 +255,6 @@ describe("handlers integration — smoke tests per module", () => {
       timeoutMs: 30000,
     });
     expect(useReviewStore.getState().pending?.reviewId).toBe("rev1");
-  });
-
-  // canvas module
-  it("canvas handler: replies with error for invalid canvas path", async () => {
-    mountBridge();
-    invokeMock.mockClear();
-    invokeMock.mockImplementation(() => Promise.reject(new Error("not found")));
-    await fireEvent("mcp://edit-canvas", {
-      editId: "c1",
-      path: "/missing.canvas",
-      ops: [{ type: "add-node" }],
-    });
-    const result = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_canvas_result");
-    expect(result).toBeDefined();
-    expect(result![1].ok).toBe(false);
   });
 
   // conversation module
@@ -458,5 +283,253 @@ describe("handlers integration — smoke tests per module", () => {
     mountBridge();
     await fireEvent("mcp://present", { path: null });
     expect(useUiStore.getState().zenMode).toBe(true);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// An edit that asked to be saved reports a failed save
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — edits with save: true", () => {
+  function failWrites(): void {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "write_markdown_file"
+        ? Promise.reject("Permission denied")
+        : Promise.resolve(undefined),
+    );
+  }
+
+  function reply(cmd: string): Record<string, unknown> {
+    const call = invokeMock.mock.calls.find((c) => c[0] === cmd);
+    expect(call).toBeDefined();
+    return call![1] as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    useDocumentStore.setState({
+      path: "/doc.md",
+      content: "hello world",
+      diskContent: "hello world",
+    } as Parameters<typeof useDocumentStore.setState>[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+  });
+
+  it("edit: a successful save is reported as ok", async () => {
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      true,
+    );
+    expect(reply("mcp_edit_result")).toMatchObject({ ok: true, replaced: 1 });
+  });
+
+  it("edit: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    // The edit itself is applied to the open document; only the save failed.
+    expect(useDocumentStore.getState().content).toBe("hi world");
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+    expect(String(r.error)).toContain("Permission denied");
+  });
+
+  it("edit: save on a document with no file is not reported as ok", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+
+  it("set-content: reports the replaced content as ok", async () => {
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new body" });
+    expect(useDocumentStore.getState().content).toBe("new body");
+    expect(reply("mcp_edit_result")).toMatchObject({ editId: "c1", ok: true });
+  });
+
+  it("set-content: a successful save is reported as ok", async () => {
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      true,
+    );
+    expect(reply("mcp_edit_result")).toMatchObject({ editId: "c1", ok: true });
+  });
+
+  it("set-content: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    expect(useDocumentStore.getState().content).toBe("new");
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+    expect(String(r.error)).toContain("Permission denied");
+  });
+
+  it("set-content: save on a document with no file is not reported as ok", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+
+  it("stream-edit-apply: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "s1",
+      find: "hello",
+      replace: "hi",
+      matchIndex: 0,
+      save: true,
+    });
+    const r = reply("mcp_stream_edit_apply_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Open and present report what the window did
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — open and present report the outcome", () => {
+  function reply(): Record<string, unknown> {
+    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_result");
+    expect(call).toBeDefined();
+    return call![1] as Record<string, unknown>;
+  }
+
+  function failReads(): void {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.reject("Could not read /gone.md: No such file or directory")
+        : Promise.resolve(undefined),
+    );
+  }
+
+  beforeEach(() => {
+    mountBridge();
+    invokeMock.mockClear();
+  });
+
+  it("open: reports ok once the document is open", async () => {
+    await fireEvent("mcp://open", { editId: "o1", path: "/opened.md", mode: "edit" });
+    expect(useDocumentStore.getState().path).toBe("/opened.md");
+    expect(useDocumentStore.getState().viewMode).toBe("edit");
+    expect(reply()).toMatchObject({ editId: "o1", ok: true, error: null });
+  });
+
+  it("open: a failed read is reported with its reason", async () => {
+    failReads();
+    await fireEvent("mcp://open", { editId: "o1", path: "/gone.md" });
+    expect(useDocumentStore.getState().path).toBe("/test.md");
+    const r = reply();
+    expect(r).toMatchObject({ editId: "o1", ok: false });
+    expect(String(r.error)).toContain("No such file or directory");
+  });
+
+  it("open: a throwing openPath is still answered", async () => {
+    const openPath = vi
+      .spyOn(useDocumentStore.getState(), "openPath")
+      .mockRejectedValue(new Error("boom"));
+    await fireEvent("mcp://open", { editId: "o1", path: "/x.md" });
+    openPath.mockRestore();
+    const r = reply();
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("boom");
+  });
+
+  it("open: with no editId (a review opening its file) nothing is replied", async () => {
+    failReads();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await fireEvent("mcp://open", { path: "/gone.md", mode: "read" });
+    warn.mockRestore();
+    expect(invokeMock.mock.calls.some((c) => c[0] === "mcp_edit_result")).toBe(false);
+  });
+
+  it("present: a failed open is reported and zen mode is not entered", async () => {
+    failReads();
+    await fireEvent("mcp://present", { editId: "p1", path: "/gone.md" });
+    expect(useUiStore.getState().zenMode).toBe(false);
+    const r = reply();
+    expect(r).toMatchObject({ editId: "p1", ok: false });
+    expect(String(r.error)).toContain("No such file or directory");
+  });
+
+  it("present: reports ok once the document is presented", async () => {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.resolve({
+            path: "/talk.md",
+            file_name: "talk.md",
+            content: "# T",
+            size: 3,
+          })
+        : Promise.resolve(undefined),
+    );
+    await fireEvent("mcp://present", { editId: "p1", path: "/talk.md" });
+    expect(useUiStore.getState().zenMode).toBe(true);
+    expect(reply()).toMatchObject({ editId: "p1", ok: true });
+  });
+
+  it("present: with no document open the failure is reported", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://present", { editId: "p1", path: null });
+    expect(useUiStore.getState().zenMode).toBe(false);
+    expect(reply()).toMatchObject({ editId: "p1", ok: false });
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// stream-edit answers even when applying throws
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — stream-edit failures are replied", () => {
+  it("preview: false replies with the error when applying throws", async () => {
+    useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    const setContent = vi
+      .spyOn(useDocumentStore.getState(), "setContent")
+      .mockImplementation(() => {
+        throw new Error("editor gone");
+      });
+    await fireEvent("mcp://stream-edit", {
+      editId: "s1",
+      find: "hello",
+      replace: "hi",
+      preview: false,
+    });
+    setContent.mockRestore();
+    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
+    expect(call).toBeDefined();
+    const r = call![1] as Record<string, unknown>;
+    expect(r).toMatchObject({ editId: "s1", ok: false });
+    expect(String(r.error)).toContain("editor gone");
   });
 });

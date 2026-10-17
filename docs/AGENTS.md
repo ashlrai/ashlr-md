@@ -214,26 +214,26 @@ Every tool returns its payload inside the standard MCP `content` envelope
 
 | Tool | Parameters | Returns | Notes |
 |---|---|---|---|
-| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. |
+| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a running app refuses a file that does not exist. A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason. |
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
-| `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. |
+| `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. The call returns once the window has applied the content (and saved it, with `save: true`); a save that fails, a document with no file yet, or a window that does not answer within 4 s returns `isError: true` with the reason. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
-| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document. With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. |
+| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
 | `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. |
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
-| `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. |
-| `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. |
-| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
-| `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. |
+| `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. With `save: true`, a save that fails (or a document with no file yet) returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. |
+| `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. Reports a failed apply or save as `set_content` does. |
+| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
+| `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
 | `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
-| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. A message that cannot be written to disk is not saved and returns `isError: true`. |
+| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format, and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed is left as it is. A message that cannot be written to disk is not saved and returns `isError: true`. |
 | `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `context_lines` defaults to `3`. |
 | `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, ops_applied }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. |
-| `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately. |
-| `stream_edit_apply` | `edit_id: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). |
-| `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted. |
-| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted. `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). |
+| `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately (unsaved, `find` must match once) and the result has `applied: true`, so do not call `stream_edit_apply` after it. A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
+| `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). The app re-finds `find` in the live document; `edit_id` is for correlation only. |
+| `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -274,7 +274,8 @@ The server implements `resources/list` and `resources/read`.
   (`mimeType: text/markdown`). Reading it returns the live content.
 - **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`). Returns
-  `{ results, mode, query }`; an error when the app is not running.
+  `{ results, mode, query, note? }`, with the same `note` as `search_vault`
+  when it fell back; an error when the app is not running.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`).
@@ -330,6 +331,8 @@ before proceeding.
    **Dismiss** — optionally leaving comments.
 4. **The agent receives the verdict** as the tool result:
    `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
+   `dismissed` means the human closed the panel. If the panel's countdown runs
+   out with no decision, the verdict is `timeout`.
 
 ### Parameters
 
@@ -346,7 +349,13 @@ before proceeding.
 - `wait_ms` (default `50000`, clamped to **1 000–600 000**) — the most one call
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
-  (no new review is registered).
+  (no new review is registered). Once its `timeout_ms` window has closed with
+  no verdict, the call returns `{ "verdict": "timeout", … }`.
+  The app keeps a review for 30 minutes after its `timeout_ms` window closes,
+  so resume within that time; later the call returns `verdict: "timeout"`
+  (the record is gone). The newest review of each file is kept longer, for
+  `get_user_annotations`, and the app holds at most 256 reviews, dropping the
+  oldest decided ones first.
 
 ### Reading the result later
 
@@ -420,7 +429,10 @@ When the app is running, `mdopen` hands it the file over the token-authenticated
 loopback IPC channel, so it works even where the `mdopener://` scheme is not
 registered (an AppImage or dev build on Linux). Otherwise it opens the
 `mdopener://` URL, which launches the app. It exits `1` when neither works;
-for `mdopen -` the temp file holding stdin is then removed.
+for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
+exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
+terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
+stderr.
 
 ### Install
 
@@ -527,7 +539,12 @@ The integration is **local-only and token-authenticated**:
   `get_user_annotations` for a file that is not the open document) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
-  refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
+  refused with `isError: true`. The tools that ask the app to open a path
+  (`open_file`, `present_document`, `request_review` with `path`) make the
+  same check, since the app would then show the file and
+  `get_current_content` would return it; the app's `/open`, `/present` and
+  `/review` endpoints refuse such a path too (HTTP 400, and the reason
+  reaches the agent). `edit_canvas` likewise re-checks `.canvas`
   after resolving symlinks.
 - `export` with `output_path` writes that file without a dialog and replaces
   an existing file of that name. It only accepts a non-dotfile path with the

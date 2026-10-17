@@ -10,22 +10,22 @@
 //! |--------|------------|---------------------------------------|------------------------------------|
 //! | GET    | /health    | —                                     | Liveness check                     |
 //! | GET    | /content   | —                                     | Current document `{path, content}` |
-//! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content                |
-//! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file                        |
+//! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
+//! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
 //! | POST   | /export    | `{"format":"pdf|docx|html","outputPath":"…|null"}` | Trigger export |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
-//! | POST   | /present   | `{"path":"…|null"}`                   | Open + distraction-free reading    |
+//! | POST   | /present   | `{"path":"…|null"}`                   | Open + distraction-free reading (round-trip) |
 //!
 //! Auth: every endpoint except `/health` requires `Authorization: Bearer <token>`
 //! (the per-session token in `~/.mdopener/ipc-token`).
 //!
 //! Content is kept in [`DocMirror`], a managed Tauri state struct that the
 //! frontend syncs via `mcp_sync_state` on every document change (debounced
-//! 200 ms). Mutations (`/content`, `/open`, `/export`) emit a Tauri event the
-//! frontend picks up and applies.
+//! 200 ms). Mutations emit a Tauri event the frontend picks up and applies;
+//! `/content`, `/open` and `/present` wait for the window's outcome like `/edit`.
 //!
 //! `/edit` is special: because the 200 ms debounce makes [`DocMirror`] stale
 //! right after the user types, applying a find/replace against it could miss
@@ -50,15 +50,15 @@ pub struct SessionMessage {
     pub session_id: String,
     pub role: String,
     pub content: String,
-    #[serde(rename = "citedDocs")]
+    #[serde(rename = "citedDocs", default)]
     pub cited_docs: Vec<String>,
     #[serde(rename = "timestampMs")]
     pub timestamp_ms: u64,
 }
 
 /// In-memory session store managed by Tauri — keyed by session_id.
-/// The frontend writes here via `mcp_persist_session` and reads back via
-/// `mcp_load_session` on cold start.
+/// `mcp_persist_session` and `mcp_load_session` keep it in step with the
+/// session files on disk, which are shared with mdopener-mcp.
 #[derive(Default)]
 pub struct SessionStore(pub Mutex<HashMap<String, Vec<SessionMessage>>>);
 
@@ -101,6 +101,61 @@ pub struct ReviewRecord {
     pub comments: Option<String>,
     pub path: Option<String>,
     pub created_at: u64,
+    /// The review panel's window: the human has this long to decide.
+    pub timeout_ms: u64,
+}
+
+/// How long a review is kept after its window closes, so an agent that got
+/// `pending` back can still resume it by `review_id` and read the verdict.
+const REVIEW_RETENTION_MS: u64 = 30 * 60 * 1000;
+
+/// Most reviews kept at once, however recent.
+const MAX_REVIEWS: usize = 256;
+
+/// Bound [`ReviewState`]: drop reviews more than [`REVIEW_RETENTION_MS`] past
+/// their window, except the newest review of each file (the verdict
+/// `get_user_annotations` reports), then cap the count at [`MAX_REVIEWS`],
+/// dropping the oldest decided or expired reviews before any open one.
+fn prune_reviews(map: &mut HashMap<String, ReviewRecord>, now: u64) {
+    let window_end = |r: &ReviewRecord| r.created_at.saturating_add(r.timeout_ms);
+    let mut newest_per_path: HashMap<String, (u64, String)> = HashMap::new();
+    for (id, r) in map.iter() {
+        if let Some(p) = &r.path {
+            let e = newest_per_path
+                .entry(p.clone())
+                .or_insert((r.created_at, id.clone()));
+            if r.created_at > e.0 {
+                *e = (r.created_at, id.clone());
+            }
+        }
+    }
+    map.retain(|id, r| {
+        now < window_end(r).saturating_add(REVIEW_RETENTION_MS)
+            || r.path.as_ref().is_some_and(|p| {
+                newest_per_path
+                    .get(p)
+                    .is_some_and(|(_, newest)| newest == id)
+            })
+    });
+    if map.len() <= MAX_REVIEWS {
+        return;
+    }
+    // Open reviews (pending, window not closed) sort last, then oldest first.
+    let mut order: Vec<(bool, u64, String)> = map
+        .iter()
+        .map(|(id, r)| {
+            (
+                r.status == "pending" && now < window_end(r),
+                r.created_at,
+                id.clone(),
+            )
+        })
+        .collect();
+    order.sort();
+    let excess = map.len() - MAX_REVIEWS;
+    for (_, _, id) in order.into_iter().take(excess) {
+        map.remove(&id);
+    }
 }
 
 #[derive(Default)]
@@ -209,9 +264,13 @@ pub fn mcp_sync_state(
     *recent_mirror.0.lock().unwrap() = recents;
 }
 
+/// The verdicts the review panel may record. `timeout` is the panel's own
+/// countdown running out with no decision; `dismissed` is the human closing it.
+const REVIEW_VERDICTS: &[&str] = &["approved", "changes_requested", "dismissed", "timeout"];
+
 /// Called by the frontend review panel when the human clicks Approve / Request-
-/// changes / Dismiss. Records the verdict so the polling MCP binary returns it
-/// to the agent.
+/// changes / Dismiss, or when its countdown runs out. Records the verdict so
+/// the polling MCP binary returns it to the agent.
 #[tauri::command]
 pub fn set_review_verdict(
     review_id: String,
@@ -219,7 +278,7 @@ pub fn set_review_verdict(
     comments: Option<String>,
     state: tauri::State<ReviewState>,
 ) -> Result<(), String> {
-    if !["approved", "changes_requested", "dismissed"].contains(&verdict.as_str()) {
+    if !REVIEW_VERDICTS.contains(&verdict.as_str()) {
         return Err(format!("Invalid verdict: {verdict}"));
     }
     let mut map = state.0.lock().unwrap();
@@ -247,8 +306,9 @@ pub fn mcp_sync_vault(
 }
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
-/// document. Forwards the outcome to the IPC worker thread parked in
-/// `handle_edit`. Removing the sender from [`PendingEdits`] here means a stray or
+/// document, or an `mcp://set-content`. Forwards the outcome to the IPC worker
+/// thread parked in `handle_edit` or [`window_round_trip`] (`/content`, `/open`,
+/// `/present`). Removing the sender from [`PendingEdits`] here means a stray or
 /// duplicate reply for an already-resolved (or timed-out) edit is silently
 /// ignored rather than panicking on a dropped receiver.
 #[tauri::command]
@@ -311,21 +371,169 @@ fn sessions_dir() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".mdopener").join("sessions"))
 }
 
-/// Sanitise a session_id to a safe filename component.
-/// Keeps only alphanumeric characters, hyphens, and underscores.
-fn safe_session_filename(session_id: &str) -> String {
-    session_id
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect()
+/// The file name mdopener-mcp gives `session_id` (`session_file_path` in
+/// bins/mdopener-mcp/src/lib.rs): ASCII letters, digits, `-` and `_` are kept
+/// and every other byte is written as `%XX`, so distinct ids never share a
+/// file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Both processes read and
+/// write the same files, so the two mappings must stay identical.
+fn session_file_name(session_id: &str) -> String {
+    let mut safe = String::with_capacity(session_id.len() + 5);
+    for b in session_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+            safe.push(b as char);
+        } else {
+            safe.push_str(&format!("%{b:02X}"));
+        }
+    }
+    safe.push_str(".json");
+    safe
 }
 
-/// Called by the frontend to atomically persist a session's full message log to
-/// `~/.mdopener/sessions/{session_id}.json`.
-///
-/// Writes are atomic: the JSON is first written to a temp file in the same
-/// directory, then renamed over the target — so a crash mid-write never leaves
-/// a partial file on disk.
+/// The name earlier builds of both the app and mdopener-mcp used: every
+/// character other than an alphanumeric, `-` or `_` became `_`, so `a.b` and
+/// `a_b` shared `a_b.json`. Only read, as a fallback for older history.
+fn legacy_session_file_name(session_id: &str) -> String {
+    let safe: String = session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    format!("{safe}.json")
+}
+
+/// A session file: mdopener-mcp's `{"messages":[…]}`, or the bare array
+/// earlier app builds wrote.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SessionFile {
+    Log { messages: Vec<SessionMessage> },
+    Bare(Vec<SessionMessage>),
+}
+
+#[derive(Serialize)]
+struct SessionFileOut<'a> {
+    messages: &'a [SessionMessage],
+}
+
+/// Messages per session kept on disk; matches mdopener-mcp's
+/// `MAX_MESSAGES_PER_SESSION`.
+const MAX_SESSION_MESSAGES: usize = 200;
+
+fn parse_session_file(path: &std::path::Path) -> Result<Vec<SessionMessage>, String> {
+    if !std::fs::metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+    {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    match serde_json::from_str::<SessionFile>(&text) {
+        Ok(SessionFile::Log { messages } | SessionFile::Bare(messages)) => Ok(messages),
+        Err(e) => Err(format!("{} is not a session file: {e}", path.display())),
+    }
+}
+
+/// `session_id`'s messages on disk, and whether its file also holds another
+/// session's messages (ids that differ only in case share a file on a
+/// case-insensitive file system). With no file of its own yet, the legacy
+/// file is read instead, keeping only this id's messages.
+fn load_own_session(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<(Vec<SessionMessage>, bool), String> {
+    let own = |mut messages: Vec<SessionMessage>| {
+        let before = messages.len();
+        messages.retain(|m| m.session_id == session_id);
+        let foreign = messages.len() != before;
+        (messages, foreign)
+    };
+    let name = session_file_name(session_id);
+    let path = dir.join(&name);
+    if path.exists() {
+        return parse_session_file(&path).map(own);
+    }
+    let legacy = legacy_session_file_name(session_id);
+    if legacy != name {
+        if let Ok(messages) = parse_session_file(&dir.join(legacy)) {
+            return Ok((own(messages).0, false));
+        }
+    }
+    Ok((vec![], false))
+}
+
+/// Hold the sessions directory's lock file while reading and rewriting a
+/// session, so the app and mdopener-mcp (which takes the same lock) never
+/// write back a stale copy over each other's appends.
+fn lock_sessions_dir(dir: &std::path::Path) -> Result<std::fs::File, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"))
+        .map_err(|e| format!("Cannot open the sessions lock: {e}"))?;
+    lock.lock()
+        .map_err(|e| format!("Cannot lock the sessions dir: {e}"))?;
+    Ok(lock)
+}
+
+/// Merge `messages` into `session_id`'s file in `dir` and return the merged
+/// log. Messages already on disk (some saved by mdopener-mcp, which the
+/// window never sees) are kept; new ones are added by id, in timestamp order,
+/// keeping the newest [`MAX_SESSION_MESSAGES`]. A file that cannot be parsed
+/// or that holds another id's messages is left untouched and is an error.
+fn write_session_file(
+    dir: &std::path::Path,
+    session_id: &str,
+    messages: &[SessionMessage],
+) -> Result<Vec<SessionMessage>, String> {
+    let _lock = lock_sessions_dir(dir)?;
+    let (mut merged, foreign) = load_own_session(dir, session_id)?;
+    let name = session_file_name(session_id);
+    if foreign {
+        return Err(format!(
+            "Session file {} also holds another session's messages; not overwriting it.",
+            dir.join(&name).display()
+        ));
+    }
+    let mut seen: std::collections::HashSet<String> = merged.iter().map(|m| m.id.clone()).collect();
+    for m in messages {
+        if m.session_id == session_id && seen.insert(m.id.clone()) {
+            merged.push(m.clone());
+        }
+    }
+    merged.sort_by_key(|m| m.timestamp_ms);
+    if merged.len() > MAX_SESSION_MESSAGES {
+        let excess = merged.len() - MAX_SESSION_MESSAGES;
+        merged.drain(..excess);
+    }
+
+    let json = serde_json::to_string_pretty(&SessionFileOut { messages: &merged })
+        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+    // Write a temp file and rename it over the target, so a reader never sees
+    // a torn file.
+    let target = dir.join(&name);
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Rename failed: {e}")
+    })?;
+    Ok(merged)
+}
+
+/// Read `session_id`'s messages from `dir` (empty when it has none).
+fn read_session_file(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<Vec<SessionMessage>, String> {
+    load_own_session(dir, session_id).map(|(messages, _)| messages)
+}
+
+/// Called by the frontend to persist a session's message log to
+/// `~/.mdopener/sessions/`, in the file and format mdopener-mcp uses for the
+/// same session (see [`session_file_name`]). Messages the MCP server saved
+/// are kept (see [`write_session_file`]), and the write is atomic.
 #[tauri::command]
 pub fn mcp_persist_session(
     session_id: String,
@@ -336,29 +544,26 @@ pub fn mcp_persist_session(
         return Err("`session_id` must not be empty".into());
     }
 
-    // Update in-memory mirror.
-    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id.clone(), messages.clone());
-
-    // Persist to disk.
-    let Some(dir) = sessions_dir() else { return Ok(()) };
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create sessions dir: {e}"))?;
-
-    let safe = safe_session_filename(&session_id);
-    let target = dir.join(format!("{safe}.json"));
-    let tmp = dir.join(format!("{safe}.json.tmp"));
-
-    let json = serde_json::to_string_pretty(&messages)
-        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
-
-    std::fs::write(&tmp, &json).map_err(|e| format!("Write failed: {e}"))?;
-    std::fs::rename(&tmp, &target).map_err(|e| format!("Rename failed: {e}"))?;
-
+    let Some(dir) = sessions_dir() else {
+        store
+            .0
+            .lock()
+            .map_err(|e| format!("Lock error: {e}"))?
+            .insert(session_id, messages);
+        return Ok(());
+    };
+    let merged = write_session_file(&dir, &session_id, &messages)?;
+    store
+        .0
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?
+        .insert(session_id, merged);
     Ok(())
 }
 
 /// Called by the frontend on startup to restore a prior session's messages.
-/// First checks the in-memory store (hot reload scenario), then falls back to
-/// reading `~/.mdopener/sessions/{session_id}.json` from disk.
+/// The file on disk is authoritative (mdopener-mcp appends to it); the
+/// in-memory copy answers only when there is no file to read.
 #[tauri::command]
 pub fn mcp_load_session(
     session_id: String,
@@ -368,31 +573,18 @@ pub fn mcp_load_session(
         return Err("`session_id` must not be empty".into());
     }
 
-    // Fast path: already in memory.
-    {
-        let guard = store.0.lock().map_err(|e| format!("Lock error: {e}"))?;
-        if let Some(msgs) = guard.get(&session_id) {
-            return Ok(msgs.clone());
-        }
-    }
-
-    // Cold start: load from disk.
-    let Some(dir) = sessions_dir() else { return Ok(vec![]) };
-    let safe = safe_session_filename(&session_id);
-    let path = dir.join(format!("{safe}.json"));
-
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(_) => return Ok(vec![]), // File does not exist — empty session.
+    let from_disk = match sessions_dir() {
+        Some(dir) => Some(read_session_file(&dir, &session_id)?),
+        None => None,
     };
-
-    let messages: Vec<SessionMessage> =
-        serde_json::from_str(&text).map_err(|e| format!("JSON parse failed: {e}"))?;
-
-    // Warm the in-memory cache so subsequent calls skip disk.
-    store.0.lock().map_err(|e| format!("Lock error: {e}"))?.insert(session_id, messages.clone());
-
-    Ok(messages)
+    let mut guard = store.0.lock().map_err(|e| format!("Lock error: {e}"))?;
+    match from_disk {
+        Some(messages) if !messages.is_empty() => {
+            guard.insert(session_id, messages.clone());
+            Ok(messages)
+        }
+        _ => Ok(guard.get(&session_id).cloned().unwrap_or_default()),
+    }
 }
 
 // ── IPC port file helpers ─────────────────────────────────────────────────────
@@ -600,6 +792,48 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
 // ── Individual handlers ───────────────────────────────────────────────────────
 
+/// Resolve a path an agent asked the app to open (`/open`, `/present`, or
+/// `/review` with a path), refusing anything but a Markdown document. Without
+/// this an agent could open `~/.ssh/id_rsa` and read it back through
+/// `/content`, `/recent` or the recents-backed MCP resources, though the
+/// MCP tools that read a path from disk accept Markdown only. The check runs
+/// on the canonical path, so a `notes.md` symlink to a secret is refused;
+/// dotfiles and anything that exists but is not a regular file are refused
+/// too, and so is a path that does not exist: the window cannot open it, and
+/// the endpoint would otherwise answer `ok` for an open that never happens.
+/// Returns the canonical path.
+fn checked_agent_path(raw: &str) -> Result<String, String> {
+    let abs = std::fs::canonicalize(raw)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw.to_string());
+    let p = std::path::Path::new(&abs);
+    let markdown = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| crate::document::MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    let hidden = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_none_or(|n| n.starts_with('.'));
+    let not_a_file = std::fs::metadata(p).is_ok_and(|m| !m.is_file());
+    if !markdown || hidden || not_a_file {
+        return Err(format!(
+            "Refusing to open '{abs}': agents can open only Markdown documents (.md, \
+             .markdown, .mdown, .mkd, .mdx) that are not dotfiles."
+        ));
+    }
+    if !p.exists() {
+        return Err(format!("Cannot open '{abs}': the file does not exist."));
+    }
+    Ok(abs)
+}
+
+/// POST /content — replace the open document (and save it when asked).
+///
+/// A round-trip like `/edit`: the window applies the content and reports back
+/// through `mcp_edit_result` (the same [`PendingEdits`] map, so the same
+/// [`MAX_INFLIGHT_EDITS`] cap and [`EDIT_ROUNDTRIP_TIMEOUT`]), and the reply
+/// says whether the content was applied and, with `save`, written to disk.
 fn handle_set_content(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {
@@ -608,16 +842,61 @@ fn handle_set_content(mut req: Request, app: &AppHandle) {
         save: bool,
     }
 
-    let body = read_json_body::<Body>(&mut req);
-    match body {
-        Ok(b) => {
-            let _ = app.emit("mcp://set-content", serde_json::json!({
-                "content": b.content,
-                "save": b.save,
-            }));
-            send_json(req, serde_json::json!({"ok": true}));
-        }
-        Err(e) => send_error(req, 400, &e),
+    let b = match read_json_body::<Body>(&mut req) {
+        Ok(b) => b,
+        Err((code, e)) => return send_error(req, code, &e),
+    };
+    let payload = serde_json::json!({ "content": b.content, "save": b.save });
+    let reply = match window_round_trip(app, "content", "mcp://set-content", payload) {
+        Some(outcome) => set_content_reply(outcome),
+        None => editor_busy(),
+    };
+    send_json(req, reply);
+}
+
+/// Ask the window to act on `event` and park this worker until it reports
+/// back through `mcp_edit_result`, keyed by the `editId` added to `payload`,
+/// or until [`EDIT_ROUNDTRIP_TIMEOUT`]. `None` when [`MAX_INFLIGHT_EDITS`]
+/// round-trips are already parked, so the caller answers [`editor_busy`].
+fn window_round_trip(
+    app: &AppHandle,
+    prefix: &str,
+    event: &str,
+    mut payload: serde_json::Value,
+) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
+    let _inflight = InflightEdit::acquire()?;
+    let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    payload["editId"] = serde_json::Value::String(edit_id.clone());
+    let (tx, rx) = mpsc::channel::<EditOutcome>();
+    let pending = app.state::<PendingEdits>();
+    pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+    if let Err(e) = app.emit(event, payload) {
+        pending.0.lock().unwrap().remove(&edit_id);
+        return Some(Ok(EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some(format!("The app could not reach its window: {e}")),
+        }));
+    }
+    let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
+    if outcome.is_err() {
+        pending.0.lock().unwrap().remove(&edit_id);
+    }
+    Some(outcome)
+}
+
+/// The `/content` reply for what the window reported (or did not report).
+fn set_content_reply(outcome: Result<EditOutcome, mpsc::RecvTimeoutError>) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "error": o.error.unwrap_or_else(|| "The app could not replace the document content.".into()),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "error": "Timed out waiting for the app to replace the document content — is the window responsive?",
+        }),
     }
 }
 
@@ -632,18 +911,45 @@ fn handle_open(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
-            // Resolve to absolute path.
-            let abs = std::fs::canonicalize(&b.path)
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or(b.path.clone());
+            let abs = match checked_agent_path(&b.path) {
+                Ok(abs) => abs,
+                Err(e) => return send_error(req, 400, &e),
+            };
 
-            let _ = app.emit("mcp://open", serde_json::json!({
-                "path": abs,
-                "mode": b.mode,
-            }));
-            send_json(req, serde_json::json!({"ok": true, "path": abs}));
+            let payload = serde_json::json!({ "path": abs, "mode": b.mode });
+            let reply = match window_round_trip(app, "open", "mcp://open", payload) {
+                Some(outcome) => window_open_reply(outcome, &abs, "open"),
+                None => editor_busy(),
+            };
+            send_json(req, reply);
         }
-        Err(e) => send_error(req, 400, &e),
+        Err((code, e)) => send_error(req, code, &e),
+    }
+}
+
+/// The `/open` or `/present` reply for what the window reported (or did not
+/// report) after it was asked to `doing` the document at `path`.
+fn window_open_reply(
+    outcome: Result<EditOutcome, mpsc::RecvTimeoutError>,
+    path: &str,
+    doing: &str,
+) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true, "path": path }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": o
+                .error
+                .unwrap_or_else(|| format!("The app could not {doing} {path}.")),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": format!(
+                "Timed out waiting for the app to {doing} {path} — is the window responsive?"
+            ),
+        }),
     }
 }
 
@@ -658,14 +964,31 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
+            let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+            if let Some(e) = export_refusal(&b.format, open.as_deref()) {
+                return send_error(req, 400, &e);
+            }
             let _ = app.emit("mcp://export", serde_json::json!({
                 "format": b.format,
                 "outputPath": b.output_path,
             }));
             send_json(req, serde_json::json!({"ok": true}));
         }
-        Err(e) => send_error(req, 400, &e),
+        Err((code, e)) => send_error(req, code, &e),
     }
+}
+
+/// Why `/export` cannot run, if it cannot. The window exports only the open
+/// document (with none it toasts and does nothing) and treats a format it
+/// does not know as html, so both are refused here rather than answered `ok`.
+fn export_refusal(format: &str, open: Option<&str>) -> Option<String> {
+    if !["pdf", "docx", "html", "epub"].contains(&format) {
+        return Some(format!(
+            "Unknown export format '{format}': use pdf, docx, html or epub."
+        ));
+    }
+    open.is_none()
+        .then(|| "No document is open; open one before exporting.".to_string())
 }
 
 // ── Review handlers ───────────────────────────────────────────────────────────
@@ -682,17 +1005,16 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
     if body.review_id.is_empty() {
         return send_error(req, 400, "reviewId is required");
     }
     let timeout_ms = body.timeout_ms.unwrap_or(300_000).clamp(5_000, 600_000);
-    let abs_path = body.path.as_deref().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
+    let abs_path = match body.path.as_deref().map(checked_agent_path).transpose() {
+        Ok(p) => p,
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     {
         let state = app.state::<ReviewState>();
@@ -700,6 +1022,8 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         if map.contains_key(&body.review_id) {
             return send_error(req, 409, "reviewId already exists");
         }
+        let now = now_ms();
+        prune_reviews(&mut map, now);
         map.insert(
             body.review_id.clone(),
             ReviewRecord {
@@ -707,7 +1031,8 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
                 verdict: None,
                 comments: None,
                 path: abs_path.clone(),
-                created_at: now_ms(),
+                created_at: now,
+                timeout_ms,
             },
         );
     }
@@ -729,11 +1054,31 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
 }
 
-fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
-    let id = query
+/// The percent-decoded value of `key` in a query string, or `None` when it is
+/// absent or does not decode to UTF-8.
+fn query_param(query: &str, key: &str) -> Option<String> {
+    query
         .split('&')
-        .find_map(|kv| kv.strip_prefix("id="))
-        .unwrap_or("");
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+        .and_then(|v| urlencoding::decode(v).ok())
+        .map(|v| v.into_owned())
+}
+
+/// The status `/review/result` reports: the recorded one, except that a review
+/// still pending once its window has closed is `timeout`. The panel only
+/// expires the review it is showing, so one a newer review displaced would
+/// otherwise stay `pending` and a resuming agent would wait on it forever.
+fn review_status(r: &ReviewRecord, now: u64) -> &str {
+    if r.status == "pending" && now >= r.created_at.saturating_add(r.timeout_ms) {
+        "timeout"
+    } else {
+        &r.status
+    }
+}
+
+fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
+    let id = query_param(query, "id").unwrap_or_default();
+    let id = id.as_str();
     if id.is_empty() {
         return send_error(req, 400, "id query param required");
     }
@@ -743,8 +1088,14 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     let record = {
         let state = app.state::<ReviewState>();
         let map = state.0.lock().unwrap();
-        map.get(id)
-            .map(|r| (r.status.clone(), r.verdict.clone(), r.comments.clone()))
+        let now = now_ms();
+        map.get(id).map(|r| {
+            (
+                review_status(r, now).to_string(),
+                r.verdict.clone(),
+                r.comments.clone(),
+            )
+        })
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
@@ -946,7 +1297,10 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
 /// (find/replace, `setContent`, and an optional save) is sub-millisecond, but the
 /// app may be briefly busy. A timeout still bounds the worker so a wedged or
 /// missing frontend can't pin it forever — the 3 other workers stay free anyway.
-const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(5);
+///
+/// It must stay below mdopener-mcp's 5 s IPC read timeout (`tcp_roundtrip`),
+/// or the client hangs up first and the agent never sees this server's reply.
+const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Process-monotonic sequence for unique edit ids. The [`PendingEdits`] map is
 /// per-process, so a plain counter is collision-free — unlike a millisecond
@@ -980,6 +1334,43 @@ impl Drop for InflightEdit {
     }
 }
 
+/// True when `want` (a path an agent named) is the open document `have_raw`.
+/// Canonical paths are compared when both resolve; otherwise the raw strings,
+/// so both sides are always normalized the same way.
+fn names_open_document(want: &str, have_raw: &str) -> bool {
+    match (std::fs::canonicalize(want), std::fs::canonicalize(have_raw)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => want == have_raw,
+    }
+}
+
+/// The open document's path as the frontend knows it, when `want` names it.
+fn open_document_named(app: &AppHandle, want: &str) -> Option<String> {
+    let have_raw = app
+        .state::<DocMirror>()
+        .0
+        .lock()
+        .unwrap()
+        .path
+        .clone()
+        .unwrap_or_default();
+    names_open_document(want, &have_raw).then_some(have_raw)
+}
+
+fn not_the_open_document() -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "The named path is not the currently open document — open it first with open_file.",
+    })
+}
+
+fn editor_busy() -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "The editor is busy applying another edit — retry in a moment.",
+    })
+}
+
 /// POST /edit — exact-string find/replace on the LIVE document.
 ///
 /// The find/replace is applied on the FRONTEND, against `documentStore`'s current
@@ -1005,7 +1396,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     // Guard the cheap, server-knowable failures up front so we don't bother the
@@ -1025,18 +1416,8 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // only when BOTH resolve; otherwise fall back to a raw string compare on both
     // sides so the two legs are always normalized the same way.
     if let Some(ref p) = body.path {
-        let have_raw = app.state::<DocMirror>().0.lock().unwrap().path.clone().unwrap_or_default();
-        let want_canon = std::fs::canonicalize(p).ok();
-        let have_canon = std::fs::canonicalize(&have_raw).ok();
-        let matches = match (want_canon, have_canon) {
-            (Some(a), Some(b)) => a == b,
-            _ => p == &have_raw,
-        };
-        if !matches {
-            return send_json(req, serde_json::json!({
-                "ok": false,
-                "error": "The named path is not the currently open document — open it first with open_file.",
-            }));
+        if open_document_named(app, p).is_none() {
+            return send_json(req, not_the_open_document());
         }
     }
 
@@ -1046,12 +1427,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // IPC server appearing wedged. The guard releases its slot on every path.
     let _inflight = match InflightEdit::acquire() {
         Some(g) => g,
-        None => {
-            return send_json(req, serde_json::json!({
-                "ok": false,
-                "error": "The editor is busy applying another edit — retry in a moment.",
-            }));
-        }
+        None => return send_json(req, editor_busy()),
     };
 
     // Register a oneshot keyed by a unique editId, then ask the frontend to apply
@@ -1113,7 +1489,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     if body.find.is_empty() {
@@ -1122,6 +1498,19 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             "error": "`find` must not be empty.",
         }));
     }
+    // Same canonical path check as `/edit`. The frontend re-checks against
+    // the path it knows (in case the tab changes meanwhile), so it is sent
+    // that path rather than the agent's spelling of it.
+    let path = match body.path.as_deref().map(|p| open_document_named(app, p)) {
+        None => None,
+        Some(Some(have)) => Some(have),
+        Some(None) => return send_json(req, not_the_open_document()),
+    };
+    // Parks a worker like `/edit`, so it shares the same admission cap.
+    let _inflight = match InflightEdit::acquire() {
+        Some(g) => g,
+        None => return send_json(req, editor_busy()),
+    };
 
     let edit_id = format!("sedit_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     let (tx, rx) = mpsc::channel::<StreamEditPreviewOutcome>();
@@ -1130,14 +1519,17 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(edit_id.clone(), tx);
     }
 
-    let _ = app.emit("mcp://stream-edit", serde_json::json!({
-        "editId": edit_id,
-        "find": body.find,
-        "replace": body.replace,
-        "preview": body.preview,
-        "previewLines": body.preview_lines,
-        "path": body.path,
-    }));
+    let _ = app.emit(
+        "mcp://stream-edit",
+        serde_json::json!({
+            "editId": edit_id,
+            "find": body.find,
+            "replace": body.replace,
+            "preview": body.preview,
+            "previewLines": body.preview_lines,
+            "path": path,
+        }),
+    );
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1183,7 +1575,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     if body.find.is_empty() {
@@ -1192,6 +1584,15 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             "error": "`find` must not be empty.",
         }));
     }
+    let path = match body.path.as_deref().map(|p| open_document_named(app, p)) {
+        None => None,
+        Some(Some(have)) => Some(have),
+        Some(None) => return send_json(req, not_the_open_document()),
+    };
+    let _inflight = match InflightEdit::acquire() {
+        Some(g) => g,
+        None => return send_json(req, editor_busy()),
+    };
 
     let apply_id = format!("sapply_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     let (tx, rx) = mpsc::channel::<StreamEditApplyOutcome>();
@@ -1200,15 +1601,18 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(apply_id.clone(), tx);
     }
 
-    let _ = app.emit("mcp://stream-edit-apply", serde_json::json!({
-        "editId": apply_id,
-        "find": body.find,
-        "replace": body.replace,
-        "matchIndex": body.match_index,
-        "save": body.save,
-        "path": body.path,
-        "originalEditId": body.edit_id,
-    }));
+    let _ = app.emit(
+        "mcp://stream-edit-apply",
+        serde_json::json!({
+            "editId": apply_id,
+            "find": body.find,
+            "replace": body.replace,
+            "matchIndex": body.match_index,
+            "save": body.save,
+            "path": path,
+            "originalEditId": body.edit_id,
+        }),
+    );
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1233,7 +1637,8 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 }
 
 /// POST /present — open a document (if a path is given) and put the app into a
-/// distraction-free reading presentation. Emits `mcp://present`.
+/// distraction-free reading presentation. A round-trip like `/open`: emits
+/// `mcp://present` and answers with what the window reported.
 fn handle_present(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {
@@ -1241,15 +1646,33 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
+        Err((code, e)) => return send_error(req, code, &e),
+    };
+    let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+    let path = match present_target(body.path.as_deref(), open.as_deref()) {
+        Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
     };
-    let abs = body.path.as_deref().map(|p| {
-        std::fs::canonicalize(p)
-            .map(|c| c.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| p.to_string())
-    });
-    let _ = app.emit("mcp://present", serde_json::json!({ "path": abs }));
-    send_json(req, serde_json::json!({ "ok": true, "path": abs }));
+    // The frontend opens `path` only when one was asked for, else presents
+    // the open document.
+    let requested = body.path.is_some().then_some(&path);
+    let payload = serde_json::json!({ "path": requested });
+    let reply = match window_round_trip(app, "present", "mcp://present", payload) {
+        Some(outcome) => window_open_reply(outcome, &path, "present"),
+        None => editor_busy(),
+    };
+    send_json(req, reply);
+}
+
+/// The document `/present` shows: the requested one (checked like `/open`),
+/// else the open document. With neither, the window has nothing to present
+/// and would ignore the request, so it is an error.
+fn present_target(requested: Option<&str>, open: Option<&str>) -> Result<String, String> {
+    match (requested, open) {
+        (Some(p), _) => checked_agent_path(p),
+        (None, Some(o)) => Ok(o.to_string()),
+        (None, None) => Err("No document is open; pass `path` to present a document.".to_string()),
+    }
 }
 
 // ── HTTP response helpers ─────────────────────────────────────────────────────
@@ -1274,17 +1697,30 @@ fn send_error(req: Request, code: u16, msg: &str) {
     let _ = req.respond(resp);
 }
 
-fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T, String> {
+/// Read and parse a JSON request body; an error carries the HTTP status.
+fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T, (u16, String)> {
     // Cap the body so a malformed/hostile local caller can't OOM the server
     // thread with an unbounded POST. 16 MiB is generous for any real document.
     const MAX_BODY: u64 = 16 * 1024 * 1024;
+    read_json_from(req.as_reader(), MAX_BODY)
+}
+
+/// Parse at most `max` bytes of JSON from `body`. A longer body is refused
+/// with 413 rather than cut at the cap, which used to surface as a puzzling
+/// "Invalid JSON body: EOF while parsing" for a large but valid document.
+fn read_json_from<T: serde::de::DeserializeOwned>(
+    body: impl std::io::Read,
+    max: u64,
+) -> Result<T, (u16, String)> {
     use std::io::Read;
     let mut buf = String::new();
-    req.as_reader()
-        .take(MAX_BODY)
+    body.take(max + 1)
         .read_to_string(&mut buf)
-        .map_err(|e| format!("Failed to read request body: {e}"))?;
-    serde_json::from_str(&buf).map_err(|e| format!("Invalid JSON body: {e}"))
+        .map_err(|e| (400, format!("Failed to read request body: {e}")))?;
+    if buf.len() as u64 > max {
+        return Err((413, format!("Request body is larger than {max} bytes.")));
+    }
+    serde_json::from_str(&buf).map_err(|e| (400, format!("Invalid JSON body: {e}")))
 }
 
 #[cfg(test)]
@@ -1475,5 +1911,459 @@ mod tests {
                 "{p:?}"
             );
         }
+    }
+
+    // ── Session files shared with mdopener-mcp ───────────────────────────────
+
+    use super::{read_session_file, write_session_file, SessionMessage};
+
+    // ── Paths an agent may open, present or send for review ─────────────────
+
+    use super::checked_agent_path;
+
+    use super::export_refusal;
+
+    #[test]
+    fn export_needs_an_open_document_and_a_known_format() {
+        assert_eq!(export_refusal("html", Some("/notes/a.md")), None);
+        assert_eq!(export_refusal("pdf", Some("/notes/a.md")), None);
+        // The window would only toast "Open a document" and export nothing.
+        let err = export_refusal("docx", None).unwrap();
+        assert!(err.contains("No document is open"), "{err}");
+        // The frontend treats anything it does not know as html.
+        let err = export_refusal("rtf", Some("/notes/a.md")).unwrap();
+        assert!(err.contains("rtf"), "{err}");
+    }
+
+    use super::present_target;
+
+    #[test]
+    fn present_without_a_path_needs_an_open_document() {
+        let d = Scratch::new("present");
+        let md = d.0.join("talk.md");
+        std::fs::write(&md, "# Talk").unwrap();
+        let md_s = md.to_str().unwrap();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(
+            present_target(Some(md_s), None).unwrap(),
+            canon.to_str().unwrap()
+        );
+        assert_eq!(
+            present_target(None, Some("/open/doc.md")).unwrap(),
+            "/open/doc.md"
+        );
+        // Nothing to present: the window would do nothing, so say so.
+        let err = present_target(None, None).unwrap_err();
+        assert!(err.contains("No document is open"), "{err}");
+    }
+
+    // ── Request bodies ───────────────────────────────────────────────────────
+
+    use super::read_json_from;
+
+    #[test]
+    fn a_body_over_the_cap_is_too_large_not_invalid_json() {
+        #[derive(serde::Deserialize, Debug)]
+        struct B {
+            #[allow(dead_code)]
+            content: String,
+        }
+        let ok = br#"{"content":"hi"}"#;
+        assert!(read_json_from::<B>(&ok[..], 64).is_ok());
+        let big = format!(r#"{{"content":"{}"}}"#, "x".repeat(100));
+        let (code, msg) = read_json_from::<B>(big.as_bytes(), 64).unwrap_err();
+        assert_eq!(code, 413, "{msg}");
+        let (code, _) = read_json_from::<B>(&b"{ nope"[..], 64).unwrap_err();
+        assert_eq!(code, 400);
+    }
+
+    // ── Edit round-trips ─────────────────────────────────────────────────────
+
+    use super::{names_open_document, EDIT_ROUNDTRIP_TIMEOUT};
+
+    /// mdopener-mcp gives up reading an IPC reply after 5 s (`tcp_roundtrip`).
+    /// A round-trip that waits as long answers after the client has gone, so
+    /// the agent sees "IPC read error" instead of the app's own reason.
+    #[test]
+    fn edit_round_trips_answer_before_the_mcp_client_gives_up() {
+        assert!(EDIT_ROUNDTRIP_TIMEOUT < std::time::Duration::from_secs(5));
+    }
+
+    /// `/content` answers with what the window did: ok once it replaced the
+    /// document (and saved it when asked), else the window's reason, and a
+    /// window that never answers is a failure rather than a silent success.
+    #[test]
+    fn set_content_reports_what_the_window_did() {
+        use super::{set_content_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let ok = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(set_content_reply(Ok(ok)), serde_json::json!({ "ok": true }));
+
+        let refused = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Content replaced in the open document but not saved: denied".into()),
+        };
+        let v = set_content_reply(Ok(refused));
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("not saved"));
+
+        let v = set_content_reply(Ok(EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: None,
+        }));
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().is_some_and(|e| !e.is_empty()));
+
+        for gone in [RecvTimeoutError::Timeout, RecvTimeoutError::Disconnected] {
+            let v = set_content_reply(Err(gone));
+            assert_eq!(v["ok"], false);
+            assert!(v["error"].as_str().unwrap().contains("Timed out"));
+        }
+    }
+
+    /// `/open` and `/present` answer with what the window did, so an open
+    /// that failed in the window reaches the agent with its reason.
+    #[test]
+    fn open_and_present_report_what_the_window_did() {
+        use super::{window_open_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let ok = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(
+            window_open_reply(Ok(ok), "/d/a.md", "open"),
+            serde_json::json!({ "ok": true, "path": "/d/a.md" })
+        );
+
+        let failed = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Could not read /d/a.md: Permission denied".into()),
+        };
+        let v = window_open_reply(Ok(failed), "/d/a.md", "open");
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "Could not read /d/a.md: Permission denied");
+
+        let silent = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: None,
+        };
+        let v = window_open_reply(Ok(silent), "/d/a.md", "present");
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("could not present"));
+
+        for gone in [RecvTimeoutError::Timeout, RecvTimeoutError::Disconnected] {
+            let v = window_open_reply(Err(gone), "/d/a.md", "open");
+            assert_eq!(v["ok"], false);
+            assert!(v["error"].as_str().unwrap().contains("Timed out"));
+        }
+    }
+
+    // ── Review retention ─────────────────────────────────────────────────────
+
+    use super::{prune_reviews, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
+    use std::collections::HashMap;
+
+    fn review(status: &str, path: Option<&str>, created_at: u64, timeout_ms: u64) -> ReviewRecord {
+        ReviewRecord {
+            status: status.into(),
+            verdict: (status != "pending").then(|| status.to_string()),
+            comments: None,
+            path: path.map(str::to_string),
+            created_at,
+            timeout_ms,
+        }
+    }
+
+    #[test]
+    fn the_panel_can_record_a_timeout_verdict() {
+        // The countdown running out is not the human dismissing the review.
+        assert!(super::REVIEW_VERDICTS.contains(&"timeout"));
+        assert!(super::REVIEW_VERDICTS.contains(&"dismissed"));
+        // A recorded timeout reads back as timeout, which the MCP tool reports.
+        let r = review("timeout", None, 1_000, 5_000);
+        assert_eq!(super::review_status(&r, 2_000), "timeout");
+    }
+
+    #[test]
+    fn a_pending_review_past_its_window_reads_as_timeout() {
+        use super::review_status;
+        let t0 = 1_000_000;
+        let r = review("pending", Some("/a.md"), t0, 5_000);
+        assert_eq!(review_status(&r, t0 + 4_999), "pending");
+        // Nobody decided before the window closed (e.g. a newer review took
+        // the panel): an agent resuming it must not be told to keep waiting.
+        assert_eq!(review_status(&r, t0 + 5_000), "timeout");
+        let decided = review("approved", Some("/a.md"), t0, 5_000);
+        assert_eq!(review_status(&decided, t0 + 60_000), "approved");
+    }
+
+    #[test]
+    fn reviews_are_kept_while_an_agent_can_still_resume_them() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        // Pending, its 10 min window still open.
+        map.insert("open".to_string(), review("pending", None, t0, 600_000));
+        // Decided, its window closed but within the retention period.
+        map.insert("recent".to_string(), review("approved", None, t0, 5_000));
+        prune_reviews(&mut map, t0 + 600_000 - 1);
+        assert!(map.contains_key("open"));
+        assert!(map.contains_key("recent"));
+    }
+
+    #[test]
+    fn reviews_past_their_retention_are_dropped() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert("old".to_string(), review("approved", None, t0, 5_000));
+        map.insert("stale".to_string(), review("pending", None, t0, 5_000));
+        map.insert(
+            "fresh".to_string(),
+            review("pending", None, t0 + 3_600_000, 300_000),
+        );
+        prune_reviews(&mut map, t0 + 5_000 + REVIEW_RETENTION_MS);
+        assert!(!map.contains_key("old"));
+        assert!(!map.contains_key("stale"));
+        assert!(map.contains_key("fresh"));
+    }
+
+    #[test]
+    fn the_latest_review_of_a_file_outlives_retention_for_get_user_annotations() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert(
+            "a1".to_string(),
+            review("changes_requested", Some("/a.md"), t0, 5_000),
+        );
+        map.insert(
+            "a2".to_string(),
+            review("approved", Some("/a.md"), t0 + 1, 5_000),
+        );
+        prune_reviews(&mut map, t0 + 10 * REVIEW_RETENTION_MS);
+        assert!(!map.contains_key("a1"));
+        assert!(map.contains_key("a2"));
+    }
+
+    #[test]
+    fn the_review_count_is_capped_dropping_decided_reviews_first() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert("pending".to_string(), review("pending", None, t0, 600_000));
+        for i in 0..(MAX_REVIEWS as u64 + 10) {
+            map.insert(
+                format!("d{i}"),
+                review("approved", Some(&format!("/f{i}.md")), t0 + 1 + i, 600_000),
+            );
+        }
+        prune_reviews(&mut map, t0 + 2);
+        assert!(map.len() <= MAX_REVIEWS);
+        assert!(
+            map.contains_key("pending"),
+            "an open review is never the one dropped"
+        );
+        assert!(
+            !map.contains_key("d0"),
+            "the oldest decided review goes first"
+        );
+        assert!(map.contains_key(&format!("d{}", MAX_REVIEWS as u64 + 9)));
+    }
+
+    /// mdopener-mcp percent-encodes the review id it polls with, so a resumed
+    /// `review_id` with a space or `&` must be decoded to find its review.
+    #[test]
+    fn query_params_are_percent_decoded() {
+        use super::query_param;
+        assert_eq!(query_param("id=rev_1", "id").as_deref(), Some("rev_1"));
+        assert_eq!(
+            query_param("x=1&id=my%20review%26co", "id").as_deref(),
+            Some("my review&co")
+        );
+        assert_eq!(query_param("idx=1", "id"), None);
+        assert_eq!(query_param("", "id"), None);
+    }
+
+    #[test]
+    fn a_named_path_is_compared_with_the_open_document_canonically() {
+        let d = Scratch::new("names-open");
+        let open = d.0.join("open.md");
+        std::fs::write(&open, "x").unwrap();
+        let open_s = open.to_str().unwrap();
+        let via_dots = format!("{}/./open.md", d.0.display());
+        let canon = std::fs::canonicalize(&open).unwrap();
+        for want in [open_s, via_dots.as_str(), canon.to_str().unwrap()] {
+            assert!(names_open_document(want, open_s), "{want}");
+            assert!(names_open_document(open_s, &via_dots), "{want}");
+        }
+        let other = d.0.join("other.md");
+        std::fs::write(&other, "y").unwrap();
+        assert!(!names_open_document(other.to_str().unwrap(), open_s));
+        assert!(!names_open_document(open_s, ""));
+        // Unsaved buffers have no path to resolve; only an exact match counts.
+        assert!(names_open_document("Untitled", "Untitled"));
+    }
+
+    #[test]
+    fn agents_can_open_only_markdown_documents() {
+        let d = Scratch::new("agent-paths");
+        let md = d.0.join("notes.md");
+        std::fs::write(&md, "# hi").unwrap();
+        let canon = std::fs::canonicalize(&md).unwrap();
+        assert_eq!(
+            checked_agent_path(md.to_str().unwrap()).unwrap(),
+            canon.to_str().unwrap()
+        );
+        let upper = d.0.join("README.MD");
+        std::fs::write(&upper, "x").unwrap();
+        assert!(checked_agent_path(upper.to_str().unwrap()).is_ok());
+
+        let secret = d.0.join("id_rsa");
+        std::fs::write(&secret, "PRIVATE KEY").unwrap();
+        let env = d.0.join(".env.md");
+        std::fs::write(&env, "TOKEN=1").unwrap();
+        let dir_md = d.0.join("folder.md");
+        std::fs::create_dir_all(&dir_md).unwrap();
+        let mut refused = vec![secret.clone(), env, dir_md, d.0.join("x.txt")];
+        #[cfg(unix)]
+        {
+            // A Markdown-named link to a secret is judged by its target.
+            let link = d.0.join("innocent.md");
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            refused.push(link);
+        }
+        for p in refused {
+            let err = checked_agent_path(p.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("Markdown"), "{p:?}: {err}");
+        }
+
+        // The window cannot open a file that is not there (it would report
+        // the open as done and show nothing).
+        let missing = d.0.join("missing.md");
+        let err = checked_agent_path(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
+    }
+
+    /// A scratch directory removed on drop (the app crate has no tempfile).
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let n = N.fetch_add(1, Ordering::Relaxed);
+            let p =
+                std::env::temp_dir().join(format!("ipc-sessions-{tag}-{}-{n}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&p);
+            std::fs::create_dir_all(&p).unwrap();
+            Scratch(p)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn msg(id: &str, session: &str, ts: u64) -> SessionMessage {
+        SessionMessage {
+            id: id.into(),
+            session_id: session.into(),
+            role: "agent".into(),
+            content: format!("{id} content"),
+            cited_docs: vec![],
+            timestamp_ms: ts,
+        }
+    }
+
+    fn ids(msgs: &[SessionMessage]) -> Vec<&str> {
+        msgs.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    /// What mdopener-mcp writes for one message (its `SessionLog`).
+    fn mcp_file(messages: &[SessionMessage]) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    #[test]
+    fn session_ids_that_used_to_collide_get_their_own_files() {
+        let d = Scratch::new("collide");
+        write_session_file(&d.0, "a.b", &[msg("m1", "a.b", 1)]).unwrap();
+        write_session_file(&d.0, "a_b", &[msg("m2", "a_b", 2)]).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+        // The same names mdopener-mcp uses (`session_file_path`).
+        assert!(d.0.join("a%2Eb.json").is_file());
+        assert!(d.0.join("a_b.json").is_file());
+    }
+
+    #[test]
+    fn reads_the_session_file_mdopener_mcp_wrote() {
+        let d = Scratch::new("read-mcp");
+        std::fs::write(d.0.join("a%2Eb.json"), mcp_file(&[msg("m1", "a.b", 1)])).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+    }
+
+    #[test]
+    fn writes_the_format_mdopener_mcp_reads() {
+        let d = Scratch::new("write-mcp");
+        write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(d.0.join("s1.json")).unwrap()).unwrap();
+        assert_eq!(v["messages"][0]["id"], "m1");
+        assert_eq!(v["messages"][0]["sessionId"], "s1");
+    }
+
+    #[test]
+    fn persisting_keeps_messages_the_mcp_server_appended() {
+        let d = Scratch::new("merge");
+        // The agent saved m1 through mdopener-mcp; the window only knows m2.
+        std::fs::write(d.0.join("s1.json"), mcp_file(&[msg("m1", "s1", 1)])).unwrap();
+        let written = write_session_file(&d.0, "s1", &[msg("m2", "s1", 2)]).unwrap();
+        assert_eq!(ids(&written), ["m1", "m2"]);
+        assert_eq!(ids(&read_session_file(&d.0, "s1").unwrap()), ["m1", "m2"]);
+        // Re-persisting the same messages adds no duplicates.
+        let again = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1), msg("m2", "s1", 2)]);
+        assert_eq!(ids(&again.unwrap()), ["m1", "m2"]);
+    }
+
+    #[test]
+    fn history_under_the_legacy_name_is_read_without_other_ids() {
+        let d = Scratch::new("legacy");
+        // Earlier builds (app: a bare array) wrote both ids to `a_b.json`.
+        let legacy = serde_json::to_string(&[msg("m1", "a.b", 1), msg("m2", "a_b", 2)]).unwrap();
+        std::fs::write(d.0.join("a_b.json"), legacy).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+        // The next write moves `a.b` to its own file; the legacy file stays.
+        write_session_file(&d.0, "a.b", &[msg("m3", "a.b", 3)]).unwrap();
+        assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1", "m3"]);
+        assert_eq!(ids(&read_session_file(&d.0, "a_b").unwrap()), ["m2"]);
+    }
+
+    #[test]
+    fn a_file_shared_with_another_id_or_unreadable_is_not_overwritten() {
+        let d = Scratch::new("refuse");
+        // A case-insensitive file system folds `Plan` and `plan` together.
+        let shared = mcp_file(&[msg("m1", "plan", 1)]);
+        std::fs::write(d.0.join("Plan.json"), &shared).unwrap();
+        assert!(read_session_file(&d.0, "Plan").unwrap().is_empty());
+        assert!(write_session_file(&d.0, "Plan", &[msg("m2", "Plan", 2)]).is_err());
+        assert_eq!(
+            std::fs::read_to_string(d.0.join("Plan.json")).unwrap(),
+            shared
+        );
+
+        std::fs::write(d.0.join("s1.json"), "{ torn").unwrap();
+        assert!(write_session_file(&d.0, "s1", &[msg("m2", "s1", 2)]).is_err());
+        assert_eq!(
+            std::fs::read_to_string(d.0.join("s1.json")).unwrap(),
+            "{ torn"
+        );
     }
 }

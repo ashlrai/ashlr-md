@@ -4,7 +4,8 @@
  * Appears as a bottom bar when an agent requests review (via the request_review
  * MCP tool). The human reads the opened doc, optionally comments, and clicks
  * Approve / Request changes — the verdict flows back to the agent. A live
- * countdown shows the agent's timeout; on expiry the panel dismisses itself.
+ * countdown shows the agent's timeout; on expiry the panel records `timeout`
+ * and closes.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -22,7 +23,10 @@ export function ReviewPanel() {
   const draftComment = useReviewStore((s) => s.draftComment);
   const setDraftComment = useReviewStore((s) => s.setDraftComment);
   const submitVerdict = useReviewStore((s) => s.submitVerdict);
+  const submitting = useReviewStore((s) => s.submitting);
+  const submitError = useReviewStore((s) => s.submitError);
   const dismiss = useReviewStore((s) => s.dismiss);
+  const expire = useReviewStore((s) => s.expire);
 
   const panelRef = useRef<HTMLDivElement>(null);
   // Move focus to the panel when a review appears (keyed on reviewId so a new
@@ -60,7 +64,7 @@ export function ReviewPanel() {
           reviewId={pending.reviewId}
           registeredAt={pending.registeredAt}
           timeoutMs={pending.timeoutMs}
-          onExpire={dismiss}
+          onExpire={expire}
         />
         <button
           type="button"
@@ -81,10 +85,17 @@ export function ReviewPanel() {
         aria-label="Review comments"
       />
 
+      {submitError && (
+        <p className="review-panel__error" role="alert">
+          {submitError}
+        </p>
+      )}
+
       <div className="review-panel__actions">
         <button
           type="button"
           className="review-panel__btn review-panel__btn--changes"
+          disabled={submitting}
           onClick={() => void submitVerdict("changes_requested")}
         >
           Request changes
@@ -92,6 +103,7 @@ export function ReviewPanel() {
         <button
           type="button"
           className="review-panel__btn review-panel__btn--approve"
+          disabled={submitting}
           onClick={() => void submitVerdict("approved")}
         >
           Approve

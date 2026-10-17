@@ -166,20 +166,40 @@ fn version_line() -> String {
     format!("mdopen {}", env!("CARGO_PKG_VERSION"))
 }
 
-/// Resolve `target` to an absolute path of an existing regular file.
+/// Resolve `target` to an absolute path of an existing regular file that is a
+/// Markdown document and not a dotfile (checked after resolving symlinks),
+/// the only files the app opens.
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
     let p = std::fs::canonicalize(target)
         .map_err(|e| format!("cannot resolve path {target:?}: {e}"))?;
     if !p.is_file() {
         return Err(format!("{target:?} is not a file"));
     }
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let markdown = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    if !markdown || name.starts_with('.') {
+        return Err(format!(
+            "{target:?} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
+            MD_EXTENSIONS.join(", .")
+        ));
+    }
     Ok(p)
 }
 
+/// Extensions the app opens (mirrors `MD_EXTENSIONS` in src-tauri/src/document.rs).
+const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
+
 /// Read stdin into a temp `.md` file and return its path.
 fn read_stdin_to_temp() -> PathBuf {
-    use std::io::Read as _;
+    use std::io::{IsTerminal as _, Read as _};
 
+    // Typed input: say how to finish, rather than waiting for EOF in silence.
+    if let Some(hint) = stdin_hint(std::io::stdin().is_terminal()) {
+        eprintln!("mdopen: {hint}");
+    }
     let mut content = Vec::new();
     std::io::stdin()
         .read_to_end(&mut content)
@@ -187,11 +207,41 @@ fn read_stdin_to_temp() -> PathBuf {
             eprintln!("mdopen: failed to read stdin: {e}");
             process::exit(1);
         });
+    if let Err(msg) = check_stdin_content(&content) {
+        eprintln!("mdopen: {msg}");
+        process::exit(1);
+    }
 
     write_new_temp(&std::env::temp_dir(), &content).unwrap_or_else(|e| {
         eprintln!("mdopen: failed to write temp file: {e}");
         process::exit(1);
     })
+}
+
+/// The stderr hint for `mdopen -` when stdin is a terminal (nothing is piped),
+/// or `None` when it is a pipe or file.
+fn stdin_hint(stdin_is_terminal: bool) -> Option<&'static str> {
+    if !stdin_is_terminal {
+        return None;
+    }
+    Some(if cfg!(windows) {
+        "reading Markdown from the terminal; type it, then press Ctrl+Z and Enter \
+         to open it (Ctrl+C cancels). To open a file, pipe it: `type notes.md | mdopen -`."
+    } else {
+        "reading Markdown from the terminal; type it, then press Ctrl+D to open it \
+         (Ctrl+C cancels). To open a file, pipe it: `cat notes.md | mdopen -`."
+    })
+}
+
+/// Refuse piped content with nothing to show, so `mdopen -` never opens an
+/// empty temp document (e.g. `mdopen - < /dev/null`, or a failed producer).
+fn check_stdin_content(content: &[u8]) -> Result<(), String> {
+    if content.iter().all(u8::is_ascii_whitespace) {
+        return Err("stdin was empty, so there is nothing to open. \
+                    Pipe Markdown in, e.g. `cat notes.md | mdopen -`."
+            .into());
+    }
+    Ok(())
 }
 
 /// Write `content` to a new `mdopen-stdin-*.md` file in `dir`. The file is
@@ -253,7 +303,9 @@ fn open_in_app(
     let ipc_error = match ipc::home_dir() {
         Some(home) => match ipc::open(&home, abs_path, mode) {
             Ok(()) => return Ok(Opened::Confirmed),
-            Err(e) => e,
+            // The running app said no; the URL scheme would only reach it again.
+            Err(ipc::Failure::Refused(reason)) => return Err(reason),
+            Err(ipc::Failure::Unreachable(e)) => e,
         },
         None => "no home directory".to_string(),
     };
@@ -346,7 +398,8 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage, unresolvable path or not a file, or the app is not running
+    1  bad usage, unresolvable path, not a file or not a Markdown document
+       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case.
     --hook always exits 0 and prints nothing
@@ -481,6 +534,35 @@ mod tests {
         assert!(resolve_file(s.0.join("nope.md").to_str().unwrap())
             .unwrap_err()
             .contains("cannot resolve path"));
+    }
+
+    #[test]
+    fn resolve_file_refuses_what_the_app_will_not_open() {
+        // The app opens only Markdown documents that are not dotfiles; handing
+        // it anything else used to exit 0 with nothing opened.
+        let s = Scratch::new("markdown-only");
+        for name in ["notes.txt", "Makefile", ".env.md"] {
+            let f = s.file(name);
+            let err = resolve_file(f.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("not a Markdown document"), "{name}: {err}");
+        }
+        assert!(resolve_file(s.file("Plan.MD").to_str().unwrap()).is_ok());
+        #[cfg(unix)]
+        {
+            let secret = s.file("secret.txt");
+            let link = s.0.join("link.md");
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            let err = resolve_file(link.to_str().unwrap()).unwrap_err();
+            assert!(err.contains("not a Markdown document"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_terminal_on_stdin_gets_a_hint_and_a_pipe_does_not() {
+        let hint = stdin_hint(true).expect("a terminal on stdin needs a hint");
+        assert!(hint.contains("Ctrl+"), "hint: {hint}");
+        assert!(hint.contains("mdopen -"), "hint: {hint}");
+        assert_eq!(stdin_hint(false), None);
     }
 
     #[test]
