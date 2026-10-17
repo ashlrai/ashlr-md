@@ -26,20 +26,31 @@
         "title": "Open in Ashlr MD",
         "category": "Ashlr MD",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "ashlr-md.openInAshlrEditMode",
+        "title": "Open in Ashlr MD (Edit Mode)",
+        "category": "Ashlr MD",
+        "icon": "$(edit)"
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "ashlr-md.openInAshlr",
-          "when": "resourceLangId == markdown",
+          "alt": "ashlr-md.openInAshlrEditMode",
+          "when": "resourceLangId == markdown || resourceExtname =~ /^\\.(md|markdown|mdown|mkd|mdx)$/i",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
           "command": "ashlr-md.openInAshlr",
-          "when": "resourceLangId == markdown"
+          "when": "resourceLangId == markdown || resourceExtname =~ /^\\.(md|markdown|mdown|mkd|mdx)$/i"
+        },
+        {
+          "command": "ashlr-md.openInAshlrEditMode",
+          "when": "resourceLangId == markdown || resourceExtname =~ /^\\.(md|markdown|mdown|mkd|mdx)$/i"
         }
       ]
     },
@@ -50,6 +61,11 @@
           "type": "string",
           "default": "mdopen",
           "description": "Path to the `mdopen` CLI used as a fallback if the mdopener:// deep link cannot be opened. Defaults to `mdopen` on your PATH."
+        },
+        "ashlr-md.openInEditMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open files in Ashlr MD's edit mode by default (sends `&mode=edit`). The \"Open in Ashlr MD (Edit Mode)\" command always opens in edit mode."
         }
       }
     }

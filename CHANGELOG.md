@@ -36,6 +36,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code extension offers Ashlr MD for `.mdx` files and opens in
+  edit mode on request.** Its title-bar button and command appeared only for
+  files in the Markdown language mode, so an `.mdx` file (or another
+  extension the app opens that VS Code shows in some other mode) had no
+  button. They now also match on the file's extension. A new "Open in Ashlr
+  MD (Edit Mode)" command (also Alt/Option-click on the button) and an
+  `ashlr-md.openInEditMode` setting send `&mode=edit`, as the Obsidian
+  plugin does.
 - **The Obsidian plugin's README no longer says it is macOS only.** It said
   the `mdopener://` scheme is registered only on macOS, but the Windows
   installers and the Linux packages register it too, and an AppImage

@@ -4,8 +4,21 @@ All notable changes to the **Open in Ashlr MD** VS Code extension.
 
 ## [Unreleased]
 
+### Added
+
+- Command **Ashlr MD: Open in Ashlr MD (Edit Mode)**
+  (`ashlr-md.openInAshlrEditMode`), also on Alt/Option-click of the title-bar
+  button, opens the file in Ashlr MD's edit mode (`&mode=edit`, and
+  `mdopen --edit` for the fallback), as the Obsidian plugin's edit-mode
+  command does. The `ashlr-md.openInEditMode` setting makes edit mode the
+  default for the plain command.
+
 ### Fixed
 
+- The title-bar button and the commands are offered for every extension
+  Ashlr MD opens (`resourceExtname`), not only for files in the Markdown
+  language mode, so an `.mdx` file (which VS Code usually shows as MDX, or as
+  plain text) had no button although the app opens it.
 - Only files Ashlr MD opens are handed off: a Markdown extension (`.md`,
   `.markdown`, `.mdown`, `.mkd`, `.mdx`) and a name that is not a dotfile.
   A dotfile, or a file merely in the Markdown language mode, used to be sent
