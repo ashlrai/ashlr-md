@@ -453,7 +453,9 @@ pub fn store_append_message(
         timestamp_ms: ts,
     };
 
-    let mut store = conversation_store().lock().map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store()
+        .lock()
+        .map_err(|e| format!("Lock error: {e}"))?;
     let _dir_lock = lock_sessions_dir().map_err(|e| format!("Message not saved: {e}"))?;
     // Continue the persisted log, re-read on every append: another server
     // process (a second agent, or this agent after a restart) or the app may
@@ -1147,6 +1149,11 @@ pub fn tool_list() -> Value {
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
 pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient) -> Response {
+    if let Some(def) = tool_registry().iter().find(|t| t.name == name) {
+        if let Err(msg) = check_tool_arguments(def, &args) {
+            return Response::err(id, -32602, msg);
+        }
+    }
     match name {
         "open_file" => tool_open_file(id, &args, ipc),
         "get_current_content" => tool_get_content(id, ipc),
@@ -1169,8 +1176,180 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "stream_edit_apply" => tool_stream_edit_apply(id, &args, ipc),
         "export_text" => tool_export_text(id, &args, ipc),
         "export_metadata" => tool_export_metadata(id, &args, ipc),
-        other => Response::err(id, -32602, format!("Unknown tool: {other}")),
+        other => Response::err(id, -32602, unknown_tool_msg(other)),
     }
+}
+
+/// Arguments a tool used to take and now refuses with its own, more specific
+/// message (checked in the tool), so the generic undeclared-argument check
+/// lets them through.
+const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
+
+/// Check `tools/call` arguments against the tool's declared `inputSchema`
+/// before the tool runs. Each tool reads only the arguments it declares and
+/// falls back to a default when one has the wrong JSON type, so before this
+/// check a misspelled argument (`pth`, `include_prompt`) or a mistyped one
+/// (`"limit": "5"`, `"include_prompts": "no"`) was silently ignored and the
+/// call succeeded with defaults the agent never asked for.
+///
+/// Refused, with `-32602` and the argument named:
+/// - `arguments` that is not an object (absent or `null` means no arguments);
+/// - an argument the schema does not declare (the message lists those it does);
+/// - an argument whose JSON type differs from the declared `type`, or an array
+///   element whose type differs from the declared `items.type`.
+///
+/// A `null` value counts as "not given", as the tools already treat it.
+pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
+    let tool = def.name;
+    let given = match args {
+        Value::Null => return Ok(()),
+        Value::Object(map) => map,
+        other => {
+            return Err(format!(
+                "`arguments` for `{tool}` must be an object, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    };
+    let empty = serde_json::Map::new();
+    let declared = def.input_schema["properties"].as_object().unwrap_or(&empty);
+    for (key, value) in given {
+        let Some(prop) = declared.get(key) else {
+            if RETIRED_ARGUMENTS.contains(&(tool, key.as_str())) {
+                continue;
+            }
+            let mut names: Vec<&str> = declared.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let takes = if names.is_empty() {
+                "it takes no arguments".to_string()
+            } else {
+                format!(
+                    "it takes {}",
+                    names
+                        .iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            let hint = closest_name(key, &names)
+                .map(|n| format!(" Did you mean `{n}`?"))
+                .unwrap_or_default();
+            return Err(format!(
+                "Unknown argument `{key}` for `{tool}`: {takes}.{hint}"
+            ));
+        };
+        if value.is_null() {
+            continue;
+        }
+        if let Some(want) = prop["type"].as_str() {
+            if !json_type_matches(want, value) {
+                return Err(format!(
+                    "`{key}` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(value)
+                ));
+            }
+        }
+        if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
+            if let Some((i, bad)) = items
+                .iter()
+                .enumerate()
+                .find(|(_, v)| !json_type_matches(want, v))
+            {
+                return Err(format!(
+                    "`{key}[{i}]` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(bad)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn json_type_matches(want: &str, value: &Value) -> bool {
+    match want {
+        "string" => value.is_string(),
+        "boolean" => value.is_boolean(),
+        "integer" => value.is_i64() || value.is_u64(),
+        "number" => value.is_number(),
+        "array" => value.is_array(),
+        "object" => value.is_object(),
+        "null" => value.is_null(),
+        _ => true,
+    }
+}
+
+fn type_phrase(want: &str) -> String {
+    match want {
+        "integer" | "array" | "object" => format!("an {want}"),
+        other => format!("a {other}"),
+    }
+}
+
+fn json_type_phrase(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => format!("a boolean ({b})"),
+        Value::Number(n) => format!("a number ({n})"),
+        Value::String(s) => format!("a string ({s:?})"),
+        Value::Array(_) => "an array".to_string(),
+        Value::Object(_) => "an object".to_string(),
+    }
+}
+
+/// The candidate closest to `name`: equal ignoring case, `-`/`_` and spaces,
+/// or within an edit distance of 2. `None` when nothing is that close.
+fn closest_name<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let norm = |s: &str| -> String {
+        s.chars()
+            .filter(|c| !matches!(c, '_' | '-' | ' '))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let wanted = norm(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    candidates
+        .iter()
+        .map(|c| (edit_distance(&wanted, &norm(c)), *c))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| c)
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// The `-32602` message for a `tools/call` name that is not a tool: it names
+/// the closest real tool when there is one, and says where the list is.
+pub fn unknown_tool_msg(name: &str) -> String {
+    let names: Vec<&str> = ALL_TOOL_NAMES.to_vec();
+    let shown = if name.is_empty() {
+        "Unknown tool: `name` is missing or blank.".to_string()
+    } else {
+        format!("Unknown tool: {name}.")
+    };
+    let hint = closest_name(name, &names)
+        .map(|n| format!(" Did you mean `{n}`?"))
+        .unwrap_or_default();
+    format!(
+        "{shown}{hint} Call tools/list for the {} tools this server provides.",
+        names.len()
+    )
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -1662,21 +1841,36 @@ pub fn tool_request_review_with(
             Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" => continue,
-                "timeout" => return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "The review window closed with no verdict."
-                })),
-                "not_found" => return tool_result(id, json!({
-                    "verdict": "timeout",
-                    "reviewId": review_id,
-                    "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
-                })),
-                _ => return tool_result(id, json!({
-                    "verdict": resp["verdict"],
-                    "reviewId": review_id,
-                    "comments": resp["comments"],
-                })),
+                "timeout" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "timeout",
+                            "reviewId": review_id,
+                            "message": "The review window closed with no verdict."
+                        }),
+                    )
+                }
+                "not_found" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "timeout",
+                            "reviewId": review_id,
+                            "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
+                        }),
+                    )
+                }
+                _ => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": resp["verdict"],
+                            "reviewId": review_id,
+                            "comments": resp["comments"],
+                        }),
+                    )
+                }
             },
         }
     }
@@ -1858,13 +2052,24 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
 
 // ── get_conversation_context tool ────────────────────────────────────────────
 
+/// The `session_id` of the conversation tools. A blank or whitespace-only id
+/// is refused like a missing one: it used to be accepted and stored as
+/// `%20%20%20.json`, a session no agent means to address.
+fn session_id_arg(args: &Value) -> Result<String, &'static str> {
+    match args["session_id"].as_str() {
+        Some(s) if !s.trim().is_empty() => Ok(s.to_string()),
+        Some(_) => Err("`session_id` must not be blank"),
+        None => Err("`session_id` is required"),
+    }
+}
+
 /// Return the last N messages from the session's persistent memory store.
 /// If the in-process store is empty (cold start / restart), loads from disk.
 /// Returns an empty array gracefully when the session has no messages yet.
 pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
-    let session_id = match args["session_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`session_id` is required"),
+    let session_id = match session_id_arg(args) {
+        Ok(s) => s,
+        Err(msg) => return Response::err(id, -32602, msg),
     };
 
     let limit = args["limit"]
@@ -1908,9 +2113,9 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
 /// Persists to disk at `~/.mdopener/sessions/{sessionId}.json` after every
 /// append so messages survive process restarts.
 pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
-    let session_id = match args["session_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`session_id` is required"),
+    let session_id = match session_id_arg(args) {
+        Ok(s) => s,
+        Err(msg) => return Response::err(id, -32602, msg),
     };
 
     let role = match args["role"].as_str() {
