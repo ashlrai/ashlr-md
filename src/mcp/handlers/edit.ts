@@ -26,6 +26,26 @@ import type {
   StreamEditPayload,
 } from "./types";
 
+/**
+ * Save the open document for an edit that asked for `save: true`. Returns
+ * `null` when it reached disk, or the reason it did not. `save()` reports a
+ * failed write only through a toast and `error`, and does nothing for a
+ * document with no file, so its success is read back from `diskContent`.
+ */
+async function saveForAgent(): Promise<string | null> {
+  const doc = useDocumentStore.getState();
+  if (!doc.path) return "the document has no file yet; save it from the app first";
+  const target = doc.content;
+  await doc.save();
+  const after = useDocumentStore.getState();
+  if (after.diskContent === target) return null;
+  return after.error ?? "the write failed";
+}
+
+function notSaved(reason: string): string {
+  return `Edit applied to the open document but not saved: ${reason}`;
+}
+
 // ── mcp://set-content ─────────────────────────────────────────────────────────
 
 export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
@@ -47,18 +67,19 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
     try {
       const liveContent = useDocumentStore.getState().content;
       const outcome = applyUniqueEdit(liveContent, find, replace);
+      let saveError: string | null = null;
       if (outcome.ok && outcome.content !== undefined) {
         useDocumentStore.getState().setContent(outcome.content);
         if (save) {
-          await useDocumentStore.getState().save();
+          saveError = await saveForAgent();
         }
         syncNow();
       }
       await invoke("mcp_edit_result", {
         editId,
-        ok: outcome.ok,
+        ok: outcome.ok && saveError === null,
         replaced: outcome.replaced,
-        error: outcome.error ?? null,
+        error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
       });
     } catch (err) {
       await invoke("mcp_edit_result", {
@@ -524,19 +545,20 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
 
     try {
       const outcome = applyEditAtOccurrence(liveContent, find, replace, matchIndex);
+      let saveError: string | null = null;
       if (outcome.ok && outcome.content !== undefined) {
         useDocumentStore.getState().setContent(outcome.content);
         if (save) {
-          await useDocumentStore.getState().save();
+          saveError = await saveForAgent();
         }
         syncNow();
       }
       await invoke("mcp_stream_edit_apply_result", {
         editId,
-        ok: outcome.ok,
+        ok: outcome.ok && saveError === null,
         replaced: outcome.replaced,
         matchIndex,
-        error: outcome.error ?? null,
+        error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
       }).catch(() => {
         /* non-fatal */
       });

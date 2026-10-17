@@ -460,3 +460,92 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().zenMode).toBe(true);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// An edit that asked to be saved reports a failed save
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — edits with save: true", () => {
+  function failWrites(): void {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "write_markdown_file"
+        ? Promise.reject("Permission denied")
+        : Promise.resolve(undefined),
+    );
+  }
+
+  function reply(cmd: string): Record<string, unknown> {
+    const call = invokeMock.mock.calls.find((c) => c[0] === cmd);
+    expect(call).toBeDefined();
+    return call![1] as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    useDocumentStore.setState({
+      path: "/doc.md",
+      content: "hello world",
+      diskContent: "hello world",
+    } as Parameters<typeof useDocumentStore.setState>[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(() => Promise.resolve(undefined));
+  });
+
+  it("edit: a successful save is reported as ok", async () => {
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      true,
+    );
+    expect(reply("mcp_edit_result")).toMatchObject({ ok: true, replaced: 1 });
+  });
+
+  it("edit: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    // The edit itself is applied to the open document; only the save failed.
+    expect(useDocumentStore.getState().content).toBe("hi world");
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+    expect(String(r.error)).toContain("Permission denied");
+  });
+
+  it("edit: save on a document with no file is not reported as ok", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+
+  it("stream-edit-apply: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "s1",
+      find: "hello",
+      replace: "hi",
+      matchIndex: 0,
+      save: true,
+    });
+    const r = reply("mcp_stream_edit_apply_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+});
