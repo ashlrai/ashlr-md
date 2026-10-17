@@ -1221,6 +1221,11 @@ pub fn tool_open_file_with(
 
     // Try IPC first (app already running).
     let ipc_error = match ipc.post("/open", json!({ "path": abs, "mode": mode })) {
+        // The app answers once its window has opened the document, so a
+        // failure there is the agent's to see, with the window's reason.
+        Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+            return tool_error(id, window_refusal(&resp, "open", &abs))
+        }
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
         // The app is running and refused the request: say why, and do not
         // retry it through the URL scheme.
@@ -1258,6 +1263,14 @@ pub fn tool_open_file_with(
                 outcome.describe()
             ),
         ),
+    }
+}
+
+/// The reason in an app reply of `ok: false` to `/open` or `/present`.
+fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
+    match resp["error"].as_str() {
+        Some(e) => e.to_string(),
+        None => format!("The app could not {doing} {what}."),
     }
 }
 
@@ -1813,6 +1826,10 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Err(e) => return tool_error(id, e),
     };
     match ipc.post("/present", json!({ "path": path })) {
+        Ok(v) if v["ok"].as_bool() == Some(false) => {
+            let what = path.as_deref().unwrap_or("the open document");
+            tool_error(id, window_refusal(&v, "present", what))
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }

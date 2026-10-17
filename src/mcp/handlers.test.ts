@@ -51,7 +51,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("../store/recentStore", () => ({
   useRecentStore: {
-    getState: () => ({ recents: [] }),
+    getState: () => ({ recents: [], add: vi.fn() }),
     subscribe: vi.fn(() => vi.fn()),
   },
 }));
@@ -406,5 +406,99 @@ describe("handlers integration — edits with save: true", () => {
     const r = reply("mcp_stream_edit_apply_result");
     expect(r.ok).toBe(false);
     expect(String(r.error)).toContain("not saved");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Open and present report what the window did
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — open and present report the outcome", () => {
+  function reply(): Record<string, unknown> {
+    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_edit_result");
+    expect(call).toBeDefined();
+    return call![1] as Record<string, unknown>;
+  }
+
+  function failReads(): void {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.reject("Could not read /gone.md: No such file or directory")
+        : Promise.resolve(undefined),
+    );
+  }
+
+  beforeEach(() => {
+    mountBridge();
+    invokeMock.mockClear();
+  });
+
+  it("open: reports ok once the document is open", async () => {
+    await fireEvent("mcp://open", { editId: "o1", path: "/opened.md", mode: "edit" });
+    expect(useDocumentStore.getState().path).toBe("/opened.md");
+    expect(useDocumentStore.getState().viewMode).toBe("edit");
+    expect(reply()).toMatchObject({ editId: "o1", ok: true, error: null });
+  });
+
+  it("open: a failed read is reported with its reason", async () => {
+    failReads();
+    await fireEvent("mcp://open", { editId: "o1", path: "/gone.md" });
+    expect(useDocumentStore.getState().path).toBe("/test.md");
+    const r = reply();
+    expect(r).toMatchObject({ editId: "o1", ok: false });
+    expect(String(r.error)).toContain("No such file or directory");
+  });
+
+  it("open: a throwing openPath is still answered", async () => {
+    const openPath = vi
+      .spyOn(useDocumentStore.getState(), "openPath")
+      .mockRejectedValue(new Error("boom"));
+    await fireEvent("mcp://open", { editId: "o1", path: "/x.md" });
+    openPath.mockRestore();
+    const r = reply();
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("boom");
+  });
+
+  it("open: with no editId (a review opening its file) nothing is replied", async () => {
+    failReads();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await fireEvent("mcp://open", { path: "/gone.md", mode: "read" });
+    warn.mockRestore();
+    expect(invokeMock.mock.calls.some((c) => c[0] === "mcp_edit_result")).toBe(false);
+  });
+
+  it("present: a failed open is reported and zen mode is not entered", async () => {
+    failReads();
+    await fireEvent("mcp://present", { editId: "p1", path: "/gone.md" });
+    expect(useUiStore.getState().zenMode).toBe(false);
+    const r = reply();
+    expect(r).toMatchObject({ editId: "p1", ok: false });
+    expect(String(r.error)).toContain("No such file or directory");
+  });
+
+  it("present: reports ok once the document is presented", async () => {
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.resolve({
+            path: "/talk.md",
+            file_name: "talk.md",
+            content: "# T",
+            size: 3,
+          })
+        : Promise.resolve(undefined),
+    );
+    await fireEvent("mcp://present", { editId: "p1", path: "/talk.md" });
+    expect(useUiStore.getState().zenMode).toBe(true);
+    expect(reply()).toMatchObject({ editId: "p1", ok: true });
+  });
+
+  it("present: with no document open the failure is reported", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://present", { editId: "p1", path: null });
+    expect(useUiStore.getState().zenMode).toBe(false);
+    expect(reply()).toMatchObject({ editId: "p1", ok: false });
   });
 });

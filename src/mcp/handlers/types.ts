@@ -8,6 +8,9 @@
 // ── Open / set-content / edit ─────────────────────────────────────────────────
 
 export interface OpenPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back; absent when
+   * a review opens its file and nobody waits on the outcome. */
+  editId?: string;
   path: string;
   mode?: "read" | "edit";
 }
@@ -43,6 +46,8 @@ export interface ReviewPayload {
 }
 
 export interface PresentPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back. */
+  editId?: string;
   path: string | null;
 }
 

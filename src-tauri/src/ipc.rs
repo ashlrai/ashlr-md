@@ -11,21 +11,21 @@
 //! | GET    | /health    | —                                     | Liveness check                     |
 //! | GET    | /content   | —                                     | Current document `{path, content}` |
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
-//! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file                        |
+//! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
 //! | POST   | /export    | `{"format":"pdf|docx|html","outputPath":"…|null"}` | Trigger export |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
-//! | POST   | /present   | `{"path":"…|null"}`                   | Open + distraction-free reading    |
+//! | POST   | /present   | `{"path":"…|null"}`                   | Open + distraction-free reading (round-trip) |
 //!
 //! Auth: every endpoint except `/health` requires `Authorization: Bearer <token>`
 //! (the per-session token in `~/.mdopener/ipc-token`).
 //!
 //! Content is kept in [`DocMirror`], a managed Tauri state struct that the
 //! frontend syncs via `mcp_sync_state` on every document change (debounced
-//! 200 ms). Mutations (`/open`, `/export`) emit a Tauri event the frontend
-//! picks up and applies; `/content` waits for the window's outcome like `/edit`.
+//! 200 ms). Mutations emit a Tauri event the frontend picks up and applies;
+//! `/content`, `/open` and `/present` wait for the window's outcome like `/edit`.
 //!
 //! `/edit` is special: because the 200 ms debounce makes [`DocMirror`] stale
 //! right after the user types, applying a find/replace against it could miss
@@ -307,7 +307,8 @@ pub fn mcp_sync_vault(
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
 /// document, or an `mcp://set-content`. Forwards the outcome to the IPC worker
-/// thread parked in `handle_edit` or `handle_set_content`. Removing the sender from [`PendingEdits`] here means a stray or
+/// thread parked in `handle_edit` or [`window_round_trip`] (`/content`, `/open`,
+/// `/present`). Removing the sender from [`PendingEdits`] here means a stray or
 /// duplicate reply for an already-resolved (or timed-out) edit is silently
 /// ignored rather than panicking on a dropped receiver.
 #[tauri::command]
@@ -845,34 +846,43 @@ fn handle_set_content(mut req: Request, app: &AppHandle) {
         Ok(b) => b,
         Err((code, e)) => return send_error(req, code, &e),
     };
-    let _inflight = match InflightEdit::acquire() {
-        Some(g) => g,
-        None => return send_json(req, editor_busy()),
+    let payload = serde_json::json!({ "content": b.content, "save": b.save });
+    let reply = match window_round_trip(app, "content", "mcp://set-content", payload) {
+        Some(outcome) => set_content_reply(outcome),
+        None => editor_busy(),
     };
-    let edit_id = format!("content_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    send_json(req, reply);
+}
+
+/// Ask the window to act on `event` and park this worker until it reports
+/// back through `mcp_edit_result`, keyed by the `editId` added to `payload`,
+/// or until [`EDIT_ROUNDTRIP_TIMEOUT`]. `None` when [`MAX_INFLIGHT_EDITS`]
+/// round-trips are already parked, so the caller answers [`editor_busy`].
+fn window_round_trip(
+    app: &AppHandle,
+    prefix: &str,
+    event: &str,
+    mut payload: serde_json::Value,
+) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
+    let _inflight = InflightEdit::acquire()?;
+    let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    payload["editId"] = serde_json::Value::String(edit_id.clone());
     let (tx, rx) = mpsc::channel::<EditOutcome>();
-    app.state::<PendingEdits>()
-        .0
-        .lock()
-        .unwrap()
-        .insert(edit_id.clone(), tx);
-    let _ = app.emit(
-        "mcp://set-content",
-        serde_json::json!({
-            "editId": edit_id,
-            "content": b.content,
-            "save": b.save,
-        }),
-    );
+    let pending = app.state::<PendingEdits>();
+    pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+    if let Err(e) = app.emit(event, payload) {
+        pending.0.lock().unwrap().remove(&edit_id);
+        return Some(Ok(EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some(format!("The app could not reach its window: {e}")),
+        }));
+    }
     let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
     if outcome.is_err() {
-        app.state::<PendingEdits>()
-            .0
-            .lock()
-            .unwrap()
-            .remove(&edit_id);
+        pending.0.lock().unwrap().remove(&edit_id);
     }
-    send_json(req, set_content_reply(outcome));
+    Some(outcome)
 }
 
 /// The `/content` reply for what the window reported (or did not report).
@@ -906,13 +916,40 @@ fn handle_open(mut req: Request, app: &AppHandle) {
                 Err(e) => return send_error(req, 400, &e),
             };
 
-            let _ = app.emit("mcp://open", serde_json::json!({
-                "path": abs,
-                "mode": b.mode,
-            }));
-            send_json(req, serde_json::json!({"ok": true, "path": abs}));
+            let payload = serde_json::json!({ "path": abs, "mode": b.mode });
+            let reply = match window_round_trip(app, "open", "mcp://open", payload) {
+                Some(outcome) => window_open_reply(outcome, &abs, "open"),
+                None => editor_busy(),
+            };
+            send_json(req, reply);
         }
         Err((code, e)) => send_error(req, code, &e),
+    }
+}
+
+/// The `/open` or `/present` reply for what the window reported (or did not
+/// report) after it was asked to `doing` the document at `path`.
+fn window_open_reply(
+    outcome: Result<EditOutcome, mpsc::RecvTimeoutError>,
+    path: &str,
+    doing: &str,
+) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true, "path": path }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": o
+                .error
+                .unwrap_or_else(|| format!("The app could not {doing} {path}.")),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": format!(
+                "Timed out waiting for the app to {doing} {path} — is the window responsive?"
+            ),
+        }),
     }
 }
 
@@ -1600,7 +1637,8 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 }
 
 /// POST /present — open a document (if a path is given) and put the app into a
-/// distraction-free reading presentation. Emits `mcp://present`.
+/// distraction-free reading presentation. A round-trip like `/open`: emits
+/// `mcp://present` and answers with what the window reported.
 fn handle_present(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {
@@ -1618,8 +1656,12 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     // The frontend opens `path` only when one was asked for, else presents
     // the open document.
     let requested = body.path.is_some().then_some(&path);
-    let _ = app.emit("mcp://present", serde_json::json!({ "path": requested }));
-    send_json(req, serde_json::json!({ "ok": true, "path": path }));
+    let payload = serde_json::json!({ "path": requested });
+    let reply = match window_round_trip(app, "present", "mcp://present", payload) {
+        Some(outcome) => window_open_reply(outcome, &path, "present"),
+        None => editor_busy(),
+    };
+    send_json(req, reply);
 }
 
 /// The document `/present` shows: the requested one (checked like `/open`),
@@ -1980,6 +2022,47 @@ mod tests {
 
         for gone in [RecvTimeoutError::Timeout, RecvTimeoutError::Disconnected] {
             let v = set_content_reply(Err(gone));
+            assert_eq!(v["ok"], false);
+            assert!(v["error"].as_str().unwrap().contains("Timed out"));
+        }
+    }
+
+    /// `/open` and `/present` answer with what the window did, so an open
+    /// that failed in the window reaches the agent with its reason.
+    #[test]
+    fn open_and_present_report_what_the_window_did() {
+        use super::{window_open_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let ok = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(
+            window_open_reply(Ok(ok), "/d/a.md", "open"),
+            serde_json::json!({ "ok": true, "path": "/d/a.md" })
+        );
+
+        let failed = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Could not read /d/a.md: Permission denied".into()),
+        };
+        let v = window_open_reply(Ok(failed), "/d/a.md", "open");
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "Could not read /d/a.md: Permission denied");
+
+        let silent = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: None,
+        };
+        let v = window_open_reply(Ok(silent), "/d/a.md", "present");
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("could not present"));
+
+        for gone in [RecvTimeoutError::Timeout, RecvTimeoutError::Disconnected] {
+            let v = window_open_reply(Err(gone), "/d/a.md", "open");
             assert_eq!(v["ok"], false);
             assert!(v["error"].as_str().unwrap().contains("Timed out"));
         }

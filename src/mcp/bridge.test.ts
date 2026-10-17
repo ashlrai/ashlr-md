@@ -91,7 +91,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("../store/recentStore", () => ({
   useRecentStore: {
-    getState: () => ({ recents: ["/a.md", "/b.md"] }),
+    getState: () => ({ recents: ["/a.md", "/b.md"], add: vi.fn() }),
     subscribe: vi.fn(() => vi.fn()),
   },
 }));

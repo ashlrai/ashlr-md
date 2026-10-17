@@ -486,6 +486,29 @@ fn open_file_ipc_success_returns_opened_path() {
     assert!(text["opened"].as_str().is_some());
 }
 
+/// The app answers `/open` once its window has tried to open the document;
+/// a failure there reaches the agent as a tool error with the window's
+/// reason, and is not retried through the URL scheme.
+#[test]
+fn open_file_reports_the_windows_failure() {
+    let ipc = MockIpc::new().on_post(
+        "/open",
+        Ok(json!({
+            "ok": false,
+            "path": "/tmp/mdopener-notes.md",
+            "error": "Could not read /tmp/mdopener-notes.md: Permission denied",
+        })),
+    );
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": "/tmp/mdopener-notes.md" }),
+        &ipc,
+        &|url: &str| panic!("must not fall back to the URL scheme: {url}"),
+    );
+    let text = tool_error_text(&resp);
+    assert!(text.contains("Permission denied"), "{text}");
+}
+
 #[test]
 fn open_file_mode_read_forwarded_in_post_body() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
@@ -1184,6 +1207,23 @@ fn present_document_with_path_sends_canonicalized() {
         .unwrap();
     // Should have received a non-null path
     assert!(!body["path"].is_null(), "path should be set");
+}
+
+#[test]
+fn present_document_reports_the_windows_failure() {
+    let ipc = MockIpc::new().on_post(
+        "/present",
+        Ok(json!({ "ok": false, "error": "Could not read /tmp/x.md: No such file" })),
+    );
+    let text = tool_error_text(&tool_present_document(id(1), &json!({}), &ipc));
+    assert!(text.contains("No such file"), "{text}");
+
+    let ipc = MockIpc::new().on_post("/present", Ok(json!({ "ok": false })));
+    let text = tool_error_text(&tool_present_document(id(1), &json!({}), &ipc));
+    assert!(
+        text.contains("could not present the open document"),
+        "{text}"
+    );
 }
 
 #[test]
