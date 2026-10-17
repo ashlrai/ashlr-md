@@ -373,7 +373,7 @@ into **`~/.claude/settings.json`** (idempotently — it won't add a duplicate):
         "hooks": [
           {
             "type": "command",
-            "command": "<mdopen> --hook",
+            "command": "'<mdopen>' --hook",
             "if": "Write(*.md)|Edit(*.md)"
           }
         ]
@@ -384,7 +384,11 @@ into **`~/.claude/settings.json`** (idempotently — it won't add a duplicate):
 ```
 
 The `matcher` fires on the `Edit` and `Write` tools; the `if` guard narrows it to
-`*.md` files. After installing, **restart Claude Code** to pick it up.
+`*.md` files. The `mdopen` path is single-quoted so the space in "Ashlr MD" does
+not split it; re-running the installer repairs an unquoted entry that earlier
+versions wrote for the same path. After installing, **restart Claude Code** to
+pick it up. The quoting targets the POSIX shell Claude Code runs hooks with; it
+has not been verified on an installed Windows build.
 
 > If `~/.claude/settings.json` already has a non-object `hooks` value or a
 > non-array `hooks.PostToolUse`, the installer **bails with an error** rather than
@@ -407,8 +411,9 @@ Or via the build-from-source installer (macOS/Linux):
 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 ```
 
-On **Windows**, the installer places `mdopen.exe` alongside the app. The in-app
-prompt handles adding it to your `PATH` via the system environment variable dialog.
+On **Windows**, the app installer places `mdopen.exe` alongside the app, and
+**Install mdopen** copies it to `%USERPROFILE%\.local\bin\mdopen.exe`. Neither
+folder is on `PATH` by default, so add one of them to your user `PATH` yourself.
 
 ### Usage
 
@@ -578,5 +583,6 @@ On macOS/Linux, make sure `/usr/local/bin` (or `~/.local/bin`) is on your `$PATH
 echo $PATH          # check
 mdopen --help       # verify
 ```
-On Windows, confirm `mdopen.exe`'s directory is in your user or system `PATH`
-(the in-app installer handles this; restart your terminal after installing).
+On Windows, add the folder holding `mdopen.exe` (`%USERPROFILE%\.local\bin`
+after **Install mdopen**, or the app's install folder) to your user `PATH`, then
+restart your terminal. The in-app installer does not change `PATH`.

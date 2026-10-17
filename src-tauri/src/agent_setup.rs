@@ -18,76 +18,35 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::Manager;
 
+#[path = "mcp_command.rs"]
+mod mcp_command;
+#[path = "path_search.rs"]
+mod path_search;
+#[path = "sidecar_path.rs"]
+mod sidecar_path;
+
+pub(crate) use sidecar_path::sidecar_file_name;
+
 // ── Binary path resolution ────────────────────────────────────────────────────
 
-/// Resolve the absolute path to the `mdopener-mcp` sidecar binary.
-///
-/// Search order:
-///   1. Next to the running executable (covers both the packaged `.app` and
-///      `cargo tauri dev` / `cargo tauri build` scenarios where Tauri places
-///      sidecars alongside the main binary).
-///   2. The Tauri resource directory (alternate bundling layout).
-///   3. `src-tauri/target/release/mdopener-mcp` relative to the executable
-///      (local `cargo build --release` without `tauri build`).
-///
-/// Returns an error string if the binary cannot be found in any location.
+/// Resolve the absolute path to the `mdopener-mcp` sidecar binary
+/// (`mdopener-mcp.exe` on Windows). See [`resolve_sidecar_binary`].
 fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
     resolve_sidecar_binary(app, "mdopener-mcp")
 }
 
 /// Resolve the absolute path to a bundled sidecar binary by name (e.g.
-/// `mdopener-mcp`, `mdopen`). Searches the same locations across bundling
-/// layouts and dev builds.
-fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
+/// `mdopener-mcp`, `mdopen`), using the host's executable suffix so the
+/// lookup matches the platform resource map. Search order is documented on
+/// [`sidecar_path::resolve`].
+pub(crate) fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Cannot determine app executable path: {e}"))?;
     let exe_dir = exe
         .parent()
         .ok_or("App executable has no parent directory")?;
-
-    // Candidate locations, in preference order.
-    let mut candidates: Vec<PathBuf> = vec![
-        // 1. Tauri sidecar: placed next to the app binary by Tauri's bundler.
-        exe_dir.join(bin),
-    ];
-
-    // 2. Tauri resource directory (alternate bundling layout on some targets).
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join(bin));
-    }
-
-    // 3. Local cargo release build (dev workflow without `tauri build`).
-    //    Walk up from the exe dir looking for `target/release`.
-    let mut dir = exe_dir.to_path_buf();
-    for _ in 0..8 {
-        let candidate = dir.join("target").join("release").join(bin);
-        if candidate.exists() {
-            candidates.push(candidate);
-            break;
-        }
-        match dir.parent() {
-            Some(p) => dir = p.to_path_buf(),
-            None => break,
-        }
-    }
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            return candidate
-                .to_str()
-                .map(|s| s.to_owned())
-                .ok_or_else(|| format!("{bin} path contains non-UTF-8 characters"));
-        }
-    }
-
-    Err(format!(
-        "{bin} binary not found. Searched:\n{}",
-        candidates
-            .iter()
-            .map(|p| format!("  • {}", p.display()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    ))
+    let resource_dir = app.path().resource_dir().ok();
+    sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())
 }
 
 // ── Agent detection ───────────────────────────────────────────────────────────
@@ -109,26 +68,23 @@ pub struct AgentClis {
 
 /// Check which AI coding-agent CLIs / apps are present on this machine.
 ///
-/// Uses `which` for CLI tools and directory existence for GUI apps (Cursor).
-/// Never panics — any failure to probe is treated as "not present".
+/// Searches `PATH` in-process for CLI tools (with `PATHEXT` on Windows, where
+/// `which` does not exist) and checks directory existence for GUI apps
+/// (Cursor). Never panics — any failure to probe is treated as "not present".
 #[tauri::command]
 pub fn detect_agent_clis() -> AgentClis {
     AgentClis {
-        claude: which_exists("claude"),
-        codex: which_exists("codex"),
+        claude: path_search::find_on_path("claude").is_some(),
+        codex: path_search::find_on_path("codex").is_some(),
         cursor: cursor_installed(),
     }
 }
 
-/// Returns true if `which <name>` exits successfully (the tool is on PATH).
-fn which_exists(name: &str) -> bool {
-    Command::new("which")
-        .arg(name)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+/// The program to spawn for an agent CLI: its resolved `PATH` entry, so a
+/// Windows npm shim (`claude.cmd`, `codex.cmd`) that detection found is also
+/// what runs. Falls back to the bare name, which reports "not found".
+fn agent_cli_program(name: &str) -> PathBuf {
+    path_search::find_on_path(name).unwrap_or_else(|| PathBuf::from(name))
 }
 
 /// Returns true if Cursor's config directory exists at `~/.cursor`.
@@ -157,7 +113,7 @@ fn cursor_installed() -> bool {
 pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
     let mcp_path = resolve_mcp_binary_path(&app)?;
 
-    let output = Command::new("claude")
+    let output = Command::new(agent_cli_program("claude"))
         .args(["mcp", "add", "--scope", "user", "ashlr-md", &mcp_path])
         .output()
         .map_err(|e| {
@@ -303,7 +259,7 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
 pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
     let mcp_path = resolve_mcp_binary_path(&app)?;
 
-    let output = Command::new("codex")
+    let output = Command::new(agent_cli_program("codex"))
         .args(["mcp", "add", "--transport", "stdio", "ashlr-md", "--", &mcp_path])
         .output()
         .map_err(|e| {
@@ -350,14 +306,15 @@ pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
 /// Merges into `~/.claude/settings.json` (verified schema):
 /// ```json
 /// { "hooks": { "PostToolUse": [ { "matcher": "Edit|Write",
-///   "hooks": [ { "type": "command", "command": "<mdopen> --hook",
+///   "hooks": [ { "type": "command", "command": "'<mdopen>' --hook",
 ///                "if": "Write(*.md)|Edit(*.md)" } ] } ] } }
 /// ```
-/// Idempotent: re-running won't add a duplicate hook.
+/// The `mdopen` path is POSIX single-quoted (see [`mcp_command::hook_command`]).
+/// Idempotent: re-running won't add a duplicate hook, and an entry an earlier
+/// version wrote unquoted for the same path is repaired in place.
 #[tauri::command]
 pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
     let mdopen = resolve_sidecar_binary(&app, "mdopen")?;
-    let command = format!("{mdopen} --hook");
 
     let settings_path = dirs::home_dir()
         .map(|h| h.join(".claude").join("settings.json"))
@@ -377,22 +334,68 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
         json!({})
     };
 
+    let outcome = merge_hook(&mut root, &mdopen)
+        .map_err(|shape| format!("{} {shape}", settings_path.display()))?;
+    if outcome == HookMerge::AlreadyInstalled {
+        return Ok("Auto-open hook is already installed in Claude Code.".to_string());
+    }
+
+    let serialised = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("JSON serialisation error: {e}"))?;
+    fs::write(&settings_path, serialised)
+        .map_err(|e| format!("Cannot write {}: {e}", settings_path.display()))?;
+
+    Ok(match outcome {
+        HookMerge::Repaired => format!(
+            "Auto-open hook repaired in {}: its mdopen path is now quoted, so the \
+             space in \"Ashlr MD\" no longer breaks it. Restart Claude Code to pick it up.",
+            settings_path.display()
+        ),
+        _ => format!(
+            "Auto-open hook installed in {}.\n\
+             Claude Code will now open Markdown files in Ashlr MD as it writes them. \
+             Restart Claude Code to pick it up.",
+            settings_path.display()
+        ),
+    })
+}
+
+/// What [`merge_hook`] did to the settings document.
+#[derive(Debug, PartialEq, Eq)]
+enum HookMerge {
+    Installed,
+    /// Our earlier unquoted `<mdopen> --hook` entry was rewritten in place.
+    Repaired,
+    AlreadyInstalled,
+}
+
+/// Merge the auto-open hook for `mdopen` into a parsed `settings.json`.
+///
+/// Unexpected `hooks` / `hooks.PostToolUse` shapes are an error (the message
+/// is appended to the settings path) rather than silently overwritten.
+fn merge_hook(root: &mut Value, mdopen: &str) -> Result<HookMerge, &'static str> {
+    let command = mcp_command::hook_command(mdopen);
+    let legacy = mcp_command::legacy_hook_command(mdopen);
+
+    if root.is_null() {
+        *root = json!({});
+    }
+    if !root.is_object() {
+        return Err("is not a JSON object. Fix it manually and retry.");
+    }
     // Don't clobber a user's settings if these keys exist with an unexpected
     // shape — bail and let them fix it rather than silently overwrite real data.
     if root.get("hooks").is_some_and(|v| !v.is_object()) {
-        return Err(format!(
-            "{} has a non-object `hooks` value. Fix it manually and retry.",
-            settings_path.display()
-        ));
+        return Err("has a non-object `hooks` value. Fix it manually and retry.");
     }
     if !root.get("hooks").map(|v| v.is_object()).unwrap_or(false) {
         root["hooks"] = json!({});
     }
-    if root["hooks"].get("PostToolUse").is_some_and(|v| !v.is_array()) {
-        return Err(format!(
-            "{} has a non-array `hooks.PostToolUse` value. Fix it manually and retry.",
-            settings_path.display()
-        ));
+    if root["hooks"]
+        .get("PostToolUse")
+        .is_some_and(|v| !v.is_array())
+    {
+        return Err("has a non-array `hooks.PostToolUse` value. Fix it manually and retry.");
     }
     if !root["hooks"]
         .get("PostToolUse")
@@ -402,6 +405,24 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
         root["hooks"]["PostToolUse"] = json!([]);
     }
     let arr = root["hooks"]["PostToolUse"].as_array_mut().unwrap();
+
+    // Earlier versions wrote this exact path unquoted, which splits at the
+    // space in "Ashlr MD". Quote it in place; other commands stay untouched.
+    let mut repaired = false;
+    for entry in arr.iter_mut() {
+        let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for hook in hooks.iter_mut().filter(|h| h.is_object()) {
+            if hook.get("command").and_then(Value::as_str) == Some(legacy.as_str()) {
+                hook["command"] = json!(command);
+                repaired = true;
+            }
+        }
+    }
+    if repaired {
+        return Ok(HookMerge::Repaired);
+    }
 
     // Idempotency: skip if any existing hook already runs our `mdopen --hook`.
     let already = arr.iter().any(|entry| {
@@ -418,7 +439,7 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
             .unwrap_or(false)
     });
     if already {
-        return Ok("Auto-open hook is already installed in Claude Code.".to_string());
+        return Ok(HookMerge::AlreadyInstalled);
     }
 
     arr.push(json!({
@@ -429,31 +450,97 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
             "if": "Write(*.md)|Edit(*.md)"
         }]
     }));
-
-    let serialised = serde_json::to_string_pretty(&root)
-        .map_err(|e| format!("JSON serialisation error: {e}"))?;
-    fs::write(&settings_path, serialised)
-        .map_err(|e| format!("Cannot write {}: {e}", settings_path.display()))?;
-
-    Ok(format!(
-        "Auto-open hook installed in {}.\n\
-         Claude Code will now open Markdown files in Ashlr MD as it writes them. \
-         Restart Claude Code to pick it up.",
-        settings_path.display()
-    ))
+    Ok(HookMerge::Installed)
 }
 
 // ── Copy-button helper ────────────────────────────────────────────────────────
 
-/// Return the exact shell command a user can paste into any terminal to
-/// register Ashlr MD with Claude Code — used by the "Copy" button in Settings.
+/// Return the command a user can paste into a Unix shell, or PowerShell on
+/// Windows, to register Ashlr MD with Claude Code — used by Settings' Copy button.
 ///
-/// Falls back to a placeholder path if the binary cannot be resolved (e.g. in
-/// a renderer-only preview context where `AppHandle` is unavailable at
-/// component load time).
+/// Falls back to the host platform's typical install path, shown as a
+/// placeholder, if the binary cannot be resolved (e.g. a dev build without the
+/// sidecar); see [`sidecar_path::unresolved_mcp_placeholder`].
 #[tauri::command]
 pub fn mcp_command_string(app: tauri::AppHandle) -> String {
     let path = resolve_mcp_binary_path(&app)
-        .unwrap_or_else(|_| "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp".to_string());
-    format!("claude mcp add --scope user ashlr-md {path}")
+        .unwrap_or_else(|_| sidecar_path::unresolved_mcp_placeholder());
+    mcp_command::mcp_command(&path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MDOPEN: &str = "/Applications/Ashlr MD.app/Contents/Resources/mdopen";
+
+    fn commands(root: &Value) -> Vec<String> {
+        root["hooks"]["PostToolUse"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|e| e["hooks"].as_array().unwrap().clone())
+            .map(|h| h["command"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn fresh_settings_get_one_quoted_hook() {
+        let mut root = json!({});
+        assert_eq!(merge_hook(&mut root, MDOPEN), Ok(HookMerge::Installed));
+        assert_eq!(
+            commands(&root),
+            ["'/Applications/Ashlr MD.app/Contents/Resources/mdopen' --hook"]
+        );
+        let entry = &root["hooks"]["PostToolUse"][0];
+        assert_eq!(entry["matcher"], "Edit|Write");
+        assert_eq!(entry["hooks"][0]["if"], "Write(*.md)|Edit(*.md)");
+        // Re-running is a no-op.
+        let before = root.clone();
+        assert_eq!(
+            merge_hook(&mut root, MDOPEN),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+        assert_eq!(root, before);
+    }
+
+    #[test]
+    fn legacy_unquoted_entry_is_repaired_in_place_and_others_kept() {
+        let mut root = json!({
+            "model": "keep-me",
+            "hooks": { "PostToolUse": [
+                { "matcher": "Bash", "hooks": [{ "type": "command", "command": "echo hi" }] },
+                { "matcher": "Edit|Write", "hooks": [{
+                    "type": "command",
+                    "command": format!("{MDOPEN} --hook"),
+                    "if": "Write(*.md)|Edit(*.md)"
+                }] }
+            ] }
+        });
+        assert_eq!(merge_hook(&mut root, MDOPEN), Ok(HookMerge::Repaired));
+        assert_eq!(
+            commands(&root),
+            ["echo hi".to_string(), format!("'{MDOPEN}' --hook"),]
+        );
+        assert_eq!(root["model"], "keep-me");
+        assert_eq!(
+            merge_hook(&mut root, MDOPEN),
+            Ok(HookMerge::AlreadyInstalled)
+        );
+    }
+
+    #[test]
+    fn unexpected_shapes_are_refused_not_overwritten() {
+        for mut root in [
+            json!([]),
+            json!({ "hooks": [] }),
+            json!({ "hooks": { "PostToolUse": {} } }),
+        ] {
+            let before = root.clone();
+            assert!(merge_hook(&mut root, MDOPEN).is_err(), "{before}");
+            assert_eq!(root, before);
+        }
+        let mut null = Value::Null;
+        assert_eq!(merge_hook(&mut null, MDOPEN), Ok(HookMerge::Installed));
+    }
 }
