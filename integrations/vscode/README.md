@@ -82,7 +82,12 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 cd integrations/vscode
 npm install
 npm run compile     # tsc → out/extension.js
+npm test            # compile, then run the helper tests with node:test
 ```
+
+`npm test` runs `src/*.test.ts` (the pure helpers in `src/links.ts`: which
+files Ashlr MD opens and the deep link) under Node's built-in `node:test`
+runner, with no test dependencies; the tests are left out of the `.vsix`.
 
 Or with Bun:
 
