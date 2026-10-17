@@ -1506,6 +1506,18 @@ fn app_not_running_msg_other_error_passthrough() {
     assert_eq!(msg, "IPC auth failed: token mismatch");
 }
 
+#[test]
+fn app_not_running_msg_keeps_the_apps_refusal() {
+    // The running app refused the request; its reason names a file whose path
+    // happens to contain "connect" / "not found". That is not an app-down error.
+    for refusal in [
+        "IPC server returned HTTP 400: Cannot open '/notes/connections.md': the file does not exist.",
+        "IPC server returned HTTP 400: Cannot open '/notes/not found.md': the file does not exist.",
+    ] {
+        assert_eq!(mdopener_mcp::app_not_running_msg(refusal), refusal);
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Export tool — comprehensive IPC integration tests
 // ════════════════════════════════════════════════════════════════════════════

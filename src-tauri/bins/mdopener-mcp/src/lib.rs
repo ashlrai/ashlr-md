@@ -2612,6 +2612,11 @@ pub fn tool_error(id: Value, message: String) -> Response {
 }
 
 pub fn app_not_running_msg(err: &str) -> String {
+    // The running app refused the request: its reason (which may quote a
+    // path containing "connect" or "not found") is the agent's to see as is.
+    if app_refused(err) {
+        return err.to_string();
+    }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
         format!(
             "Ashlr MD does not appear to be running ({}). \
