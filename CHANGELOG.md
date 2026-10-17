@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` `add_edge` refuses values JSON Canvas does not allow.** An
+  edge's `fromSide`/`toSide` (top, right, bottom, left), `fromEnd`/`toEnd`
+  (none, arrow), `color` and `label` were written as given and reported as
+  success, so `"fromSide": "nowhere"` or `"color": "red"` left an edge the
+  app drew some other way. Each is now `-32602` naming the allowed values,
+  as `add_node` already refuses a bad node, and the canvas is not written.
 - **`edit_canvas` refuses a field its op does not use.** A `move_node` with a
   `width`, or an `edit_text` with a `label`, applied the op and ignored the
   extra field, so the call reported success for a change it never made. It

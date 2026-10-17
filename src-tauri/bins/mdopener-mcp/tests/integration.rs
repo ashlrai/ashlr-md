@@ -9579,3 +9579,44 @@ fn edit_canvas_refuses_fields_the_op_does_not_use() {
     );
     assert!(resp.error.is_none(), "{:?}", resp.error);
 }
+
+/// `add_edge` wrote a `fromSide` of "nowhere", a `toEnd` of "dot" or a
+/// colour of "red" as given and reported success; JSON Canvas allows only
+/// top/right/bottom/left, none/arrow and its colours. Each is now -32602 and
+/// the canvas is left unchanged; the allowed values are still written.
+#[test]
+fn edit_canvas_add_edge_refuses_values_json_canvas_does_not_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("c.canvas");
+    let original = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":10,"height":10},{"id":"b","type":"text","text":"b","x":20,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, original).unwrap();
+    let p = path.to_string_lossy().into_owned();
+    for (extra, field) in [
+        (json!({ "fromSide": "nowhere" }), "edge.fromSide"),
+        (json!({ "toSide": 3 }), "edge.toSide"),
+        (json!({ "fromEnd": "dot" }), "edge.fromEnd"),
+        (json!({ "toEnd": "Arrow" }), "edge.toEnd"),
+        (json!({ "color": "red" }), "edge.color"),
+        (json!({ "label": 7 }), "edge.label"),
+    ] {
+        let mut edge = json!({ "id": "e1", "fromNode": "a", "toNode": "b" });
+        edge.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let msg = param_error(&call_tool(
+            "edit_canvas",
+            json!({ "path": p, "ops": [{ "type": "add_edge", "edge": edge }] }),
+        ));
+        assert!(msg.contains(field), "{field}: {msg}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+    let resp = call_tool(
+        "edit_canvas",
+        json!({ "path": p, "save": false, "ops": [{ "type": "add_edge", "edge": {
+            "id": "e1", "fromNode": "a", "toNode": "b", "fromSide": "right",
+            "toSide": "left", "fromEnd": "none", "toEnd": "arrow", "color": "#abc",
+            "label": "x"
+        } }] }),
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+}

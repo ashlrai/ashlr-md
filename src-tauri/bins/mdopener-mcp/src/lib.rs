@@ -1149,7 +1149,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
                                 },
                                 "ids": {
                                     "type": "array",
@@ -5851,6 +5851,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         format!("op[{i}] add_edge: toNode `{to}` not found"),
                     );
                 }
+                if let Some(msg) = canvas_edge_problem(new_edge) {
+                    return Response::err(id, -32602, format!("op[{i}] add_edge: {msg}"));
+                }
                 edges.push(new_edge.clone());
             }
             "delete_edge" => {
@@ -6181,6 +6184,48 @@ fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> 
         return Some(canvas_color_problem("node.color", c));
     }
     None
+}
+
+/// Why an `add_edge` edge would not be drawn as written, or `None`: a
+/// `fromSide`/`toSide` other than top, right, bottom or left, a
+/// `fromEnd`/`toEnd` other than none or arrow, a colour JSON Canvas does not
+/// allow, or a `label` that is not a string. They were written as given and
+/// reported as success, and the app then drew the edge some other way.
+fn canvas_edge_problem(edge: &serde_json::Map<String, Value>) -> Option<String> {
+    for (field, allowed) in [
+        ("fromSide", &["top", "right", "bottom", "left"][..]),
+        ("toSide", &["top", "right", "bottom", "left"][..]),
+        ("fromEnd", &["none", "arrow"][..]),
+        ("toEnd", &["none", "arrow"][..]),
+    ] {
+        match edge.get(field) {
+            None | Some(Value::Null) => {}
+            Some(Value::String(v)) if allowed.contains(&v.as_str()) => {}
+            Some(other) => {
+                let list = allowed
+                    .iter()
+                    .map(|a| format!("'{a}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Some(format!("edge.{field} must be one of {list}, got {other}"));
+            }
+        }
+    }
+    if let Some(v) = edge.get("label").filter(|v| !v.is_null() && !v.is_string()) {
+        return Some(format!(
+            "edge.label must be a string, got {}",
+            json_type_phrase(v)
+        ));
+    }
+    match edge.get("color") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(c)) if is_canvas_color(c) => None,
+        Some(Value::String(c)) => Some(canvas_color_problem("edge.color", c)),
+        Some(other) => Some(format!(
+            "edge.color must be a string, got {}",
+            json_type_phrase(other)
+        )),
+    }
 }
 
 /// The fields each `edit_canvas` op reads, besides `type`.
