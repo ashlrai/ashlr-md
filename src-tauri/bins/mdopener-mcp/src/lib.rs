@@ -3169,14 +3169,19 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // percent-encode URIs (`My%20Notes.md`). The decoded path is what
         // must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
-        let decoded = urlencoding::decode(raw).ok().map(|d| d.into_owned());
         let advertised = |p: &str| is_advertised_path(p, ipc);
         let p = if advertised(raw) {
             raw.to_string()
         } else {
-            match decoded {
-                Some(d) if d != raw && advertised(&d) => d,
-                _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+            // A malformed escape (`%ZZ`, a lone `%`) or one that decodes to
+            // invalid UTF-8 (`%FF`) used to be answered "not in vault", as if
+            // the file were the problem.
+            match percent_decode_path(raw) {
+                Err(e) => {
+                    return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
+                }
+                Ok(d) if d != raw && advertised(&d) => d,
+                Ok(_) => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
             }
         };
         // Advertised is not enough: a vault `notes.md` that is a symlink to
@@ -3197,6 +3202,39 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
     }
     Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// Percent-decode the path of a `file://` URI, refusing a `%` that is not
+/// followed by two hex digits and escapes that do not decode to UTF-8 (which
+/// `urlencoding::decode` would pass through or reject without saying where).
+fn percent_decode_path(raw: &str) -> Result<String, String> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes
+                .get(i + 1..i + 3)
+                .and_then(|h| std::str::from_utf8(h).ok());
+            match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                Some(b) => {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+                None => {
+                    let shown: String = raw[i..].chars().take(3).collect();
+                    return Err(format!(
+                        "`{shown}` is not a percent-encoded byte (`%` must be followed by two \
+                         hex digits; write a literal `%` as `%25`)."
+                    ));
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).map_err(|_| "its percent-encoded bytes are not valid UTF-8.".to_string())
 }
 
 /// Resource URIs `resources/read` serves besides advertised `file://` paths.

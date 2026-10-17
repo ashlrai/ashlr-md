@@ -350,7 +350,9 @@ is rejected (`-32002`), so the resource channel can't be used as an
 arbitrary-filesystem read primitive. Percent-encoded URIs
 (`file:///notes/My%20Notes.md`) and `file://localhost/...` are accepted; the
 check runs on the decoded path, so encoding cannot reach a file outside the
-vault. An advertised path is then read only if it is a Markdown document that
+vault. A malformed escape (`%ZZ`, a lone `%`; write a literal `%` as `%25`) or
+escapes that do not decode to UTF-8 (`%FF`) are refused with `-32602` naming
+the problem, unless the URI is an advertised path exactly as written. An advertised path is then read only if it is a Markdown document that
 is not a dotfile, checked after resolving symlinks (like the tools that read a
 path from disk), so a vault `notes.md` that links to `~/.ssh/id_rsa` or `.env`
 is refused (`-32002`). `mdopener://recent-documents` skips such a recent

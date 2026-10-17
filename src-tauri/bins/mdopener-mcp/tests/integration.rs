@@ -6378,6 +6378,40 @@ fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
     }
 }
 
+/// A malformed escape in a `file://` URI (`%ZZ`, a lone `%`, `%FF` that is
+/// not UTF-8) was answered "Resource not in vault", as if the file were the
+/// problem; it is now -32602 naming the bad escape.
+#[test]
+fn file_resource_uris_with_invalid_percent_encoding_are_refused_clearly() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("100% done.md");
+    std::fs::write(&doc, "# Done\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "100% done.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let d = dir.to_string_lossy().into_owned();
+    for (uri, bad) in [
+        (format!("file://{d}/a%ZZ.md"), "`%ZZ`"),
+        (format!("file://{d}/a%2.md"), "`%2.`"),
+        (format!("file://{d}/a%"), "`%`"),
+        (format!("file://{d}/a%FF.md"), "UTF-8"),
+    ] {
+        let msg = param_error(&handle_resource_read(id(1), &uri, &ipc));
+        assert!(msg.starts_with("Invalid `file://` URI"), "{uri}: {msg}");
+        assert!(msg.contains(bad), "{uri}: {msg}");
+    }
+    // The advertised (unencoded) path is still served as written, `%` and all,
+    // and so is its correct encoding.
+    for uri in [
+        format!("file://{doc}"),
+        format!("file://{}", doc.replace('%', "%25").replace(' ', "%20")),
+    ] {
+        let resp = handle_resource_read(id(2), &uri, &ipc);
+        assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
+    }
+}
+
 /// History saved by earlier builds under the old sanitized name stays
 /// readable: `proj.1` used to live in `proj_1.json` (shared with `proj_1`).
 /// Reads fall back to that file, keeping only `proj.1`'s own messages, and

@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A badly encoded `file://` resource URI says so.** `resources/read` with
+  `%ZZ`, a lone `%` or `%FF` (not UTF-8) in the path answered "Resource not
+  in vault", as if the file were the problem. It is now `-32602` naming the
+  bad escape.
 - **A vault list cut at 200 files says so.** The app lists the watched
   folder's 200 most recently changed Markdown files, and `search_vault`
   searched only those without a word, so "no hits" read as "not in the
