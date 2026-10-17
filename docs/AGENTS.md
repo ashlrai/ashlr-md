@@ -83,14 +83,14 @@ already exists is treated as success.
 # macOS
 claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
-# Windows — verify path; shown here for a typical per-user install
-claude mcp add --scope user ashlr-md "%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe"
+# Windows (PowerShell) — verify path; shown here for a typical per-user install
+claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb install default; AppImage: use the resource dir inside the mount)
 claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
-After running either, **restart Claude Code** (or run `claude restart`) once.
+After running it, **restart Claude Code** (quit and start a new session) once.
 
 To get the exact command (with the real binary path) for your machine, use the
 **Copy** button in **Preferences → AI agents (MCP)** — it produces precisely:
@@ -183,7 +183,7 @@ servers untouched.
 ### Manual
 
 Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
-`%APPDATA%\Cursor\mcp.json` (Windows):
+`%USERPROFILE%\.cursor\mcp.json` (Windows), the file **Connect to Cursor** writes:
 
 ```json
 {
