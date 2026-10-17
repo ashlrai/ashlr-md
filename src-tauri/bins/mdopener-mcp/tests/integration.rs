@@ -768,6 +768,46 @@ fn open_file_without_the_app_refuses_a_missing_file_before_launching() {
     assert_eq!(*launched.lock().unwrap(), 0, "launched the URL scheme");
 }
 
+/// open_file's description said only that it opens a Markdown file and
+/// launches the app, not which files it refuses or what it returns, so an
+/// agent learned the dotfile rule, the missing-file refusal and the two
+/// result shapes by calling it. Each named shape is the one the tool returns.
+#[test]
+fn open_file_description_names_its_refusals_and_results() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "open_file")
+        .unwrap();
+    let d = def.description;
+    for want in [
+        ".md, .markdown, .mdown, .mkd, .mdx",
+        "not dotfiles",
+        "does not exist is refused",
+        "{ opened, response }",
+        "{ opened, method: 'url-scheme' }",
+        "confirmed: false",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let path = doc.to_string_lossy().into_owned();
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| {
+        panic!("must not launch")
+    });
+    let v = content_text(&resp);
+    assert!(v["opened"].is_string() && v["response"].is_object(), "{v}");
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| Launch::Opened {
+        launcher: "xdg-open".into(),
+    });
+    let v = content_text(&resp);
+    assert!(v["opened"].is_string(), "{v}");
+    assert_eq!(v["method"], "url-scheme", "{v}");
+}
+
 #[test]
 fn open_file_rejects_unknown_mode_before_any_launch() {
     let ipc = MockIpc::new();

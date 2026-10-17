@@ -756,7 +756,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "open_file",
-            description: "Open a Markdown file in Ashlr MD. Launches the app if it is not already running.",
+            description: "Open a Markdown file in Ashlr MD. Launches the app if it is not already running (through the mdopener:// URL scheme). Only Markdown documents (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles can be opened, and a file that does not exist is refused. Returns { opened, response } once the running app's window has opened the file, or { opened, method: 'url-scheme' } when the URL scheme was handed to the OS to launch the app, with confirmed: false and a note when the launcher had not finished in time.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

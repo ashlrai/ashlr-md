@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`open_file`'s description names what it refuses and returns.** It said
+  only "Open a Markdown file in Ashlr MD. Launches the app if it is not
+  already running." It now names the Markdown extensions, the dotfile and
+  missing-file refusals, and both results: `{ opened, response }` from the
+  running app, or `{ opened, method: 'url-scheme' }` (with `confirmed: false`
+  and a `note` when the launcher had not finished). docs/AGENTS.md's table
+  gives the same shapes.
 - **`request_review`'s description says a call can return pending.** It
   said the tool blocks "until they Approve or Request changes", though one
   call waits at most `wait_ms` (50 s by default) and then returns
