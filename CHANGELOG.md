@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen -- -` opens a file named `-`, and `--help` wins over `--hook`.**
+  After `--`, `-` was still read as "read stdin", so a file named `-` could
+  not be opened; `--` now ends option parsing for it too, and a `-` before
+  any `--` still reads stdin. `mdopen --hook --help` ran the hook (reading
+  stdin, printing nothing); the help now wins, on stdout with exit `0`.
 - **`get_current_content` says what a null `path` and no open document mean.**
   Its description now says that `path` is `null` for an unsaved document and
   that with no document open the call succeeds with

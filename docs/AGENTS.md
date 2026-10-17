@@ -658,8 +658,9 @@ mdopen --edit PLAN.md           # open directly in edit mode (-e also works)
 mdopen --read NOTES.md          # force read mode (-r also works; with --edit it is a usage error)
 cat notes.md | mdopen -         # pipe stdin → temp file → open in app
 mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
+mdopen -- -                     # after `--`, `-` is a file named `-`, not stdin
 mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
-mdopen --help
+mdopen --help                   # print usage; wins over every other flag, --hook included
 mdopen --version               # print the version (-V also works)
 ```
 

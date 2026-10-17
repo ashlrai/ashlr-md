@@ -42,6 +42,13 @@ fn main() {
     // as OS strings and judged here.
     let (args, not_utf8) = utf8_args(std::env::args_os().skip(1));
 
+    // Asked-for help wins over every other flag, `--hook` included, so
+    // `mdopen --hook --help` prints the help instead of waiting on stdin.
+    if wants_help(&args) {
+        print!("{HELP}");
+        process::exit(0);
+    }
+
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
     // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
     // agent, whatever the payload looks like.
@@ -80,17 +87,16 @@ fn main() {
     };
 
     // Handle stdin mode: `-` reads from stdin and writes to a temp file.
-    let from_stdin = target == "-";
-    let resolved: PathBuf = if from_stdin {
-        read_stdin_to_temp()
-    } else {
-        match resolve_file(&target) {
+    let from_stdin = target == Target::Stdin;
+    let resolved: PathBuf = match target {
+        Target::Stdin => read_stdin_to_temp(),
+        Target::File(path) => match resolve_file(&path) {
             Ok(p) => p,
             Err(msg) => {
                 eprintln!("mdopen: {msg}");
                 process::exit(1);
             }
-        }
+        },
     };
 
     match open_in_app(&resolved.to_string_lossy(), mode, CLI_DEADLINE, true) {
@@ -144,6 +150,12 @@ fn flag_args(args: &[String]) -> &[String] {
     &args[..end]
 }
 
+/// Whether the command line asks for the help (`--help` or `-h` before any
+/// `--`). It wins over every other flag, `--hook` included.
+fn wants_help(args: &[String]) -> bool {
+    flag_args(args).iter().any(|a| a == "--help" || a == "-h")
+}
+
 /// Whether the command line asks for `--hook` mode.
 fn is_hook(args: &[String]) -> bool {
     flag_args(args).iter().any(|a| a == "--hook")
@@ -158,8 +170,16 @@ enum Cli {
     Version,
     Open {
         mode: Option<&'static str>,
-        target: String,
+        target: Target,
     },
+}
+
+/// What to open: stdin (a `-` before any `--`), or a file path. After `--`,
+/// `-` is a file named `-`, so `mdopen -- -` opens that file.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    Stdin,
+    File(String),
 }
 
 /// Parse the non-hook command line. `Err` carries a one-line usage error.
@@ -167,7 +187,7 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
     if args.is_empty() {
         return Ok(Cli::Usage);
     }
-    if flag_args(args).iter().any(|a| a == "--help" || a == "-h") {
+    if wants_help(args) {
         return Ok(Cli::Help);
     }
     if flag_args(args)
@@ -177,11 +197,12 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
         return Ok(Cli::Version);
     }
     let mut mode = None;
-    let mut positional: Vec<&str> = Vec::new();
+    // Each positional with whether it came after `--`.
+    let mut positional: Vec<(&str, bool)> = Vec::new();
     let mut flags_done = false;
     for arg in args {
         if flags_done {
-            positional.push(arg);
+            positional.push((arg, true));
             continue;
         }
         match arg.as_str() {
@@ -192,19 +213,23 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             flag if flag.starts_with('-') && flag != "-" => {
                 return Err(format!("unknown flag: {flag}"));
             }
-            other => positional.push(other),
+            other => positional.push((other, false)),
         }
     }
     match positional.as_slice() {
         [] => Err("no file specified".to_string()),
         // `mdopen "$FILE"` with an empty variable used to come back as
         // `cannot resolve path "": No such file or directory`.
-        [one] if one.trim().is_empty() => {
+        [(one, _)] if one.trim().is_empty() => {
             Err("the file path is empty; pass the Markdown file to open".to_string())
         }
-        [one] => Ok(Cli::Open {
+        [("-", false)] => Ok(Cli::Open {
             mode,
-            target: (*one).to_string(),
+            target: Target::Stdin,
+        }),
+        [(one, _)] => Ok(Cli::Open {
+            mode,
+            target: Target::File((*one).to_string()),
         }),
         // Opening only the first and silently dropping the rest would hide a
         // typo or a missing file from the caller.
@@ -540,13 +565,14 @@ const HELP: &str = "mdopen: open Markdown files in Ashlr MD
 USAGE:
     mdopen [FLAGS] <file.md>
     mdopen -                   read from stdin
-    mdopen [FLAGS] -- <file>   `--` ends flags (e.g. mdopen -- -notes.md)
+    mdopen [FLAGS] -- <file>   `--` ends flags (e.g. mdopen -- -notes.md;
+                               mdopen -- - opens a file named -)
 
 FLAGS:
     --edit, -e                 open in edit mode
     --read, -r                 open in read mode (default; not with --edit)
     --hook                     Claude Code PostToolUse hook (reads JSON on stdin)
-    --help, -h                 print this help
+    --help, -h                 print this help (wins over every other flag)
     --version, -V              print the version
 
 EXAMPLES:
@@ -664,14 +690,14 @@ mod tests {
             parse_args(&args(&["-e", "a b é.md"])),
             Ok(Cli::Open {
                 mode: Some("edit"),
-                target: "a b é.md".into()
+                target: Target::File("a b é.md".into())
             })
         );
         assert_eq!(
             parse_args(&args(&["-"])),
             Ok(Cli::Open {
                 mode: None,
-                target: "-".into()
+                target: Target::Stdin
             })
         );
     }
@@ -709,7 +735,7 @@ mod tests {
             parse_args(&args(&["-e", "--edit", "a.md"])),
             Ok(Cli::Open {
                 mode: Some("edit"),
-                target: "a.md".into()
+                target: Target::File("a.md".into())
             })
         );
         // After `--`, `-r` is a file name, not a second mode.
@@ -722,7 +748,7 @@ mod tests {
             parse_args(&args(&["--", "-notes.md"])),
             Ok(Cli::Open {
                 mode: None,
-                target: "-notes.md".into()
+                target: Target::File("-notes.md".into())
             })
         );
         // Flags before `--` still apply; nothing after it is a flag.
@@ -730,7 +756,7 @@ mod tests {
             parse_args(&args(&["-e", "--", "--help"])),
             Ok(Cli::Open {
                 mode: Some("edit"),
-                target: "--help".into()
+                target: Target::File("--help".into())
             })
         );
         assert!(parse_args(&args(&["--"])).unwrap_err().contains("no file"));
@@ -739,6 +765,52 @@ mod tests {
             .contains("expected one file, got 2"));
         assert!(!is_hook(&args(&["--", "--hook"])));
         assert!(is_hook(&args(&["--hook"])));
+    }
+
+    /// `mdopen -- -` read stdin: after `--`, `-` is a file named `-`, while
+    /// a `-` before any `--` still reads stdin.
+    #[test]
+    fn a_dash_after_double_dash_is_a_file_named_dash() {
+        assert_eq!(
+            parse_args(&args(&["--", "-"])),
+            Ok(Cli::Open {
+                mode: None,
+                target: Target::File("-".into())
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&["-e", "--", "-"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: Target::File("-".into())
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&["-e", "-"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: Target::Stdin
+            })
+        );
+        assert!(parse_args(&args(&["-", "--", "-"]))
+            .unwrap_err()
+            .contains("expected one file, got 2"));
+    }
+
+    /// `--hook` used to win over `--help`, so `mdopen --hook --help` waited
+    /// on stdin in silence. The help wins, before or after `--hook`, but a
+    /// `--help` after `--` is a file name.
+    #[test]
+    fn help_wins_over_hook() {
+        for argv in [
+            &["--hook", "--help"][..],
+            &["--help", "--hook"],
+            &["--hook", "-h"],
+        ] {
+            assert!(wants_help(&args(argv)), "{argv:?}");
+        }
+        assert!(!wants_help(&args(&["--hook"])));
+        assert!(!wants_help(&args(&["--hook", "--", "--help"])));
     }
 
     /// `mdopen "$FILE"` with an empty or blank variable is a usage error
