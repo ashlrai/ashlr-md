@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A vault list cut at 200 files says so.** The app lists the watched
+  folder's 200 most recently changed Markdown files, and `search_vault`
+  searched only those without a word, so "no hits" read as "not in the
+  folder". `search_vault` now returns `truncated: true` with a note, and the
+  Activity drawer says it shows only the newest 200.
 - **A non-blocking `request_review` resume returns at once.** A call with
   `review_id` and `blocking: false` still waited up to `wait_ms` (50 s by
   default) like a blocking one. It now reads the review once and returns its

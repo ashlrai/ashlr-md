@@ -151,10 +151,11 @@ export function useMcpBridge(): void {
     };
 
     const syncVaultNow = () => {
-      const { watchedDir, files } = useActivityStore.getState();
+      const { watchedDir, files, truncated } = useActivityStore.getState();
       invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
+        truncated,
       }).catch((e) => {
         console.warn("[mcp bridge] mcp_sync_vault failed:", e);
       });

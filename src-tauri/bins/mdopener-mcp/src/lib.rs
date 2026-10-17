@@ -2465,6 +2465,9 @@ pub fn search_vault_in(
                 if let Some(dir) = &f.disk_vault {
                     v["vault"] = json!(dir);
                 }
+                if f.truncated {
+                    v["truncated"] = json!(true);
+                }
                 return Ok(v);
             }
             Err(e) => {
@@ -2503,12 +2506,16 @@ pub fn search_vault_in(
                         .flatten()
                         .collect::<Vec<_>>()
                         .join(" ");
-                    Ok(json!({
+                    let mut v = json!({
                         "results": results,
                         "mode": "grep-disk",
                         "vault": f.disk_vault,
                         "note": note
-                    }))
+                    });
+                    if f.truncated {
+                        v["truncated"] = json!(true);
+                    }
+                    Ok(v)
                 }
                 Ok(f) => {
                     let results = grep_paths(query, limit, &f.paths);
@@ -2517,15 +2524,20 @@ pub fn search_vault_in(
                         "Ashlr MD's own search {verb} ({ipc_err}), so these results \
                          come from grepping the vault files on disk."
                     );
-                    let note = match semantic_note {
-                        Some(n) => format!("{n} {search_note}"),
-                        None => search_note,
-                    };
-                    Ok(json!({
+                    let note = [semantic_note, Some(search_note), f.disk_note()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let mut v = json!({
                         "results": results,
                         "mode": "grep-local",
                         "note": note
-                    }))
+                    });
+                    if f.truncated {
+                        v["truncated"] = json!(true);
+                    }
+                    Ok(v)
                 }
                 Err(_) if refused => Err(ipc_err),
                 Err(e) if app_unreachable(&e) => Err(format!(
@@ -2637,9 +2649,16 @@ struct VaultFiles {
 }
 
 impl VaultFiles {
-    /// Says the results come from the disk, not the app, when they do.
+    /// Says the results come from the disk, not the app, when they do, and
+    /// that the list was cut short when it was.
     fn disk_note(&self) -> Option<String> {
-        let dir = self.disk_vault.as_deref()?;
+        let Some(dir) = self.disk_vault.as_deref() else {
+            return self.truncated.then(|| {
+                "The watched folder has more Markdown files than Ashlr MD lists, so only \
+                 its 200 most recently changed files (and the recent documents) were searched."
+                    .to_string()
+            });
+        };
         let mut note = format!(
             "Ashlr MD could not be reached ({}), so these results come from searching \
              the {} Markdown files under {dir} on disk.",
@@ -2658,12 +2677,12 @@ impl VaultFiles {
 /// The vault file list from the app, or from walking `vault` on disk when the
 /// app cannot be reached. A refusal or other failure is still an error.
 fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
-    match (vault_file_paths(ipc), vault) {
-        (Ok(paths), _) => Ok(VaultFiles {
+    match (vault_listing(ipc), vault) {
+        (Ok((paths, truncated)), _) => Ok(VaultFiles {
             paths,
             disk_vault: None,
             app_error: String::new(),
-            truncated: false,
+            truncated,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -3434,7 +3453,14 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// app.  The list comes from the app over IPC, so this errors when the app is
 /// not running (an empty list would read as "no matches").
 pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
+    vault_listing(ipc).map(|(paths, _)| paths)
+}
+
+/// [`vault_file_paths`], and whether the app said its vault list is cut
+/// short (the watched folder has more files than it lists).
+fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
     let v = ipc.get("/vault")?;
+    let truncated = v["truncated"].as_bool() == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3453,7 +3479,7 @@ pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
             }
         }
     }
-    Ok(paths)
+    Ok((paths, truncated))
 }
 
 /// Turns text into an embedding vector: [`ollama_embed`] in the server.

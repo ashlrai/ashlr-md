@@ -13,7 +13,7 @@ import {
   unwatchDirectory,
   watchDirectory,
 } from "../lib/activity";
-import { useActivityStore } from "../store/activityStore";
+import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
 
@@ -103,6 +103,7 @@ export function ActivityDrawer() {
   const files = useActivityStore((s) => s.files);
   const unseen = useActivityStore((s) => s.unseen);
   const lastError = useActivityStore((s) => s.lastError);
+  const truncated = useActivityStore((s) => s.truncated);
   const setWatchedDir = useActivityStore((s) => s.setWatchedDir);
   const loadFiles = useActivityStore((s) => s.loadFiles);
   const applyEvent = useActivityStore((s) => s.applyEvent);
@@ -239,44 +240,52 @@ export function ActivityDrawer() {
           </p>
         </div>
       ) : (
-        <ul className="activity-list">
-          {files.map((file) => {
-            const isActive = activePath === file.path;
-            const isNew = unseen.includes(file.path);
-            return (
-              <li key={file.path}>
-                <button
-                  type="button"
-                  className={`activity-item${isActive ? " activity-item--active" : ""}`}
-                  onClick={() => handleOpen(file)}
-                  title={file.path}
-                >
-                  <span className="activity-item__icon">
-                    {isNew ? (
-                      <span
-                        className="activity-item__dot"
-                        aria-label="new"
-                        title="New since you last looked"
-                      />
-                    ) : (
-                      <DocIcon />
-                    )}
-                  </span>
-                  <span className="activity-item__body">
-                    <span className="activity-item__name">{file.name}</span>
-                    <span className="activity-item__meta">
-                      <span className="activity-item__dir">{basename(file.dir)}</span>
-                      <span className="activity-item__sep">·</span>
-                      <span className="activity-item__time">
-                        {relativeTime(file.mtimeMs, now)}
+        <>
+          {truncated ? (
+            <p className="activity-truncated" role="note">
+              Showing the {MAX_FILES} most recently changed files. This folder has more,
+              and agents searching it see only these.
+            </p>
+          ) : null}
+          <ul className="activity-list">
+            {files.map((file) => {
+              const isActive = activePath === file.path;
+              const isNew = unseen.includes(file.path);
+              return (
+                <li key={file.path}>
+                  <button
+                    type="button"
+                    className={`activity-item${isActive ? " activity-item--active" : ""}`}
+                    onClick={() => handleOpen(file)}
+                    title={file.path}
+                  >
+                    <span className="activity-item__icon">
+                      {isNew ? (
+                        <span
+                          className="activity-item__dot"
+                          aria-label="new"
+                          title="New since you last looked"
+                        />
+                      ) : (
+                        <DocIcon />
+                      )}
+                    </span>
+                    <span className="activity-item__body">
+                      <span className="activity-item__name">{file.name}</span>
+                      <span className="activity-item__meta">
+                        <span className="activity-item__dir">{basename(file.dir)}</span>
+                        <span className="activity-item__sep">·</span>
+                        <span className="activity-item__time">
+                          {relativeTime(file.mtimeMs, now)}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </aside>
   );

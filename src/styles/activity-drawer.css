@@ -188,6 +188,15 @@
    File list
    =========================================================================== */
 
+/* The folder has more files than the list keeps. */
+.activity-truncated {
+  flex: 0 0 auto;
+  margin: 6px 12px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .activity-list {
   flex: 1 1 0;
   overflow-y: auto;

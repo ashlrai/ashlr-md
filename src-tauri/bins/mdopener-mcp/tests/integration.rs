@@ -2606,6 +2606,61 @@ fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     assert!(note.contains("search is disabled"), "note: {note}");
 }
 
+/// The app lists at most 200 files of the watched folder; search_vault said
+/// nothing when the folder had more, so "no hits" read as "not in the folder".
+#[test]
+fn search_vault_says_when_the_apps_vault_list_is_truncated() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    writeln!(f, "# Notes\nThe target topic is here.").unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let vault = json!({ "files": [{ "path": path }], "recents": [], "truncated": true });
+    // The app's own search failed: grep the listed files locally.
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(vault.clone()))
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(text["mode"], "grep-local", "{text}");
+    assert_eq!(text["truncated"], true, "{text}");
+    assert!(
+        text["note"]
+            .as_str()
+            .unwrap()
+            .contains("200 most recently changed"),
+        "{text}"
+    );
+    // Semantic search over the listed files says so too.
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = mdopener_mcp::search_vault_in("target topic", 5, true, None, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    assert!(
+        v["note"]
+            .as_str()
+            .unwrap()
+            .contains("200 most recently changed"),
+        "{v}"
+    );
+    // A complete list says nothing.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [] })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(2),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert!(text.get("truncated").is_none(), "{text}");
+}
+
 #[test]
 fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     let reason = "IPC server returned HTTP 403: search is disabled";
