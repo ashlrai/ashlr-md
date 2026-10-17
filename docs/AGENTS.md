@@ -268,8 +268,12 @@ of falling back to the default. An integer above its declared `maximum`
 (`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
 `"move"`) is refused the same way, and the message lists the allowed values
 (`` `mode` must be one of `read`, `edit`, got a string ("view") ``). A string
-shorter than the property's `minLength` (`search_vault`'s `query` declares
-`1`) is refused the same way; `search_vault` also refuses a `query` that is
+shorter than the property's `minLength` is refused the same way. Every
+required string a tool cannot use when empty declares `1`: `search_vault`'s
+`query`, `edit_document`'s and `stream_edit`'s and `stream_edit_apply`'s
+`find`, `get_user_annotations`'s and `edit_canvas`'s `path`, and the
+`session_id` of both conversation tools and `save_conversation_message`'s
+`content`; `search_vault` also refuses a `query` that is
 only whitespace with `-32602`, before it asks the app (it used to report that
 the app was not running). So a string such as `"1"`, a negative or a
 fractional `match_index` is refused rather than read as `0`, and `"save":

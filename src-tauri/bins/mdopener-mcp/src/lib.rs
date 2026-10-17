@@ -893,7 +893,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -912,7 +912,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "find": { "type": "string", "description": "The exact text to replace. Must appear exactly once in the document." },
+                    "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
                     "path": { "type": "string", "description": "Optional: assert this is the open document (errors if a different file is open)." }
@@ -1017,6 +1017,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "The session identifier previously passed to save_conversation_message. Required."
                     },
                     "limit": {
@@ -1044,6 +1045,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session). At most 200 bytes once encoded for its file name (letters, digits, `-` and `_` count one byte, other bytes three)."
                     },
                     "role": {
@@ -1053,7 +1055,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "content": {
                         "type": "string",
-                        "description": "The message text. For agent messages describe the action taken. For human messages include their verdict and any comments."
+                        "minLength": 1,
+                        "description": "The message text, not empty or only whitespace. For agent messages describe the action taken. For human messages include their verdict and any comments."
                     },
                     "cited_docs": {
                         "type": "array",
@@ -1105,6 +1108,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
                     },
                     "ops": {
@@ -1183,7 +1187,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "find": {
                         "type": "string",
-                        "description": "Exact text to search for in the current document."
+                        "minLength": 1,
+                        "description": "Exact text to search for in the current document, not empty."
                     },
                     "replace": {
                         "type": "string",
@@ -1228,7 +1233,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "find": {
                         "type": "string",
-                        "description": "The exact find string from the preview request."
+                        "minLength": 1,
+                        "description": "The exact find string from the preview request, not empty."
                     },
                     "replace": {
                         "type": "string",

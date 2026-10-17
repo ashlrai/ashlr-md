@@ -8179,6 +8179,87 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
     assert!(!msg.contains("Did you mean"), "{msg}");
 }
 
+/// `edit_document.find` and `get_user_annotations.path` were refused when
+/// empty by the tools but declared no `minLength`, so a client validating
+/// against the schema sent them anyway. Every required string a tool refuses
+/// when empty now declares `minLength: 1`, and the rest are listed here as
+/// strings an empty value is meaningful for (or that are refused in their own
+/// words by the tool).
+#[test]
+fn required_strings_refused_when_empty_declare_min_length() {
+    let must = [
+        ("get_user_annotations", "path"),
+        ("edit_document", "find"),
+        ("search_vault", "query"),
+        ("stream_edit", "find"),
+        ("stream_edit_apply", "find"),
+        ("edit_canvas", "path"),
+        ("get_conversation_context", "session_id"),
+        ("save_conversation_message", "session_id"),
+        ("save_conversation_message", "content"),
+    ];
+    // Empty is a real value: replacing with nothing, an empty document.
+    // A path or format is checked by the tool (or the enum) in its own words.
+    let may_be_empty = [
+        ("open_file", "path"),
+        ("set_content", "content"),
+        ("export", "format"),
+        ("edit_document", "replace"),
+        ("replace_document", "content"),
+        ("save_conversation_message", "role"),
+        ("diff_documents", "path_a"),
+        ("diff_documents", "path_b"),
+        ("stream_edit", "replace"),
+        ("stream_edit_apply", "replace"),
+    ];
+    let mut found = 0;
+    for def in tool_registry() {
+        let props = def.input_schema["properties"].as_object().unwrap();
+        let required: Vec<&str> = def.input_schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        for (k, prop) in props {
+            let pair = (def.name, k.as_str());
+            if must.contains(&pair) {
+                found += 1;
+                assert_eq!(prop["minLength"], 1, "{}.{k} needs minLength 1", def.name);
+                let mut args = serde_json::Map::new();
+                for r in &required {
+                    args.insert(r.to_string(), json!("x"));
+                }
+                if def.name == "edit_canvas" {
+                    args.insert("ops".into(), json!([{ "type": "delete_node", "id": "n" }]));
+                }
+                if def.name == "save_conversation_message" {
+                    args.insert("role".into(), json!("agent"));
+                }
+                args.insert(k.clone(), json!(""));
+                let msg = param_error(&call_tool(def.name, Value::Object(args)));
+                assert_eq!(
+                    msg,
+                    format!("`{k}` must be at least 1 character long, got \"\""),
+                    "{}.{k}",
+                    def.name
+                );
+            } else if prop["type"] == "string" && required.contains(&k.as_str()) {
+                assert!(
+                    may_be_empty.contains(&pair),
+                    "{}.{k} is a required string: declare minLength or list it",
+                    def.name
+                );
+            }
+        }
+    }
+    assert_eq!(
+        found,
+        must.len(),
+        "a listed argument is missing from the registry"
+    );
+}
+
 #[test]
 fn blank_session_id_is_refused() {
     use_temp_sessions_dir();
