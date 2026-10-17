@@ -948,9 +948,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
             (Method::Post, "/export") => handle_export(req, app),
 
-            _ => {
-                let _ = req.respond(Response::from_string("Not Found").with_status_code(404));
-            }
+            (method, path) => send_not_found(req, &method, path),
         }
 }
 
@@ -2214,6 +2212,13 @@ fn send_json(req: Request, value: serde_json::Value) {
     let _ = req.respond(resp);
 }
 
+/// The reply for a route the server does not have: a 404 with the JSON
+/// `{"error": ...}` body every other error has. It used to be the plain text
+/// `Not Found`, which clients parsing the error body could not read.
+fn send_not_found(req: Request, method: &Method, path: &str) {
+    send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+}
+
 fn send_error(req: Request, code: u16, msg: &str) {
     let body = serde_json::json!({"error": msg}).to_string();
     let resp = Response::from_string(body)
@@ -3197,6 +3202,35 @@ mod tests {
     /// What mdopener-mcp writes for one message (its `SessionLog`).
     fn mcp_file(messages: &[SessionMessage]) -> String {
         serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    /// An unknown route answered the plain text `Not Found`, unlike every
+    /// other error, which is a JSON `{"error": ...}` body.
+    #[test]
+    fn an_unknown_route_is_a_json_404() {
+        use std::io::{Read as _, Write as _};
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = std::thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(b"GET /nope?x=1 HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+                .unwrap();
+            let mut raw = String::new();
+            s.read_to_string(&mut raw).unwrap();
+            raw
+        });
+        let req = server.recv().unwrap();
+        let method = req.method().clone();
+        super::send_not_found(req, &method, "/nope");
+        let raw = client.join().unwrap();
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.0 404") || head.starts_with("HTTP/1.1 404"), "{head}");
+        assert!(
+            head.to_ascii_lowercase().contains("content-type: application/json"),
+            "{head}"
+        );
+        let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
+        assert_eq!(v["error"], "No such endpoint: GET /nope", "{v}");
     }
 
     /// The app read a session file whole however large it was. Past 16 MiB

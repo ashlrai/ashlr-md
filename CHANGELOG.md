@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The app's IPC server answers an unknown route in JSON.** A request for
+  a route it does not have got the plain text `Not Found`, unlike every
+  other error. It is now a 404 with `{"error": "No such endpoint: <method>
+  <path>"}`.
 - **`mdopener://recent-documents` counts the recents it leaves out.**
   Missing, oversized, dotfile and non-Markdown recents were dropped without
   a count. The reply now has `skipped: { missing, notDocument, tooLarge,
