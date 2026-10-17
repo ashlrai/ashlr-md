@@ -444,7 +444,7 @@ the same errors `mdopener://current` gives. No prompt takes arguments:
 `arguments` may be left out, `null` or `{}`, and any argument given (such
 as a `path`, which used to be dropped while the prompt ran on the open
 document) is refused with `-32602`; open the document you mean with
-`open_file` first.
+`open_file` first. Each prompt's `prompts/list` description says so too.
 
 ---
 

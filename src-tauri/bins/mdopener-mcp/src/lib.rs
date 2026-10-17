@@ -4165,11 +4165,17 @@ fn lists_path(v: &Value, path: &str) -> bool {
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
+/// What every prompt's `prompts/list` description says after its own line:
+/// no prompt takes arguments, and each needs an open document (as
+/// docs/AGENTS.md says). Agents used to learn both from an error.
+pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running.";
+
 pub fn prompts_list() -> Value {
+    let described = |what: &str| format!("{what} {PROMPT_USAGE_NOTE}");
     json!([
-        { "name": "summarize", "description": "Summarize the current document into key points." },
-        { "name": "review_plan", "description": "Review the current document as a plan and flag risks, gaps, and unclear steps." },
-        { "name": "improve_writing", "description": "Tighten the prose of the current document without changing its meaning." }
+        { "name": "summarize", "description": described("Summarize the current document into key points.") },
+        { "name": "review_plan", "description": described("Review the current document as a plan and flag risks, gaps, and unclear steps.") },
+        { "name": "improve_writing", "description": described("Tighten the prose of the current document without changing its meaning.") }
     ])
 }
 

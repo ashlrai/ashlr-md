@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Prompts say they take no arguments and need an open document.**
+  `prompts/list` described what `summarize`, `review_plan` and
+  `improve_writing` do but not that they take no arguments or that they fail
+  with no document open, which docs/AGENTS.md says. Each description now says
+  both, with the codes (`-32002` with no document open, `-32000` when the app
+  is not running).
 - **`list_ai_actions` names its result.** Its description listed what each
   action includes but not the result's shape or field names. It now gives
   `{ actions: [{ id, label, shortLabel, icon, scope, systemPrompt,

@@ -9779,6 +9779,49 @@ fn unknown_prompt_names_the_closest_prompt_and_the_prompts() {
     }
 }
 
+/// prompts/list described each prompt's task but not that it takes no
+/// arguments or that it needs an open document, so an agent learned both
+/// from an error (docs/AGENTS.md said so). Each description now says it,
+/// with the codes prompts/get gives.
+#[test]
+fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
+    let prompts = mdopener_mcp::prompts_list();
+    let prompts = prompts.as_array().unwrap();
+    assert_eq!(prompts.len(), mdopener_mcp::PROMPT_NAMES.len());
+    for p in prompts {
+        let d = p["description"].as_str().unwrap();
+        assert!(d.contains("Takes no arguments"), "{d}");
+        assert!(d.contains("open_file first"), "{d}");
+        assert!(
+            d.contains("With no document open it fails with -32002"),
+            "{d}"
+        );
+        assert!(d.contains("-32000 when the app is not running"), "{d}");
+    }
+    let none_open = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
+    let no_app = MockIpc::new();
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &none_open,
+        )
+        .unwrap();
+        let err = resp.error.as_ref().unwrap();
+        assert_eq!(err.code, -32002, "{name}");
+        assert!(
+            err.message.starts_with("No document is open"),
+            "{}",
+            err.message
+        );
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &no_app,
+        )
+        .unwrap();
+        assert_eq!(resp.error.as_ref().unwrap().code, -32000, "{name}");
+    }
+}
+
 #[test]
 fn unknown_resource_uri_names_the_closest_uri_and_resources_list() {
     let ipc = MockIpc::new();
