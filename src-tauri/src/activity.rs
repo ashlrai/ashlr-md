@@ -256,6 +256,8 @@ pub fn unwatch_directory(state: tauri::State<ActivityWatcher>) {
 // Directory scanner
 // ---------------------------------------------------------------------------
 
+/// Deepest folder level the scan enters (the folder itself is level 0). A
+/// folder below it is not read, and the scan says it was cut short.
 const MAX_DEPTH: usize = 8;
 /// Most directory entries one scan reads (each costs a `stat`), so a huge tree
 /// stays fast. Past it the walk stops and the scan says it was cut short.
@@ -267,9 +269,11 @@ const MAX_SCAN_ENTRIES: usize = 50_000;
 pub struct MdFileScan {
     /// The newest files found, newest first, at most the `limit` asked for.
     pub files: Vec<MdFileInfo>,
-    /// The walk stopped at [`MAX_SCAN_ENTRIES`] before it read the whole
-    /// tree, so `files` are the newest of the files it reached, not
-    /// necessarily the folder's newest.
+    /// The walk did not read the whole tree: it stopped at
+    /// [`MAX_SCAN_ENTRIES`], or skipped a folder more than [`MAX_DEPTH`]
+    /// levels down. So `files` are the newest of the files it reached, not
+    /// necessarily the folder's newest. Deep folders used to be skipped
+    /// without a word.
     pub scan_cut: bool,
 }
 
@@ -328,6 +332,7 @@ fn scan_newest(root: &Path, limit: usize, max_entries: usize) -> MdFileScan {
         limit,
         entries_left: max_entries,
         cut: false,
+        too_deep: false,
     };
     walk.dir(root, 0);
     // Ascending in `Reverse` order is newest first.
@@ -339,7 +344,7 @@ fn scan_newest(root: &Path, limit: usize, max_entries: usize) -> MdFileScan {
         .collect();
     MdFileScan {
         files,
-        scan_cut: walk.cut,
+        scan_cut: walk.cut || walk.too_deep,
     }
 }
 
@@ -348,6 +353,8 @@ struct Walk {
     limit: usize,
     entries_left: usize,
     cut: bool,
+    /// A folder below [`MAX_DEPTH`] was skipped (the walk goes on).
+    too_deep: bool,
 }
 
 impl Walk {
@@ -365,8 +372,9 @@ impl Walk {
         }
     }
 
-    /// Recursive walking helper. Stops at MAX_DEPTH, and at the entry budget
-    /// (setting `cut`) to stay fast on large repos.
+    /// Recursive walking helper. Skips folders below MAX_DEPTH (setting
+    /// `too_deep`), and stops at the entry budget (setting `cut`) to stay
+    /// fast on large repos.
     fn dir(&mut self, dir: &Path, depth: usize) {
         if depth > MAX_DEPTH || self.cut {
             return;
@@ -400,6 +408,10 @@ impl Walk {
             let Ok(meta) = entry.metadata() else { continue };
 
             if meta.is_dir() {
+                if depth + 1 > MAX_DEPTH {
+                    self.too_deep = true;
+                    continue;
+                }
                 self.dir(&path, depth + 1);
                 if self.cut {
                     return;
@@ -510,6 +522,34 @@ mod tests {
         assert!(cut.files.len() <= 3, "only 3 of the 4 entries are files");
         // Exactly the budget is not a cut: every entry was read.
         assert!(!scan_newest(&tmp.0, 5, 11).scan_cut);
+    }
+
+    /// Folders more than MAX_DEPTH levels down are not read, as before, but
+    /// the scan now says it was cut short instead of skipping them silently.
+    #[test]
+    fn a_folder_below_the_depth_limit_is_reported_as_a_cut() {
+        let tmp = TempDir::new("deep");
+        let mut dir = tmp.0.clone();
+        for level in 1..=super::MAX_DEPTH {
+            dir = dir.join(format!("l{level}"));
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        write_md(&dir, "deepest-read.md", 10);
+        let whole = scan_newest(&tmp.0, 5, 1000);
+        assert!(!whole.scan_cut, "level {} is still read", super::MAX_DEPTH);
+        assert_eq!(whole.files.len(), 1);
+        let below = dir.join("too-deep");
+        std::fs::create_dir(&below).unwrap();
+        write_md(&below, "missed.md", 20);
+        let cut = scan_newest(&tmp.0, 5, 1000);
+        assert!(cut.scan_cut, "a skipped folder must be reported");
+        let names: Vec<&str> = cut.files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["deepest-read.md"], "the depth limit is unchanged");
+        // Hidden folders and node_modules are skipped by rule, not depth.
+        std::fs::remove_dir_all(&below).unwrap();
+        std::fs::create_dir(dir.join(".git")).unwrap();
+        std::fs::create_dir(dir.join("node_modules")).unwrap();
+        assert!(!scan_newest(&tmp.0, 5, 1000).scan_cut);
     }
 
     #[test]

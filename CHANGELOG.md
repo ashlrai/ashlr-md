@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Folders too deep to scan are no longer skipped in silence.** The vault
+  walk enters folders at most 8 levels down and skipped deeper ones without
+  a word, so the Activity drawer, `/search` and `search_vault` presented the
+  rest as the whole folder. The depth limit is unchanged, but a skipped
+  folder now marks the scan as cut short (`scanCut`), so they say the list
+  is the newest of the files scanned and why.
 - **Session files are read up to 16 MiB.** `get_conversation_context` and
   `save_conversation_message` read the session file whole however large it
   was, and a file that could not be read answered as an empty session. A

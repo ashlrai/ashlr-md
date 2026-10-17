@@ -2768,8 +2768,9 @@ struct VaultFiles {
     /// The app's own cap on its vault list, as `/vault` reports it (the
     /// frontend's `MAX_FILES`). `None` from an older app that does not say.
     app_limit: Option<u64>,
-    /// The app's walk of the watched folder stopped before reading all of
-    /// it, so its list is the newest of the files reached.
+    /// The app's walk of the watched folder did not read all of it (entry
+    /// budget, or folders too deep), so its list is the newest of the files
+    /// reached.
     app_scan_cut: bool,
 }
 
@@ -2782,10 +2783,11 @@ impl VaultFiles {
                 let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
                 if self.app_scan_cut {
                     return format!(
-                        "The watched folder is too large for Ashlr MD to scan in full, so \
-                         only the {n}most recently changed of the files it scanned (and the \
-                         recent documents) were searched; newer files elsewhere in the folder \
-                         may have been missed."
+                        "The watched folder is too large or too deeply nested for Ashlr \
+                         MD to scan in full (it reads at most 50,000 entries, and folders at \
+                         most 8 levels down), so only the {n}most recently changed of the files \
+                         it scanned (and the recent documents) were searched; files elsewhere \
+                         in the folder may have been missed."
                     );
                 }
                 format!(

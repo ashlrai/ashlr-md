@@ -2711,7 +2711,7 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     assert_eq!(text["truncated"], true, "{text}");
     let note = text["note"].as_str().unwrap();
     assert!(
-        note.contains("too large for Ashlr MD to scan in full"),
+        note.contains("too deeply nested for Ashlr MD to scan in full"),
         "{text}"
     );
     assert!(

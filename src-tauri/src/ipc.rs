@@ -231,7 +231,8 @@ pub struct VaultInner {
     /// every sync so notices state the real number. `None` from an older
     /// frontend that does not send it.
     pub limit: Option<usize>,
-    /// The folder was too large for the frontend's walk to read in full, so
+    /// The folder was too large or too deep for the frontend's walk to read
+    /// in full, so
     /// `files` are the newest of the files it reached, not the folder's newest.
     pub scan_cut: bool,
 }
@@ -1604,16 +1605,17 @@ fn search_body(
 /// Said by `/search` when the watched folder has more Markdown files than the
 /// app lists. `limit` is the frontend's own cap, synced with the file list, so
 /// the number stated is the one in force; without it no number is claimed.
-/// When the folder was too large to walk in full (`scan_cut`), the files
+/// When the folder was too large or too deep to walk in full (`scan_cut`), the files
 /// searched are the newest of those the walk reached, and it says that.
 fn vault_truncated_note(limit: Option<usize>, scan_cut: bool) -> String {
     let n = limit.map(|n| format!("{n} ")).unwrap_or_default();
     if scan_cut {
         return format!(
-            "The watched folder is too large for Ashlr MD to scan in full, so only \
-             the {n}most recently changed of the files it scanned (and the recent \
-             documents) were searched; newer files elsewhere in the folder may have \
-             been missed."
+            "The watched folder is too large or too deeply nested for Ashlr MD to \
+             scan in full (it reads at most 50,000 entries, and folders at most 8 levels \
+             down), so only the {n}most recently changed of the files it scanned (and the \
+             recent documents) were searched; files elsewhere in the folder may have been \
+             missed."
         );
     }
     format!(
@@ -2209,7 +2211,7 @@ mod tests {
         let cut = search_body("q", Vec::<String>::new(), false, Some(200), true);
         assert_eq!(cut["truncated"], true, "{cut}");
         let note = cut["note"].as_str().unwrap();
-        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(note.contains("too deeply nested for Ashlr MD to scan in full"), "{cut}");
         assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
     }
 
