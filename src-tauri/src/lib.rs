@@ -63,6 +63,7 @@ pub fn run() {
             document::filter_existing,
             document::apply_file_patch,
             document::save_pasted_image,
+            document::save_pasted_image_to_downloads,
             export::write_file_bytes,
             file_handler::take_pending_files,
             watcher::watch_file,
