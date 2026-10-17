@@ -3333,26 +3333,26 @@ fn save_message_missing_role_returns_param_error() {
     );
 }
 
+/// The role is checked once, by the schema enum in check_tool_arguments,
+/// before anything is stored; the tool no longer words its own refusal.
 #[test]
 fn save_message_invalid_role_returns_param_error() {
-    let resp = tool_save_conversation_message(
-        id(1),
-        &json!({
-            "session_id": unique_session(),
-            "role": "robot",
-            "content": "Some content"
-        }),
+    let session = unique_session();
+    let msg = refused_before_the_tool(
+        "save_conversation_message",
+        json!({ "session_id": session, "role": "robot", "content": "Some content" }),
     );
     assert_eq!(
-        resp.error.as_ref().unwrap().code,
-        -32602,
-        "invalid role must return -32602"
+        msg, "`role` must be one of `agent`, `human`, `system`, got a string (\"robot\")",
+        "error should list valid roles"
     );
-    let msg = resp.error.unwrap().message;
     assert!(
-        msg.contains("agent") || msg.contains("human") || msg.contains("system"),
-        "error should list valid roles, got: {msg}"
+        !session_file_path(&session).unwrap().exists(),
+        "nothing is stored for a refused role"
     );
+    // store_append_message, called directly, still refuses it.
+    let err = store_append_message(&session, "robot", "x", vec![]).unwrap_err();
+    assert!(err.contains("`role` must be"), "{err}");
 }
 
 #[test]

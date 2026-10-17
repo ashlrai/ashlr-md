@@ -1477,9 +1477,12 @@ fn check_item_fields(
 }
 
 /// A value outside the property's declared `enum`, as "`at` must be one of
-/// `a`, `b`, got ...". The tools checked some of these themselves (`mode`,
-/// `format`, `role`), each in its own words and some only after reaching the
-/// app; others (`ops[].type`) only once earlier ops had run.
+/// `a`, `b`, got ...". It is the only check of `save_conversation_message`'s
+/// `role` at the tool level. Where a tool function is public and called
+/// directly the tool keeps its own check: `open_file`'s `mode` goes into a
+/// launch URL, `export`'s `format` was exported as HTML by older apps, and
+/// `store_append_message` guards `role` for its own callers. `edit_canvas`
+/// keeps an unknown-op arm to close its `match`.
 fn enum_problem(at: &str, prop: &Value, value: &Value) -> Option<String> {
     let allowed = prop["enum"].as_array()?;
     if allowed.contains(value) {
@@ -1836,6 +1839,9 @@ pub fn tool_export_with(
     ipc: &dyn IpcClient,
     write_deadline: std::time::Duration,
 ) -> Response {
+    // check_tool_arguments refuses a `format` outside the schema enum first,
+    // but this is public and called directly, and older apps exported any
+    // unknown format as HTML and said ok: keep refusing it here too.
     let format = match args["format"].as_str() {
         Some(f) if EXPORT_FORMATS.contains(&f) => f.to_string(),
         Some(other) => {
@@ -2814,15 +2820,13 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         Err(msg) => return Response::err(id, -32602, msg),
     };
 
+    // A `role` outside the schema enum is refused by check_tool_arguments
+    // before this runs; store_append_message checks it again for its other
+    // callers.
     let role = match args["role"].as_str() {
         Some(r) => r,
         None => return Response::err(id, -32602, "`role` is required"),
     };
-    if !matches!(role.trim(), "agent" | "human" | "system") {
-        let got = role.trim();
-        let msg = format!("`role` must be 'agent', 'human', or 'system', got '{got}'");
-        return Response::err(id, -32602, msg);
-    }
 
     let content = match args["content"].as_str() {
         Some(c) if !c.trim().is_empty() => c.to_string(),
