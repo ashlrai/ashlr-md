@@ -104,6 +104,7 @@ pub fn run() {
             activity::watch_directory,
             activity::unwatch_directory,
             activity::list_markdown_files,
+            activity::scan_markdown_files,
         ])
         .setup(|app| {
             file_handler::buffer_cli_args(app.handle());

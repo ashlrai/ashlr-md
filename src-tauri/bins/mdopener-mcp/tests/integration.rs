@@ -2664,6 +2664,32 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     let note = text["note"].as_str().unwrap();
     assert!(note.contains("its most recently changed files"), "{text}");
     assert!(!note.contains("200"), "{text}");
+    // A folder too large for the app to walk in full: the listed files are the
+    // newest of those reached, not necessarily the folder's newest.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({
+                "files": [{ "path": path }], "recents": [],
+                "truncated": false, "limit": 200, "scanCut": true
+            })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(4),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(text["truncated"], true, "{text}");
+    let note = text["note"].as_str().unwrap();
+    assert!(
+        note.contains("too large for Ashlr MD to scan in full"),
+        "{text}"
+    );
+    assert!(
+        note.contains("the 200 most recently changed of the files it scanned"),
+        "{text}"
+    );
     // A complete list says nothing.
     let ipc = MockIpc::new()
         .on_get(

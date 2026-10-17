@@ -59,6 +59,22 @@ export function listMarkdownFiles(path: string, limit?: number): Promise<MdFileI
   return invoke<MdFileInfo[]>("list_markdown_files", { path, limit });
 }
 
+/** {@link listMarkdownFiles} plus whether the walk was cut short. */
+export interface MdFileScan {
+  /** The newest files found, newest first. */
+  files: MdFileInfo[];
+  /**
+   * The folder was too large to walk in full, so `files` are the newest of
+   * the files the walk reached, not necessarily the folder's newest.
+   */
+  scanCut: boolean;
+}
+
+/** List Markdown files under `path`, newest first, and say if the walk was cut. */
+export function scanMarkdownFiles(path: string, limit?: number): Promise<MdFileScan> {
+  return invoke<MdFileScan>("scan_markdown_files", { path, limit });
+}
+
 // ---------------------------------------------------------------------------
 // Event subscription
 // ---------------------------------------------------------------------------

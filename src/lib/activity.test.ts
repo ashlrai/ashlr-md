@@ -51,6 +51,7 @@ import {
   ACTIVITY_EVENT,
   listMarkdownFiles,
   onActivityFile,
+  scanMarkdownFiles,
   unwatchDirectory,
   watchDirectory,
 } from "./activity";
@@ -181,6 +182,18 @@ describe("unwatchDirectory", () => {
 });
 
 // ── (3) listMarkdownFiles ─────────────────────────────────────────────────────
+
+describe("scanMarkdownFiles", () => {
+  it("invokes 'scan_markdown_files' and returns the files with the cut flag", async () => {
+    const scan = { files: [makeFile("a.md")], scanCut: true };
+    invokeMock.mockResolvedValue(scan);
+    await expect(scanMarkdownFiles("/vault", 201)).resolves.toEqual(scan);
+    expect(invokeMock).toHaveBeenCalledWith("scan_markdown_files", {
+      path: "/vault",
+      limit: 201,
+    });
+  });
+});
 
 describe("listMarkdownFiles", () => {
   it("invokes 'list_markdown_files' with the given path and no limit", async () => {

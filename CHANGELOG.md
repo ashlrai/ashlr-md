@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **"The 200 newest files" are the folder's true newest.** Listing the watched
+  folder stopped collecting at 2000 files and only then sorted by date, so in a
+  bigger folder the Activity drawer and `search_vault` saw the newest of
+  whichever 2000 the file system returned first. The walk now keeps the newest
+  files as it goes, reads at most 50,000 directory entries, and when it stops
+  there the drawer, `/search` and `search_vault` say the list is the newest of
+  the files scanned.
 - **The vault-cut notice states the app's own cap.** The 200-file limit lived
   in the frontend (`MAX_FILES`) but the "only its 200 most recently changed
   files were searched" notices in `/search` and `search_vault` hard-coded it.

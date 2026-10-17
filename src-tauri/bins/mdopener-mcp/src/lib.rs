@@ -2649,6 +2649,9 @@ struct VaultFiles {
     /// The app's own cap on its vault list, as `/vault` reports it (the
     /// frontend's `MAX_FILES`). `None` from an older app that does not say.
     app_limit: Option<u64>,
+    /// The app's walk of the watched folder stopped before reading all of
+    /// it, so its list is the newest of the files reached.
+    app_scan_cut: bool,
 }
 
 impl VaultFiles {
@@ -2657,13 +2660,19 @@ impl VaultFiles {
     fn disk_note(&self) -> Option<String> {
         let Some(dir) = self.disk_vault.as_deref() else {
             return self.truncated.then(|| {
-                let files = match self.app_limit {
-                    Some(n) => format!("its {n} most recently changed files"),
-                    None => "its most recently changed files".to_string(),
-                };
+                let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
+                if self.app_scan_cut {
+                    return format!(
+                        "The watched folder is too large for Ashlr MD to scan in full, so \
+                         only the {n}most recently changed of the files it scanned (and the \
+                         recent documents) were searched; newer files elsewhere in the folder \
+                         may have been missed."
+                    );
+                }
                 format!(
                     "The watched folder has more Markdown files than Ashlr MD lists, so \
-                     only {files} (and the recent documents) were searched."
+                     only its {n}most recently changed files (and the recent documents) were \
+                     searched."
                 )
             });
         };
@@ -2690,8 +2699,9 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
             paths: listing.paths,
             disk_vault: None,
             app_error: String::new(),
-            truncated: listing.truncated,
+            truncated: listing.truncated || listing.scan_cut,
             app_limit: listing.limit,
+            app_scan_cut: listing.scan_cut,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -2701,6 +2711,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
                 app_error: e,
                 truncated,
                 app_limit: None,
+                app_scan_cut: false,
             })
         }
         (Err(e), _) => Err(e),
@@ -3510,17 +3521,20 @@ pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
 /// [`vault_file_paths`], and whether the app said its vault list is cut
 /// short (the watched folder has more files than it lists).
 /// The app's `/vault` reply: the listed files and recents, whether the list
-/// was cut short, and the cap it was cut at.
+/// was cut short, the cap it was cut at, and whether the app's walk of the
+/// folder stopped early.
 struct VaultListing {
     paths: Vec<String>,
     truncated: bool,
     limit: Option<u64>,
+    scan_cut: bool,
 }
 
 fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
     let v = ipc.get("/vault")?;
     let truncated = v["truncated"].as_bool() == Some(true);
     let limit = v["limit"].as_u64();
+    let scan_cut = v["scanCut"].as_bool() == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3543,6 +3557,7 @@ fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
         paths,
         truncated,
         limit,
+        scan_cut,
     })
 }
 

@@ -231,6 +231,9 @@ pub struct VaultInner {
     /// every sync so notices state the real number. `None` from an older
     /// frontend that does not send it.
     pub limit: Option<usize>,
+    /// The folder was too large for the frontend's walk to read in full, so
+    /// `files` are the newest of the files it reached, not the folder's newest.
+    pub scan_cut: bool,
 }
 
 #[derive(Default)]
@@ -377,6 +380,7 @@ pub fn mcp_sync_vault(
     files: Vec<VaultFileEntry>,
     truncated: Option<bool>,
     limit: Option<usize>,
+    scan_cut: Option<bool>,
     vault: tauri::State<VaultMirror>,
 ) {
     *vault.0.lock_recover() = VaultInner {
@@ -384,6 +388,7 @@ pub fn mcp_sync_vault(
         files,
         truncated: truncated.unwrap_or(false),
         limit,
+        scan_cut: scan_cut.unwrap_or(false),
     };
 }
 
@@ -1524,6 +1529,7 @@ fn handle_vault(req: Request, app: &AppHandle) {
         "files": vault.files,
         "truncated": vault.truncated,
         "limit": vault.limit,
+        "scanCut": vault.scan_cut,
         "recents": recents,
     }));
 }
@@ -1546,12 +1552,13 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let (truncated, vault_limit);
+    let (truncated, vault_limit, scan_cut);
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
         truncated = vault.truncated;
         vault_limit = vault.limit;
+        scan_cut = vault.scan_cut;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1569,7 +1576,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated, vault_limit));
+    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut));
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
@@ -1579,11 +1586,12 @@ fn search_body(
     results: impl Serialize,
     vault_truncated: bool,
     vault_limit: Option<usize>,
+    scan_cut: bool,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({ "query": q, "results": results });
-    if vault_truncated {
+    if vault_truncated || scan_cut {
         body["truncated"] = serde_json::json!(true);
-        body["note"] = serde_json::json!(vault_truncated_note(vault_limit));
+        body["note"] = serde_json::json!(vault_truncated_note(vault_limit, scan_cut));
     }
     body
 }
@@ -1591,14 +1599,21 @@ fn search_body(
 /// Said by `/search` when the watched folder has more Markdown files than the
 /// app lists. `limit` is the frontend's own cap, synced with the file list, so
 /// the number stated is the one in force; without it no number is claimed.
-fn vault_truncated_note(limit: Option<usize>) -> String {
-    let files = match limit {
-        Some(n) => format!("its {n} most recently changed files"),
-        None => "its most recently changed files".to_string(),
-    };
+/// When the folder was too large to walk in full (`scan_cut`), the files
+/// searched are the newest of those the walk reached, and it says that.
+fn vault_truncated_note(limit: Option<usize>, scan_cut: bool) -> String {
+    let n = limit.map(|n| format!("{n} ")).unwrap_or_default();
+    if scan_cut {
+        return format!(
+            "The watched folder is too large for Ashlr MD to scan in full, so only \
+             the {n}most recently changed of the files it scanned (and the recent \
+             documents) were searched; newer files elsewhere in the folder may have \
+             been missed."
+        );
+    }
     format!(
         "The watched folder has more Markdown files than Ashlr MD lists, so only \
-         {files} (and the recent documents) were searched."
+         its {n}most recently changed files (and the recent documents) were searched."
     )
 }
 
@@ -2129,17 +2144,28 @@ mod tests {
     /// frontend's synced cap, not one hard-coded here.
     #[test]
     fn search_body_says_when_the_vault_list_is_truncated() {
-        let full = search_body("q", Vec::<String>::new(), false, Some(150));
+        let full = search_body("q", Vec::<String>::new(), false, Some(150), false);
         assert!(full.get("truncated").is_none(), "{full}");
-        let cut = search_body("q", Vec::<String>::new(), true, Some(150));
+        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false);
         assert_eq!(cut["truncated"], true);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its 150 most recently changed files"), "{cut}");
         // An older frontend that sends no cap: no number is claimed.
-        let cut = search_body("q", Vec::<String>::new(), true, None);
+        let cut = search_body("q", Vec::<String>::new(), true, None, false);
         let note = cut["note"].as_str().unwrap();
         assert!(note.contains("its most recently changed files"), "{cut}");
         assert!(!note.contains("200"), "{cut}");
+    }
+
+    /// A folder too large to walk in full lists the newest of the files the
+    /// walk reached, which need not be the folder's newest: `/search` says so.
+    #[test]
+    fn search_body_says_when_the_vault_walk_was_cut() {
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true);
+        assert_eq!(cut["truncated"], true, "{cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
     }
 
     #[test]

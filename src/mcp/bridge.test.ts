@@ -107,6 +107,7 @@ vi.mock("../store/activityStore", () => ({
         { path: "/vault/b.md", name: "b.md", dir: "/vault", mtimeMs: 2000, size: 200 },
       ],
       truncated: true,
+      scanCut: true,
     }),
     subscribe: vi.fn(() => vi.fn()),
   },
@@ -261,6 +262,7 @@ describe("useMcpBridge — mount", () => {
       watchedDir: "/vault",
       truncated: true,
       limit: 150,
+      scanCut: true,
     });
   });
 
