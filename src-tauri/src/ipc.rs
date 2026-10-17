@@ -625,7 +625,7 @@ fn write_session_file(
     let mut seen: std::collections::HashSet<String> = merged.iter().map(|m| m.id.clone()).collect();
     for m in messages {
         if m.session_id == session_id && seen.insert(m.id.clone()) {
-            merged.push(m.clone());
+            merged.push(cited_once(m));
         }
     }
     merged.sort_by_key(|m| m.timestamp_ms);
@@ -645,6 +645,21 @@ fn write_session_file(
         format!("Rename failed: {e}")
     })?;
     Ok(merged)
+}
+
+/// `m` with each cited path once, in the order first given, as mdopener-mcp
+/// saves a message: a path the window cited twice used to be written twice.
+fn cited_once(m: &SessionMessage) -> SessionMessage {
+    let mut seen = std::collections::HashSet::new();
+    SessionMessage {
+        cited_docs: m
+            .cited_docs
+            .iter()
+            .filter(|d| seen.insert(d.as_str()))
+            .cloned()
+            .collect(),
+        ..m.clone()
+    }
 }
 
 /// Serialise `merged` as a session file, dropping its oldest messages until
@@ -713,7 +728,7 @@ pub fn mcp_persist_session(
             .0
             .lock()
             .map_err(|e| format!("Lock error: {e}"))?
-            .insert(session_id, messages);
+            .insert(session_id, messages.iter().map(cited_once).collect());
         return Ok(());
     };
     let merged = write_session_file(&dir, &session_id, &messages)?;
@@ -3547,6 +3562,23 @@ mod tests {
         let d = Scratch::new("read-mcp");
         std::fs::write(d.0.join("a%2Eb.json"), mcp_file(&[msg("m1", "a.b", 1)])).unwrap();
         assert_eq!(ids(&read_session_file(&d.0, "a.b").unwrap()), ["m1"]);
+    }
+
+    /// The window's session writer kept a path cited twice in one message
+    /// twice, while mdopener-mcp saves it once. It is now saved once, in the
+    /// order first given.
+    #[test]
+    fn a_path_cited_twice_in_one_message_is_saved_once() {
+        let d = Scratch::new("cited");
+        let cited = |id: &str, ts: u64, docs: &[&str]| SessionMessage {
+            cited_docs: docs.iter().map(|s| s.to_string()).collect(),
+            ..msg(id, "s1", ts)
+        };
+        let docs = ["/b.md", "/a.md", "/b.md", "/a.md", "/c.md"];
+        let kept = write_session_file(&d.0, "s1", &[cited("m1", 1, &docs)]).unwrap();
+        assert_eq!(kept[0].cited_docs, ["/b.md", "/a.md", "/c.md"]);
+        let read = read_session_file(&d.0, "s1").unwrap();
+        assert_eq!(read[0].cited_docs, ["/b.md", "/a.md", "/c.md"]);
     }
 
     #[test]

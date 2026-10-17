@@ -43,6 +43,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   package descriptions shown in app metadata used em dashes (and two en
   dashes). They now use plain punctuation. A test parses the UI sources and
   fails on a dash in a string literal, template text or JSX text.
+- **The app saves a path cited twice in one message once.** The window's
+  session writer stored a message's `citedDocs` as given, so a path cited
+  twice was written twice, while `save_conversation_message` keeps it once.
+  The app now keeps each path once, in the order first given, too.
 - **Fields inside array items honour their declared bounds.** The argument
   check enforced `minLength`, `minimum` and `maximum` on top-level arguments
   only; inside an `edit_canvas` op they were declared but not checked there.
