@@ -4350,18 +4350,21 @@ pub fn strip_markdown(content: &str) -> String {
 
         // GFM tables: a header row followed by a delimiter row starts one,
         // and it runs until a blank line or a line without a pipe. Rows
-        // become tab-separated cells; the delimiter row is dropped.
-        if in_table && !trimmed.contains('|') {
+        // become tab-separated cells; the delimiter row is dropped. A table
+        // may sit in a blockquote or a list item, so rows are read without
+        // their `>` leaders and list marker.
+        let row = table_row_text(line);
+        if in_table && !row.contains('|') {
             in_table = false;
         }
-        if !in_table && trimmed.contains('|') {
+        if !in_table && row.contains('|') {
             in_table = lines
                 .get(idx + 1)
-                .is_some_and(|next| is_table_delimiter(next));
+                .is_some_and(|next| is_table_delimiter(table_row_text(next)));
         }
         if in_table {
-            if !is_table_delimiter(line) {
-                let cells: Vec<String> = table_cells(trimmed)
+            if !is_table_delimiter(row) {
+                let cells: Vec<String> = table_cells(row)
                     .iter()
                     .map(|c| strip_inline_markdown(c).trim().to_string())
                     .collect();
@@ -4482,6 +4485,32 @@ pub fn strip_markdown(content: &str) -> String {
         }
     }
     collapsed.trim_end().to_string()
+}
+
+/// A line's text as a table row: without leading `>` blockquote leaders and
+/// one list marker (`- `, `* `, `+ `, `1. `, `1) `), trimmed.
+fn table_row_text(line: &str) -> &str {
+    let mut s = line.trim();
+    while let Some(rest) = s.strip_prefix('>') {
+        s = rest.trim_start();
+    }
+    if let Some(rest) = s
+        .strip_prefix("- ")
+        .or_else(|| s.strip_prefix("* "))
+        .or_else(|| s.strip_prefix("+ "))
+    {
+        return rest.trim_start();
+    }
+    let digits = s.len() - s.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    if (1..=9).contains(&digits) {
+        if let Some(rest) = s[digits..]
+            .strip_prefix(". ")
+            .or_else(|| s[digits..].strip_prefix(") "))
+        {
+            return rest.trim_start();
+        }
+    }
+    s
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.

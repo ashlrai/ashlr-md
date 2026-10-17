@@ -4775,6 +4775,45 @@ fn export_text_keeps_literal_angle_brackets_underscores_and_asterisks() {
     );
 }
 
+/// A table inside a blockquote or a list item was not detected (its
+/// delimiter row starts with `>` or a list marker), so its rows came back
+/// with their pipes and the `|---|` row kept.
+#[test]
+fn export_text_reads_tables_in_blockquotes_and_lists() {
+    use mdopener_mcp::strip_markdown;
+    assert_eq!(
+        strip_markdown(
+            "> Note\n>\n> | Name | Role |\n> |------|------|\n> | Zoë | **Lead** |\n\nAfter"
+        ),
+        "Note\n\nName\tRole\nZoë\tLead\n\nAfter"
+    );
+    assert_eq!(
+        strip_markdown("> > | a | b |\n> > |---|---|\n> > | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "nested blockquote"
+    );
+    assert_eq!(
+        strip_markdown("- Item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n- Next"),
+        "Item\n\na\tb\n1\t2\nNext",
+        "table indented under a list item"
+    );
+    assert_eq!(
+        strip_markdown("1. | a | b |\n   |---|---|\n   | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "table starting on the list marker line"
+    );
+    assert_eq!(
+        strip_markdown("> - | a | b |\n>   |---|---|\n>   | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "list inside a blockquote"
+    );
+    assert_eq!(
+        strip_markdown("> a | b\n\nc"),
+        "a | b\n\nc",
+        "a quoted line with a pipe and no delimiter row stays text"
+    );
+}
+
 /// Strikethrough keeps its text without the tildes, table rows become
 /// tab-separated cells with the delimiter row gone, and footnotes read as
 /// `[1]` at the reference and `[1] text` at the definition.
