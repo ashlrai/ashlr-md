@@ -345,6 +345,11 @@ before proceeding.
   blocks. Raise it only if your client allows longer tool calls.
 - `review_id` — resume waiting on a review an earlier call returned as pending
   (no new review is registered).
+  The app keeps a review for 30 minutes after its `timeout_ms` window closes,
+  so resume within that time; later the call returns `verdict: "timeout"`
+  (the record is gone). The newest review of each file is kept longer, for
+  `get_user_annotations`, and the app holds at most 256 reviews, dropping the
+  oldest decided ones first.
 
 ### Reading the result later
 

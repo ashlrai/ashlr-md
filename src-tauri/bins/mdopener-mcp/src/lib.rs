@@ -1582,7 +1582,7 @@ pub fn tool_request_review_with(
                 "not_found" => return tool_result(id, json!({
                     "verdict": "timeout",
                     "reviewId": review_id,
-                    "message": "Review record lost (app may have restarted)."
+                    "message": "Review record lost (the app restarted, or the review expired 30 min after its window closed)."
                 })),
                 _ => return tool_result(id, json!({
                     "verdict": resp["verdict"],

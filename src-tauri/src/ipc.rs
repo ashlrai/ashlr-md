@@ -101,6 +101,61 @@ pub struct ReviewRecord {
     pub comments: Option<String>,
     pub path: Option<String>,
     pub created_at: u64,
+    /// The review panel's window: the human has this long to decide.
+    pub timeout_ms: u64,
+}
+
+/// How long a review is kept after its window closes, so an agent that got
+/// `pending` back can still resume it by `review_id` and read the verdict.
+const REVIEW_RETENTION_MS: u64 = 30 * 60 * 1000;
+
+/// Most reviews kept at once, however recent.
+const MAX_REVIEWS: usize = 256;
+
+/// Bound [`ReviewState`]: drop reviews more than [`REVIEW_RETENTION_MS`] past
+/// their window, except the newest review of each file (the verdict
+/// `get_user_annotations` reports), then cap the count at [`MAX_REVIEWS`],
+/// dropping the oldest decided or expired reviews before any open one.
+fn prune_reviews(map: &mut HashMap<String, ReviewRecord>, now: u64) {
+    let window_end = |r: &ReviewRecord| r.created_at.saturating_add(r.timeout_ms);
+    let mut newest_per_path: HashMap<String, (u64, String)> = HashMap::new();
+    for (id, r) in map.iter() {
+        if let Some(p) = &r.path {
+            let e = newest_per_path
+                .entry(p.clone())
+                .or_insert((r.created_at, id.clone()));
+            if r.created_at > e.0 {
+                *e = (r.created_at, id.clone());
+            }
+        }
+    }
+    map.retain(|id, r| {
+        now < window_end(r).saturating_add(REVIEW_RETENTION_MS)
+            || r.path.as_ref().is_some_and(|p| {
+                newest_per_path
+                    .get(p)
+                    .is_some_and(|(_, newest)| newest == id)
+            })
+    });
+    if map.len() <= MAX_REVIEWS {
+        return;
+    }
+    // Open reviews (pending, window not closed) sort last, then oldest first.
+    let mut order: Vec<(bool, u64, String)> = map
+        .iter()
+        .map(|(id, r)| {
+            (
+                r.status == "pending" && now < window_end(r),
+                r.created_at,
+                id.clone(),
+            )
+        })
+        .collect();
+    order.sort();
+    let excess = map.len() - MAX_REVIEWS;
+    for (_, _, id) in order.into_iter().take(excess) {
+        map.remove(&id);
+    }
 }
 
 #[derive(Default)]
@@ -909,6 +964,8 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         if map.contains_key(&body.review_id) {
             return send_error(req, 409, "reviewId already exists");
         }
+        let now = now_ms();
+        prune_reviews(&mut map, now);
         map.insert(
             body.review_id.clone(),
             ReviewRecord {
@@ -916,7 +973,8 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
                 verdict: None,
                 comments: None,
                 path: abs_path.clone(),
-                created_at: now_ms(),
+                created_at: now,
+                timeout_ms,
             },
         );
     }
@@ -1864,6 +1922,92 @@ mod tests {
             assert_eq!(v["ok"], false);
             assert!(v["error"].as_str().unwrap().contains("Timed out"));
         }
+    }
+
+    // ── Review retention ─────────────────────────────────────────────────────
+
+    use super::{prune_reviews, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
+    use std::collections::HashMap;
+
+    fn review(status: &str, path: Option<&str>, created_at: u64, timeout_ms: u64) -> ReviewRecord {
+        ReviewRecord {
+            status: status.into(),
+            verdict: (status != "pending").then(|| status.to_string()),
+            comments: None,
+            path: path.map(str::to_string),
+            created_at,
+            timeout_ms,
+        }
+    }
+
+    #[test]
+    fn reviews_are_kept_while_an_agent_can_still_resume_them() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        // Pending, its 10 min window still open.
+        map.insert("open".to_string(), review("pending", None, t0, 600_000));
+        // Decided, its window closed but within the retention period.
+        map.insert("recent".to_string(), review("approved", None, t0, 5_000));
+        prune_reviews(&mut map, t0 + 600_000 - 1);
+        assert!(map.contains_key("open"));
+        assert!(map.contains_key("recent"));
+    }
+
+    #[test]
+    fn reviews_past_their_retention_are_dropped() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert("old".to_string(), review("approved", None, t0, 5_000));
+        map.insert("stale".to_string(), review("pending", None, t0, 5_000));
+        map.insert(
+            "fresh".to_string(),
+            review("pending", None, t0 + 3_600_000, 300_000),
+        );
+        prune_reviews(&mut map, t0 + 5_000 + REVIEW_RETENTION_MS);
+        assert!(!map.contains_key("old"));
+        assert!(!map.contains_key("stale"));
+        assert!(map.contains_key("fresh"));
+    }
+
+    #[test]
+    fn the_latest_review_of_a_file_outlives_retention_for_get_user_annotations() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert(
+            "a1".to_string(),
+            review("changes_requested", Some("/a.md"), t0, 5_000),
+        );
+        map.insert(
+            "a2".to_string(),
+            review("approved", Some("/a.md"), t0 + 1, 5_000),
+        );
+        prune_reviews(&mut map, t0 + 10 * REVIEW_RETENTION_MS);
+        assert!(!map.contains_key("a1"));
+        assert!(map.contains_key("a2"));
+    }
+
+    #[test]
+    fn the_review_count_is_capped_dropping_decided_reviews_first() {
+        let mut map = HashMap::new();
+        let t0 = 1_000_000;
+        map.insert("pending".to_string(), review("pending", None, t0, 600_000));
+        for i in 0..(MAX_REVIEWS as u64 + 10) {
+            map.insert(
+                format!("d{i}"),
+                review("approved", Some(&format!("/f{i}.md")), t0 + 1 + i, 600_000),
+            );
+        }
+        prune_reviews(&mut map, t0 + 2);
+        assert!(map.len() <= MAX_REVIEWS);
+        assert!(
+            map.contains_key("pending"),
+            "an open review is never the one dropped"
+        );
+        assert!(
+            !map.contains_key("d0"),
+            "the oldest decided review goes first"
+        );
+        assert!(map.contains_key(&format!("d{}", MAX_REVIEWS as u64 + 9)));
     }
 
     #[test]
