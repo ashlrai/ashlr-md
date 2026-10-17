@@ -20,17 +20,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 // Vite ?raw imports — each resolves to the full CSS text at build time.
 import katexCss from "katex/dist/katex.min.css?raw";
-import { useDocumentStore } from "../store/documentStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { buildOpml, buildOutlineTree } from "./exportOutline";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
-import { ALL_PROFILE_IDS, findProfile, findTemplate } from "./exportTemplates";
-import { parseHeadings } from "./outline";
-
-export type { OutlineNode } from "./exportOutline";
+import { findProfile, findTemplate } from "./exportTemplates";
 
 // ─── EPUB theme CSS ──────────────────────────────────────────────────────────
 
@@ -613,83 +608,6 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   toast.success(`Exported to ${baseName(path)}`);
 }
 
-// ─── exportOutline ────────────────────────────────────────────────────────────
-
-/**
- * Export the current document's heading structure as a structured outline.
- *
- * Two formats are supported:
- *   - `'json'`  — hierarchical JSON array of OutlineNode objects (roundtrip-able,
- *                 machine-readable, compatible with Obsidian Canvas / Logseq).
- *   - `'opml'`  — OPML 2.0 XML for feed readers and outliner tools (OmniOutliner,
- *                 WorkFlowy, Logseq, etc.).
- *
- * The heading list is extracted from the raw Markdown source in documentStore
- * (not from the DOM), so this function works in any view mode and produces
- * consistent results regardless of render state.
- *
- * When `outputPath` is provided the file is written via the Rust
- * `write_markdown_file` command (UTF-8 text, atomic temp-rename).  When omitted
- * a save dialog is shown so the user can pick a destination.
- *
- * @param options.format      Output format: `'json'` or `'opml'`.
- * @param options.outputPath  Optional pre-chosen destination path (headless mode).
- * @returns The written file path, or `""` when the user cancelled the dialog.
- */
-export async function exportOutline(options: {
-  format: "json" | "opml";
-  outputPath?: string;
-}): Promise<string> {
-  const { format, outputPath } = options;
-
-  // Read live document state — works in any view mode (no DOM dependency).
-  const { content, fileName, path: docPath } = useDocumentStore.getState();
-  if (!docPath && !content) {
-    throw "No document is open. Open a Markdown file before exporting.";
-  }
-
-  // Build the outline from the Markdown source.
-  const headings = parseHeadings(content);
-  const tree = buildOutlineTree(headings);
-  const title =
-    (fileName ?? "outline").replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "outline";
-
-  // Serialise to the requested format.
-  let text: string;
-  let ext: string;
-  if (format === "opml") {
-    text = buildOpml(tree, title);
-    ext = "opml";
-  } else {
-    text = JSON.stringify(tree, null, 2);
-    ext = "json";
-  }
-
-  // Resolve destination path.
-  let dest = outputPath;
-  if (!dest) {
-    const chosen = await save({
-      defaultPath: `${sanitizeFileName(title)}-outline.${ext}`,
-      filters:
-        format === "opml"
-          ? [{ name: "OPML Outline", extensions: ["opml"] }]
-          : [{ name: "JSON Outline", extensions: ["json"] }],
-    });
-    if (!chosen) return ""; // user cancelled — no toast
-    dest = chosen;
-  }
-
-  try {
-    await invoke("write_markdown_file", { path: dest, content: text });
-  } catch (e) {
-    toast.error(`Outline export failed: ${errMsg(e)}`);
-    throw e;
-  }
-
-  toast.success(`Outline exported to ${baseName(dest)}`);
-  return dest;
-}
-
 // ─── buildExportHtml ─────────────────────────────────────────────────────────
 
 /**
@@ -874,58 +792,6 @@ export async function exportWithProfile(
     throw e;
   }
   toast.success(`Exported to ${baseName(path)}`);
-}
-
-// ─── buildBatchExportProfiles ─────────────────────────────────────────────────
-
-/**
- * Result shape for a single profile in a batch export.
- */
-export interface BatchProfileResult {
-  /** The profile id. */
-  profileId: ExportProfileId;
-  /** Whether this profile export succeeded. */
-  ok: boolean;
-  /** The complete standalone HTML document for this profile, or null on failure. */
-  html: string | null;
-  /** Error string when ok is false. */
-  error?: string;
-}
-
-/**
- * Export a single document to all (or a subset of) profiles in parallel,
- * returning all 5/6 HTML outputs in a single result object.
- *
- * It accepts the optional `content` parameter to take a pre-captured body
- * HTML fragment (for testing without a live DOM), or omit it to capture the
- * live `.markdown-body` element.
- *
- * The `profileIds` parameter defaults to ALL_PROFILE_IDS so agents get every
- * profile in one call.  Pass a subset to restrict the output.
- *
- * All profiles run concurrently via Promise.all — latency is bounded by the
- * slowest profile (the email-html inline pass), not the sum of all profiles.
- *
- * @param profileIds  Which profiles to include (default: all 6).
- * @param content     Optional pre-captured body HTML fragment.
- * @returns           Array of BatchProfileResult, one per requested profile.
- */
-export async function buildBatchExportProfiles(
-  profileIds: readonly ExportProfileId[] = ALL_PROFILE_IDS,
-  content?: string,
-): Promise<BatchProfileResult[]> {
-  return Promise.all(
-    profileIds.map(async (profileId): Promise<BatchProfileResult> => {
-      try {
-        const html = buildExportHtml(profileId, content);
-        return { profileId, ok: true, html };
-      } catch (err) {
-        const error =
-          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-        return { profileId, ok: false, html: null, error };
-      }
-    }),
-  );
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────
