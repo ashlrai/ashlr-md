@@ -5696,3 +5696,118 @@ fn blank_session_id_is_refused() {
     let resp = tool_get_conversation_context(json!(1), &json!({ "session_id": "\t" }));
     assert_eq!(param_error(&resp), "`session_id` must not be blank");
 }
+
+#[test]
+fn integer_below_its_minimum_is_refused() {
+    // Each of these used to fall back to the default (`as_u64` of a negative
+    // is None): `limit: -5` listed 10 recents, `timeout_ms: -1` gave the
+    // human 5 minutes, `match_index: -1` applied the first occurrence.
+    let cases = [
+        (
+            "list_recent",
+            json!({ "limit": -5 }),
+            "`limit` must be at least 0, got -5",
+        ),
+        (
+            "search_vault",
+            json!({ "query": "q", "limit": -1 }),
+            "`limit` must be at least 0, got -1",
+        ),
+        (
+            "get_conversation_context",
+            json!({ "session_id": "s", "limit": 0 }),
+            "`limit` must be at least 1, got 0",
+        ),
+        (
+            "diff_documents",
+            json!({ "path_a": "a.md", "path_b": "b.md", "context_lines": -3 }),
+            "`context_lines` must be at least 0, got -3",
+        ),
+        (
+            "request_review",
+            json!({ "content": "x", "timeout_ms": -1 }),
+            "`timeout_ms` must be at least 0, got -1",
+        ),
+        (
+            "request_review",
+            json!({ "content": "x", "wait_ms": -1000 }),
+            "`wait_ms` must be at least 0, got -1000",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview_lines": -2 }),
+            "`preview_lines` must be at least 0, got -2",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": -1 }),
+            "`match_index` must be at least 0, got -1",
+        ),
+    ];
+    for (tool, args, want) in cases {
+        assert_eq!(param_error(&call_tool(tool, args)), want, "{tool}");
+    }
+    // Every integer argument declares a minimum, so none is left unchecked.
+    for def in tool_registry() {
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            if prop["type"] == "integer" {
+                assert!(prop["minimum"].is_i64(), "{}.{k} has no minimum", def.name);
+            }
+        }
+    }
+    // The minimum itself and values past i64 still pass.
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap();
+    for n in [json!(0), json!(u64::MAX)] {
+        let args = json!({ "find": "a", "replace": "b", "match_index": n });
+        assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+    }
+}
+
+fn prompt_get(params: Value) -> mdopener_mcp::Response {
+    let ipc = MockIpc::new();
+    dispatch(dispatch_req("prompts/get", params), &ipc).unwrap()
+}
+
+#[test]
+fn unknown_prompt_names_the_closest_prompt_and_the_prompts() {
+    // `Unknown prompt: Summarize` gave no next step.
+    let msg = param_error(&prompt_get(json!({ "name": "Summarize" })));
+    assert!(msg.starts_with("Unknown prompt: Summarize."), "{msg}");
+    assert!(msg.contains("Did you mean `summarize`?"), "{msg}");
+    assert!(
+        msg.contains("The prompts are `summarize`, `review_plan`, `improve_writing`"),
+        "{msg}"
+    );
+
+    let msg = param_error(&prompt_get(json!({})));
+    assert!(msg.contains("`name` is missing or blank"), "{msg}");
+    assert!(!msg.contains("Did you mean"), "{msg}");
+
+    // Every prompt prompts/list serves is named in the message.
+    let msg = param_error(&prompt_get(json!({ "name": "nope" })));
+    for p in mdopener_mcp::prompts_list().as_array().unwrap() {
+        let name = p["name"].as_str().unwrap();
+        assert!(msg.contains(&format!("`{name}`")), "{name}: {msg}");
+    }
+}
+
+#[test]
+fn unknown_resource_uri_names_the_closest_uri_and_resources_list() {
+    let ipc = MockIpc::new();
+    let read = |params: Value| dispatch(dispatch_req("resources/read", params), &ipc).unwrap();
+
+    let msg = param_error(&read(json!({ "uri": "mdopener://Current" })));
+    assert!(
+        msg.starts_with("Unknown resource URI: mdopener://Current."),
+        "{msg}"
+    );
+    assert!(msg.contains("Did you mean `mdopener://current`?"), "{msg}");
+    assert!(msg.contains("Call resources/list"), "{msg}");
+
+    // A missing uri used to read `Unknown resource URI: ` with nothing after.
+    let msg = param_error(&read(json!({})));
+    assert!(msg.contains("`uri` is missing or blank"), "{msg}");
+}

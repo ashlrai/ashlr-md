@@ -226,7 +226,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
-| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
+| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, min `1`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
 | `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format, and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed is left as it is. A message that cannot be written to disk is not saved and returns `isError: true`. |
 | `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `context_lines` defaults to `3`. |
 | `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, ops_applied }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. |
@@ -247,9 +247,15 @@ argument the schema does not declare (a typo such as `pth`), a value of the
 wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
 `cited_docs`) or `arguments` that is not an object is refused with `-32602`
 naming the argument; an undeclared one also lists the arguments the tool
-takes and the closest match. `null` counts as not given. An unknown tool name
-gets the closest tool name, if any, and a pointer to `tools/list`. A blank
-`session_id` is refused like a missing one.
+takes and the closest match. Every integer argument declares a `minimum` in
+its schema (`0`, or `1` for `get_conversation_context`'s `limit`), and a value
+below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
+of falling back to the default. `null` counts as not given. An unknown tool
+name gets the closest tool name, if any, and a pointer to `tools/list`. A
+blank `session_id` is refused like a missing one. `prompts/get` with an
+unknown or missing `name` and `resources/read` with an unknown or missing
+`uri` answer `-32602` the same way: the closest prompt or URI, if any, and
+the prompt names or a pointer to `resources/list`.
 
 ### `edit_document` — exact, unique find/replace
 
@@ -440,8 +446,10 @@ When the app is running, `mdopen` hands it the file over the token-authenticated
 loopback IPC channel, so it works even where the `mdopener://` scheme is not
 registered (an AppImage or dev build on Linux). Otherwise it opens the
 `mdopener://` URL, which launches the app. It exits `1` when neither works;
-for `mdopen -` the temp file holding stdin is then removed. It also exits `1`,
-before contacting the app, for a file that is not a Markdown document
+for `mdopen -` the temp file holding stdin is then removed. The message names
+the file, what the running-app route and the `mdopener://` route each hit,
+and ends with the next step (start Ashlr MD, then run `mdopen` again). It also
+exits `1`, before contacting the app, for a file that is not a Markdown document
 (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) or is a dotfile, checked after
 symlinks are resolved; and when the running app refuses the file, it exits `1`
 with the app's reason on stderr without trying the URL scheme. `mdopen -` also
@@ -630,7 +638,10 @@ regenerates `~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`.
 Run `claude mcp list` to see the registered path, then verify the binary exists
 at that path and is executable (`chmod +x`). Running
 `<path> --version` prints `mdopener-mcp <version>` and exits, so it is a quick
-check that the path is right (`--help` prints usage).
+check that the path is right (`--help` prints usage). Any other argument is
+ignored, so an old client config that passes one still starts the server, but
+it is named on stderr (`ignoring unknown argument ...`); look there in the
+client's MCP log for a typo such as `--verison`.
 
 **Cursor MCP panel shows the server as offline**
 Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
