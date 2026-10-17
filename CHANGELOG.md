@@ -36,6 +36,47 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Documents over 16 MiB are refused, not returned whole.** `export_text`,
+  `export_metadata`, `diff_documents`, `edit_canvas` and `file://` resources
+  read a document from disk whole and returned it whole, so a
+  multi-gigabyte `.md` went into memory and into the agent's reply. Past
+  16 MiB (what the app accepts in one request) they now refuse it, saying how
+  large it is; vault search and the recent-documents resource skip it.
+- **`text://vault-search` refuses parameters it does not take.** A misspelt
+  query parameter (`lmit=5`) was dropped and the search ran with the default,
+  and any URI that merely started with `text://vault-search` was read as it.
+  An unknown parameter, or a known one with no value, is now `-32602` naming
+  the closest parameter, as unknown tool arguments are.
+- **`search_vault`'s `limit` means the same in every mode.** The app's own
+  search returned at most 200 results and turned `limit: 0` into 1, while the
+  on-disk greps and semantic search returned as many as asked, up to every
+  file of a 5000-file vault. Every mode now returns at most 200, and a `limit`
+  below 1 is refused (`-32602`) by the tool and the `text://vault-search`
+  resource.
+- **A semantic fallback keeps the app's search note.** When semantic search
+  was unavailable and `search_vault` fell back to the app's own search, its
+  "semantic search was unavailable" note replaced the app's note, so a
+  `truncated: true` result no longer said that only the newest files were
+  searched. Both notes are now kept.
+- **A slow export no longer turns other agent requests away.** A headless
+  export waits up to 30 s for the window, in one of the two slots edits,
+  opens, presents and reviews also wait in, so two exports in flight made the
+  app refuse all of those as busy until they finished. Headless exports now
+  have one slot of their own; a second one sent meanwhile is refused at once,
+  saying another export is being written.
+- **"The 200 newest files" are the folder's true newest.** Listing the watched
+  folder stopped collecting at 2000 files and only then sorted by date, so in a
+  bigger folder the Activity drawer and `search_vault` saw the newest of
+  whichever 2000 the file system returned first. The walk now keeps the newest
+  files as it goes, reads at most 50,000 directory entries, and when it stops
+  there the drawer, `/search` and `search_vault` say the list is the newest of
+  the files scanned.
+- **The vault-cut notice states the app's own cap.** The 200-file limit lived
+  in the frontend (`MAX_FILES`) but the "only its 200 most recently changed
+  files were searched" notices in `/search` and `search_vault` hard-coded it.
+  The frontend now sends its cap with every vault sync, `/vault` reports it as
+  `limit`, and both notices quote that number (an older app that does not send
+  it gets a notice with no number).
 - **A badly encoded `file://` resource URI says so.** `resources/read` with
   `%ZZ`, a lone `%` or `%FF` (not UTF-8) in the path answered "Resource not
   in vault", as if the file were the problem. It is now `-32602` naming the

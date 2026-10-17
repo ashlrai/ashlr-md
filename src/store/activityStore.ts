@@ -11,8 +11,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   type ActivityEvent,
-  listMarkdownFiles,
   type MdFileInfo,
+  scanMarkdownFiles,
 } from "../lib/activity";
 import { notifyAgentActivity } from "../lib/notify";
 import { useActivationStore } from "./activationStore";
@@ -105,6 +105,11 @@ interface ActivityState {
    * `files` (and what agents search) is only the newest of them. Runtime only.
    */
   truncated: boolean;
+  /**
+   * True when the folder was too large to walk in full, so `files` are the
+   * newest of the files the walk reached. Runtime only.
+   */
+  scanCut: boolean;
 
   /** Set (or clear) the watched folder. Does NOT issue the watch itself. */
   setWatchedDir: (dir: string | null) => void;
@@ -142,6 +147,7 @@ export const useActivityStore = create<ActivityState>()(
       unseen: [],
       lastError: null,
       truncated: false,
+      scanCut: false,
 
       setWatchedDir: (dir) => {
         // The listing and badges belong to the folder they were read from: a
@@ -155,6 +161,7 @@ export const useActivityStore = create<ActivityState>()(
             unseen: [],
             lastError: null,
             truncated: false,
+            scanCut: false,
           });
         } else {
           set({ lastError: null });
@@ -175,12 +182,18 @@ export const useActivityStore = create<ActivityState>()(
           // (100) silently left half of them out of the drawer and of what
           // search_vault searches. One more than that says whether the folder
           // has more, so the drawer and agents are told the list is cut short.
-          const listed = await listMarkdownFiles(dir, MAX_FILES + 1);
+          // The walk keeps the newest files of the whole folder, but stops in a
+          // very large one; it says so, and the list is then not all of them.
+          const { files: listed, scanCut } = await scanMarkdownFiles(
+            dir,
+            MAX_FILES + 1,
+          );
           // The folder changed while this listing ran: it is not this one's.
           if (get().watchedDir !== dir) return;
           set({
             files: listed.slice(0, MAX_FILES),
-            truncated: listed.length > MAX_FILES,
+            truncated: scanCut || listed.length > MAX_FILES,
+            scanCut,
             lastError: null,
           });
         } catch (e) {
@@ -228,6 +241,7 @@ export const useActivityStore = create<ActivityState>()(
           unseen: [],
           lastError: null,
           truncated: false,
+          scanCut: false,
         }),
     }),
     {

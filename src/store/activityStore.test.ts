@@ -3,10 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ── Module mocks ────────────────────────────────────────────────────────────
 // Replace all external I/O so the store runs in happy-dom without Tauri/FS.
 
-vi.mock("../lib/activity", () => ({
-  listMarkdownFiles: vi.fn(),
-  ACTIVITY_EVENT: "activity://file",
-}));
+vi.mock("../lib/activity", () => {
+  const listMarkdownFiles = vi.fn();
+  return {
+    listMarkdownFiles,
+    // The store scans; by default a scan is the listing with no cut.
+    scanMarkdownFiles: vi.fn(async (path: string, limit?: number) => ({
+      files: await listMarkdownFiles(path, limit),
+      scanCut: false,
+    })),
+    ACTIVITY_EVENT: "activity://file",
+  };
+});
 
 vi.mock("../lib/notify", () => ({
   notifyAgentActivity: vi.fn(),
@@ -38,10 +46,11 @@ vi.mock("./uiStore", () => ({
 }));
 
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
-import { listMarkdownFiles } from "../lib/activity";
+import { listMarkdownFiles, scanMarkdownFiles } from "../lib/activity";
 import { useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
+const scanMock = scanMarkdownFiles as ReturnType<typeof vi.fn>;
 
 function makeFile(name: string, mtimeMs = Date.now()): MdFileInfo {
   return { path: `/watch/${name}`, name, dir: "/watch", mtimeMs, size: 100 };
@@ -62,6 +71,7 @@ function reset() {
     unseen: [],
     lastError: null,
     truncated: false,
+    scanCut: false,
   });
   toastInfoMock.mockClear();
   listMock.mockReset();
@@ -216,6 +226,21 @@ describe("activityStore", () => {
     await useActivityStore.getState().loadFiles();
     expect(useActivityStore.getState().files).toHaveLength(200);
     expect(useActivityStore.getState().truncated).toBe(false);
+  });
+
+  it("loadFiles says when the folder was too large to walk in full", async () => {
+    useActivityStore.setState({ watchedDir: "/watch" });
+    // Fewer files than the cap, but the walk stopped before reading them all:
+    // the list is not all of them, and not necessarily the newest.
+    scanMock.mockResolvedValueOnce({ files: [makeFile("a.md")], scanCut: true });
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().truncated).toBe(true);
+    expect(useActivityStore.getState().scanCut).toBe(true);
+
+    listMock.mockResolvedValue([makeFile("a.md")]);
+    await useActivityStore.getState().loadFiles();
+    expect(useActivityStore.getState().truncated).toBe(false);
+    expect(useActivityStore.getState().scanCut).toBe(false);
   });
 
   it("switching folders clears the old folder's files and badges", () => {

@@ -2606,15 +2606,46 @@ fn search_vault_surfaces_the_apps_refusal_alongside_local_grep() {
     assert!(note.contains("search is disabled"), "note: {note}");
 }
 
-/// The app lists at most 200 files of the watched folder; search_vault said
-/// nothing when the folder had more, so "no hits" read as "not in the folder".
+/// Semantic search that fell back to the app's own search replaced the app's
+/// `note` with its own, so `truncated: true` came with no word that only the
+/// newest files were searched.
+#[test]
+fn a_semantic_fallback_keeps_the_apps_truncation_note() {
+    let app_note = "The watched folder has more Markdown files than Ashlr MD lists, so only \
+                    its 200 most recently changed files (and the recent documents) were searched.";
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [], "recents": [], "truncated": true, "limit": 200 })),
+        )
+        .on_get(
+            "/search",
+            Ok(json!({ "query": "q", "results": [], "truncated": true, "note": app_note })),
+        );
+    let embed = |_: &str| Err("Ollama is not running".to_string());
+    let v = mdopener_mcp::search_vault_in("q", 5, true, None, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "grep", "{v}");
+    assert_eq!(v["truncated"], true, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.starts_with("Semantic search was unavailable"),
+        "{note}"
+    );
+    assert!(note.ends_with(app_note), "{note}");
+}
+
+/// The app lists at most `limit` files of the watched folder (its synced
+/// MAX_FILES); search_vault said nothing when the folder had more, so "no
+/// hits" read as "not in the folder". The number in the note is the app's,
+/// not one hard-coded in the server.
 #[test]
 fn search_vault_says_when_the_apps_vault_list_is_truncated() {
     use std::io::Write;
     let mut f = tempfile::NamedTempFile::new().unwrap();
     writeln!(f, "# Notes\nThe target topic is here.").unwrap();
     let path = f.path().to_str().unwrap().to_string();
-    let vault = json!({ "files": [{ "path": path }], "recents": [], "truncated": true });
+    let vault =
+        json!({ "files": [{ "path": path }], "recents": [], "truncated": true, "limit": 150 });
     // The app's own search failed: grep the listed files locally.
     let ipc = MockIpc::new()
         .on_get("/vault", Ok(vault.clone()))
@@ -2630,7 +2661,7 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         text["note"]
             .as_str()
             .unwrap()
-            .contains("200 most recently changed"),
+            .contains("its 150 most recently changed"),
         "{text}"
     );
     // Semantic search over the listed files says so too.
@@ -2643,8 +2674,49 @@ fn search_vault_says_when_the_apps_vault_list_is_truncated() {
         v["note"]
             .as_str()
             .unwrap()
-            .contains("200 most recently changed"),
+            .contains("its 150 most recently changed"),
         "{v}"
+    );
+    // An older app that does not send its cap: no number is claimed.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": path }], "recents": [], "truncated": true })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(3),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    let note = text["note"].as_str().unwrap();
+    assert!(note.contains("its most recently changed files"), "{text}");
+    assert!(!note.contains("200"), "{text}");
+    // A folder too large for the app to walk in full: the listed files are the
+    // newest of those reached, not necessarily the folder's newest.
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({
+                "files": [{ "path": path }], "recents": [],
+                "truncated": false, "limit": 200, "scanCut": true
+            })),
+        )
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let text = content_text(&tool_search_vault(
+        id(4),
+        &json!({ "query": "target topic", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(text["truncated"], true, "{text}");
+    let note = text["note"].as_str().unwrap();
+    assert!(
+        note.contains("too large for Ashlr MD to scan in full"),
+        "{text}"
+    );
+    assert!(
+        note.contains("the 200 most recently changed of the files it scanned"),
+        "{text}"
     );
     // A complete list says nothing.
     let ipc = MockIpc::new()
@@ -2675,6 +2747,54 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     assert_eq!(result["isError"], json!(true));
     let msg = result["content"][0]["text"].as_str().unwrap_or("");
     assert!(msg.contains("search is disabled"), "got: {msg}");
+}
+
+/// A `limit` meant something different in each mode: the app's search
+/// returned at most 200 and turned 0 into 1, while the on-disk greps and
+/// semantic search returned as many as asked, up to every file in the vault.
+#[test]
+fn search_vault_limit_is_the_same_in_every_mode() {
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    for i in 0..205 {
+        std::fs::write(dir.path().join(format!("n{i}.md")), "the target topic\n").unwrap();
+    }
+    let vault = dir.path().to_str().unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 1000 });
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 200, "grep-disk");
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = mdopener_mcp::search_vault_in("target", 1000, true, Some(dir.path()), &ipc, &embed)
+        .unwrap();
+    assert_eq!(v["mode"], "semantic", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 200, "semantic");
+    // The app is asked for no more than it returns.
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    tool_search_vault(
+        id(2),
+        &json!({ "query": "t", "semantic": false, "limit": 1000 }),
+        &ipc,
+    );
+    let asked: Vec<String> = ipc.calls().into_iter().map(|c| c.1).collect();
+    assert_eq!(asked, ["/search?q=t&limit=200"], "{asked:?}");
+    // 0 is refused before the search, by the tool and by the resource.
+    let msg = refused_before_the_tool("search_vault", json!({ "query": "t", "limit": 0 }));
+    assert!(msg.starts_with("`limit` must be at least 1"), "{msg}");
+    let resp = mdopener_mcp::handle_resource_read(
+        id(3),
+        "text://vault-search?q=t&limit=0",
+        &MockIpc::new(),
+    );
+    assert_eq!(
+        resp.error.as_ref().map(|e| e.code),
+        Some(-32602),
+        "{:?}",
+        resp.error
+    );
 }
 
 /// `vault` is searched on disk only when the app cannot be reached: a refusal
@@ -3042,6 +3162,45 @@ fn resource_read_vault_search_rejects_a_non_numeric_limit() {
     assert!(ok.error.is_none(), "{:?}", ok.error);
 }
 
+/// A misspelt query parameter (`lmit=5`) was dropped, so the search ran with
+/// the default, and `text://vault-searchx` was read as this resource.
+#[test]
+fn resource_read_vault_search_refuses_unknown_parameters() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(id(316), "text://vault-search?q=x&lmit=5", &ipc);
+    let err = resp.error.expect("an unknown parameter is an error");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("unknown query parameter `lmit`"),
+        "{}",
+        err.message
+    );
+    assert!(
+        err.message.contains("Did you mean `limit`?"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let resp = handle_resource_read(id(319), "text://vault-search?q=x&limit", &ipc);
+    let err = resp.error.expect("a parameter with no value is an error");
+    assert!(
+        err.message.contains("`limit` needs a value"),
+        "{}",
+        err.message
+    );
+    // An empty part (`&&`, a trailing `&`) is not a parameter.
+    let ok = handle_resource_read(id(317), "text://vault-search?q=x&&limit=3&", &ipc);
+    assert!(ok.error.is_none(), "{:?}", ok.error);
+    // Another URI that merely starts with this one is not this resource.
+    let resp = handle_resource_read(id(318), "text://vault-searches?q=x", &MockIpc::new());
+    let err = resp.error.expect("an unknown resource is an error");
+    assert!(
+        err.message.starts_with("Unknown resource URI"),
+        "{}",
+        err.message
+    );
+}
+
 /// `search_vault` with `semantic: "false"` (a string) silently auto-detected
 /// instead of forcing grep.
 #[test]
@@ -3289,26 +3448,26 @@ fn save_message_missing_role_returns_param_error() {
     );
 }
 
+/// The role is checked once, by the schema enum in check_tool_arguments,
+/// before anything is stored; the tool no longer words its own refusal.
 #[test]
 fn save_message_invalid_role_returns_param_error() {
-    let resp = tool_save_conversation_message(
-        id(1),
-        &json!({
-            "session_id": unique_session(),
-            "role": "robot",
-            "content": "Some content"
-        }),
+    let session = unique_session();
+    let msg = refused_before_the_tool(
+        "save_conversation_message",
+        json!({ "session_id": session, "role": "robot", "content": "Some content" }),
     );
     assert_eq!(
-        resp.error.as_ref().unwrap().code,
-        -32602,
-        "invalid role must return -32602"
+        msg, "`role` must be one of `agent`, `human`, `system`, got a string (\"robot\")",
+        "error should list valid roles"
     );
-    let msg = resp.error.unwrap().message;
     assert!(
-        msg.contains("agent") || msg.contains("human") || msg.contains("system"),
-        "error should list valid roles, got: {msg}"
+        !session_file_path(&session).unwrap().exists(),
+        "nothing is stored for a refused role"
     );
+    // store_append_message, called directly, still refuses it.
+    let err = store_append_message(&session, "robot", "x", vec![]).unwrap_err();
+    assert!(err.contains("`role` must be"), "{err}");
 }
 
 #[test]
@@ -7171,7 +7330,7 @@ fn integer_below_its_minimum_is_refused() {
         (
             "search_vault",
             json!({ "query": "q", "limit": -1 }),
-            "`limit` must be at least 0, got -1",
+            "`limit` must be at least 1, got -1",
         ),
         (
             "get_conversation_context",
@@ -7574,4 +7733,54 @@ fn frontmatter_nesting_deeper_than_the_cap_is_null() {
         cur = &cur[format!("k{i}")];
         assert!(cur.is_object() || cur.is_null(), "level {i}: {cur}");
     }
+}
+
+/// Tools that read a document from disk read it whole and returned it whole:
+/// a multi-gigabyte `.md` went into memory and into the agent's reply. Past
+/// the 16 MiB the app accepts in one request, they now refuse it.
+#[test]
+fn document_reads_refuse_a_file_larger_than_16_mib() {
+    use mdopener_mcp::{read_document_file, MAX_DOCUMENT_BYTES};
+    let dir = tempfile::Builder::new().prefix("big-").tempdir().unwrap();
+    let big = dir.path().join("big.md");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+    let small = dir.path().join("small.md");
+    std::fs::write(&small, "# small\n").unwrap();
+    let big_canvas = dir.path().join("big.canvas");
+    std::fs::File::create(&big_canvas)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+
+    let err = read_document_file(&big).unwrap_err();
+    assert!(err.to_string().contains("more than the 16 MiB"), "{err}");
+    let msg = tool_error_text(&call_tool("export_text", json!({ "path": big })));
+    assert!(
+        msg.contains("more than the 16 MiB a document may be"),
+        "{msg}"
+    );
+    let msg = tool_error_text(&call_tool(
+        "diff_documents",
+        json!({ "path_a": small, "path_b": big }),
+    ));
+    assert!(msg.contains("more than the 16 MiB"), "{msg}");
+    let msg = tool_error_text(&call_tool(
+        "edit_canvas",
+        json!({ "path": big_canvas, "ops": [{ "type": "delete_node", "id": "a" }] }),
+    ));
+    assert!(msg.contains("more than the 16 MiB"), "{msg}");
+
+    // Exactly the cap is still read.
+    let at_cap = dir.path().join("at-cap.md");
+    std::fs::File::create(&at_cap)
+        .unwrap()
+        .set_len(MAX_DOCUMENT_BYTES)
+        .unwrap();
+    assert_eq!(
+        read_document_file(&at_cap).unwrap().len() as u64,
+        MAX_DOCUMENT_BYTES
+    );
 }

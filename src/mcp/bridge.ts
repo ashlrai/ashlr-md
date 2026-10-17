@@ -43,7 +43,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "react";
-import { useActivityStore } from "../store/activityStore";
+import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useConversationStore } from "../store/memoryStore";
 import { useRecentStore } from "../store/recentStore";
@@ -113,11 +113,15 @@ export function useMcpBridge(): void {
     };
 
     const syncVaultNow = () => {
-      const { watchedDir, files, truncated } = useActivityStore.getState();
+      const { watchedDir, files, truncated, scanCut } = useActivityStore.getState();
       invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
         truncated,
+        // The cap the list was cut at, so the app's notices state the real number.
+        limit: MAX_FILES,
+        // The folder was too large to walk in full: the list is not its newest.
+        scanCut,
       }).catch((e) => {
         console.warn("[mcp bridge] mcp_sync_vault failed:", e);
       });

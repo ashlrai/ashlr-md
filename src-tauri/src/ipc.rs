@@ -225,8 +225,15 @@ pub struct VaultInner {
     pub watched_dir: Option<String>,
     pub files: Vec<VaultFileEntry>,
     /// The watched folder has more Markdown files than the frontend lists
-    /// (its 200 newest), so `files` is not all of them.
+    /// (its `limit` newest), so `files` is not all of them.
     pub truncated: bool,
+    /// How many files the frontend lists at most (its `MAX_FILES`), sent with
+    /// every sync so notices state the real number. `None` from an older
+    /// frontend that does not send it.
+    pub limit: Option<usize>,
+    /// The folder was too large for the frontend's walk to read in full, so
+    /// `files` are the newest of the files it reached, not the folder's newest.
+    pub scan_cut: bool,
 }
 
 #[derive(Default)]
@@ -372,12 +379,16 @@ pub fn mcp_sync_vault(
     watched_dir: Option<String>,
     files: Vec<VaultFileEntry>,
     truncated: Option<bool>,
+    limit: Option<usize>,
+    scan_cut: Option<bool>,
     vault: tauri::State<VaultMirror>,
 ) {
     *vault.0.lock_recover() = VaultInner {
         watched_dir,
         files,
         truncated: truncated.unwrap_or(false),
+        limit,
+        scan_cut: scan_cut.unwrap_or(false),
     };
 }
 
@@ -961,18 +972,20 @@ fn window_round_trip(
     event: &str,
     payload: serde_json::Value,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
-    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT)
+    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT, &EDIT_SLOTS)
 }
 
-/// [`window_round_trip`] waiting up to `timeout` for the window's answer.
+/// [`window_round_trip`] waiting up to `timeout` for the window's answer, in
+/// a slot of `slots`. `None` when that budget is full.
 fn window_round_trip_within(
     app: &AppHandle,
     prefix: &str,
     event: &str,
     mut payload: serde_json::Value,
     timeout: Duration,
+    slots: &'static SlotBudget,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
-    let _inflight = InflightEdit::acquire()?;
+    let _inflight = InflightEdit::acquire_in(slots)?;
     let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     payload["editId"] = serde_json::Value::String(edit_id.clone());
     let (tx, rx) = mpsc::channel::<EditOutcome>();
@@ -1107,7 +1120,9 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             });
             // A headless export waits for the window to report it written
             // (or why not) through `mcp_edit_result`; one for the dialog
-            // returns once the window is told.
+            // returns once the window is told. It can wait up to 30 s, so it
+            // waits in its own slot ([`EXPORT_SLOTS`]): a slow export never
+            // takes the slots edits, opens and reviews answer in.
             let reply = match output_path {
                 Some(out) => match window_round_trip_within(
                     app,
@@ -1115,9 +1130,10 @@ fn handle_export(mut req: Request, app: &AppHandle) {
                     "mcp://export",
                     payload,
                     EXPORT_ROUNDTRIP_TIMEOUT,
+                    &EXPORT_SLOTS,
                 ) {
                     Some(outcome) => export_reply(outcome, &out),
-                    None => window_busy("export", &out),
+                    None => export_busy(&out),
                 },
                 None => emitted_reply(
                     app.emit("mcp://export", payload),
@@ -1517,6 +1533,8 @@ fn handle_vault(req: Request, app: &AppHandle) {
         "watchedDir": vault.watched_dir,
         "files": vault.files,
         "truncated": vault.truncated,
+        "limit": vault.limit,
+        "scanCut": vault.scan_cut,
         "recents": recents,
     }));
 }
@@ -1539,11 +1557,13 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     // Candidate set = vault files ∪ recents, deduped, locks dropped before search.
     let mut paths: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let truncated;
+    let (truncated, vault_limit, scan_cut);
     {
         let vault_state = app.state::<VaultMirror>();
         let vault = vault_state.0.lock_recover();
         truncated = vault.truncated;
+        vault_limit = vault.limit;
+        scan_cut = vault.scan_cut;
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1561,25 +1581,46 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
 
     let results = crate::search::search_files(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated));
+    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut));
 }
 
 /// The `/search` reply. When the vault list is cut short it says so, since
 /// the files left out were not searched.
-fn search_body(q: &str, results: impl Serialize, vault_truncated: bool) -> serde_json::Value {
+fn search_body(
+    q: &str,
+    results: impl Serialize,
+    vault_truncated: bool,
+    vault_limit: Option<usize>,
+    scan_cut: bool,
+) -> serde_json::Value {
     let mut body = serde_json::json!({ "query": q, "results": results });
-    if vault_truncated {
+    if vault_truncated || scan_cut {
         body["truncated"] = serde_json::json!(true);
-        body["note"] = serde_json::json!(VAULT_TRUNCATED_NOTE);
+        body["note"] = serde_json::json!(vault_truncated_note(vault_limit, scan_cut));
     }
     body
 }
 
-/// Said by `/search` (and `search_vault`) when the watched folder has more
-/// Markdown files than the app lists.
-const VAULT_TRUNCATED_NOTE: &str = "The watched folder has more Markdown files than \
-    Ashlr MD lists, so only its 200 most recently changed files (and the recent \
-    documents) were searched.";
+/// Said by `/search` when the watched folder has more Markdown files than the
+/// app lists. `limit` is the frontend's own cap, synced with the file list, so
+/// the number stated is the one in force; without it no number is claimed.
+/// When the folder was too large to walk in full (`scan_cut`), the files
+/// searched are the newest of those the walk reached, and it says that.
+fn vault_truncated_note(limit: Option<usize>, scan_cut: bool) -> String {
+    let n = limit.map(|n| format!("{n} ")).unwrap_or_default();
+    if scan_cut {
+        return format!(
+            "The watched folder is too large for Ashlr MD to scan in full, so only \
+             the {n}most recently changed of the files it scanned (and the recent \
+             documents) were searched; newer files elsewhere in the folder may have \
+             been missed."
+        );
+    }
+    format!(
+        "The watched folder has more Markdown files than Ashlr MD lists, so only \
+         its {n}most recently changed files (and the recent documents) were searched."
+    )
+}
 
 /// Apply a single exact find→replace, requiring the `find` string to appear
 /// EXACTLY once. Returns the new content, or a human-readable error explaining
@@ -1620,29 +1661,54 @@ const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(4);
 /// would overwrite one sender and make both round-trips spuriously time out).
 static EDIT_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Cap on edit round-trips parked on worker threads at once. With `WORKERS = 4`,
-/// holding this to 2 guarantees at least one worker stays free for `/content`,
-/// `/review/result` and `/health` even when a review poll is also parked.
+/// Cap on edit round-trips (`/edit`, `/content`, `/open`, `/present`, the
+/// review's open, `/stream-edit`) parked on worker threads at once.
 const MAX_INFLIGHT_EDITS: usize = 2;
-static INFLIGHT_EDITS: AtomicUsize = AtomicUsize::new(0);
+/// Cap on headless `/export` round-trips parked at once, in a budget of their
+/// own: one waits up to [`EXPORT_ROUNDTRIP_TIMEOUT`] (30 s, against 4 s for an
+/// edit), so sharing the edit slots let two slow exports refuse every other
+/// window request for that long. With `WORKERS = 4`, 2 edits plus 1 export
+/// still leave a worker free for `/health`, `/review/result` and the reads.
+const MAX_INFLIGHT_EXPORTS: usize = 1;
 
-/// RAII admission guard: lets at most [`MAX_INFLIGHT_EDITS`] edit round-trips run
+/// A number of round-trip slots and how many are taken.
+struct SlotBudget {
+    inflight: AtomicUsize,
+    cap: usize,
+}
+impl SlotBudget {
+    const fn new(cap: usize) -> Self {
+        SlotBudget {
+            inflight: AtomicUsize::new(0),
+            cap,
+        }
+    }
+}
+static EDIT_SLOTS: SlotBudget = SlotBudget::new(MAX_INFLIGHT_EDITS);
+static EXPORT_SLOTS: SlotBudget = SlotBudget::new(MAX_INFLIGHT_EXPORTS);
+
+/// RAII admission guard: lets at most a budget's `cap` round-trips run
 /// concurrently and releases the slot on every return path (success, soft-fail,
 /// timeout) via `Drop`.
-struct InflightEdit;
+struct InflightEdit(&'static SlotBudget);
 impl InflightEdit {
+    /// A slot of [`EDIT_SLOTS`].
     fn acquire() -> Option<Self> {
-        if INFLIGHT_EDITS.fetch_add(1, Ordering::AcqRel) >= MAX_INFLIGHT_EDITS {
-            INFLIGHT_EDITS.fetch_sub(1, Ordering::AcqRel);
+        Self::acquire_in(&EDIT_SLOTS)
+    }
+
+    fn acquire_in(slots: &'static SlotBudget) -> Option<Self> {
+        if slots.inflight.fetch_add(1, Ordering::AcqRel) >= slots.cap {
+            slots.inflight.fetch_sub(1, Ordering::AcqRel);
             None
         } else {
-            Some(InflightEdit)
+            Some(InflightEdit(slots))
         }
     }
 }
 impl Drop for InflightEdit {
     fn drop(&mut self) {
-        INFLIGHT_EDITS.fetch_sub(1, Ordering::AcqRel);
+        self.0.inflight.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -1716,6 +1782,21 @@ fn window_busy(doing: &str, path: &str) -> serde_json::Value {
         "error": format!(
             "The app is busy finishing other agent requests, so it did not {doing} \
              {path} — retry in a moment."
+        ),
+    })
+}
+
+/// The headless `/export` reply when another export is still being written:
+/// it can take up to [`EXPORT_ROUNDTRIP_TIMEOUT`], so the agent is told to
+/// retry once that one finishes, not "in a moment".
+fn export_busy(path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "path": path,
+        "error": format!(
+            "Another headless export is still being written, so the app did not export \
+             {path}. Retry once it finishes (it takes at most {}s).",
+            EXPORT_ROUNDTRIP_TIMEOUT.as_secs()
         ),
     })
 }
@@ -2099,19 +2180,37 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
-        same_path, search_body, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
+        same_path, search_body, InflightEdit, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
 
-    /// `/search` said nothing when the vault list was cut at 200 files, so an
-    /// agent read "no hits" as "not in the folder".
+    /// `/search` said nothing when the vault list was cut short, so an agent
+    /// read "no hits" as "not in the folder". The number it states is the
+    /// frontend's synced cap, not one hard-coded here.
     #[test]
     fn search_body_says_when_the_vault_list_is_truncated() {
-        let full = search_body("q", Vec::<String>::new(), false);
+        let full = search_body("q", Vec::<String>::new(), false, Some(150), false);
         assert!(full.get("truncated").is_none(), "{full}");
-        let cut = search_body("q", Vec::<String>::new(), true);
+        let cut = search_body("q", Vec::<String>::new(), true, Some(150), false);
         assert_eq!(cut["truncated"], true);
-        assert!(cut["note"].as_str().unwrap().contains("200"), "{cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("its 150 most recently changed files"), "{cut}");
+        // An older frontend that sends no cap: no number is claimed.
+        let cut = search_body("q", Vec::<String>::new(), true, None, false);
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("its most recently changed files"), "{cut}");
+        assert!(!note.contains("200"), "{cut}");
+    }
+
+    /// A folder too large to walk in full lists the newest of the files the
+    /// walk reached, which need not be the folder's newest: `/search` says so.
+    #[test]
+    fn search_body_says_when_the_vault_walk_was_cut() {
+        let cut = search_body("q", Vec::<String>::new(), false, Some(200), true);
+        assert_eq!(cut["truncated"], true, "{cut}");
+        let note = cut["note"].as_str().unwrap();
+        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
     }
 
     #[test]
@@ -2173,8 +2272,30 @@ mod tests {
         }
     }
 
+    /// A second headless export is refused at once, saying another export
+    /// is being written and how long that can take, not "in a moment".
+    #[test]
+    fn a_busy_export_says_another_export_holds_the_slot() {
+        let r = super::export_busy("/tmp/out.pdf");
+        assert_eq!(r["ok"], false);
+        assert_eq!(r["path"], "/tmp/out.pdf");
+        let e = r["error"].as_str().unwrap();
+        assert!(e.contains("Another headless export is still being written"), "{e}");
+        assert!(e.contains("at most 30s"), "{e}");
+    }
+
     #[test]
     fn inflight_edit_guard_caps_concurrency() {
+        // Headless exports wait up to 30 s in their own budget: with every
+        // export slot taken, edits (and opens, presents, reviews) still get
+        // all of theirs. They shared one budget, so two slow exports refused
+        // every other window request until they finished.
+        let mut exports: Vec<InflightEdit> = Vec::new();
+        while let Some(g) = InflightEdit::acquire_in(&EXPORT_SLOTS) {
+            exports.push(g);
+            assert!(exports.len() <= 8, "the export budget is bounded");
+        }
+        assert!(!exports.is_empty(), "an export gets a slot");
         // Admits up to the cap, refuses beyond it, and frees a slot on Drop so a
         // burst of /edit requests can never park every worker thread.
         let mut guards: Vec<InflightEdit> = Vec::new();
@@ -2194,10 +2315,12 @@ mod tests {
         drop(extra);
         drop(guards);
         assert_eq!(
-            INFLIGHT_EDITS.load(Ordering::Acquire),
+            EDIT_SLOTS.inflight.load(Ordering::Acquire),
             0,
             "every slot is released once guards drop"
         );
+        drop(exports);
+        assert_eq!(EXPORT_SLOTS.inflight.load(Ordering::Acquire), 0);
     }
 
     #[test]

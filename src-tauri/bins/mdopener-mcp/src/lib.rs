@@ -788,7 +788,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "minimum": 0, "description": "Max number of results to return. Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -1477,9 +1477,12 @@ fn check_item_fields(
 }
 
 /// A value outside the property's declared `enum`, as "`at` must be one of
-/// `a`, `b`, got ...". The tools checked some of these themselves (`mode`,
-/// `format`, `role`), each in its own words and some only after reaching the
-/// app; others (`ops[].type`) only once earlier ops had run.
+/// `a`, `b`, got ...". It is the only check of `save_conversation_message`'s
+/// `role` at the tool level. Where a tool function is public and called
+/// directly the tool keeps its own check: `open_file`'s `mode` goes into a
+/// launch URL, `export`'s `format` was exported as HTML by older apps, and
+/// `store_append_message` guards `role` for its own callers. `edit_canvas`
+/// keeps an unknown-op arm to close its `match`.
 fn enum_problem(at: &str, prop: &Value, value: &Value) -> Option<String> {
     let allowed = prop["enum"].as_array()?;
     if allowed.contains(value) {
@@ -1836,6 +1839,9 @@ pub fn tool_export_with(
     ipc: &dyn IpcClient,
     write_deadline: std::time::Duration,
 ) -> Response {
+    // check_tool_arguments refuses a `format` outside the schema enum first,
+    // but this is public and called directly, and older apps exported any
+    // unknown format as HTML and said ok: keep refusing it here too.
     let format = match args["format"].as_str() {
         Some(f) if EXPORT_FORMATS.contains(&f) => f.to_string(),
         Some(other) => {
@@ -2399,6 +2405,10 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
     }
 }
 
+/// Most results `search_vault` (and `text://vault-search`) returns, in every
+/// mode: the cap the app's own `/search` applies.
+pub const SEARCH_MAX_RESULTS: u64 = 200;
+
 /// The search behind both `search_vault` and the `text://vault-search`
 /// resource: `{ results, mode, note? }`, or the error the agent should see.
 ///
@@ -2438,6 +2448,10 @@ pub fn search_vault_in(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Value, String> {
+    // The app's own search returns at most SEARCH_MAX_RESULTS; the other
+    // modes are held to the same, so a limit means the same in every mode
+    // (an on-disk vault of 5000 files could otherwise return 5000 results).
+    let limit = limit.clamp(1, SEARCH_MAX_RESULTS);
     // The vault file list: from the app, or from `vault` on disk when the app
     // is unreachable. Fetched once, and only when needed.
     let mut listed: Option<Result<VaultFiles, String>> = None;
@@ -2487,7 +2501,15 @@ pub fn search_vault_in(
     match ipc.get(&format!("/search?q={encoded}&limit={limit}")) {
         Ok(mut v) => {
             v["mode"] = json!("grep");
-            if let Some(note) = semantic_note {
+            // Keep the app's own note (it says when the vault list was cut
+            // short, and `truncated` stays set): the fallback note goes first.
+            let app_note = v["note"].as_str().map(str::to_string);
+            let note = [semantic_note, app_note]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !note.is_empty() {
                 v["note"] = json!(note);
             }
             Ok(v)
@@ -2646,6 +2668,12 @@ struct VaultFiles {
     /// Why the app was not asked, quoted in the note.
     app_error: String,
     truncated: bool,
+    /// The app's own cap on its vault list, as `/vault` reports it (the
+    /// frontend's `MAX_FILES`). `None` from an older app that does not say.
+    app_limit: Option<u64>,
+    /// The app's walk of the watched folder stopped before reading all of
+    /// it, so its list is the newest of the files reached.
+    app_scan_cut: bool,
 }
 
 impl VaultFiles {
@@ -2654,9 +2682,20 @@ impl VaultFiles {
     fn disk_note(&self) -> Option<String> {
         let Some(dir) = self.disk_vault.as_deref() else {
             return self.truncated.then(|| {
-                "The watched folder has more Markdown files than Ashlr MD lists, so only \
-                 its 200 most recently changed files (and the recent documents) were searched."
-                    .to_string()
+                let n = self.app_limit.map(|n| format!("{n} ")).unwrap_or_default();
+                if self.app_scan_cut {
+                    return format!(
+                        "The watched folder is too large for Ashlr MD to scan in full, so \
+                         only the {n}most recently changed of the files it scanned (and the \
+                         recent documents) were searched; newer files elsewhere in the folder \
+                         may have been missed."
+                    );
+                }
+                format!(
+                    "The watched folder has more Markdown files than Ashlr MD lists, so \
+                     only its {n}most recently changed files (and the recent documents) were \
+                     searched."
+                )
             });
         };
         let mut note = format!(
@@ -2678,11 +2717,13 @@ impl VaultFiles {
 /// app cannot be reached. A refusal or other failure is still an error.
 fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
     match (vault_listing(ipc), vault) {
-        (Ok((paths, truncated)), _) => Ok(VaultFiles {
-            paths,
+        (Ok(listing), _) => Ok(VaultFiles {
+            paths: listing.paths,
             disk_vault: None,
             app_error: String::new(),
-            truncated,
+            truncated: listing.truncated || listing.scan_cut,
+            app_limit: listing.limit,
+            app_scan_cut: listing.scan_cut,
         }),
         (Err(e), Some(dir)) if app_unreachable(&e) => {
             let (paths, truncated) = disk_vault_files(dir);
@@ -2691,6 +2732,8 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
                 disk_vault: Some(dir.to_string_lossy().into_owned()),
                 app_error: e,
                 truncated,
+                app_limit: None,
+                app_scan_cut: false,
             })
         }
         (Err(e), _) => Err(e),
@@ -2793,15 +2836,13 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         Err(msg) => return Response::err(id, -32602, msg),
     };
 
+    // A `role` outside the schema enum is refused by check_tool_arguments
+    // before this runs; store_append_message checks it again for its other
+    // callers.
     let role = match args["role"].as_str() {
         Some(r) => r,
         None => return Response::err(id, -32602, "`role` is required"),
     };
-    if !matches!(role.trim(), "agent" | "human" | "system") {
-        let got = role.trim();
-        let msg = format!("`role` must be 'agent', 'human', or 'system', got '{got}'");
-        return Response::err(id, -32602, msg);
-    }
 
     let content = match args["content"].as_str() {
         Some(c) if !c.trim().is_empty() => c.to_string(),
@@ -3033,6 +3074,9 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     Response::ok(id, json!({ "resources": resources }))
 }
 
+/// The query parameters `text://vault-search` takes.
+const VAULT_SEARCH_PARAMS: &[&str] = &["q", "limit", "semantic", "vault"];
+
 pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Response {
     if uri == "mdopener://current" {
         return match ipc.get("/content") {
@@ -3058,7 +3102,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
 
     // text://vault-search?q={query} — on-demand semantic/grep search resource.
     // Agents can read this URI to perform a search without calling the tool.
-    if let Some(rest) = uri.strip_prefix("text://vault-search") {
+    // Only the URI itself or its `?query`: `text://vault-searchx` is some
+    // other (unknown) resource, not this one.
+    let vault_search_query = uri
+        .strip_prefix("text://vault-search")
+        .filter(|rest| rest.is_empty() || rest.starts_with('?'));
+    if let Some(rest) = vault_search_query {
         // Parse query string: ?q=... (&limit=... optional)
         let qs = rest.strip_prefix('?').unwrap_or("");
         let mut query = String::new();
@@ -3100,19 +3149,42 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = match val.parse() {
-                    Ok(l) => l,
-                    Err(_) => {
+                    Ok(l) if l > 0 => l,
+                    _ => {
                         return Response::err(
                             id,
                             -32602,
                             format!(
-                                "text://vault-search: `limit` must be a whole number, got \
-                                 {:?}. Omit it for the default of 50.",
+                                "text://vault-search: `limit` must be a whole number of at \
+                                 least 1, got {:?}. Omit it for the default of 50.",
                                 decode(val)
                             ),
                         )
                     }
                 };
+            } else if !part.is_empty() {
+                // A misspelt parameter (`lmit=5`) used to be dropped, so the
+                // search ran with the default; tool arguments are refused the
+                // same way.
+                let name = part.split('=').next().unwrap_or(part);
+                if VAULT_SEARCH_PARAMS.contains(&name) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("text://vault-search: `{name}` needs a value, as `{name}=…`."),
+                    );
+                }
+                let hint = closest_name(name, VAULT_SEARCH_PARAMS)
+                    .map(|n| format!(" Did you mean `{n}`?"))
+                    .unwrap_or_default();
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "text://vault-search: unknown query parameter `{name}`: it takes `q`, \
+                         `limit`, `semantic` and `vault`.{hint}"
+                    ),
+                );
             }
         }
         if query.is_empty() {
@@ -3194,7 +3266,7 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Ok(c) => c,
             Err(e) => return Response::err(id, -32002, e),
         };
-        return match read_regular_file(&checked) {
+        return match read_document_file(&checked) {
             Ok(text) => Response::ok(
                 id,
                 json!({
@@ -3444,6 +3516,47 @@ pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<S
     std::fs::read_to_string(path)
 }
 
+/// Largest document (Markdown or canvas file) a tool or resource reads from
+/// disk: the 16 MiB the app accepts in one IPC request, so nothing larger
+/// could be opened or sent to it anyway. Without it a multi-gigabyte `.md`
+/// was read whole into memory and returned whole to the agent.
+pub const MAX_DOCUMENT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// [`read_regular_file`] for a document, refusing one larger than
+/// [`MAX_DOCUMENT_BYTES`] (before reading it, and if it grows while read).
+pub fn read_document_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let path = path.as_ref();
+    let meta = std::fs::metadata(path)?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let too_large = |len: u64| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "it is {:.1} MiB, more than the {} MiB a document may be",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_DOCUMENT_BYTES / (1024 * 1024)
+            ),
+        )
+    };
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(too_large(meta.len()));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_DOCUMENT_BYTES + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
+}
+
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's
 /// `MD_EXTENSIONS` (src-tauri/src/document.rs).
 pub const MD_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mdx"];
@@ -3494,14 +3607,26 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// app.  The list comes from the app over IPC, so this errors when the app is
 /// not running (an empty list would read as "no matches").
 pub fn vault_file_paths(ipc: &dyn IpcClient) -> Result<Vec<String>, String> {
-    vault_listing(ipc).map(|(paths, _)| paths)
+    vault_listing(ipc).map(|l| l.paths)
 }
 
 /// [`vault_file_paths`], and whether the app said its vault list is cut
 /// short (the watched folder has more files than it lists).
-fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
+/// The app's `/vault` reply: the listed files and recents, whether the list
+/// was cut short, the cap it was cut at, and whether the app's walk of the
+/// folder stopped early.
+struct VaultListing {
+    paths: Vec<String>,
+    truncated: bool,
+    limit: Option<u64>,
+    scan_cut: bool,
+}
+
+fn vault_listing(ipc: &dyn IpcClient) -> Result<VaultListing, String> {
     let v = ipc.get("/vault")?;
     let truncated = v["truncated"].as_bool() == Some(true);
+    let limit = v["limit"].as_u64();
+    let scan_cut = v["scanCut"].as_bool() == Some(true);
     let mut paths = Vec::new();
     if let Some(files) = v["files"].as_array() {
         for f in files {
@@ -3520,7 +3645,12 @@ fn vault_listing(ipc: &dyn IpcClient) -> Result<(Vec<String>, bool), String> {
             }
         }
     }
-    Ok((paths, truncated))
+    Ok(VaultListing {
+        paths,
+        truncated,
+        limit,
+        scan_cut,
+    })
 }
 
 /// Turns text into an embedding vector: [`ollama_embed`] in the server.
@@ -3594,7 +3724,7 @@ fn semantic_hits(
     let mut skipped = 0;
 
     for path in paths {
-        let content = match read_regular_file(path) {
+        let content = match read_document_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -3650,7 +3780,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let mut results: Vec<SearchResult> = Vec::new();
 
     for path in paths {
-        let content = match read_regular_file(path) {
+        let content = match read_document_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -3985,7 +4115,7 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         };
         // Skip paths that no longer exist on disk. The checked (canonical)
         // path is read, so a link re-pointed after the check is not followed.
-        let content = match read_regular_file(&checked) {
+        let content = match read_document_file(&checked) {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -4069,11 +4199,11 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return tool_error(id, e),
     };
 
-    let content_a = match read_regular_file(&path_a) {
+    let content_a = match read_document_file(&path_a) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_a '{path_a}': {e}")),
     };
-    let content_b = match read_regular_file(&path_b) {
+    let content_b = match read_document_file(&path_b) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Cannot read path_b '{path_b}': {e}")),
     };
@@ -4387,7 +4517,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
-    let raw_content = match read_regular_file(&path) {
+    let raw_content = match read_document_file(&path) {
         Ok(c) => c,
         Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
     };
@@ -5724,7 +5854,7 @@ pub fn count_words(text: &str) -> usize {
 fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
     if let Some(raw) = args["path"].as_str() {
         let abs = checked_document_path(raw, "path")?;
-        return match read_regular_file(&abs) {
+        return match read_document_file(&abs) {
             Ok(c) => Ok((without_bom(c), Some(abs))),
             Err(e) => Err(format!("Cannot read '{abs}': {e}")),
         };
