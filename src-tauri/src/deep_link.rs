@@ -8,7 +8,8 @@
 //! warm (app already running) — tauri-plugin-deep-link surfaces both via the
 //! same `on_open_url` callback registered in `setup`.
 //!
-//! For `open`:  reuses the existing PendingFiles + `file-opened` event flow.
+//! For `open`:  reuses the existing PendingFiles + `file-opened` event flow
+//!              (PendingFiles only until the window has drained it).
 //!              A `mode` is kept in [`LinkViewModes`] until the window has
 //!              opened the file and takes it ([`take_link_view_mode`]), so it
 //!              applies on a cold start too.
@@ -197,12 +198,9 @@ fn target_or_log(command: &str, query: &str) -> Result<String, ()> {
 
 /// Queue `abs` for the window and tell it to open it.
 fn open_path(app: &AppHandle, abs: String) {
-    // Buffer the path — mirrors handle_opened() in file_handler.rs.
-    {
-        let state = app.state::<PendingFiles>();
-        let mut buf = state.0.lock().unwrap();
-        buf.push(abs.clone());
-    }
+    // Buffer the path for a window that has not drained the buffer yet (a
+    // cold start), as handle_opened() in file_handler.rs does.
+    app.state::<PendingFiles>().queue([abs.clone()]);
 
     // `file-opened` is the live event the frontend listens for.
     let _ = app.emit("file-opened", vec![abs]);

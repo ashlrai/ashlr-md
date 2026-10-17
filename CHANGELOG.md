@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Files opened while the app runs no longer pile up.** Every
+  `mdopener://` link, second launch and Finder open appended its path to the
+  buffer of files opened before the window was ready, which the window
+  drains only once at startup, so the buffer grew for as long as the app ran.
+  Paths are now buffered only until the window has drained it; later ones
+  open through the live event alone, as they already did.
 - **`mdopener://export` links export once the file has loaded.** The link
   sent its export request as an event right after the open, so when the link
   started the app the window was not listening yet and the request was lost

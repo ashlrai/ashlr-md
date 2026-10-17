@@ -31,11 +31,7 @@ pub fn handle_opened(app: &AppHandle, urls: Vec<Url>) {
         return;
     }
 
-    {
-        let state = app.state::<PendingFiles>();
-        let mut buf = state.0.lock().unwrap();
-        buf.extend(paths.clone());
-    }
+    app.state::<PendingFiles>().queue(paths.clone());
 
     // Emit for the already-running case. Harmless if no listener is attached yet
     // — the buffered copy in PendingFiles is the fallback for cold launches.
@@ -51,9 +47,7 @@ pub fn buffer_cli_args(app: &AppHandle) {
         return;
     }
 
-    let state = app.state::<PendingFiles>();
-    let mut buf = state.0.lock().unwrap();
-    buf.extend(args);
+    app.state::<PendingFiles>().queue(args);
 }
 
 /// The files the launch arguments name. They are read as OS strings because
@@ -95,11 +89,7 @@ pub fn handle_second_instance(app: &AppHandle, argv: &[String], cwd: &str) {
     if paths.is_empty() {
         return;
     }
-    {
-        let state = app.state::<PendingFiles>();
-        let mut buf = state.0.lock().unwrap();
-        buf.extend(paths.clone());
-    }
+    app.state::<PendingFiles>().queue(paths.clone());
     let _ = tauri::Emitter::emit(app, "file-opened", paths);
 }
 
@@ -128,11 +118,11 @@ fn cli_arg_to_path_in(arg: &str, cwd: &std::path::Path) -> Option<String> {
 }
 
 /// Drain and return any buffered file paths. The frontend calls this once on
-/// mount to pick up files that were opened before the webview was ready.
+/// mount to pick up files that were opened before the webview was ready;
+/// after that nothing more is buffered (see [`PendingFiles`]).
 #[tauri::command]
 pub fn take_pending_files(state: tauri::State<PendingFiles>) -> Vec<String> {
-    let mut buf = state.0.lock().unwrap();
-    std::mem::take(&mut *buf)
+    state.take()
 }
 
 #[cfg(test)]
