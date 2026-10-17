@@ -39,6 +39,9 @@ advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
 which `2025-03-26` clients may send) gets one array reply; a message without
 an `id` is a notification and gets no reply. A `notifications/*` method
 sent *with* an `id` is answered `-32600`, so the client is not left waiting.
+A message whose `jsonrpc` is not `"2.0"`, whose `params` is not an object, or
+whose `id` is not a string or an integer (MCP never allows `null`) is answered
+`-32600` Invalid Request.
 
 ---
 

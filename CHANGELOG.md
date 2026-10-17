@@ -40,6 +40,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   dropped it like a notification, so a client that sent one as a request
   waited on that id forever. It is now `-32600` with the id, saying that a
   notification must not carry one; without an id it is still silent.
+- **The JSON-RPC envelope is checked.** A request was served whatever its
+  `jsonrpc` said (`"1.0"`, `2`), with an object, a fraction, `true` or
+  `null` as its `id`, and with a string or number as its `params`. Each is
+  now `-32600` Invalid Request; an `id` that is not a string or an integer
+  (MCP never allows `null`) is answered with `null`, not echoed.
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

@@ -161,6 +161,50 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
     Some(response)
 }
 
+/// The `-32600` reply for a message whose JSON-RPC envelope is not valid, or
+/// `None` when it is (or when `message` is not an object, which the typed
+/// [`Request`] parse refuses). A request used to be served whatever its
+/// `jsonrpc` said, with an object, a fraction or `null` as its `id`, and with
+/// a string or a number as its `params`. JSON-RPC 2.0 requires `"jsonrpc":
+/// "2.0"` and structured `params`; MCP requires a string or integer `id`
+/// (never `null`). An `id` that is not one is not echoed: the reply carries
+/// `null`, as JSON-RPC says for an id that cannot be determined.
+pub fn invalid_envelope(message: &Value) -> Option<Response> {
+    let obj = message.as_object()?;
+    let id = match obj.get("id") {
+        None => Value::Null,
+        Some(v @ Value::String(_)) => v.clone(),
+        Some(v @ Value::Number(n)) if n.is_i64() || n.is_u64() => v.clone(),
+        Some(other) => {
+            return Some(Response::err(
+                Value::Null,
+                -32600,
+                format!("Invalid Request: `id` must be a string or an integer, got {other}"),
+            ))
+        }
+    };
+    match obj.get("jsonrpc") {
+        Some(Value::String(v)) if v == "2.0" => {}
+        // A missing member is named by the typed parse.
+        None => {}
+        Some(other) => {
+            return Some(Response::err(
+                id,
+                -32600,
+                format!("Invalid Request: `jsonrpc` must be \"2.0\", got {other}"),
+            ))
+        }
+    }
+    match obj.get("params") {
+        None | Some(Value::Null | Value::Object(_) | Value::Array(_)) => None,
+        Some(other) => Some(Response::err(
+            id,
+            -32600,
+            format!("Invalid Request: `params` must be an object, got {other}"),
+        )),
+    }
+}
+
 // ── initialize ────────────────────────────────────────────────────────────────
 
 /// Protocol revisions this server understands. We echo the client's requested
