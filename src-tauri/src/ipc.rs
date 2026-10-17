@@ -785,7 +785,7 @@ fn handle_set_content(mut req: Request, app: &AppHandle) {
             }));
             send_json(req, serde_json::json!({"ok": true}));
         }
-        Err(e) => send_error(req, 400, &e),
+        Err((code, e)) => send_error(req, code, &e),
     }
 }
 
@@ -811,7 +811,7 @@ fn handle_open(mut req: Request, app: &AppHandle) {
             }));
             send_json(req, serde_json::json!({"ok": true, "path": abs}));
         }
-        Err(e) => send_error(req, 400, &e),
+        Err((code, e)) => send_error(req, code, &e),
     }
 }
 
@@ -832,7 +832,7 @@ fn handle_export(mut req: Request, app: &AppHandle) {
             }));
             send_json(req, serde_json::json!({"ok": true}));
         }
-        Err(e) => send_error(req, 400, &e),
+        Err((code, e)) => send_error(req, code, &e),
     }
 }
 
@@ -850,7 +850,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
     if body.review_id.is_empty() {
         return send_error(req, 400, "reviewId is required");
@@ -1212,7 +1212,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     // Guard the cheap, server-knowable failures up front so we don't bother the
@@ -1305,7 +1305,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     if body.find.is_empty() {
@@ -1391,7 +1391,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
 
     if body.find.is_empty() {
@@ -1461,7 +1461,7 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     }
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
-        Err(e) => return send_error(req, 400, &e),
+        Err((code, e)) => return send_error(req, code, &e),
     };
     let abs = match body.path.as_deref().map(checked_agent_path).transpose() {
         Ok(p) => p,
@@ -1493,17 +1493,30 @@ fn send_error(req: Request, code: u16, msg: &str) {
     let _ = req.respond(resp);
 }
 
-fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T, String> {
+/// Read and parse a JSON request body; an error carries the HTTP status.
+fn read_json_body<T: serde::de::DeserializeOwned>(req: &mut Request) -> Result<T, (u16, String)> {
     // Cap the body so a malformed/hostile local caller can't OOM the server
     // thread with an unbounded POST. 16 MiB is generous for any real document.
     const MAX_BODY: u64 = 16 * 1024 * 1024;
+    read_json_from(req.as_reader(), MAX_BODY)
+}
+
+/// Parse at most `max` bytes of JSON from `body`. A longer body is refused
+/// with 413 rather than cut at the cap, which used to surface as a puzzling
+/// "Invalid JSON body: EOF while parsing" for a large but valid document.
+fn read_json_from<T: serde::de::DeserializeOwned>(
+    body: impl std::io::Read,
+    max: u64,
+) -> Result<T, (u16, String)> {
     use std::io::Read;
     let mut buf = String::new();
-    req.as_reader()
-        .take(MAX_BODY)
+    body.take(max + 1)
         .read_to_string(&mut buf)
-        .map_err(|e| format!("Failed to read request body: {e}"))?;
-    serde_json::from_str(&buf).map_err(|e| format!("Invalid JSON body: {e}"))
+        .map_err(|e| (400, format!("Failed to read request body: {e}")))?;
+    if buf.len() as u64 > max {
+        return Err((413, format!("Request body is larger than {max} bytes.")));
+    }
+    serde_json::from_str(&buf).map_err(|e| (400, format!("Invalid JSON body: {e}")))
 }
 
 #[cfg(test)]
@@ -1703,6 +1716,26 @@ mod tests {
     // ── Paths an agent may open, present or send for review ─────────────────
 
     use super::checked_agent_path;
+
+    // ── Request bodies ───────────────────────────────────────────────────────
+
+    use super::read_json_from;
+
+    #[test]
+    fn a_body_over_the_cap_is_too_large_not_invalid_json() {
+        #[derive(serde::Deserialize, Debug)]
+        struct B {
+            #[allow(dead_code)]
+            content: String,
+        }
+        let ok = br#"{"content":"hi"}"#;
+        assert!(read_json_from::<B>(&ok[..], 64).is_ok());
+        let big = format!(r#"{{"content":"{}"}}"#, "x".repeat(100));
+        let (code, msg) = read_json_from::<B>(big.as_bytes(), 64).unwrap_err();
+        assert_eq!(code, 413, "{msg}");
+        let (code, _) = read_json_from::<B>(&b"{ nope"[..], 64).unwrap_err();
+        assert_eq!(code, 400);
+    }
 
     // ── Edit round-trips ─────────────────────────────────────────────────────
 
