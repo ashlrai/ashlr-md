@@ -153,7 +153,10 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
         "prompts/get" => {
             let params = req.params.unwrap_or(Value::Null);
             let name = params["name"].as_str().unwrap_or("").to_string();
-            handle_prompt_get(id, &name, ipc)
+            match prompt_arguments_problem(&name, &params["arguments"]) {
+                Some(msg) => Response::err(id, -32602, msg),
+                None => handle_prompt_get(id, &name, ipc),
+            }
         }
 
         other => Response::err(id, -32601, format!("Method not found: {other}")),
@@ -1118,7 +1121,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "ops": {
                         "type": "array",
                         "minItems": 1,
-                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written).",
+                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1149,7 +1152,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
                                 },
                                 "ids": {
                                     "type": "array",
@@ -3277,7 +3280,11 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                         "sessionId": m.session_id,
                         "role": m.role,
                         "content": m.content,
-                        "citedDocs": m.cited_docs,
+                        // Filtered as `recentDocs` is: a blank path from an
+                        // older session file named no document here either.
+                        "citedDocs": m.cited_docs.iter()
+                            .filter(|d| !d.trim().is_empty())
+                            .collect::<Vec<_>>(),
                         "timestampMs": m.timestamp_ms,
                     })).collect::<Vec<_>>(),
                     "count": messages.len(),
@@ -3752,12 +3759,40 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let mut semantic = None;
         // Query-string encoding: `+` is a space (the listed example is
         // `?q=my+topic`), and `%2B` a literal plus.
-        let decode = |val: &str| {
+        let lossy = |val: &str| {
             let val = val.replace('+', " ");
             urlencoding::decode(&val)
                 .map(|s| s.into_owned())
                 .unwrap_or(val)
         };
+        // A malformed escape (`%ZZ`, a lone `%`) used to be searched for
+        // literally, and a repeated parameter (`q=a&q=b`) kept only its
+        // last value, so the search ran on something the agent never sent.
+        let mut seen: Vec<&str> = Vec::new();
+        for part in qs.split('&').filter(|p| !p.is_empty()) {
+            let name = part.split('=').next().unwrap_or(part);
+            if VAULT_SEARCH_PARAMS.contains(&name) && part.contains('=') {
+                if seen.contains(&name) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!(
+                            "text://vault-search: `{name}` is given more than once; pass it once."
+                        ),
+                    );
+                }
+                seen.push(name);
+                let val = &part[name.len() + 1..];
+                if let Err(e) = percent_decode_path(&val.replace('+', " ")) {
+                    return Response::err(
+                        id,
+                        -32602,
+                        format!("text://vault-search: `{name}` is not valid URI encoding: {e}"),
+                    );
+                }
+            }
+        }
+        let decode = lossy;
         for part in qs.split('&') {
             if let Some(val) = part.strip_prefix("q=") {
                 query = decode(val);
@@ -3877,7 +3912,11 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // percent-encode URIs (`My%20Notes.md`). The decoded path is what
         // must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
-        let advertised = |p: &str| is_advertised_path(p, ipc);
+        // The vault listing is fetched once. When the app cannot be reached
+        // nothing is advertised, and that used to be answered "not in vault",
+        // as if the file were the problem.
+        let listing = ipc.get("/vault");
+        let advertised = |p: &str| listing.as_ref().is_ok_and(|v| lists_path(v, p));
         let p = if advertised(raw) {
             raw.to_string()
         } else {
@@ -3889,7 +3928,28 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
                 }
                 Ok(d) if d != raw && advertised(&d) => d,
-                Ok(_) => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+                Ok(_) => {
+                    return match &listing {
+                        Err(e) => Response::err(
+                            id,
+                            -32000,
+                            format!(
+                                "{} `file://` resources are the vault and recent files the app \
+                                 lists, so none can be read without it.",
+                                app_not_running_msg(e)
+                            ),
+                        ),
+                        Ok(_) => Response::err(
+                            id,
+                            -32002,
+                            format!(
+                                "Resource not in vault: {uri}. Only the vault and recent files \
+                                 resources/list names are served; open it with open_file first \
+                                 to make it a recent file."
+                            ),
+                        ),
+                    }
+                }
             }
         };
         // Advertised is not enough: a vault `notes.md` that is a symlink to
@@ -3972,9 +4032,12 @@ pub fn unknown_resource_msg(uri: &str) -> String {
 /// True if `path` is one of the files the app currently advertises as part of
 /// the vault or recents (queried live). Used to scope `resources/read`.
 pub fn is_advertised_path(path: &str, ipc: &dyn IpcClient) -> bool {
-    let Ok(v) = ipc.get("/vault") else {
-        return false;
-    };
+    ipc.get("/vault").is_ok_and(|v| lists_path(&v, path))
+}
+
+/// True if the app's `/vault` reply `v` lists `path` among its files or
+/// recents.
+fn lists_path(v: &Value, path: &str) -> bool {
     let in_files = v["files"]
         .as_array()
         .map(|a| a.iter().any(|f| f["path"].as_str() == Some(path)))
@@ -4016,6 +4079,38 @@ pub fn unknown_prompt_msg(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("{shown}{hint} The prompts are {all} (see prompts/list).")
+}
+
+/// Why `prompts/get`'s `arguments` cannot be used, or `None`. No prompt
+/// declares an argument, so any given one used to be dropped in silence while
+/// the prompt ran on the open document. Omitted, `null` or `{}` is fine. An
+/// unknown prompt name is left to [`handle_prompt_get`], which names it first.
+pub fn prompt_arguments_problem(name: &str, arguments: &Value) -> Option<String> {
+    if !PROMPT_NAMES.contains(&name) {
+        return None;
+    }
+    match arguments {
+        Value::Null => None,
+        Value::Object(m) if m.is_empty() => None,
+        Value::Object(m) => {
+            let mut keys: Vec<&str> = m.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            let given = keys
+                .iter()
+                .map(|k| format!("`{k}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(format!(
+                "Prompt `{name}` takes no arguments, got {given}. It works on the document \
+                 open in Ashlr MD: open the one you mean with open_file first, then get the \
+                 prompt without `arguments`."
+            ))
+        }
+        other => Some(format!(
+            "`arguments` for prompt `{name}` must be an object, got {}",
+            json_type_phrase(other)
+        )),
+    }
 }
 
 pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response {
@@ -5392,6 +5487,14 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     if ops.is_empty() {
         return Response::err(id, -32602, "`ops` must not be empty");
     }
+    // A field the op does not use (`width` on a move_node) used to be
+    // ignored, so the call reported success for a change it never made.
+    // Checked before the file is read, as the empty list is.
+    for (i, op) in ops.iter().enumerate() {
+        if let Some(msg) = canvas_op_field_problem(op) {
+            return Response::err(id, -32602, format!("op[{i}] {msg}"));
+        }
+    }
 
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
@@ -5811,6 +5914,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         format!("op[{i}] add_edge: toNode `{to}` not found"),
                     );
                 }
+                if let Some(msg) = canvas_edge_problem(new_edge) {
+                    return Response::err(id, -32602, format!("op[{i}] add_edge: {msg}"));
+                }
                 edges.push(new_edge.clone());
             }
             "delete_edge" => {
@@ -6141,6 +6247,95 @@ fn canvas_node_problem(node: &serde_json::Map<String, Value>) -> Option<String> 
         return Some(canvas_color_problem("node.color", c));
     }
     None
+}
+
+/// Why an `add_edge` edge would not be drawn as written, or `None`: a
+/// `fromSide`/`toSide` other than top, right, bottom or left, a
+/// `fromEnd`/`toEnd` other than none or arrow, a colour JSON Canvas does not
+/// allow, or a `label` that is not a string. They were written as given and
+/// reported as success, and the app then drew the edge some other way.
+fn canvas_edge_problem(edge: &serde_json::Map<String, Value>) -> Option<String> {
+    for (field, allowed) in [
+        ("fromSide", &["top", "right", "bottom", "left"][..]),
+        ("toSide", &["top", "right", "bottom", "left"][..]),
+        ("fromEnd", &["none", "arrow"][..]),
+        ("toEnd", &["none", "arrow"][..]),
+    ] {
+        match edge.get(field) {
+            None | Some(Value::Null) => {}
+            Some(Value::String(v)) if allowed.contains(&v.as_str()) => {}
+            Some(other) => {
+                let list = allowed
+                    .iter()
+                    .map(|a| format!("'{a}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Some(format!("edge.{field} must be one of {list}, got {other}"));
+            }
+        }
+    }
+    if let Some(v) = edge.get("label").filter(|v| !v.is_null() && !v.is_string()) {
+        return Some(format!(
+            "edge.label must be a string, got {}",
+            json_type_phrase(v)
+        ));
+    }
+    match edge.get("color") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(c)) if is_canvas_color(c) => None,
+        Some(Value::String(c)) => Some(canvas_color_problem("edge.color", c)),
+        Some(other) => Some(format!(
+            "edge.color must be a string, got {}",
+            json_type_phrase(other)
+        )),
+    }
+}
+
+/// The fields each `edit_canvas` op reads, besides `type`.
+const CANVAS_OP_FIELDS: &[(&str, &[&str])] = &[
+    ("move_node", &["id", "x", "y"]),
+    ("resize_node", &["id", "width", "height"]),
+    ("edit_text", &["id", "text"]),
+    ("edit_link", &["id", "url"]),
+    ("edit_group_label", &["id", "label"]),
+    ("set_node_color", &["id", "color"]),
+    ("add_node", &["node"]),
+    ("delete_node", &["id"]),
+    ("add_edge", &["edge"]),
+    ("delete_edge", &["id"]),
+    ("edit_edge_label", &["id", "label"]),
+    ("reorder_edges", &["ids"]),
+];
+
+/// The first field of `op` that its op type does not use (a `null` one is
+/// taken as left out), as "`move_node`: `width` is not used ...", naming the
+/// ops that do use it. `None` for an op whose type is missing or unknown;
+/// those are refused where the ops are applied.
+fn canvas_op_field_problem(op: &Value) -> Option<String> {
+    let kind = op["type"].as_str()?;
+    let takes = CANVAS_OP_FIELDS.iter().find(|(k, _)| *k == kind)?.1;
+    let (field, _) = op
+        .as_object()?
+        .iter()
+        .find(|(k, v)| k.as_str() != "type" && !v.is_null() && !takes.contains(&k.as_str()))?;
+    let users: Vec<String> = CANVAS_OP_FIELDS
+        .iter()
+        .filter(|(_, fs)| fs.contains(&field.as_str()))
+        .map(|(k, _)| format!("`{k}`"))
+        .collect();
+    let hint = if users.is_empty() {
+        String::new()
+    } else {
+        format!(" (it is for {})", users.join(", "))
+    };
+    let list = takes
+        .iter()
+        .map(|f| format!("`{f}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "{kind}: `{field}` is not used by {kind}, which takes {list}{hint}. Send one op per change."
+    ))
 }
 
 /// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /

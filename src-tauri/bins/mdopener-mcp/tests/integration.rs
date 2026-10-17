@@ -4576,6 +4576,26 @@ fn recent_docs_skip_empty_paths_from_old_sessions() {
     );
 }
 
+/// Each message's own `citedDocs` leaves out the same empty and blank paths:
+/// round 27 filtered only `recentDocs`, so the message list still showed them.
+#[test]
+fn message_cited_docs_skip_empty_paths_from_old_sessions() {
+    let sess = unique_session();
+    store_append_message(
+        &sess,
+        "agent",
+        "Old build.",
+        vec!["".into(), "/v/b.md".into(), "  ".into()],
+    )
+    .unwrap();
+    store_append_message(&sess, "agent", "Old build.", vec!["".into()]).unwrap();
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert_eq!(msgs[0]["citedDocs"], json!(["/v/b.md"]));
+    assert_eq!(msgs[1]["citedDocs"], json!([]));
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
@@ -7599,6 +7619,33 @@ fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
     }
 }
 
+/// A `file://` read while the app cannot be reached was answered "Resource
+/// not in vault" (-32002), as if the file were the problem; it is now the
+/// -32000 "not running" error `mdopener://current` gives, with a next step.
+#[test]
+fn file_resource_read_with_app_down_says_the_app_is_not_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "# A\n").unwrap();
+    let uri = format!("file://{}", doc.display());
+    let err = handle_resource_read(id(1), &uri, &app_down_ipc())
+        .error
+        .expect("must be an error");
+    assert_eq!(err.code, -32000, "{}", err.message);
+    assert!(
+        err.message.contains("not appear to be running"),
+        "{}",
+        err.message
+    );
+    assert!(!err.message.contains("not in vault"), "{}", err.message);
+    // With the app up, a file it does not list is still -32002, now with
+    // a next step.
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let err = handle_resource_read(id(2), &uri, &ipc).error.unwrap();
+    assert_eq!(err.code, -32002);
+    assert!(err.message.contains("open_file"), "{}", err.message);
+}
+
 /// A malformed escape in a `file://` URI (`%ZZ`, a lone `%`, `%FF` that is
 /// not UTF-8) was answered "Resource not in vault", as if the file were the
 /// problem; it is now -32602 naming the bad escape.
@@ -9487,4 +9534,165 @@ fn an_http_answer_past_the_cap_is_refused() {
         &err[..err.len().min(200)]
     );
     server.join().unwrap();
+}
+
+/// A field an `edit_canvas` op does not use (`width` on a move_node) was
+/// ignored and the call reported success for a resize it never made. It is
+/// refused with -32602 naming the op that uses it, and the file is untouched.
+#[test]
+fn edit_canvas_refuses_fields_the_op_does_not_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("c.canvas");
+    let original = r#"{"nodes":[{"id":"n1","type":"text","text":"hi","x":0,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, original).unwrap();
+    let p = path.to_string_lossy().into_owned();
+    let msg = param_error(&call_tool(
+        "edit_canvas",
+        json!({ "path": p, "ops": [
+            { "type": "move_node", "id": "n1", "x": 5, "y": 6 },
+            { "type": "move_node", "id": "n1", "x": 5, "y": 6, "width": 99 }
+        ] }),
+    ));
+    assert!(
+        msg.starts_with("op[1] move_node: `width` is not used"),
+        "{msg}"
+    );
+    assert!(msg.contains("`resize_node`"), "{msg}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    // Refused before the file is read, as an empty `ops` is.
+    let missing = dir
+        .path()
+        .join("missing.canvas")
+        .to_string_lossy()
+        .into_owned();
+    let msg = param_error(&call_tool(
+        "edit_canvas",
+        json!({ "path": missing, "ops": [{ "type": "delete_node", "id": "n1", "text": "x" }] }),
+    ));
+    assert!(msg.contains("`text` is not used by delete_node"), "{msg}");
+    // A null field is taken as left out, and the op's own fields still work.
+    let resp = call_tool(
+        "edit_canvas",
+        json!({ "path": p, "save": false, "ops": [
+            { "type": "resize_node", "id": "n1", "width": 5, "height": 5, "x": null }
+        ] }),
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+}
+
+/// `add_edge` wrote a `fromSide` of "nowhere", a `toEnd` of "dot" or a
+/// colour of "red" as given and reported success; JSON Canvas allows only
+/// top/right/bottom/left, none/arrow and its colours. Each is now -32602 and
+/// the canvas is left unchanged; the allowed values are still written.
+#[test]
+fn edit_canvas_add_edge_refuses_values_json_canvas_does_not_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("c.canvas");
+    let original = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":10,"height":10},{"id":"b","type":"text","text":"b","x":20,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, original).unwrap();
+    let p = path.to_string_lossy().into_owned();
+    for (extra, field) in [
+        (json!({ "fromSide": "nowhere" }), "edge.fromSide"),
+        (json!({ "toSide": 3 }), "edge.toSide"),
+        (json!({ "fromEnd": "dot" }), "edge.fromEnd"),
+        (json!({ "toEnd": "Arrow" }), "edge.toEnd"),
+        (json!({ "color": "red" }), "edge.color"),
+        (json!({ "label": 7 }), "edge.label"),
+    ] {
+        let mut edge = json!({ "id": "e1", "fromNode": "a", "toNode": "b" });
+        edge.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let msg = param_error(&call_tool(
+            "edit_canvas",
+            json!({ "path": p, "ops": [{ "type": "add_edge", "edge": edge }] }),
+        ));
+        assert!(msg.contains(field), "{field}: {msg}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+    let resp = call_tool(
+        "edit_canvas",
+        json!({ "path": p, "save": false, "ops": [{ "type": "add_edge", "edge": {
+            "id": "e1", "fromNode": "a", "toNode": "b", "fromSide": "right",
+            "toSide": "left", "fromEnd": "none", "toEnd": "arrow", "color": "#abc",
+            "label": "x"
+        } }] }),
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+}
+
+/// `text://vault-search?q=a&q=b` searched for `b` alone, and `q=%ZZ` searched
+/// for the literal text `%ZZ`: the search ran on something the agent never
+/// meant. Both are now -32602, before anything is searched.
+#[test]
+fn vault_search_resource_refuses_repeated_and_malformed_parameters() {
+    let ipc = app_down_ipc();
+    for (uri, want) in [
+        ("text://vault-search?q=a&q=b", "`q` is given more than once"),
+        (
+            "text://vault-search?q=a&limit=5&limit=6",
+            "`limit` is given more than once",
+        ),
+        ("text://vault-search?q=%ZZ", "`q` is not valid URI encoding"),
+        ("text://vault-search?q=a%", "`q` is not valid URI encoding"),
+        (
+            "text://vault-search?q=a&vault=%FF",
+            "`vault` is not valid URI encoding",
+        ),
+    ] {
+        let msg = param_error(&handle_resource_read(id(1), uri, &ipc));
+        assert!(msg.contains(want), "{uri}: {msg}");
+    }
+    // Correct encodings still read as before: `+` and `%20` are spaces,
+    // `%2B` a plus, `%25` a percent sign.
+    let dir = tempfile::tempdir().unwrap();
+    let vault = dir.path().join("vault");
+    std::fs::create_dir(&vault).unwrap();
+    std::fs::write(vault.join("a.md"), "c+d 100%\n").unwrap();
+    let d = vault.to_string_lossy().into_owned();
+    let uri = format!("text://vault-search?q=c%2Bd+100%25&semantic=false&vault={d}");
+    let resp = handle_resource_read(id(2), &uri, &ipc);
+    let text: Value = serde_json::from_str(
+        resp.result.as_ref().unwrap()["contents"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(text["query"], "c+d 100%");
+    assert_eq!(text["results"].as_array().unwrap().len(), 1, "{text}");
+}
+
+/// No prompt declares an argument, but `prompts/get` with
+/// `arguments: { "path": "plan.md" }` dropped it and ran the prompt on
+/// whatever document was open. A given argument is now -32602 before the app
+/// is asked; omitted, `null` or `{}` still works.
+#[test]
+fn prompts_get_refuses_arguments_no_prompt_declares() {
+    for p in mdopener_mcp::prompts_list().as_array().unwrap() {
+        assert!(p.get("arguments").is_none(), "{p}");
+    }
+    let doc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/v/a.md", "content": "# A" })),
+    );
+    let get = |params: Value| dispatch(dispatch_req("prompts/get", params), &doc).unwrap();
+    let msg = param_error(&get(
+        json!({ "name": "summarize", "arguments": { "path": "plan.md" } }),
+    ));
+    assert!(msg.contains("takes no arguments, got `path`"), "{msg}");
+    let msg = param_error(&get(json!({ "name": "summarize", "arguments": ["x"] })));
+    assert!(msg.contains("must be an object"), "{msg}");
+    for ok in [
+        json!({ "name": "summarize" }),
+        json!({ "name": "summarize", "arguments": null }),
+        json!({ "name": "summarize", "arguments": {} }),
+    ] {
+        let resp = get(ok.clone());
+        assert!(resp.error.is_none(), "{ok}: {:?}", resp.error);
+    }
+    // An unknown prompt is still named first.
+    let msg = param_error(&get(
+        json!({ "name": "sumarize", "arguments": { "x": "1" } }),
+    ));
+    assert!(msg.contains("Unknown prompt"), "{msg}");
 }

@@ -36,6 +36,39 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`prompts/get` refuses arguments no prompt declares.** The prompts take
+  none, but `arguments: { "path": "plan.md" }` was dropped in silence and
+  the prompt ran on whatever document was open. A given argument is now
+  `-32602` saying to open the document with `open_file` first; leaving
+  `arguments` out, `null` or `{}` still works.
+- **`text://vault-search` refuses a repeated parameter and a malformed
+  escape.** `?q=a&q=b` searched for `b` alone, and `?q=%ZZ` (or a lone `%`)
+  searched for the literal text, so the search ran on something the agent
+  never meant. Both are now `-32602` naming the parameter, as a `file://`
+  URI's malformed escape already is.
+- **`edit_canvas` `add_edge` refuses values JSON Canvas does not allow.** An
+  edge's `fromSide`/`toSide` (top, right, bottom, left), `fromEnd`/`toEnd`
+  (none, arrow), `color` and `label` were written as given and reported as
+  success, so `"fromSide": "nowhere"` or `"color": "red"` left an edge the
+  app drew some other way. Each is now `-32602` naming the allowed values,
+  as `add_node` already refuses a bad node, and the canvas is not written.
+- **`edit_canvas` refuses a field its op does not use.** A `move_node` with a
+  `width`, or an `edit_text` with a `label`, applied the op and ignored the
+  extra field, so the call reported success for a change it never made. It
+  is now `-32602` naming the field, the fields the op takes and the ops that
+  use it, before the canvas is read.
+- **A `file://` read with the app down says the app is not running.** The
+  app lists the readable `file://` paths, so with it unreachable every read
+  was answered `-32002` "Resource not in vault", as if the file were the
+  problem. It is now `-32000` with the not-running message, as
+  `mdopener://current` gives, and a path the app does not list says to open
+  it with `open_file` first. The vault listing is also fetched once per read
+  instead of twice.
+- **Each message's `citedDocs` leaves out empty paths too.** Round 27 left
+  empty and blank paths from older session files out of
+  `get_conversation_context`'s `recentDocs`, but every message in `messages`
+  still listed them in its own `citedDocs`. They are now filtered there as
+  well.
 - **`cited_docs` refuses a blank path.** An empty path was refused, but one
   of only spaces was stored (and, resolved against the working directory,
   became a path to a file named by those spaces). It is now `-32602` too.
