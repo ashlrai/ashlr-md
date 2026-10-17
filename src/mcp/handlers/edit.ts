@@ -52,15 +52,21 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
   return listen<SetContentPayload>("mcp://set-content", async (e) => {
     const { editId, content, save } = e.payload;
     let error: string | null = null;
-    try {
-      useDocumentStore.getState().setContent(content);
-      if (save) {
-        const reason = await saveForAgent();
-        if (reason !== null) error = notSaved(reason, "Content replaced in");
+    if (!useDocumentStore.getState().path) {
+      // With no document open the window shows its welcome screen, so the
+      // content would land in a buffer nobody sees and still read as ok.
+      error = "No document is open in Ashlr MD; open one first (open_file).";
+    } else {
+      try {
+        useDocumentStore.getState().setContent(content);
+        if (save) {
+          const reason = await saveForAgent();
+          if (reason !== null) error = notSaved(reason, "Content replaced in");
+        }
+        syncNow();
+      } catch (err) {
+        error = `Replacing the content failed in app: ${String(err)}`;
       }
-      syncNow();
-    } catch (err) {
-      error = `Replacing the content failed in app: ${String(err)}`;
     }
     if (editId === undefined) return;
     await invoke("mcp_edit_result", {

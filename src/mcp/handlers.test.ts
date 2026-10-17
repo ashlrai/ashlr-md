@@ -384,14 +384,23 @@ describe("handlers integration — edits with save: true", () => {
     expect(String(r.error)).toContain("Permission denied");
   });
 
-  it("set-content: save on a document with no file is not reported as ok", async () => {
-    useDocumentStore.setState({ path: null } as Parameters<
+  it("set-content: with no document open it is refused, not applied unseen", async () => {
+    // The window shows its welcome screen with no document: the content would
+    // go into a buffer nobody can see, and the agent was told ok.
+    useDocumentStore.setState({ path: null, content: "" } as Parameters<
       typeof useDocumentStore.setState
     >[0]);
-    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
-    const r = reply("mcp_edit_result");
-    expect(r.ok).toBe(false);
-    expect(String(r.error)).toContain("not saved");
+    for (const save of [false, true]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://set-content", { editId: "c1", content: "new", save });
+      const r = reply("mcp_edit_result");
+      expect(r).toMatchObject({ editId: "c1", ok: false, replaced: 0 });
+      expect(String(r.error)).toContain("No document is open");
+      expect(useDocumentStore.getState().content).toBe("");
+      expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+        false,
+      );
+    }
   });
 
   it("stream-edit-apply: a failed save is not reported as ok", async () => {
