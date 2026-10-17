@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` reads at most 64 MiB of the app's answer.** Opening a file
+  through the running app read the IPC answer to its end however long it
+  was, so a peer on the port that kept sending grew `mdopen`'s memory
+  without bound. Past 64 MiB (the cap the MCP server already applies) the
+  open fails, saying so.
 - **`search_vault` says when an on-disk `vault` is too deep.** With the
   app unreachable, the walk of `vault` enters folders at most 16 levels down
   and skipped deeper ones without a word. The limit is unchanged, but the
