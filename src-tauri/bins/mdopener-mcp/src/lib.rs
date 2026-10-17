@@ -850,6 +850,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "output_path": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
                     }
                 },
@@ -871,7 +872,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
-                    "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
+                    "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped." },
@@ -916,7 +917,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "description": "Optional: assert this is the open document (errors if a different file is open)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -956,7 +957,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "minimum": 1, "description": "Max number of results to return, 1 to 200 in every mode (a larger value returns at most 200). Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -1062,8 +1063,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "cited_docs": {
                         "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced."
+                        "items": { "type": "string", "minLength": 1 },
+                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced. An empty path is refused."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1088,7 +1089,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Number of unchanged context lines surrounding each change hunk. Defaults to 3."
+                        "maximum": DIFF_MAX_CONTEXT_LINES,
+                        "description": "Number of unchanged context lines surrounding each change hunk, a whole number from 0 to 10000 (a value outside that range is refused, not clamped). Defaults to 3."
                     }
                 },
                 "required": ["path_a", "path_b"]
@@ -1207,7 +1209,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open)."
+                        "minLength": 1,
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1253,7 +1256,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Optional path assertion — errors if a different file is open."
+                        "minLength": 1,
+                        "description": "Optional path assertion: errors if a different file is open. An empty string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1542,6 +1546,18 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     "`{key}[{i}]` must be {}, got {}",
                     type_phrase(want),
                     json_type_phrase(bad)
+                ));
+            }
+        }
+        if let (Some(min), Some(items)) = (prop["items"]["minLength"].as_u64(), value.as_array()) {
+            if let Some((i, bad)) = items
+                .iter()
+                .enumerate()
+                .find(|(_, v)| v.as_str().is_some_and(|t| (t.chars().count() as u64) < min))
+            {
+                return Err(format!(
+                    "`{key}[{i}]` must be at least {min} character{} long, got {bad}",
+                    if min == 1 { "" } else { "s" }
                 ));
             }
         }
@@ -2084,9 +2100,12 @@ pub fn tool_export_with(
         );
     }
 
-    let output_path = match args["output_path"].as_str() {
-        None => None,
-        Some(raw) => match export_output_path(raw, &format) {
+    // An empty `output_path` used to come back as "cannot make an empty path
+    // absolute"; it is refused in the words the other tools use.
+    let output_path = match non_empty_str(args, "output_path") {
+        Err(e) => return Response::err(id, -32602, e),
+        Ok(None) => None,
+        Ok(Some(raw)) => match export_output_path(raw, &format) {
             Ok(p) => Some(p),
             Err(e) => return Response::err(id, -32602, e),
         },
@@ -2337,13 +2356,17 @@ pub fn tool_request_review_with(
     ipc: &dyn IpcClient,
     poll: std::time::Duration,
 ) -> Response {
+    // An empty `content` (with no path) used to register a review of no
+    // text at all, which the human could only approve or reject blind.
+    for field in ["path", "content"] {
+        if let Err(e) = non_empty_str(args, field) {
+            return Response::err(id, -32602, e);
+        }
+    }
     // An empty or blank `review_id` used to be read as absent, so a call
     // that meant to resume (`{ "review_id": "", "content": ... }`) registered
     // a new review, which replaced and so ended the pending one the agent
     // meant to wait on.
-    if let Err(e) = non_empty_str(args, "path") {
-        return Response::err(id, -32602, e);
-    }
     let resume = match args["review_id"].as_str() {
         Some(r) if r.trim().is_empty() => {
             return Response::err(
@@ -2610,9 +2633,15 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
+    // An empty `path` used to reach the app, which answered that "" is not
+    // the open document; it is refused here like an empty `find`.
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p,
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let mut body = json!({ "find": find, "replace": replace, "save": save });
-    if let Some(p) = args["path"].as_str() {
+    if let Some(p) = path {
         body["path"] = json!(agent_path(p));
     }
 
@@ -2653,7 +2682,25 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
-    let limit = whole_number(args, "limit").unwrap_or(50);
+    // A `limit` above SEARCH_MAX_RESULTS used to be clamped in silence while
+    // `list_recent` and `get_conversation_context` refused one; it is now
+    // refused the same way. Omitted keeps the default.
+    let limit = match &args["limit"] {
+        Value::Null => 50,
+        v => match whole_number_value(v).filter(|n| (1..=SEARCH_MAX_RESULTS).contains(n)) {
+            Some(n) => n,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`limit` must be a whole number from 1 to {SEARCH_MAX_RESULTS}, got {v}; \
+                         omit it for the default of 50"
+                    ),
+                )
+            }
+        },
+    };
     let vault = match non_empty_str(args, "vault") {
         Ok(v) => v,
         Err(e) => return Response::err(id, -32602, e),
@@ -2728,6 +2775,8 @@ pub fn search_vault_in(
     // The app's own search returns at most SEARCH_MAX_RESULTS; the other
     // modes are held to the same, so a limit means the same in every mode
     // (an on-disk vault of 5000 files could otherwise return 5000 results).
+    // The tool and the resource refuse a limit outside that range; this
+    // clamp only holds direct callers of this function to it.
     let limit = limit.clamp(1, SEARCH_MAX_RESULTS);
     // The vault file list: from the app, or from `vault` on disk when the app
     // is unreachable. Fetched once, and only when needed.
@@ -3238,14 +3287,19 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         None => return Response::err(id, -32602, "`content` is required"),
     };
 
-    let cited_docs: Vec<String> = args["cited_docs"]
+    // An empty path used to be stored and come back in `recentDocs`, where
+    // agents read the first entry as the most recently cited document.
+    let cited = args["cited_docs"]
         .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if let Some(i) = cited.iter().position(|v| v.as_str() == Some("")) {
+        return Response::err(id, -32602, format!("`cited_docs[{i}]` must not be empty"));
+    }
+    let cited_docs: Vec<String> = cited
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
 
     match append_message(&session_id, role, &content, cited_docs) {
         Ok((msg, dropped)) => {
@@ -3679,14 +3733,15 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
                 limit = match val.parse() {
-                    Ok(l) if l > 0 => l,
+                    Ok(l) if (1..=SEARCH_MAX_RESULTS).contains(&l) => l,
                     _ => {
                         return Response::err(
                             id,
                             -32602,
                             format!(
-                                "text://vault-search: `limit` must be a whole number of at \
-                                 least 1, got {:?}. Omit it for the default of 50.",
+                                "text://vault-search: `limit` must be a whole number from 1 \
+                                 to {SEARCH_MAX_RESULTS}, got {:?}. Omit it for the default \
+                                 of 50.",
                                 decode(val)
                             ),
                         )
@@ -4905,6 +4960,9 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 
 // ── diff_documents tool ───────────────────────────────────────────────────────
 
+/// Most unchanged lines of context `diff_documents` shows around a change.
+pub const DIFF_MAX_CONTEXT_LINES: u64 = 10_000;
+
 /// Compare two Markdown files and return a unified diff with line numbers.
 ///
 /// Reads both files from disk directly (no IPC needed — read-only).  Produces
@@ -4929,7 +4987,24 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return Response::err(id, -32602, e),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
-    let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
+    // A `context_lines` above DIFF_MAX_CONTEXT_LINES used to be read as that
+    // many in silence; it is refused like the other limits. Omitted is 3.
+    let context_lines = match &args["context_lines"] {
+        Value::Null => 3,
+        v => match whole_number_value(v).filter(|n| *n <= DIFF_MAX_CONTEXT_LINES) {
+            Some(n) => n as usize,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`context_lines` must be a whole number from 0 to \
+                         {DIFF_MAX_CONTEXT_LINES}, got {v}; omit it for the default of 3"
+                    ),
+                )
+            }
+        },
+    };
 
     let doc_a = match checked_document(&raw_a, "path_a") {
         Ok(p) => p,
@@ -5059,7 +5134,7 @@ pub fn compute_unified_diff(
             run_end += 1;
         }
         let start = i.saturating_sub(context);
-        let end = (run_end + context).min(n);
+        let end = run_end.saturating_add(context).min(n);
         // Merge with the previous hunk when their context windows touch.
         match hunk_ranges.last_mut() {
             Some(last) if start <= last.1 => last.1 = end,
@@ -6120,7 +6195,10 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
     let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
-    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let body = json!({
         "find": find,
@@ -6167,7 +6245,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
-    let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
+    let path = match non_empty_str(args, "path") {
+        Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let body = json!({
         "editId": edit_id,

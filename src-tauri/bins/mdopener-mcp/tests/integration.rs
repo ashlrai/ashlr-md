@@ -3078,6 +3078,10 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
 /// A `limit` meant something different in each mode: the app's search
 /// returned at most 200 and turned 0 into 1, while the on-disk greps and
 /// semantic search returned as many as asked, up to every file in the vault.
+///
+/// A `limit` above 200 was then clamped in silence, while `list_recent` and
+/// `get_conversation_context` refused one; the tool and the resource now
+/// refuse it the same way.
 #[test]
 fn search_vault_limit_is_the_same_in_every_mode() {
     let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
@@ -3089,7 +3093,7 @@ fn search_vault_limit_is_the_same_in_every_mode() {
     let ipc = MockIpc::new()
         .on_get("/vault", Err(down.into()))
         .on_get("/search", Err(down.into()));
-    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 1000 });
+    let args = json!({ "query": "target", "semantic": false, "vault": vault, "limit": 200 });
     let v = content_text(&tool_search_vault(id(1), &args, &ipc));
     assert_eq!(v["mode"], "grep-disk", "{v}");
     assert_eq!(v["results"].as_array().unwrap().len(), 200, "grep-disk");
@@ -3102,11 +3106,34 @@ fn search_vault_limit_is_the_same_in_every_mode() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
     tool_search_vault(
         id(2),
-        &json!({ "query": "t", "semantic": false, "limit": 1000 }),
+        &json!({ "query": "t", "semantic": false, "limit": 200 }),
         &ipc,
     );
     let asked: Vec<String> = ipc.calls().into_iter().map(|c| c.1).collect();
     assert_eq!(asked, ["/search?q=t&limit=200"], "{asked:?}");
+    // Above 200 is refused, by the schema check, by the tool called directly
+    // and by the resource, before anything is searched.
+    let msg = param_error(&call_tool(
+        "search_vault",
+        json!({ "query": "t", "limit": 201 }),
+    ));
+    assert_eq!(msg, "`limit` must be at most 200, got 201");
+    let ipc = MockIpc::new();
+    for bad in [json!(201), json!(1000), json!(0), json!(2.5)] {
+        let resp = tool_search_vault(id(4), &json!({ "query": "t", "limit": bad }), &ipc);
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`limit` must be a whole number from 1 to 200, got {bad}; \
+                 omit it for the default of 50"
+            )
+        );
+    }
+    let resp = mdopener_mcp::handle_resource_read(id(5), "text://vault-search?q=t&limit=201", &ipc);
+    let err = resp.error.as_ref().expect("refused");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("from 1 to 200"), "{}", err.message);
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
     // 0 is refused before the search, by the tool and by the resource.
     let msg = refused_before_the_tool("search_vault", json!({ "query": "t", "limit": 0 }));
     assert!(msg.starts_with("`limit` must be at least 1"), "{msg}");
@@ -6135,7 +6162,8 @@ fn diff_zero_context_hunks_name_the_preceding_line() {
 }
 
 /// A huge `context_lines` must not overflow (a debug build panicked and took
-/// the whole MCP session down).
+/// the whole MCP session down). The tool now refuses one above 10000, which
+/// it used to read as 10000 in silence; the diff itself still takes any.
 #[test]
 fn diff_documents_huge_context_does_not_overflow() {
     use std::io::Write;
@@ -6150,12 +6178,32 @@ fn diff_documents_huge_context_does_not_overflow() {
         .unwrap()
         .write_all(b"x\nz\n")
         .unwrap();
+    let (_, hunks, _, _) = compute_unified_diff("a", "b", "x\ny\n", "x\nz\n", usize::MAX);
+    assert_eq!(hunks, 1);
     let resp = mdopener_mcp::tool_diff_documents(
         id(1),
-        &json!({ "path_a": a, "path_b": b, "context_lines": u64::MAX }),
+        &json!({ "path_a": a, "path_b": b, "context_lines": 10_000 }),
     );
-    assert!(!is_error(&resp));
+    assert!(!is_error(&resp), "{resp:?}");
     assert_eq!(content_text(&resp)["hunks"], 1);
+    for bad in [json!(u64::MAX), json!(10_001), json!(2.5)] {
+        let resp = mdopener_mcp::tool_diff_documents(
+            id(1),
+            &json!({ "path_a": a, "path_b": b, "context_lines": bad }),
+        );
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`context_lines` must be a whole number from 0 to 10000, got {bad}; \
+                 omit it for the default of 3"
+            )
+        );
+    }
+    let msg = param_error(&call_tool(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": b, "context_lines": 10_001 }),
+    ));
+    assert_eq!(msg, "`context_lines` must be at most 10000, got 10001");
 }
 
 /// Two server processes (two agents) appending to one session must not drop
@@ -8231,6 +8279,14 @@ fn unknown_tool_names_the_closest_tool_and_tools_list() {
 /// reached the file checks and came back as "only Markdown documents can be
 /// read" or "No such file or directory". Those declare `minLength: 1` too,
 /// and the tools refuse an empty value themselves with "must not be empty".
+/// So does `request_review.content`, which used to register a review of no
+/// text when no path was given.
+///
+/// The optional `path` of `edit_document`, `stream_edit` and
+/// `stream_edit_apply` reached the app when empty and came back as "not the
+/// open document", and `export.output_path` as "cannot make an empty path
+/// absolute". They are refused the same way (omitting them stays allowed),
+/// and every `path` or `*_path` string argument must be on the list.
 #[test]
 fn required_strings_refused_when_empty_declare_min_length() {
     let must = [
@@ -8250,7 +8306,12 @@ fn required_strings_refused_when_empty_declare_min_length() {
         ("export_text", "path"),
         ("export_metadata", "path"),
         ("request_review", "path"),
+        ("request_review", "content"),
         ("search_vault", "vault"),
+        ("edit_document", "path"),
+        ("stream_edit", "path"),
+        ("stream_edit_apply", "path"),
+        ("export", "output_path"),
     ];
     // Empty is a real value: replacing with nothing, an empty document.
     // A path or format is checked by the tool (or the enum) in its own words.
@@ -8287,12 +8348,20 @@ fn required_strings_refused_when_empty_declare_min_length() {
                 if def.name == "save_conversation_message" {
                     args.insert("role".into(), json!("agent"));
                 }
+                if def.name == "export" {
+                    args.insert("format".into(), json!("html"));
+                }
                 args.insert(k.clone(), json!(""));
                 let msg = param_error(&call_tool(def.name, Value::Object(args)));
                 assert_eq!(
                     msg,
                     format!("`{k}` must be at least 1 character long, got \"\""),
                     "{}.{k}",
+                    def.name
+                );
+            } else if prop["type"] == "string" && (k == "path" || k.ends_with("_path")) {
+                panic!(
+                    "{}.{k} is a path: refuse it when empty and list it",
                     def.name
                 );
             } else if prop["type"] == "string" && required.contains(&k.as_str()) {
@@ -8313,7 +8382,7 @@ fn required_strings_refused_when_empty_declare_min_length() {
     // Called directly, past the schema check, the tools refuse an empty
     // path themselves rather than reporting a file error.
     let ipc = MockIpc::new();
-    let direct: [(&str, mdopener_mcp::Response); 8] = [
+    let direct: [(&str, mdopener_mcp::Response); 13] = [
         ("path", tool_open_file(id(1), &json!({ "path": "" }), &ipc)),
         (
             "path",
@@ -8344,8 +8413,44 @@ fn required_strings_refused_when_empty_declare_min_length() {
             ),
         ),
         (
+            "content",
+            mdopener_mcp::tool_request_review(
+                id(1),
+                &json!({ "content": "", "blocking": false }),
+                &ipc,
+            ),
+        ),
+        (
             "vault",
             mdopener_mcp::tool_search_vault(id(1), &json!({ "query": "x", "vault": "" }), &ipc),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_edit_document(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_stream_edit(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "path",
+            mdopener_mcp::tool_stream_edit_apply(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": "" }),
+                &ipc,
+            ),
+        ),
+        (
+            "output_path",
+            mdopener_mcp::tool_export(id(1), &json!({ "format": "html", "output_path": "" }), &ipc),
         ),
     ];
     for (k, resp) in direct {
@@ -8356,6 +8461,36 @@ fn required_strings_refused_when_empty_declare_min_length() {
         );
     }
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+}
+
+/// An empty path in `cited_docs` used to be stored, and came back in
+/// `recentDocs` (as its first entry when it was the latest citation). It is
+/// refused by the schema check and by the tool, and nothing is saved.
+#[test]
+fn empty_cited_doc_is_refused() {
+    use_temp_sessions_dir();
+    let sess = format!("empty-cited-{}", unique_session());
+    let args = json!({ "session_id": sess, "role": "agent", "content": "did x",
+        "cited_docs": ["/a.md", ""] });
+    let msg = param_error(&call_tool("save_conversation_message", args.clone()));
+    assert_eq!(
+        msg,
+        "`cited_docs[1]` must be at least 1 character long, got \"\""
+    );
+    let resp = tool_save_conversation_message(json!(1), &args);
+    assert_eq!(param_error(&resp), "`cited_docs[1]` must not be empty");
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(ctx["count"], 0, "{ctx}");
+    // A list of real paths is still saved.
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["/a.md"] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
 }
 
 #[test]
