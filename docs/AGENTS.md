@@ -352,7 +352,11 @@ The server implements `resources/list` and `resources/read`.
   used to be an empty list too).
 - **`file://<path>` (vault files)** — every file the app advertises as part of
   the **vault** (watched folder) plus **recents** is listed as an individually
-  readable resource.
+  readable resource. When the app cannot be asked for them (it is not
+  running, or it refused), the list has none, and the result carries
+  `_meta: { "mdopener/vaultFilesUnlisted": "<reason>" }` (also logged on
+  stderr) so a client can tell that from a vault with no files; a listing
+  that worked has no such key.
 
 `resources/read` is **scoped**: a `file://` URI is only readable if it is one of
 the paths the app currently advertises in the vault or recents. Any other path

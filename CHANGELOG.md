@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`resources/list` says when it could not list the vault's files.** When
+  the app could not be asked for its vault list, the `file://` entries were
+  left out without a word, so a client read it as a vault with no files.
+  The result now carries `_meta["mdopener/vaultFilesUnlisted"]` with the
+  reason (the MCP schema allows `_meta`), and stderr logs it.
 - **The app reads session files up to 16 MiB too.** The app read a
   session file whole however large it was. Like the MCP server, it now
   refuses one past 16 MiB, saying how large it is, and a write drops the

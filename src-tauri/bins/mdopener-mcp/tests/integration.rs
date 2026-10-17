@@ -3048,6 +3048,53 @@ fn resources_list_includes_vault_search_resource() {
     );
 }
 
+/// When `/vault` failed, resources/list dropped the vault's `file://`
+/// entries without a word, so a client read it as a vault with no files.
+/// The result is still a valid `ListResourcesResult`, with the reason in
+/// `_meta`; a listing that worked has no such key.
+#[test]
+fn resources_list_says_when_the_vault_files_could_not_be_listed() {
+    use mdopener_mcp::VAULT_FILES_UNLISTED_META;
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new().on_get("/vault", Err(down.into()));
+    let resp = handle_resources_list(id(303), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let result = resp.result.as_ref().unwrap();
+    let resources = result["resources"].as_array().unwrap();
+    assert!(resources.iter().all(|r| r["uri"].is_string()), "{result}");
+    assert!(
+        !resources
+            .iter()
+            .any(|r| r["uri"].as_str().unwrap().starts_with("file://")),
+        "{result}"
+    );
+    let why = result["_meta"][VAULT_FILES_UNLISTED_META]
+        .as_str()
+        .unwrap_or_else(|| panic!("no _meta marker: {result}"));
+    assert!(why.contains("file:// resources are not listed"), "{why}");
+    assert!(why.contains(down), "{why}");
+    assert!(why.contains("does not appear to be running"), "{why}");
+
+    // A refusal is quoted as is.
+    let refused = "IPC server returned HTTP 403: vault is disabled";
+    let ipc = MockIpc::new().on_get("/vault", Err(refused.into()));
+    let result = handle_resources_list(id(304), &ipc).result.unwrap();
+    let why = result["_meta"][VAULT_FILES_UNLISTED_META].as_str().unwrap();
+    assert!(why.contains(refused), "{why}");
+
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [{ "path": "/v/a.md", "name": "a.md" }], "recents": [] })),
+    );
+    let result = handle_resources_list(id(305), &ipc).result.unwrap();
+    assert!(result.get("_meta").is_none(), "{result}");
+    assert!(result["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["uri"] == "file:///v/a.md"));
+}
+
 #[test]
 fn resources_list_vault_search_has_json_mime_type() {
     let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));

@@ -3271,22 +3271,46 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         "mimeType": "application/json"
     }));
 
-    if let Ok(v) = ipc.get("/vault") {
-        if let Some(files) = v["files"].as_array() {
-            for f in files {
-                if let Some(p) = f["path"].as_str() {
-                    resources.push(json!({
-                        "uri": format!("file://{p}"),
-                        "name": f["name"].as_str().unwrap_or(p),
-                        "mimeType": "text/markdown"
-                    }));
+    // The vault's `file://` entries come from the app. When it cannot be
+    // asked they are missing, and that used to be silent, so a client read
+    // the list as a vault with no files. The result's `_meta` (which the MCP
+    // `ListResourcesResult` schema allows) now says why, and stderr logs it.
+    let mut meta = None;
+    match ipc.get("/vault") {
+        Ok(v) => {
+            if let Some(files) = v["files"].as_array() {
+                for f in files {
+                    if let Some(p) = f["path"].as_str() {
+                        resources.push(json!({
+                            "uri": format!("file://{p}"),
+                            "name": f["name"].as_str().unwrap_or(p),
+                            "mimeType": "text/markdown"
+                        }));
+                    }
                 }
             }
         }
+        Err(e) => {
+            let why = format!(
+                "The vault's file:// resources are not listed: {}",
+                app_not_running_msg(&e)
+            );
+            eprintln!("mdopener-mcp: resources/list: {why}");
+            meta = Some(json!({ VAULT_FILES_UNLISTED_META: why }));
+        }
     }
 
-    Response::ok(id, json!({ "resources": resources }))
+    let mut result = json!({ "resources": resources });
+    if let Some(meta) = meta {
+        result["_meta"] = meta;
+    }
+    Response::ok(id, result)
 }
+
+/// The `_meta` key a `resources/list` result carries when the vault's
+/// `file://` entries could not be listed (the app was unreachable or
+/// refused), with the reason in words.
+pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 
 /// The live document's text for `mdopener://current` and the prompts, or the
 /// JSON-RPC error: `-32002` when no document is open (the app answers
