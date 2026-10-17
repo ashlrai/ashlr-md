@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyAllFixes,
   applyFix,
   BUILTIN_RULES,
   LINTER_DEFAULT_ENABLED_RULES,
@@ -52,6 +53,26 @@ function appendHistory(v: LintViolation, docSnippet: string): void {
     fixedAt: Date.now(),
     docSnippet,
   });
+}
+
+// ── Fix all ───────────────────────────────────────────────────────────────────
+
+/**
+ * Apply every fixable violation to `content` and record each in the history.
+ * Each fix splices at offsets taken from `content`, so they are applied
+ * through `applyAllFixes` (last offset first) rather than in document order,
+ * where an earlier fix that changes the length would shift every later one.
+ */
+export function fixAllViolations(content: string, violations: LintViolation[]): string {
+  for (const v of violations) {
+    if (!v.fix) continue;
+    const snippet = content.slice(
+      Math.max(0, (v.range?.from.offset ?? 0) - 20),
+      Math.min(content.length, (v.range?.to.offset ?? 0) + 20),
+    );
+    appendHistory(v, snippet);
+  }
+  return applyAllFixes(content, violations);
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -200,17 +221,7 @@ export function LinterToast({
   }
 
   function handleFixAll() {
-    let current = content;
-    for (const v of violations) {
-      if (!v.fix) continue;
-      const snippet = current.slice(
-        Math.max(0, (v.range?.from.offset ?? 0) - 20),
-        Math.min(current.length, (v.range?.to.offset ?? 0) + 20),
-      );
-      current = applyFix(current, v);
-      appendHistory(v, snippet);
-    }
-    onContentChange(current);
+    onContentChange(fixAllViolations(content, violations));
   }
 
   const fixableCount = violations.filter((v) => v.fix !== null).length;
