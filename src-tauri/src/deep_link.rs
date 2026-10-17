@@ -2,7 +2,7 @@
 //!
 //! Supported URLs:
 //!   mdopener://open?path=<percent-encoded absolute path>[&mode=read|edit]
-//!   mdopener://export?path=<percent-encoded absolute path>&format=pdf|docx|html
+//!   mdopener://export?path=<percent-encoded absolute path>[&format=pdf|docx|html|epub]
 //!
 //! The handler is called both on cold-start (app launched by the link) and
 //! warm (app already running) — tauri-plugin-deep-link surfaces both via the
@@ -13,9 +13,10 @@
 //!              opened the file and takes it ([`take_link_view_mode`]), so it
 //!              applies on a cold start too.
 //!
-//! For `export`: emits `mcp://export` with `{format, path}` so the frontend
-//!               can trigger the export UI/logic. The file is also queued for
-//!               opening first, so the app loads it if it is not already open.
+//! For `export`: queues the file for opening (as `open` does), then emits
+//!               `mcp://export` with `{ format, outputPath: null }`, which
+//!               opens the export dialog with that format selected. `format`
+//!               defaults to `pdf`; any other value than the four is refused.
 
 use crate::PendingFiles;
 use std::collections::HashMap;
@@ -176,21 +177,40 @@ fn open_path(app: &AppHandle, abs: String) {
     let _ = app.emit("file-opened", vec![abs]);
 }
 
-/// `mdopener://export?path=<enc>&format=pdf|docx|html`
+/// The formats an export link may ask for, as the app's `/export` takes them.
+const LINK_EXPORT_FORMATS: &[&str] = &["pdf", "docx", "html", "epub"];
+
+/// The `format` of an `export` link, `pdf` when it has none. Any other value
+/// refuses the link: it used to be passed on as given, so `format=PDF` or
+/// `format=md` opened the export dialog with no format selected and no word
+/// of why, while `/export` refuses such a format for agents.
+fn link_format(query: &str) -> Result<&'static str, String> {
+    let params = parse_query(query);
+    let Some((_, raw)) = params.iter().find(|(k, _)| k == "format") else {
+        return Ok("pdf");
+    };
+    let format = percent_decode(raw);
+    LINK_EXPORT_FORMATS
+        .iter()
+        .find(|f| **f == format)
+        .copied()
+        .ok_or_else(|| {
+            format!("unknown format {format:?}: use pdf, docx, html or epub, or leave `format` out for pdf")
+        })
+}
+
+/// `mdopener://export?path=<enc>[&format=pdf|docx|html|epub]`
 ///
 /// Queues the file to open (same as `handle_open`) and then emits
-/// `mcp://export` so the frontend can trigger the export flow.
+/// `mcp://export` so the frontend opens the export dialog.
 fn handle_export(app: &AppHandle, query: &str) {
     let Ok(abs) = target_or_log("export", query) else {
         return;
     };
-    let params = parse_query(query);
-    let format = params
-        .iter()
-        .find(|(k, _)| k == "format")
-        .map(|(_, v)| v.as_str())
-        .unwrap_or("pdf")
-        .to_string();
+    let format = match link_format(query) {
+        Ok(f) => f,
+        Err(e) => return eprintln!("[deep_link] export: {e}"),
+    };
 
     // Open the file first.
     open_path(app, abs);
@@ -225,7 +245,21 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{link_mode, link_target};
+    use super::{link_format, link_mode, link_target};
+
+    /// An export link's `format` was passed on as given, so a misspelt one
+    /// opened the dialog with nothing selected and no word of why.
+    #[test]
+    fn export_links_take_only_known_formats() {
+        assert_eq!(link_format("path=%2Fa.md"), Ok("pdf"));
+        for f in ["pdf", "docx", "html", "epub"] {
+            assert_eq!(link_format(&format!("format={f}&path=x")), Ok(f));
+        }
+        for bad in ["format=PDF", "format=md", "format=", "format=pdf%20"] {
+            let e = link_format(bad).unwrap_err();
+            assert!(e.contains("use pdf, docx, html or epub"), "{bad}: {e}");
+        }
+    }
 
     /// `mode` was documented (`&mode=edit`) but never read, so a link (and
     /// `mdopen --edit` with the app closed) opened in whatever view it was.

@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://export` links take only known formats.** A link's `format`
+  was passed to the window as given, so `format=PDF` or `format=md` opened
+  the export dialog with no format selected and no word of why. A format
+  other than `pdf`, `docx`, `html` or `epub` now ignores the link with a
+  logged reason, and docs/AGENTS.md documents the link.
 - **`mdopener://open` links honour `mode`.** `&mode=edit` was documented
   (and sent by `mdopen --edit` when the app is closed, and by the Obsidian
   plugin) but never read, so the file opened in whatever view it was. The
