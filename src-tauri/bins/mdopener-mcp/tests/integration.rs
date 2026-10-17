@@ -3666,7 +3666,7 @@ fn conversation_store_keeps_messages_appended_by_another_process() {
     other.id = "msg-other".into();
     other.content = "from another process".into();
     log.messages.push(other);
-    persist_session(&sess, &log);
+    persist_session(&sess, &log).unwrap();
 
     let ctx = store_get_context(&sess, 20).unwrap();
     assert_eq!(ctx.len(), 2, "reads must see the other process's message");
@@ -3880,15 +3880,35 @@ fn session_file_holding_another_ids_messages_is_not_shared() {
         timestamp_ms: 1,
     };
     let messages = vec![other];
-    persist_session(&sid, &SessionLog { messages });
+    persist_session(&sid, &SessionLog { messages }).unwrap();
     assert!(store_get_context(&sid, 20).unwrap().is_empty());
     let resp = tool_save_conversation_message(
         id(1),
         &json!({ "session_id": sid, "role": "agent", "content": "mine" }),
     );
-    assert!(resp.error.is_some() || is_error(&resp), "{resp:?}");
+    let err = tool_error_text(&resp);
+    assert!(err.contains("another session"), "{err}");
     let on_disk = load_session_from_disk(&sid).unwrap();
     assert_eq!(on_disk.messages.len(), 1);
     assert_eq!(on_disk.messages[0].content, "belongs to another session");
     let _ = std::fs::remove_file(session_file_path(&sid).unwrap());
+}
+
+/// A message that could not be written to the session file is not saved:
+/// the tool must say so (isError) rather than report `ok: true`, and the
+/// unsaved message must not linger in the in-process store either.
+#[test]
+fn save_message_reports_a_failed_session_write() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    // A directory where the session file belongs makes the write fail.
+    std::fs::create_dir_all(&path).unwrap();
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "lost" }),
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains("not saved"), "{err}");
+    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    std::fs::remove_dir(&path).unwrap();
 }

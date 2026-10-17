@@ -276,17 +276,19 @@ fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
     Some((log, foreign))
 }
 
-/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`.
-/// Creates the directory if it does not exist.  Errors are silently ignored
-/// (persistence is best-effort; the in-process store is always authoritative).
-pub fn persist_session(session_id: &str, log: &SessionLog) {
-    let Some(path) = session_file_path(session_id) else { return };
+/// Persist `log` to `~/.mdopener/sessions/{session_id}.json`, creating the
+/// directory if it does not exist. The persisted log is what every reader
+/// (another server process, this one after a restart) sees, so a failed
+/// write is an error for the caller to report.
+pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
+    let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     }
-    if let Ok(json) = serde_json::to_string_pretty(log) {
-        let _ = std::fs::write(&path, json);
-    }
+    let json =
+        serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Cannot write {}: {e}", path.display()))
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
@@ -348,10 +350,10 @@ pub fn store_append_message(
         Some((disk, false)) => Some(disk),
         None => None,
     };
-    let log = store.entry(session_id.to_string()).or_default();
-    if let Some(disk) = fresh {
-        *log = disk;
-    }
+    let mut log = match fresh {
+        Some(disk) => disk,
+        None => store.get(session_id).cloned().unwrap_or_default(),
+    };
     log.messages.push(msg.clone());
 
     // Bound the in-process store.
@@ -360,7 +362,11 @@ pub fn store_append_message(
         log.messages.drain(..excess);
     }
 
-    persist_session(session_id, log);
+    // Only a log that reached disk replaces the cached one, so a failed
+    // write leaves no unsaved message behind.
+    persist_session(session_id, &log)
+        .map_err(|e| format!("Message not saved to the session file: {e}"))?;
+    store.insert(session_id.to_string(), log);
     Ok(msg)
 }
 
@@ -1618,6 +1624,11 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         Some(r) => r,
         None => return Response::err(id, -32602, "`role` is required"),
     };
+    if !matches!(role.trim(), "agent" | "human" | "system") {
+        let got = role.trim();
+        let msg = format!("`role` must be 'agent', 'human', or 'system', got '{got}'");
+        return Response::err(id, -32602, msg);
+    }
 
     let content = match args["content"].as_str() {
         Some(c) if !c.trim().is_empty() => c.to_string(),
@@ -1638,7 +1649,9 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
             "role": msg.role,
             "timestampMs": msg.timestamp_ms,
         })),
-        Err(e) => Response::err(id, -32602, e),
+        // The arguments were valid (checked above); this is a failure to
+        // store the message, e.g. the session file could not be written.
+        Err(e) => tool_error(id, e),
     }
 }
 
