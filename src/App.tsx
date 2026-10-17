@@ -6,10 +6,8 @@ import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
 import { getShortcutCommands } from "./lib/commands";
 import { classify } from "./lib/docClassifier";
-import { listenForOpenedFiles } from "./lib/fileOpens";
+import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { matchShortcut } from "./lib/keymap";
-import { applyLinkExport } from "./lib/linkExport";
-import { applyLinkViewMode } from "./lib/linkViewMode";
 import { restoreSession } from "./lib/session";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
@@ -61,13 +59,7 @@ export default function App() {
       );
       if (pending.length) {
         // Open every queued file (openPath dedupes); the last stays active.
-        // A link's `mode` (mdopener://open?…&mode=edit) and an export link's
-        // format apply once the file is open.
-        for (const p of pending) {
-          await openPath(p);
-          await applyLinkViewMode(p);
-          await applyLinkExport(p);
-        }
+        await openOpenedFiles(pending, openPath);
       } else {
         const n = await restoreSession();
         if (n >= 1) {

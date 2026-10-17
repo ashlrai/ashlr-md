@@ -18,18 +18,21 @@ import { applyLinkViewMode } from "./linkViewMode";
 type OpenPath = (path: string) => Promise<void>;
 
 /**
- * Open the files of one `file-opened` event; the last stays active. A link's
- * `mode` and an export link's format apply once its file is open.
+ * Open the files of one `file-opened` event (or of the startup buffer) in
+ * order; the last stays active. A link's `mode` and an export link's format
+ * apply once its file is open, and each path's are taken even when it fails
+ * to open, so none is left for a later open of that file. Only the last file
+ * of an event used to open, so the others' link requests lingered.
  */
 export async function openOpenedFiles(
   paths: string[],
   openPath: OpenPath,
 ): Promise<void> {
-  const last = paths[paths.length - 1];
-  if (!last) return;
-  await openPath(last);
-  await applyLinkViewMode(last);
-  await applyLinkExport(last);
+  for (const p of paths) {
+    await openPath(p);
+    await applyLinkViewMode(p);
+    await applyLinkExport(p);
+  }
 }
 
 /**

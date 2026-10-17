@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Every file of a multi-file open opens.** When one open named several
+  files (a second launch with several paths, or several files opened from
+  Finder at once) only the last opened, and the view or export a link had
+  asked for the others stayed waiting, to apply to a later open of that
+  file. Each file now opens in turn, the last staying active, as files
+  opened at startup already did.
 - **A file opened while the window starts up is no longer lost.** The window
   drained the buffer of files opened before it was ready and only then
   registered its listener for live opens, and buffering stopped at that

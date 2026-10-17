@@ -13,7 +13,8 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { listenForOpenedFiles } from "./fileOpens";
+import { useDocumentStore } from "../store/documentStore";
+import { listenForOpenedFiles, openOpenedFiles } from "./fileOpens";
 
 /** Let the queued opens run. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -63,5 +64,37 @@ describe("listenForOpenedFiles", () => {
     fileOpened?.({ payload: ["/live.md"] });
     await settle();
     expect(opened).toEqual(["/live.md"]);
+  });
+});
+
+describe("openOpenedFiles", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it("opens every file of one event in order and takes each one's link requests", async () => {
+    const opened: string[] = [];
+    invokeMock.mockResolvedValue(null);
+    await openOpenedFiles(["/a.md", "/b.md", "/c.md"], async (p) => {
+      opened.push(p);
+    });
+    expect(opened).toEqual(["/a.md", "/b.md", "/c.md"]);
+    for (const path of ["/a.md", "/b.md", "/c.md"]) {
+      expect(invokeMock).toHaveBeenCalledWith("take_link_view_mode", { path });
+      expect(invokeMock).toHaveBeenCalledWith("take_link_export", { path });
+    }
+  });
+
+  it("applies a link's mode to its own file while it is active", async () => {
+    useDocumentStore.setState({ path: null, viewMode: "read" });
+    const modes: Record<string, string> = {};
+    invokeMock.mockImplementation(async (cmd: string, args: { path: string }) =>
+      cmd === "take_link_view_mode" && args.path === "/a.md" ? "edit" : null,
+    );
+    await openOpenedFiles(["/a.md", "/b.md"], async (p) => {
+      if (p === "/b.md") modes["/a.md"] = useDocumentStore.getState().viewMode;
+      useDocumentStore.setState({ path: p, viewMode: "read" });
+    });
+    expect(modes["/a.md"]).toBe("edit");
   });
 });
