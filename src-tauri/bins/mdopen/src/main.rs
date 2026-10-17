@@ -339,7 +339,13 @@ fn open_in_app(
 /// the agent. The `if: "Write(*.md)|Edit(*.md)"` rule should already gate this
 /// to Markdown, but we re-check the extension defensively.
 fn run_hook() {
-    use std::io::Read;
+    use std::io::{IsTerminal as _, Read};
+    // Claude Code always pipes the payload. A terminal on stdin means a person
+    // ran `--hook` by hand, and reading it would wait for EOF in silence.
+    if let Some(hint) = hook_terminal_hint(std::io::stdin().is_terminal()) {
+        eprintln!("mdopen: {hint}");
+        return;
+    }
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         return;
@@ -350,6 +356,16 @@ fn run_hook() {
     // Silent either way: no stderr, never a non-zero exit (a headless box has
     // no launcher, which must not surface as a hook error in the agent).
     let _ = open_in_app(&abs.to_string_lossy(), Some("read"), HOOK_DEADLINE, false);
+}
+
+/// The stderr hint for `mdopen --hook` run with a terminal on stdin (no
+/// payload piped in), or `None` when stdin is a pipe or file, as it is under
+/// Claude Code.
+fn hook_terminal_hint(stdin_is_terminal: bool) -> Option<&'static str> {
+    stdin_is_terminal.then_some(
+        "--hook reads a Claude Code PostToolUse JSON payload on stdin and nothing was \
+         piped in, so there is nothing to open. To open a file, run `mdopen <file.md>`.",
+    )
 }
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
@@ -414,7 +430,8 @@ EXIT STATUS:
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case. With
        no arguments at all, this help is printed on stderr.
-    --hook always exits 0 and prints nothing
+    --hook always exits 0 and prints nothing (run with a terminal on stdin,
+       it prints a hint on stderr instead of waiting for a payload)
 ";
 
 #[cfg(test)]
@@ -567,6 +584,13 @@ mod tests {
             let err = resolve_file(link.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{err}");
         }
+    }
+
+    #[test]
+    fn hook_mode_with_a_terminal_on_stdin_gets_a_hint() {
+        let hint = hook_terminal_hint(true).expect("a terminal needs a hint");
+        assert!(hint.contains("mdopen <file.md>"), "{hint}");
+        assert_eq!(hook_terminal_hint(false), None);
     }
 
     #[test]

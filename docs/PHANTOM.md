@@ -33,7 +33,9 @@ most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 | `1` | Bad usage, an unresolvable path, the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
 
 `mdopen --hook` (the Claude Code `PostToolUse` hook) always exits `0` and prints
-nothing, waiting at most 5 seconds for the launcher.
+nothing, waiting at most 5 seconds for the launcher. Run by hand with a
+terminal on stdin (nothing piped in), it prints a hint on stderr and exits `0`
+at once instead of waiting for a payload.
 
 A caller that wants to know whether the viewer opened must wait for `mdopen` to
 exit and check for `0`. Spawning it detached and ignoring the status reports

@@ -178,3 +178,49 @@ fn opens_through_the_running_app_without_a_url_launcher() {
     assert_eq!(body["path"], canon.to_str().unwrap());
     assert_eq!(body["mode"], "edit");
 }
+
+/// `mdopen --hook` run by hand with a terminal on stdin read it to EOF, so it
+/// waited in silence until Ctrl+D. It now prints a hint and exits 0 at once.
+/// Needs util-linux `script` for a pseudo-terminal; skipped without it.
+#[cfg(target_os = "linux")]
+#[test]
+fn hook_with_a_terminal_on_stdin_exits_with_a_hint() {
+    use std::io::Read as _;
+    let s = Scratch::new("hook-tty");
+    let cmd = format!("'{}' --hook", env!("CARGO_BIN_EXE_mdopen"));
+    // `script` runs the command on a pty; its own stdin stays open (piped,
+    // never written), so the hook would wait forever if it read the terminal.
+    let Ok(mut child) = Command::new("script")
+        .args(["-qec", &cmd, "/dev/null"])
+        .env("HOME", s.sub("home"))
+        .env("USERPROFILE", s.sub("home"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        eprintln!("skipped: no `script` to provide a terminal");
+        return;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("mdopen --hook waited on the terminal instead of exiting");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(status.success(), "{status:?}");
+    let mut out = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    assert!(out.contains("nothing was piped in"), "{out:?}");
+}
