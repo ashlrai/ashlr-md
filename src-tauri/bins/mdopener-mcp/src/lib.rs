@@ -968,7 +968,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "edit_id": {
                         "type": "string",
-                        "description": "Correlation id echoed from the stream_edit preview response."
+                        "description": "Optional: the editId of the stream_edit preview, for correlation only. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -991,7 +991,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                         "description": "Optional path assertion — errors if a different file is open."
                     }
                 },
-                "required": ["edit_id", "find", "replace"]
+                "required": ["find", "replace"]
             }),
             annotations: Some(json!({
                 "title": "Apply Stream Edit",
@@ -3499,10 +3499,9 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// The agent sends this after reviewing the diff returned by `stream_edit`.
 /// `match_index` selects which candidate to apply when there are multiple matches.
 pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let edit_id = match args["edit_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`edit_id` is required"),
-    };
+    // Only correlates with a preview: the app re-finds `find` in the live
+    // document, so the apply does not depend on it.
+    let edit_id = args["edit_id"].as_str().unwrap_or("").to_string();
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
         Some(_) => return Response::err(id, -32602, "`find` must not be empty"),

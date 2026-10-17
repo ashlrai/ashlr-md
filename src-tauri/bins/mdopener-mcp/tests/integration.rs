@@ -3644,6 +3644,30 @@ fn stream_edit_reports_whether_it_applied_the_edit() {
     assert_eq!(applied["applied"], true, "{applied}");
 }
 
+/// The app re-finds `find` in the live document, so `edit_id` only
+/// correlates with a preview; applying without one is allowed.
+#[test]
+fn stream_edit_apply_does_not_need_an_edit_id() {
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": true, "replaced": 1, "matchIndex": 1 })),
+    );
+    let resp = tool_stream_edit_apply(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "match_index": 1 }),
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    assert_eq!(content_text(&resp)["replaced"], 1);
+    let required = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap()
+        .to_json()["inputSchema"]["required"]
+        .clone();
+    assert_eq!(required, json!(["find", "replace"]));
+}
+
 // ── Agent-workflow regressions ────────────────────────────────────────────────
 
 /// `text://vault-search?q=my+topic` (the form resources/list documents) must
