@@ -528,7 +528,11 @@ stdin; a longer payload opens nothing (still silently, exit `0`).
 ### One-click install
 
 **Preferences → AI agents (MCP) → Install auto-open hook**. Ashlr MD merges this
-into **`~/.claude/settings.json`** (idempotently — it won't add a duplicate):
+into **`~/.claude/settings.json`** (idempotently: it won't add a duplicate).
+If the hook it installed earlier runs an `mdopen` that no longer exists (the app
+was moved, for example from Downloads to Applications), clicking it again points
+the hook at this copy of the app; a hook running another `mdopen` that exists is
+left alone:
 
 ```json
 {
