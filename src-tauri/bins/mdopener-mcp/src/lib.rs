@@ -2541,10 +2541,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // `~/.ssh/id_rsa` or `.env` used to be served. Like the tools that
         // read a path from disk, only a Markdown non-dotfile is read, checked
         // after resolving symlinks.
-        if let Err(e) = checked_document_path(&p, "uri") {
-            return Response::err(id, -32002, e);
-        }
-        return match read_regular_file(&p) {
+        // Read the checked (canonical) path: reading `p` again would follow
+        // a link re-pointed after the check.
+        let checked = match checked_document_path(&p, "uri") {
+            Ok(c) => c,
+            Err(e) => return Response::err(id, -32002, e),
+        };
+        return match read_regular_file(&checked) {
             Ok(text) => Response::ok(
                 id,
                 json!({
@@ -3241,17 +3244,18 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         // Skip a recent that is (or now links to) something other than a
         // Markdown non-dotfile, as `file://` reads do: its preview would
         // otherwise show the first 200 characters of the link's target.
-        if checked_document_path(path, "path").is_err() {
+        let Ok(checked) = checked_document_path(path, "path") else {
             continue;
-        }
-        // Skip paths that no longer exist on disk.
-        let content = match read_regular_file(path) {
+        };
+        // Skip paths that no longer exist on disk. The checked (canonical)
+        // path is read, so a link re-pointed after the check is not followed.
+        let content = match read_regular_file(&checked) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
         // mtime in milliseconds since the Unix epoch.
-        let mtime_ms: u64 = std::fs::metadata(path)
+        let mtime_ms: u64 = std::fs::metadata(&checked)
             .ok()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
