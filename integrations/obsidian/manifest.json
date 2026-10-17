@@ -3,7 +3,7 @@
   "name": "Open in Ashlr MD",
   "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "Open the current note (or any file in your vault) in Ashlr MD — a beautiful, AI-native Markdown app for macOS.",
+  "description": "Open the current note (or any file in your vault) in Ashlr MD — a beautiful, AI-native Markdown app for macOS, Windows and Linux.",
   "author": "Ashlr",
   "authorUrl": "https://md.ashlr.ai",
   "fundingUrl": "https://github.com/ashlrai/ashlr-md",

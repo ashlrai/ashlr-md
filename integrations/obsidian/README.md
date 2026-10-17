@@ -2,10 +2,10 @@
 
 Send any note from your [Obsidian](https://obsidian.md) vault to
 **[Ashlr MD](https://md.ashlr.ai)**, a beautiful, AI-native Markdown app for
-macOS, with a single click or keyboard shortcut.
+macOS, Windows and Linux, with a single click or keyboard shortcut.
 
 > **Desktop-only.** Requires Ashlr MD installed so the `mdopener://` URL scheme
-> is registered on your Mac.
+> is registered on your computer.
 
 ---
 
@@ -32,7 +32,8 @@ picks it up instantly via its registered URL scheme.
 
 ## Requirements
 
-- **macOS** (the plugin sets `isDesktopOnly: true`)
+- **Obsidian desktop** on macOS, Windows or Linux (the plugin sets
+  `isDesktopOnly: true`, so it does not load on mobile)
 - **Ashlr MD** installed: [download here](https://md.ashlr.ai)
 - Obsidian **1.4.0** or later
 
@@ -76,12 +77,15 @@ npm run dev
 - **Local vaults only.** The plugin requires a `FileSystemAdapter` to resolve
   the absolute path.  Vaults backed by a remote adapter (e.g. a hypothetical
   cloud-only vault) will see a friendly notice instead of opening.
-- **Ashlr MD must be running / installed.** If the URL scheme is not
-  registered, macOS will silently do nothing.  Install Ashlr MD from
-  [md.ashlr.ai](https://md.ashlr.ai).
-- **macOS only.** The `mdopener://` scheme is a macOS-registered URL scheme.
-  The plugin's `isDesktopOnly: true` flag prevents it from loading on mobile,
-  but it is macOS-specific in practice.
+- **Ashlr MD must be installed.** If the URL scheme is not registered, the
+  operating system does nothing (or says it has no app for the link).
+  Install Ashlr MD from [md.ashlr.ai](https://md.ashlr.ai).
+- **Where `mdopener://` is registered.** The macOS app registers it on
+  install; the Windows installers (`.msi`, `-setup.exe`) and the Linux
+  `.deb`/`.rpm` packages register it too (through their desktop file on
+  Linux). An AppImage has no installer, so it registers the scheme for your
+  user the first time you run it: run the AppImage once before using the
+  plugin.
 
 ---
 

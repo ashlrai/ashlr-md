@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The Obsidian plugin's README no longer says it is macOS only.** It said
+  the `mdopener://` scheme is registered only on macOS, but the Windows
+  installers and the Linux packages register it too, and an AppImage
+  registers it the first time it runs. The README, the plugin description
+  and a code comment now say so.
 - **Every file of a multi-file open opens.** When one open named several
   files (a second launch with several paths, or several files opened from
   Finder at once) only the last opened, and the view or export a link had

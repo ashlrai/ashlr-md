@@ -79,7 +79,7 @@ function buildUrl(absolutePath: string, mode?: "read" | "edit"): string {
 
 /**
  * Opens `url` using Electron's shell.openExternal, which correctly handles
- * custom URL schemes on macOS.  Falls back to window.open if Electron is
+ * custom URL schemes on macOS, Windows and Linux.  Falls back to window.open if Electron is
  * somehow unavailable (shouldn't happen in the desktop app).
  */
 async function openUrl(url: string): Promise<void> {
