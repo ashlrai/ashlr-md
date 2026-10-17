@@ -9,7 +9,7 @@
  * URL scheme and percent-decodes the `path` parameter (see
  * `src-tauri/src/deep_link.rs` + `src-tauri/bins/mdopen/src/main.rs`).
  *
- * Fallback: if the deep link cannot be opened, spawn the `mdopen <path>` CLI
+ * Fallback: if the deep link cannot be opened, spawn the `mdopen -- <path>` CLI
  * (configurable via `ashlr-md.cliPath`, default `mdopen` on PATH).
  */
 
@@ -48,8 +48,11 @@ export function isOpenableInAshlr(fsPath: string): boolean {
 }
 
 /**
- * Fallback: spawn the `mdopen <path>` CLI. Resolves false if the process
- * cannot be spawned or exits non-zero, so the caller can surface an error.
+ * Fallback: spawn the `mdopen -- <path>` CLI. Resolves true only when it
+ * exits 0 (it exits 1 when the file could not be opened); false when it
+ * cannot be spawned, exits non-zero, or is killed by a signal (a `null`
+ * exit code, which used to count as success), so the caller can surface an
+ * error. `--` keeps a path that starts with `-` from being read as a flag.
  */
 function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -62,13 +65,11 @@ function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
     };
 
     try {
-      const child = spawn(cliPath, [absolutePath], {
-        // Detach so the CLI's own URL launcher (open/xdg-open/start) is not
-        // tied to VS Code's lifetime.
+      const child = spawn(cliPath, ["--", absolutePath], {
         stdio: "ignore",
       });
       child.on("error", () => done(false));
-      child.on("close", (code) => done(code === 0 || code === null));
+      child.on("close", (code) => done(code === 0));
     } catch {
       done(false);
     }

@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code extension's `mdopen` fallback reports a killed CLI.** It
+  counted a `mdopen` that ended without an exit status (killed by a signal)
+  as having opened the file, so no error was shown. Only exit status `0`
+  counts now, and the path is passed after `--`.
 - **The VS Code extension hands off only files the app opens.** It took any
   file in the Markdown language mode, or with a Markdown extension, including
   dotfiles (`.notes.md`), but the app ignores a link to a dotfile or a file

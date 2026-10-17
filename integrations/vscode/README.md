@@ -36,8 +36,11 @@ brings the file up instantly (cold-starting the app if needed).
 spawning the bundled `mdopen` CLI:
 
 ```
-mdopen <absolute-path>
+mdopen -- <absolute-path>
 ```
+
+and reports an error unless `mdopen` exits `0` (it exits `1` when the file
+could not be opened; a `mdopen` killed by a signal counts as a failure too).
 
 The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 `mdopen`, resolved on your `PATH`). Install the CLI from inside Ashlr MD via the
