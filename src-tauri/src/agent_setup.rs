@@ -104,7 +104,7 @@ fn cursor_installed() -> bool {
 ///
 /// Runs: `claude mcp add --scope user ashlr-md <mcp-binary-path>`
 ///
-/// The `--scope user` flag writes to `~/.claude/claude_code_config.json` so
+/// The `--scope user` flag registers it in the user scope (`~/.claude.json`) so
 /// the server is available across all projects, not just the current directory.
 /// The command is idempotent in recent Claude Code versions — re-running it
 /// when the server is already registered is safe (it may print a warning that
@@ -130,7 +130,7 @@ pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let msg = if stdout.trim().is_empty() {
             "Ashlr MD registered as an MCP server in Claude Code.\n\
-                 Restart Claude Code (or run `claude restart`) to pick it up."
+                 Start a new Claude Code session to pick it up."
                 .to_string()
         } else {
             format!(
