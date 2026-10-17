@@ -178,7 +178,9 @@ Codex picks up the new server on its next invocation (no restart needed).
 
 Open **Preferences → AI agents (MCP)** and click **Connect to Cursor**. Ashlr MD
 writes/merges the entry in `~/.cursor/mcp.json` for you, leaving any other
-servers untouched.
+servers untouched. A file it cannot merge (not valid JSON, for example with a
+comment or a trailing comma, or whose `mcpServers` is not an object) is left
+as it is and the button says why; fix it, or add the entry by hand as below.
 
 ### Manual
 

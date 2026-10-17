@@ -213,29 +213,17 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
     }
 
-    // Read existing config or start fresh.
-    let mut root: Value = if config_path.exists() {
-        let raw = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?;
-        serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
+    // Read the existing config (if any) and merge our entry into it.
+    let existing = if config_path.exists() {
+        Some(
+            fs::read_to_string(&config_path)
+                .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?,
+        )
     } else {
-        json!({})
+        None
     };
-
-    // Ensure the "mcpServers" key exists and is an object.
-    if !root.get("mcpServers").map(|v| v.is_object()).unwrap_or(false) {
-        root["mcpServers"] = json!({});
-    }
-
-    // Merge our entry (overwrites any previous ashlr-md entry).
-    root["mcpServers"]["ashlr-md"] = json!({
-        "command": mcp_path,
-        "args": []
-    });
-
-    // Write back with pretty-printing (Cursor displays this file in its UI).
-    let serialised = serde_json::to_string_pretty(&root)
-        .map_err(|e| format!("JSON serialisation error: {e}"))?;
+    let serialised = merge_cursor_config(existing.as_deref(), &mcp_path)
+        .map_err(|why| format!("{} {why}", config_path.display()))?;
 
     fs::write(&config_path, serialised)
         .map_err(|e| format!("Cannot write {}: {e}", config_path.display()))?;
@@ -245,6 +233,53 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
          Restart Cursor (or reload the MCP servers in Settings → MCP) to pick it up.",
         config_path.display()
     ))
+}
+
+/// The text of `~/.cursor/mcp.json` with an `ashlr-md` entry for `mcp_path`
+/// merged into `existing` (the file's current text, `None` when there is
+/// none): other servers and keys are kept, and an earlier `ashlr-md` entry is
+/// overwritten with the current path. Pretty-printed, as Cursor shows this
+/// file in its UI.
+///
+/// A file that is not valid JSON, not a JSON object, or has a `mcpServers`
+/// that is not an object is refused (the message is appended to the path).
+/// It used to be replaced by `{}`, which deleted every other MCP server the
+/// user had configured, and a top-level array or string panicked the command.
+fn merge_cursor_config(existing: Option<&str>, mcp_path: &str) -> Result<String, String> {
+    let mut root: Value = match existing.map(str::trim) {
+        None | Some("") => json!({}),
+        Some(raw) => serde_json::from_str(raw).map_err(|e| {
+            format!(
+                "is not valid JSON ({e}), so it was not changed. Fix it (comments and \
+                 trailing commas cannot be merged) or add the ashlr-md entry by hand, \
+                 then retry."
+            )
+        })?,
+    };
+    if root.is_null() {
+        root = json!({});
+    }
+    let Some(obj) = root.as_object_mut() else {
+        return Err(
+            "is not a JSON object, so it was not changed. Fix it manually and retry.".to_string(),
+        );
+    };
+    let servers = obj.entry("mcpServers").or_insert_with(|| json!({}));
+    if servers.is_null() {
+        *servers = json!({});
+    }
+    let Some(servers) = servers.as_object_mut() else {
+        return Err(
+            "has a `mcpServers` value that is not an object, so it was not changed. \
+                    Fix it manually and retry."
+                .to_string(),
+        );
+    };
+    servers.insert(
+        "ashlr-md".to_string(),
+        json!({ "command": mcp_path, "args": [] }),
+    );
+    serde_json::to_string_pretty(&root).map_err(|e| format!("JSON serialisation error: {e}"))
 }
 
 // ── Codex ─────────────────────────────────────────────────────────────────────
@@ -527,6 +562,51 @@ mod tests {
             merge_hook(&mut root, MDOPEN),
             Ok(HookMerge::AlreadyInstalled)
         );
+    }
+
+    const MCP: &str = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp";
+
+    #[test]
+    fn cursor_config_keeps_other_servers_and_updates_ours() {
+        let existing = r#"{ "theme": "dark", "mcpServers": {
+            "other": { "command": "/bin/other", "args": ["-x"] },
+            "ashlr-md": { "command": "/old/path/mdopener-mcp", "args": [] } } }"#;
+        let out: Value =
+            serde_json::from_str(&merge_cursor_config(Some(existing), MCP).unwrap()).unwrap();
+        assert_eq!(out["theme"], "dark");
+        assert_eq!(out["mcpServers"]["other"]["command"], "/bin/other");
+        assert_eq!(out["mcpServers"]["ashlr-md"]["command"], MCP);
+        for fresh in [None, Some(""), Some("  \n"), Some("null"), Some("{}")] {
+            let out: Value =
+                serde_json::from_str(&merge_cursor_config(fresh, MCP).unwrap()).unwrap();
+            assert_eq!(
+                out,
+                json!({ "mcpServers": { "ashlr-md": { "command": MCP, "args": [] } } })
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_config_that_cannot_be_merged_is_refused_not_replaced() {
+        // A comment or trailing comma used to make the whole file `{}` plus
+        // our entry, deleting the user's other servers; a top-level array
+        // or string panicked on `root["mcpServers"]`.
+        let with_comment =
+            "{\n  // mine\n  \"mcpServers\": { \"other\": { \"command\": \"x\" } }\n}";
+        let err = merge_cursor_config(Some(with_comment), MCP).unwrap_err();
+        assert!(
+            err.contains("not valid JSON") && err.contains("not changed"),
+            "{err}"
+        );
+        for bad in [
+            r#"[1, 2]"#,
+            r#""text""#,
+            r#"{ "mcpServers": [] }"#,
+            r#"{ "mcpServers": "x" }"#,
+        ] {
+            let err = merge_cursor_config(Some(bad), MCP).unwrap_err();
+            assert!(err.contains("not changed"), "{bad}: {err}");
+        }
     }
 
     #[test]
