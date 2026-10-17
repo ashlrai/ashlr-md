@@ -3,9 +3,13 @@
  *
  * Each exported function registers a single `listen()` call and returns the
  * resulting Promise<UnlistenFn> so the bridge can collect them for cleanup.
+ *
+ * Nothing reports back to the MCP server: `/export` returns as soon as the
+ * event is emitted, and the `export` tool counts a headless export as done
+ * only once a new version of the output file exists. Failures surface to the
+ * human as a toast.
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "../../lib/export";
 import { useDocumentStore } from "../../store/documentStore";
@@ -20,16 +24,6 @@ export function handleExportPayload(): Promise<UnlistenFn> {
     const { format, outputPath } = e.payload;
     if (!useDocumentStore.getState().path) {
       toast.info("Open a document before exporting.");
-      if (outputPath) {
-        await invoke("mcp_export_result", {
-          format,
-          ok: false,
-          path: null,
-          error: "No document is open.",
-        }).catch(() => {
-          /* non-fatal */
-        });
-      }
       return;
     }
 
@@ -50,26 +44,10 @@ export function handleExportPayload(): Promise<UnlistenFn> {
         } else {
           await exportHtml(title, outputPath);
         }
-        await invoke("mcp_export_result", {
-          format,
-          ok: true,
-          path: outputPath,
-          error: null,
-        }).catch(() => {
-          /* non-fatal */
-        });
       } catch (err) {
         const errStr =
           typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         toast.error(`MCP export failed: ${errStr}`);
-        await invoke("mcp_export_result", {
-          format,
-          ok: false,
-          path: null,
-          error: errStr,
-        }).catch(() => {
-          /* non-fatal */
-        });
       }
     } else {
       // Open the dialog with the format pre-selected.

@@ -620,15 +620,6 @@ describe("mcp://export — format pre-selection in dialog", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
-  it("does NOT call mcp_export_result when no outputPath (dialog path)", async () => {
-    resetDocumentStore({ path: "/doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "pdf" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeUndefined();
-  });
-
   it("does NOT invoke any export function when no outputPath (dialog path)", async () => {
     resetDocumentStore({ path: "/doc.md" });
     mountBridge();
@@ -660,21 +651,6 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     expect(exportHtmlMock).not.toHaveBeenCalled();
   });
 
-  it("calls mcp_export_result with ok=true after successful pdf export", async () => {
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "pdf", outputPath: "/tmp/out.pdf" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({
-      format: "pdf",
-      ok: true,
-      path: "/tmp/out.pdf",
-      error: null,
-    });
-  });
-
   // ── DOCX ─────────────────────────────────────────────────────────────────
 
   it("calls exportDocx with the document title when format=docx and outputPath is set", async () => {
@@ -686,21 +662,6 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     expect(exportHtmlMock).not.toHaveBeenCalled();
   });
 
-  it("calls mcp_export_result with ok=true after successful docx export", async () => {
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "docx", outputPath: "/tmp/doc.docx" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({
-      format: "docx",
-      ok: true,
-      path: "/tmp/doc.docx",
-      error: null,
-    });
-  });
-
   // ── HTML ─────────────────────────────────────────────────────────────────
 
   it("calls exportHtml with the document title when format=html and outputPath is set", async () => {
@@ -710,21 +671,6 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     expect(exportHtmlMock).toHaveBeenCalledWith("index", "/tmp/index.html");
     expect(exportPdfMock).not.toHaveBeenCalled();
     expect(exportDocxMock).not.toHaveBeenCalled();
-  });
-
-  it("calls mcp_export_result with ok=true after successful html export", async () => {
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/doc.html" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({
-      format: "html",
-      ok: true,
-      path: "/tmp/doc.html",
-      error: null,
-    });
   });
 
   // ── Title derivation ──────────────────────────────────────────────────────
@@ -761,43 +707,6 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
 
   // ── Error path ────────────────────────────────────────────────────────────
 
-  it("calls mcp_export_result with ok=false when exportPdf throws", async () => {
-    exportPdfMock.mockRejectedValue(new Error("print dialog closed"));
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "pdf", outputPath: "/tmp/out.pdf" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ format: "pdf", ok: false });
-    expect(typeof resultCall![1].error).toBe("string");
-    expect((resultCall![1].error as string).length).toBeGreaterThan(0);
-  });
-
-  it("calls mcp_export_result with ok=false when exportDocx throws", async () => {
-    exportDocxMock.mockRejectedValue(new Error("html-to-docx failed"));
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "docx", outputPath: "/tmp/doc.docx" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ format: "docx", ok: false });
-    expect(resultCall![1].error).toContain("html-to-docx failed");
-  });
-
-  it("calls mcp_export_result with ok=false when exportHtml throws", async () => {
-    exportHtmlMock.mockRejectedValue(new Error("disk write error"));
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/doc.html" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ format: "html", ok: false });
-    expect(resultCall![1].error).toContain("disk write error");
-  });
-
   it("shows an error toast when export fails", async () => {
     exportPdfMock.mockRejectedValue(new Error("print failed"));
     resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
@@ -806,28 +715,7 @@ describe("mcp://export — direct export pipeline with outputPath", () => {
     expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/print failed/i));
   });
 
-  it("always calls mcp_export_result even on export error (prevents Rust timeout)", async () => {
-    exportHtmlMock.mockRejectedValue("Something went wrong");
-    resetDocumentStore({ path: "/doc.md", fileName: "doc.md" });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "html", outputPath: "/tmp/out.html" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-  });
-
   // ── No-document guard with outputPath ────────────────────────────────────
-
-  it("calls mcp_export_result with ok=false and error when no doc is open (outputPath set)", async () => {
-    resetDocumentStore({ path: null });
-    mountBridge();
-    invokeMock.mockClear();
-    await fireEvent("mcp://export", { format: "pdf", outputPath: "/tmp/out.pdf" });
-    const resultCall = invokeMock.mock.calls.find((c) => c[0] === "mcp_export_result");
-    expect(resultCall).toBeDefined();
-    expect(resultCall![1]).toMatchObject({ ok: false });
-    expect(typeof resultCall![1].error).toBe("string");
-  });
 
   it("does NOT call any export function when no doc is open (outputPath set)", async () => {
     resetDocumentStore({ path: null });
