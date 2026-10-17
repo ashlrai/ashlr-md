@@ -586,7 +586,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document. With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. A `theme` value is validated, but the app does not yet receive it, so exports always use the app's current theme.",
+            description: "Export the currently open document. With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -598,11 +598,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "output_path": {
                         "type": "string",
                         "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
-                    },
-                    "theme": {
-                        "type": "string",
-                        "enum": ["paper", "sepia", "midnight"],
-                        "description": "Theme for HTML exports (paper/sepia/midnight). Validated here but not yet forwarded by the app, which uses its current theme."
                     }
                 },
                 "required": ["format"]
@@ -1402,19 +1397,15 @@ pub fn tool_export_with(
         None => return Response::err(id, -32602, "`format` is required"),
     };
 
-    // Validate theme when provided — only valid for html format.
-    let theme = args["theme"].as_str().map(str::to_string);
-    if let Some(ref t) = theme {
-        match t.as_str() {
-            "paper" | "sepia" | "midnight" => {}
-            other => {
-                return Response::err(
-                    id,
-                    -32602,
-                    format!("`theme` must be one of paper/sepia/midnight, got '{other}'"),
-                )
-            }
-        }
+    // The app renders exports in its current theme and takes no other, so a
+    // `theme` (offered by earlier versions of this tool) is refused rather
+    // than silently ignored.
+    if !args["theme"].is_null() {
+        return Response::err(
+            id,
+            -32602,
+            "`theme` is not supported: exports use the app's current theme (switch it in the app).",
+        );
     }
 
     let output_path = match args["output_path"].as_str() {
@@ -1431,7 +1422,6 @@ pub fn tool_export_with(
         json!({
             "format": format,
             "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
-            "theme": theme,
         }),
     ) {
         return tool_error(id, app_not_running_msg(&e));

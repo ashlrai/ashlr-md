@@ -1608,88 +1608,43 @@ fn export_tool_no_output_path_sends_null() {
         "missing output_path should be sent as null, got {:?}", body["outputPath"]);
 }
 
-// ── HTML theme override ───────────────────────────────────────────────────────
+// ── No theme argument ─────────────────────────────────────────────────────────
 
+/// The app exports in its current theme and has no way to take another, so
+/// the tool must not offer a `theme` it would silently ignore.
 #[test]
-fn export_tool_html_with_paper_theme() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(
-        id(20),
-        &json!({ "format": "html", "theme": "paper" }),
-        &ipc,
-    );
+fn export_tool_offers_no_theme() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "export")
+        .unwrap();
+    assert!(def.input_schema["properties"]["theme"].is_null());
+    assert!(!def.description.contains("theme`"), "{}", def.description);
+
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
+    let resp = tool_export(id(20), &json!({ "format": "html" }), &ipc);
     assert!(resp.error.is_none());
     let calls = ipc.calls();
-    let body = calls.iter()
+    let body = calls
+        .iter()
         .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["theme"], "paper");
+        .unwrap()
+        .2
+        .as_ref()
+        .unwrap();
+    assert!(body.get("theme").is_none(), "{body}");
 }
 
+/// A `theme` from a caller written against the old schema is refused rather
+/// than ignored, so it never believes a sepia or midnight export happened.
 #[test]
-fn export_tool_html_with_sepia_theme() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(
-        id(21),
-        &json!({ "format": "html", "theme": "sepia" }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["theme"], "sepia");
-}
-
-#[test]
-fn export_tool_html_with_midnight_theme() {
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
-    let resp = tool_export(
-        id(22),
-        &json!({ "format": "html", "theme": "midnight" }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
-    assert_eq!(body["theme"], "midnight");
-}
-
-#[test]
-fn export_tool_invalid_theme_returns_param_error() {
-    let ipc = MockIpc::new();
-    let resp = tool_export(
-        id(23),
-        &json!({ "format": "html", "theme": "dark-mode" }),
-        &ipc,
-    );
-    assert!(resp.error.is_some(), "invalid theme must produce an RPC error");
-    assert_eq!(resp.error.as_ref().unwrap().code, -32602,
-        "invalid theme must return -32602 (invalid params)");
-    let msg = &resp.error.unwrap().message;
-    assert!(msg.contains("paper") || msg.contains("sepia") || msg.contains("midnight"),
-        "error should list valid values, got: {msg}");
-}
-
-#[test]
-fn export_tool_no_theme_sends_null() {
-    // When no theme is specified, the app uses its current theme.
-    // The IPC body should carry null so the app knows to use its own setting.
-    let ipc = MockIpc::new()
-        .on_post("/export", Ok(json!({ "ok": true })));
-    tool_export(id(24), &json!({ "format": "html" }), &ipc);
-    let calls = ipc.calls();
-    let body = calls.iter()
-        .find(|(m, p, _)| m == "POST" && p == "/export")
-        .unwrap().2.as_ref().unwrap();
-    assert!(body["theme"].is_null(),
-        "absent theme should be null in IPC body, got {:?}", body["theme"]);
+fn export_tool_refuses_a_theme() {
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": true })));
+    let resp = tool_export(id(23), &json!({ "format": "html", "theme": "sepia" }), &ipc);
+    let err = resp.error.expect("a theme must be refused");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("current theme"), "{}", err.message);
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
 }
 
 // ── File-write error propagation ──────────────────────────────────────────────
