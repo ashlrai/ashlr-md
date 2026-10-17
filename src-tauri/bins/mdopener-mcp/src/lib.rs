@@ -1010,7 +1010,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite (`recentDocs`, most recently cited first, each path once; within one message, in the order it lists them). Use this at the start of a multi-turn workflow to recover prior context (what edits were made, which docs were open, and what the human approved) before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3072,11 +3072,16 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
+            // Newest first, each path once: agents read `recentDocs[0]` as
+            // the most recently cited document. This used to go through a
+            // HashSet, so the order changed from one call to the next.
+            let mut seen = std::collections::HashSet::new();
             let cited_docs: Vec<String> = messages
                 .iter()
-                .flat_map(|m| m.cited_docs.iter().cloned())
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
+                .rev()
+                .flat_map(|m| m.cited_docs.iter())
+                .filter(|d| seen.insert(d.as_str()))
+                .cloned()
                 .collect();
 
             tool_result(

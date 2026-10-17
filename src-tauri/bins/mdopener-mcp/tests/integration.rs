@@ -4419,6 +4419,35 @@ fn recent_docs_deduplicates_repeated_paths() {
     );
 }
 
+#[test]
+fn recent_docs_are_newest_first_and_stable() {
+    let sess = unique_session();
+    // Enough distinct paths that a HashSet order would almost never match.
+    for i in 0..12 {
+        store_append_message(&sess, "agent", "Read.", vec![format!("/v/{i}.md")]).unwrap();
+    }
+    // Citing 3.md again makes it the most recent one.
+    store_append_message(
+        &sess,
+        "agent",
+        "Again.",
+        vec!["/v/3.md".into(), "/v/new.md".into()],
+    )
+    .unwrap();
+
+    let mut expected = vec!["/v/3.md".to_string(), "/v/new.md".to_string()];
+    expected.extend(
+        (0..12)
+            .rev()
+            .filter(|i| *i != 3)
+            .map(|i| format!("/v/{i}.md")),
+    );
+    for _ in 0..3 {
+        let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+        assert_eq!(content_text(&resp)["recentDocs"], json!(expected));
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
