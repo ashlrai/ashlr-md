@@ -2498,7 +2498,10 @@ fn decided_review(resp: &Value, review_id: &str) -> Value {
 }
 
 pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
+    // An empty `path` is refused here: the app refuses it too, but with the
+    // app closed the agent was told to start the app instead.
     let path = match args["path"].as_str() {
+        Some("") => return Response::err(id, -32602, "`path` must not be empty"),
         Some(p) => p,
         None => return Response::err(id, -32602, "`path` is required"),
     };

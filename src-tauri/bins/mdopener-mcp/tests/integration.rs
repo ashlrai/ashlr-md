@@ -1415,6 +1415,16 @@ fn get_user_annotations_missing_path_returns_error() {
 }
 
 #[test]
+fn get_user_annotations_empty_path_is_refused_without_the_app() {
+    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+    let resp = tool_get_annotations(id(1), &json!({ "path": "" }), &ipc);
+    let err = resp.error.as_ref().expect("an empty path is a param error");
+    assert_eq!(err.code, -32602);
+    assert_eq!(err.message, "`path` must not be empty");
+    assert!(ipc.calls().is_empty(), "nothing is sent to the app");
+}
+
+#[test]
 fn get_user_annotations_returns_highlights_comments_bookmarks() {
     let ipc = MockIpc::new().on_get(
         "/annotations",
