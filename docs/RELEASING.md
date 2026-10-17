@@ -13,7 +13,8 @@ Before tagging, complete every item:
 - [ ] Update `version` in **`src-tauri/tauri.conf.json`** (e.g. `"0.2.0"`).
 - [ ] Update `version` in **`src-tauri/Cargo.toml`** `[package]` section to match.
 - [ ] Update `version` in **`package.json`** to match.
-- [ ] Update **`CHANGELOG.md`** — add a `## [X.Y.Z] — YYYY-MM-DD` section.
+- [ ] Update **`CHANGELOG.md`**: add a section headed `## [X.Y.Z]`, an em dash and the
+  date (`YYYY-MM-DD`), like the earlier releases' headings.
 - [ ] Run `./scripts/generate-icons.sh` if `src-tauri/icons/icon.svg` changed.
 - [ ] Commit all changes:
   ```bash
@@ -34,12 +35,12 @@ This triggers `.github/workflows/release.yml`, which fans out across the full
 build matrix and **uploads each platform's bundles as workflow artifacts**.
 
 > **The workflow does NOT create the GitHub Release.** The org disables
-> `GITHUB_TOKEN` write access, so `release.yml` is build-only — it never calls
+> `GITHUB_TOKEN` write access, so `release.yml` is build-only: it never calls
 > the Release API and never publishes `latest.json`. A maintainer assembles and
 > publishes the Release manually from the uploaded artifacts (see §4). Until
 > that manual step is done, **no release exists and the updater sees nothing.**
 
-> **Pre-release tags** — any tag containing a hyphen (`v0.2.0-beta.1`) sets
+> **Pre-release tags:** any tag containing a hyphen (`v0.2.0-beta.1`) sets
 > `prerelease: true` automatically. Use this for testing the pipeline without
 > shipping to stable update channels.
 
@@ -56,7 +57,7 @@ build matrix and **uploads each platform's bundles as workflow artifacts**.
 
 Each leg uploads a platform-specific entry to the Tauri updater manifest.
 After all four legs complete, `latest.json` in the release contains aggregated
-entries for every platform — this is what `tauri-plugin-updater` polls.
+entries for every platform; this is what `tauri-plugin-updater` polls.
 
 ### Sidecar binaries per platform
 
@@ -64,8 +65,8 @@ entries for every platform — this is what `tauri-plugin-updater` polls.
 |---|---|---|---|
 | `mdopen` | yes | yes | yes (`.exe`) |
 | `mdopener-mcp` | yes | yes | yes (`.exe`) |
-| `mdopener-afm` (Swift) | yes | — | — |
-| `mdopener-setdefault` (Swift) | yes | — | — |
+| `mdopener-afm` (Swift) | yes | no | no |
+| `mdopener-setdefault` (Swift) | yes | no | no |
 
 > **macOS AFM sidecar risk:** `mdopener-afm` requires Xcode 26 / Swift 6.2+
 > (macOS 26 SDK). The workflow selects the latest available Xcode via
@@ -95,7 +96,7 @@ yourself with your own credentials:
 4. Attach all platform bundles **and** the assembled `latest.json` as release
    assets, then **Publish**.
 
-Publishing makes `latest.json` live at the updater endpoint — existing installs
+Publishing makes `latest.json` live at the updater endpoint; existing installs
 prompt to update on next launch. (If you later automate this, a PAT with
 `contents:write` in the workflow would let `tauri-action` create the Release
 directly and this manual step goes away.)
@@ -105,7 +106,7 @@ directly and this manual step goes away.)
 ## 5. Post-release: Update the Homebrew Cask
 
 The canonical cask template lives at `packaging/homebrew/ashlr-md.rb`.
-The tap repo is **github.com/ashlrai/homebrew-ashlr-md** — create it if it
+The tap repo is **github.com/ashlrai/homebrew-ashlr-md**; create it if it
 doesn't exist yet; place the cask at `Casks/ashlr-md.rb` in that repo.
 
 ```bash
@@ -205,7 +206,7 @@ git push
 
 | Secret | Used by | Required? |
 |---|---|---|
-| `GITHUB_TOKEN` | Read-only (build/artifacts) — release is published manually, see §4 | Auto-provided |
+| `GITHUB_TOKEN` | Read-only (build/artifacts); release is published manually, see §4 | Auto-provided |
 | `TAURI_SIGNING_PRIVATE_KEY` | Updater `.sig` files | Yes (all legs) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater `.sig` files | Yes (all legs) |
 | `APPLE_CERTIFICATE` | macOS code signing | Optional (unsigned DMG works) |
@@ -250,7 +251,7 @@ git commit -m "chore: regenerate app icons"
 - [ ] `CHANGELOG.md` updated
 - [ ] Icons regenerated (if SVG changed)
 - [ ] Version bump commit on `main`
-- [ ] Tag `vX.Y.Z` pushed — workflow fires
+- [ ] Tag `vX.Y.Z` pushed; workflow fires
 - [ ] All four workflow legs green
 - [ ] CI artifacts downloaded, `latest.json` assembled, Release published (§4)
 - [ ] Homebrew tap cask updated (version + sha256)

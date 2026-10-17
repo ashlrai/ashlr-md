@@ -34,7 +34,7 @@ most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 | Exit | Meaning |
 |---|---|
 | `0` | The running app accepted the file, or the launcher accepted the URL. If the launcher is still running after 10 s, `mdopen` prints `... the open is not confirmed` on stderr and still exits `0`. |
-| `1` | Bad usage, an unresolvable path, a file that is not a Markdown document or is a dotfile, the running app refused the file (its reason is on stderr, and the URL scheme is not tried), the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
+| `1` | Bad usage, a missing or unresolvable path, a file that is not a Markdown document or is a dotfile, the running app refused the file (its reason is on stderr, and the URL scheme is not tried), the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
 
 `mdopen --hook` (the Claude Code `PostToolUse` hook) always exits `0` and prints
 nothing, waiting at most 5 seconds for the launcher. Run by hand with a

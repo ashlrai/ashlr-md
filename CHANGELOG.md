@@ -36,6 +36,44 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md puts `stream_edit`'s `applied: true` with `preview: false`.**
+  The row read as if a refused `preview_lines` came back with
+  `applied: true`; the sentence now follows `preview: false`, the case the
+  tool sets it for, and says a preview has `applied: false`.
+- **`list_recent`, `get_user_annotations` and `present_document` name their
+  results.** Their descriptions said what they do but not what comes back.
+  They now give `[{ path, fileName, openedAt }]` (most recent first),
+  `{ path, verdict, comments, late, tasks, tasksNote? }` (with `verdict` and
+  `comments` null when no review was requested) and `{ ok, path }`, and
+  `present_document` names the Markdown-only and missing-file refusals.
+- **`open_file`'s description names what it refuses and returns.** It said
+  only "Open a Markdown file in Ashlr MD. Launches the app if it is not
+  already running." It now names the Markdown extensions, the dotfile and
+  missing-file refusals, and both results: `{ opened, response }` from the
+  running app, or `{ opened, method: 'url-scheme' }` (with `confirmed: false`
+  and a `note` when the launcher had not finished). docs/AGENTS.md's table
+  gives the same shapes.
+- **`request_review`'s description says a call can return pending.** It
+  said the tool blocks "until they Approve or Request changes", though one
+  call waits at most `wait_ms` (50 s by default) and then returns
+  `{ status: 'pending', reviewId }`. It now says so, names the result
+  `{ verdict, reviewId, comments }` and lists every verdict, `dismissed`,
+  `timeout` and `superseded` among them.
+- **`mdopen --help` names a missing file under EXIT STATUS.** Exit 1 listed
+  an "unresolvable path", which did not say that a file that does not exist
+  (the commonest case) is one. It now reads "a missing or unresolvable
+  path", and docs/PHANTOM.md's exit-code table says the same.
+- **`open_file` refuses a non-Markdown file in its own words.** It said
+  "Refusing to read `path` ...: only Markdown documents ... can be read",
+  though the call is an open. It now says "Refusing to open ... can be
+  opened", and `present_document` and `request_review` say "present" and
+  "review"; the read tools keep "Refusing to read".
+- **The guides under `docs/` and the integration READMEs have no em or en
+  dashes.** INSTALL, OBSIDIAN, RELEASING and VISION and the Obsidian plugin
+  and VS Code extension READMEs use colons, semicolons, commas and
+  parentheses instead (the RELEASING table's empty cells say "no"). The dash
+  guard test now covers all Markdown under `docs/` and `integrations/`
+  except a changelog.
 - **`present_document` refuses a missing file itself.** A `path` that does
   not exist was sent to the app, so with the app closed the agent heard only
   "not running" and learned the path was wrong after starting it. It is now

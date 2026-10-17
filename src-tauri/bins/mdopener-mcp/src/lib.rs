@@ -756,7 +756,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "open_file",
-            description: "Open a Markdown file in Ashlr MD. Launches the app if it is not already running.",
+            description: "Open a Markdown file in Ashlr MD. Launches the app if it is not already running (through the mdopener:// URL scheme). Only Markdown documents (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles can be opened, and a file that does not exist is refused. Returns { opened, response } once the running app's window has opened the file, or { opened, method: 'url-scheme' } when the URL scheme was handed to the OS to launch the app, with confirmed: false and a note when the launcher had not finished in time.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -826,7 +826,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_recent",
-            description: "Return the list of recently opened files.",
+            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -877,7 +877,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_review",
-            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve, Request changes or Dismiss, then return { verdict, reviewId, comments } (verdict approved, changes_requested, dismissed, timeout when the panel's `timeout_ms` window closes undecided, or superseded). One call blocks at most `wait_ms` (default 50000 ms, below the 60 s request timeout of common MCP clients): if the human has not decided by then it returns { status: 'pending', reviewId }, and calling again with that `review_id` keeps waiting on the same review. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -901,7 +901,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_user_annotations",
-            description: "Return the human's current review verdict, comments, and task-checkbox states for a document.",
+            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -984,7 +984,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2085,9 +2085,21 @@ pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
 /// Markdown document that is not a dotfile, checked like the tools that read
 /// a path from disk ([`checked_document_path`]). The app shows what it opens
 /// and `get_current_content` returns it, so opening `~/.ssh/id_rsa` would
-/// otherwise read it. The app makes the same check.
+/// otherwise read it. The app makes the same check. A refusal says
+/// "Refusing to open", the call's own verb; [`presentable_document_path`]
+/// and [`reviewable_document_path`] say "present" and "review".
 pub fn openable_document_path(raw: &str) -> Result<String, String> {
-    checked_document_path(&agent_path(raw), "path")
+    checked_document_for(&agent_path(raw), "path", Use::Open).map(|c| c.path)
+}
+
+/// [`openable_document_path`] for `present_document`, refusing in its words.
+pub fn presentable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_for(&agent_path(raw), "path", Use::Present).map(|c| c.path)
+}
+
+/// [`openable_document_path`] for `request_review`, refusing in its words.
+pub fn reviewable_document_path(raw: &str) -> Result<String, String> {
+    checked_document_for(&agent_path(raw), "path", Use::Review).map(|c| c.path)
 }
 
 /// True when an IPC error is the running app refusing the request (an HTTP
@@ -2489,7 +2501,7 @@ pub fn tool_request_review_with(
     let path = match args["path"]
         .as_str()
         .filter(|_| resume.is_none())
-        .map(openable_document_path)
+        .map(reviewable_document_path)
         .transpose()
     {
         Ok(p) => p,
@@ -3252,7 +3264,7 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Ok(p) => p,
         Err(e) => return Response::err(id, -32602, e),
     };
-    let path = match path.map(openable_document_path).transpose() {
+    let path = match path.map(presentable_document_path).transpose() {
         Ok(p) => p,
         Err(e) => return tool_error(id, e),
     };
@@ -4514,6 +4526,34 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
 /// [`checked_document_path`], keeping the identity of the file checked so
 /// that [`CheckedDocument::read`] reads that file and no other.
 pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String> {
+    checked_document_for(raw, arg, Use::Read)
+}
+
+/// What a tool does with a checked document, for the words of a refusal:
+/// a tool that asks the app to open a file says it refuses to open it, not
+/// to read it.
+#[derive(Clone, Copy)]
+enum Use {
+    Read,
+    Open,
+    Present,
+    Review,
+}
+
+impl Use {
+    /// The verb and its past participle: "read"/"read", "open"/"opened".
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            Use::Read => ("read", "read"),
+            Use::Open => ("open", "opened"),
+            Use::Present => ("present", "presented"),
+            Use::Review => ("review", "reviewed"),
+        }
+    }
+}
+
+fn checked_document_for(raw: &str, arg: &str, why: Use) -> Result<CheckedDocument, String> {
+    let (verb, done) = why.words();
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
     let hidden = p
@@ -4528,8 +4568,8 @@ pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String>
         .unwrap_or(false);
     if hidden || !markdown {
         return Err(format!(
-            "Refusing to read `{arg}` '{abs}': only Markdown documents ({}) that are not \
-             dotfiles can be read.",
+            "Refusing to {verb} `{arg}` '{abs}': only Markdown documents ({}) that are not \
+             dotfiles can be {done}.",
             MD_EXTENSIONS
                 .iter()
                 .map(|e| format!(".{e}"))
@@ -4548,7 +4588,7 @@ pub fn checked_document(raw: &str, arg: &str) -> Result<CheckedDocument, String>
         Ok(meta) if meta.is_file() => Some(FileIdentity::of(&meta)),
         Ok(_) => {
             return Err(format!(
-                "Refusing to read `{arg}` '{abs}': it is not a regular file."
+                "Refusing to {verb} `{arg}` '{abs}': it is not a regular file."
             ))
         }
         Err(_) => None,

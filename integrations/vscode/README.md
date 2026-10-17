@@ -1,7 +1,7 @@
-# Open in Ashlr MD — VS Code Extension
+# Open in Ashlr MD: VS Code Extension
 
 Open the active Markdown file in the **[Ashlr MD](https://md.ashlr.ai)** desktop
-app — a beautiful, AI-native Markdown app — directly from VS Code.
+app (a beautiful, AI-native Markdown app) directly from VS Code.
 
 > **Desktop-only.** Requires Ashlr MD installed so the `mdopener://` URL scheme
 > is registered on your machine.
@@ -45,9 +45,9 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 
 ### Edge cases handled
 
-- **No active editor** — informational message.
-- **Non-Markdown file** — informational message.
-- **Untitled / never-saved file** — prompts you to save first (there is no
+- **No active editor:** informational message.
+- **Non-Markdown file:** informational message.
+- **Untitled / never-saved file:** prompts you to save first (there is no
   on-disk path to hand off). Saved-but-dirty files open their last-saved
   on-disk version (the extension does not auto-save).
 
@@ -55,7 +55,7 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 
 ## Requirements
 
-- **Ashlr MD** installed — [download here](https://md.ashlr.ai) — so the
+- **Ashlr MD** installed ([download here](https://md.ashlr.ai)) so the
   `mdopener://` scheme is registered.
 - VS Code **1.85.0** or later.
 
@@ -109,10 +109,10 @@ npm run package               # → ashlr-md-vscode.vsix
 - **Ashlr MD must be installed.** If the `mdopener://` scheme is not registered
   and the `mdopen` CLI is not on `PATH`, the extension shows an error pointing
   to [md.ashlr.ai](https://md.ashlr.ai).
-- **Not published to the Marketplace** yet — install from source / `.vsix`.
+- **Not published to the Marketplace** yet; install from source / `.vsix`.
 
 ---
 
 ## License
 
-MIT — part of the [Ashlr MD](https://github.com/ashlrai/ashlr-md) project.
+MIT. Part of the [Ashlr MD](https://github.com/ashlrai/ashlr-md) project.

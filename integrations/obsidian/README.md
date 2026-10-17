@@ -1,8 +1,8 @@
-# Open in Ashlr MD — Obsidian Plugin
+# Open in Ashlr MD: Obsidian Plugin
 
 Send any note from your [Obsidian](https://obsidian.md) vault to
-**[Ashlr MD](https://md.ashlr.ai)** — a beautiful, AI-native Markdown app for
-macOS — with a single click or keyboard shortcut.
+**[Ashlr MD](https://md.ashlr.ai)**, a beautiful, AI-native Markdown app for
+macOS, with a single click or keyboard shortcut.
 
 > **Desktop-only.** Requires Ashlr MD installed so the `mdopener://` URL scheme
 > is registered on your Mac.
@@ -29,7 +29,7 @@ picks it up instantly via its registered URL scheme.
 ## Requirements
 
 - **macOS** (the plugin sets `isDesktopOnly: true`)
-- **Ashlr MD** installed — [download here](https://md.ashlr.ai)
+- **Ashlr MD** installed: [download here](https://md.ashlr.ai)
 - Obsidian **1.4.0** or later
 
 ---
@@ -62,7 +62,7 @@ npm run dev
    ```
 4. In Obsidian: **Settings → Community plugins → Installed plugins** → toggle
    **"Open in Ashlr MD"** on.
-5. (Optional) assign a hotkey under **Settings → Hotkeys** — search for
+5. (Optional) assign a hotkey under **Settings → Hotkeys**; search for
    "Ashlr MD".
 
 ---
@@ -83,7 +83,7 @@ npm run dev
 
 ## Development
 
-The plugin is plain TypeScript bundled with esbuild — the standard Obsidian
+The plugin is plain TypeScript bundled with esbuild, the standard Obsidian
 plugin toolchain.  Source entry point: `main.ts`.
 
 ```
@@ -102,4 +102,4 @@ integrations/obsidian/
 
 ## License
 
-MIT — part of the [Ashlr MD](https://github.com/ashlrai/ashlr-md) project.
+MIT. Part of the [Ashlr MD](https://github.com/ashlrai/ashlr-md) project.

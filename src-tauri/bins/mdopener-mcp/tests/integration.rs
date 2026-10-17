@@ -768,6 +768,46 @@ fn open_file_without_the_app_refuses_a_missing_file_before_launching() {
     assert_eq!(*launched.lock().unwrap(), 0, "launched the URL scheme");
 }
 
+/// open_file's description said only that it opens a Markdown file and
+/// launches the app, not which files it refuses or what it returns, so an
+/// agent learned the dotfile rule, the missing-file refusal and the two
+/// result shapes by calling it. Each named shape is the one the tool returns.
+#[test]
+fn open_file_description_names_its_refusals_and_results() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "open_file")
+        .unwrap();
+    let d = def.description;
+    for want in [
+        ".md, .markdown, .mdown, .mkd, .mdx",
+        "not dotfiles",
+        "does not exist is refused",
+        "{ opened, response }",
+        "{ opened, method: 'url-scheme' }",
+        "confirmed: false",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let path = doc.to_string_lossy().into_owned();
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| {
+        panic!("must not launch")
+    });
+    let v = content_text(&resp);
+    assert!(v["opened"].is_string() && v["response"].is_object(), "{v}");
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let resp = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|_| Launch::Opened {
+        launcher: "xdg-open".into(),
+    });
+    let v = content_text(&resp);
+    assert!(v["opened"].is_string(), "{v}");
+    assert_eq!(v["method"], "url-scheme", "{v}");
+}
+
 #[test]
 fn open_file_rejects_unknown_mode_before_any_launch() {
     let ipc = MockIpc::new();
@@ -5767,6 +5807,13 @@ fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
         for tool in ["export_text", "export_metadata"] {
             let resp = call(tool, json!({ "path": bad }), &ipc);
             assert_refused(&resp, &format!("{tool} {bad}"));
+            // The read tools keep their own words.
+            let err = tool_error_text(&resp);
+            assert!(
+                err.starts_with("Refusing to read `path` '"),
+                "{tool}: {err}"
+            );
+            assert!(err.ends_with("can be read."), "{tool}: {err}");
         }
     }
     #[cfg(unix)]
@@ -8074,9 +8121,20 @@ fn path_handing_tools_refuse_non_markdown_files() {
         });
         let present = tool_present_document(id(2), &json!({ "path": path }), &ipc);
         let review = tool_request_review(id(3), &json!({ "path": path, "blocking": false }), &ipc);
-        for resp in [open, present, review] {
+        // Each says what it refuses to do: the call is an open, a present
+        // or a review, not a read.
+        for (resp, verb, done) in [
+            (open, "open", "opened"),
+            (present, "present", "presented"),
+            (review, "review", "reviewed"),
+        ] {
             let err = tool_error_text(&resp);
             assert!(err.contains("Markdown"), "{path}: {err}");
+            assert!(
+                err.starts_with(&format!("Refusing to {verb} `path` '")),
+                "{path}: {err}"
+            );
+            assert!(err.ends_with(&format!("can be {done}.")), "{path}: {err}");
         }
         assert!(ipc.calls().is_empty(), "{path}: {:?}", ipc.calls());
     }
@@ -8678,6 +8736,73 @@ fn tool_descriptions_match_the_arguments_and_path_rules() {
     let _ = tool_get_annotations(id(1), &json!({ "path": ra }), &ipc);
     let want = urlencoding::encode(canon_a.to_str().unwrap()).into_owned();
     assert_eq!(ipc.calls()[0].1, format!("/annotations?path={want}"));
+}
+
+/// request_review's description said it blocks "until they Approve or
+/// Request changes", but one call waits at most `wait_ms` and then returns
+/// pending; an agent that read only the description took that for a failure.
+#[test]
+fn request_review_description_says_a_call_can_return_pending() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "request_review")
+        .unwrap();
+    let d = def.description;
+    for want in [
+        "{ verdict, reviewId, comments }",
+        "at most `wait_ms`",
+        "{ status: 'pending', reviewId }",
+        "`review_id`",
+        "dismissed",
+        "timeout",
+        "superseded",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    // The default it names is the one the tool uses.
+    assert!(
+        d.contains(&format!(
+            "default {} ms",
+            mdopener_mcp::DEFAULT_REVIEW_WAIT_MS
+        )),
+        "{d}"
+    );
+}
+
+/// list_recent, get_user_annotations and present_document described what
+/// they do but not what they return, so an agent learned the field names
+/// (and that `verdict` is null with no review) by calling them.
+#[test]
+fn tool_descriptions_name_their_result_shapes() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    for (tool, wants) in [
+        (
+            "list_recent",
+            &["[{ path, fileName, openedAt }]", "most recent first"][..],
+        ),
+        (
+            "get_user_annotations",
+            &[
+                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }",
+                "null when no review",
+            ][..],
+        ),
+        (
+            "present_document",
+            &["{ ok, path }", "not a dotfile", "does not exist is refused"][..],
+        ),
+    ] {
+        let d = desc(tool);
+        for want in wants {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+    }
 }
 
 #[test]
