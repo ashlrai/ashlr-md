@@ -1237,6 +1237,15 @@ pub fn tool_open_file_with(
         // The app is running and refused the request: say why, and do not
         // retry it through the URL scheme.
         Err(e) if app_refused(&e) => return tool_error(id, e),
+        // The app was reached but failed or did not answer in time. It may
+        // still open the file, so a URL-scheme retry could report a false
+        // success or open it twice.
+        Err(e) if app_reached_but_failed(&e) => {
+            return tool_error(
+                id,
+                format!("Ashlr MD is running but did not confirm opening {abs}: {e}"),
+            )
+        }
         Err(e) => e,
     };
 
@@ -1360,6 +1369,20 @@ pub fn openable_document_path(raw: &str) -> Result<String, String> {
 fn app_refused(err: &str) -> bool {
     err.strip_prefix("IPC server returned HTTP 4")
         .is_some_and(|rest| !rest.starts_with("01"))
+}
+
+/// True when an IPC error happened after the request reached the app: a 5xx,
+/// a dropped connection, no answer within the read timeout, or a reply that is
+/// not JSON. Unlike an unreachable app, retrying elsewhere is not safe.
+fn app_reached_but_failed(err: &str) -> bool {
+    [
+        "IPC server returned HTTP 5",
+        "IPC write error",
+        "IPC read error",
+        "IPC JSON parse error",
+    ]
+    .iter()
+    .any(|p| err.starts_with(p))
 }
 
 pub fn agent_path(raw: &str) -> String {
@@ -3088,9 +3111,16 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
         .map_err(|e| format!("IPC write error: {e}"))?;
 
     let mut buf = Vec::new();
-    stream
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("IPC read error: {e}"))?;
+    stream.read_to_end(&mut buf).map_err(|e| {
+        if matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
+            "IPC read error: Ashlr MD did not answer within 5 s".to_string()
+        } else {
+            format!("IPC read error: {e}")
+        }
+    })?;
     Ok(buf)
 }
 

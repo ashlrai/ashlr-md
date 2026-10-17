@@ -593,6 +593,25 @@ fn open_file_ipc_failure_launches_url_scheme() {
 }
 
 #[test]
+fn open_file_does_not_retry_through_the_url_scheme_when_the_app_was_reached() {
+    // A 5xx or no answer in time comes from a running app that may still open
+    // the file: falling back would report success wrongly or open it twice.
+    let (_dir, notes) = existing_notes();
+    for err in [
+        "IPC server returned HTTP 500: lock poisoned",
+        "IPC read error: Ashlr MD did not answer within 5 s",
+    ] {
+        let ipc = MockIpc::new().on_post("/open", Err(err.into()));
+        let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|url: &str| {
+            panic!("must not fall back to the URL scheme: {url}")
+        });
+        let text = tool_error_text(&resp);
+        assert!(text.contains("did not confirm opening"), "{text}");
+        assert!(text.contains(err), "{text}");
+    }
+}
+
+#[test]
 fn open_file_headless_reports_no_launcher_honestly() {
     let (_dir, notes) = existing_notes();
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
