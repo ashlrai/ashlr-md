@@ -4115,7 +4115,7 @@ pub fn strip_markdown(content: &str) -> String {
         let line = {
             let stripped = trimmed.trim_start_matches('#');
             if stripped.len() < trimmed.len() && stripped.starts_with(' ') {
-                stripped.trim_start()
+                without_closing_hashes(stripped.trim_start())
             } else {
                 line
             }
@@ -4541,6 +4541,22 @@ fn split_flow_items(inner: &str) -> Vec<&str> {
     items
 }
 
+/// An ATX heading's text without its optional closing sequence: `Title ##`
+/// is `Title`, while `C#` and `#hashtag` keep their `#`.
+fn without_closing_hashes(text: &str) -> &str {
+    let text = text.trim_end();
+    let body = text.trim_end_matches('#');
+    if body.len() == text.len() {
+        text
+    } else if body.is_empty() {
+        ""
+    } else if body.ends_with([' ', '\t']) {
+        body.trim_end()
+    } else {
+        text
+    }
+}
+
 /// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
 ///
 /// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
@@ -4562,7 +4578,7 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
             // ATX headings need whitespace after the `#`s: `#tag` and
             // `#!/bin/sh` are text, not headings.
             if level <= 6 && rest.starts_with([' ', '\t']) {
-                let after = rest.trim();
+                let after = without_closing_hashes(rest.trim());
                 if !after.is_empty() {
                     headings.push(json!({ "level": level, "text": after }));
                 }

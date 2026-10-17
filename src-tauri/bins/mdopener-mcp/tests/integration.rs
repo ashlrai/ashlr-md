@@ -4726,6 +4726,18 @@ fn export_metadata_headings_need_a_space_after_the_hashes() {
     );
 }
 
+/// An ATX heading's closing `#`s are not part of its text (CommonMark), but
+/// a `#` that ends a word (`C#`) is.
+#[test]
+fn heading_closing_hashes_are_not_heading_text() {
+    use mdopener_mcp::{extract_headings, strip_markdown};
+    let h = extract_headings("# Title #\n## Steps ###  \n### Learn C#\n## Only ##\n");
+    let texts: Vec<&str> = h.iter().map(|h| h["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["Title", "Steps", "Learn C#", "Only"]);
+    assert_eq!(strip_markdown("# Title #\n\nBody").trim(), "Title\n\nBody");
+    assert_eq!(strip_markdown("## Learn C#").trim(), "Learn C#");
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
