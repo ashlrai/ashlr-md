@@ -37,7 +37,10 @@ const CLI_DEADLINE: Duration = Duration::from_secs(10);
 const HOOK_DEADLINE: Duration = Duration::from_secs(5);
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `std::env::args` panics on an argument that is not valid UTF-8 (exit
+    // 101 and a backtrace, even under `--hook`), so the arguments are read
+    // as OS strings and judged here.
+    let (args, not_utf8) = utf8_args(std::env::args_os().skip(1));
 
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
     // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
@@ -45,6 +48,11 @@ fn main() {
     if is_hook(&args) {
         run_hook();
         process::exit(0);
+    }
+
+    if let Some(arg) = not_utf8 {
+        eprintln!("mdopen: {}", not_utf8_message(&arg));
+        process::exit(1);
     }
 
     let (mode, target) = match parse_args(&args) {
@@ -100,6 +108,34 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+/// The arguments as strings (an argument that is not valid UTF-8 replaced
+/// lossily, so flags around it still parse), and the first such argument
+/// lossily, if any.
+fn utf8_args(os_args: impl Iterator<Item = std::ffi::OsString>) -> (Vec<String>, Option<String>) {
+    let mut not_utf8 = None;
+    let args = os_args
+        .map(|a| match a.into_string() {
+            Ok(s) => s,
+            Err(a) => {
+                let lossy = a.to_string_lossy().into_owned();
+                not_utf8.get_or_insert_with(|| lossy.clone());
+                lossy
+            }
+        })
+        .collect();
+    (args, not_utf8)
+}
+
+/// The usage error for an argument that is not valid UTF-8 (shown lossily).
+/// Ashlr MD takes paths as UTF-8 text, over IPC and in the `mdopener://`
+/// URL, so such a path could only ever name some other file.
+fn not_utf8_message(lossy: &str) -> String {
+    format!(
+        "the argument {lossy:?} is not valid UTF-8, so it cannot be opened: \
+         Ashlr MD opens paths that are valid UTF-8. Rename the file and run mdopen again."
+    )
 }
 
 /// The arguments before a `--` end-of-flags marker (all of them if none).
@@ -517,7 +553,8 @@ EXIT STATUS:
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
     1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
-       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), `-` with empty stdin or
+       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an argument that is
+       not valid UTF-8, `-` with empty stdin or
        more than 16 MiB of it, or the app is not running
        and the launcher failed or is missing (no desktop session); a message
        on stderr says which. A `-` temp file is removed in that case. Also

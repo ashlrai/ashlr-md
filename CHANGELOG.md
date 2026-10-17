@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` no longer crashes on an argument that is not valid UTF-8.**
+  Such an argument (a file name in another encoding) made `mdopen` panic with
+  a backtrace and exit `101`, and `mdopen --hook`, which must always exit
+  `0`, did the same. It is now a usage error naming the argument (exit `1`),
+  and `--hook` exits `0` in silence.
 - **A path of only whitespace is refused like an empty one.** `"path": " "`
   passed the `minLength: 1` check and the empty checks, and reached the file
   checks ("only Markdown documents can be read", "No such file or
