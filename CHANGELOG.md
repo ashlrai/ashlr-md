@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A `file://` read with the app down says the app is not running.** The
+  app lists the readable `file://` paths, so with it unreachable every read
+  was answered `-32002` "Resource not in vault", as if the file were the
+  problem. It is now `-32000` with the not-running message, as
+  `mdopener://current` gives, and a path the app does not list says to open
+  it with `open_file` first. The vault listing is also fetched once per read
+  instead of twice.
 - **Each message's `citedDocs` leaves out empty paths too.** Round 27 left
   empty and blank paths from older session files out of
   `get_conversation_context`'s `recentDocs`, but every message in `messages`

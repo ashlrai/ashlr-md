@@ -7619,6 +7619,33 @@ fn file_resource_uris_are_percent_decoded_before_the_vault_check() {
     }
 }
 
+/// A `file://` read while the app cannot be reached was answered "Resource
+/// not in vault" (-32002), as if the file were the problem; it is now the
+/// -32000 "not running" error `mdopener://current` gives, with a next step.
+#[test]
+fn file_resource_read_with_app_down_says_the_app_is_not_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "# A\n").unwrap();
+    let uri = format!("file://{}", doc.display());
+    let err = handle_resource_read(id(1), &uri, &app_down_ipc())
+        .error
+        .expect("must be an error");
+    assert_eq!(err.code, -32000, "{}", err.message);
+    assert!(
+        err.message.contains("not appear to be running"),
+        "{}",
+        err.message
+    );
+    assert!(!err.message.contains("not in vault"), "{}", err.message);
+    // With the app up, a file it does not list is still -32002, now with
+    // a next step.
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));
+    let err = handle_resource_read(id(2), &uri, &ipc).error.unwrap();
+    assert_eq!(err.code, -32002);
+    assert!(err.message.contains("open_file"), "{}", err.message);
+}
+
 /// A malformed escape in a `file://` URI (`%ZZ`, a lone `%`, `%FF` that is
 /// not UTF-8) was answered "Resource not in vault", as if the file were the
 /// problem; it is now -32602 naming the bad escape.

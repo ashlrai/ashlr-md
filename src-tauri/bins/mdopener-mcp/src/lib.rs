@@ -3881,7 +3881,11 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // percent-encode URIs (`My%20Notes.md`). The decoded path is what
         // must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
-        let advertised = |p: &str| is_advertised_path(p, ipc);
+        // The vault listing is fetched once. When the app cannot be reached
+        // nothing is advertised, and that used to be answered "not in vault",
+        // as if the file were the problem.
+        let listing = ipc.get("/vault");
+        let advertised = |p: &str| listing.as_ref().is_ok_and(|v| lists_path(v, p));
         let p = if advertised(raw) {
             raw.to_string()
         } else {
@@ -3893,7 +3897,28 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
                 }
                 Ok(d) if d != raw && advertised(&d) => d,
-                Ok(_) => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
+                Ok(_) => {
+                    return match &listing {
+                        Err(e) => Response::err(
+                            id,
+                            -32000,
+                            format!(
+                                "{} `file://` resources are the vault and recent files the app \
+                                 lists, so none can be read without it.",
+                                app_not_running_msg(e)
+                            ),
+                        ),
+                        Ok(_) => Response::err(
+                            id,
+                            -32002,
+                            format!(
+                                "Resource not in vault: {uri}. Only the vault and recent files \
+                                 resources/list names are served; open it with open_file first \
+                                 to make it a recent file."
+                            ),
+                        ),
+                    }
+                }
             }
         };
         // Advertised is not enough: a vault `notes.md` that is a symlink to
@@ -3976,9 +4001,12 @@ pub fn unknown_resource_msg(uri: &str) -> String {
 /// True if `path` is one of the files the app currently advertises as part of
 /// the vault or recents (queried live). Used to scope `resources/read`.
 pub fn is_advertised_path(path: &str, ipc: &dyn IpcClient) -> bool {
-    let Ok(v) = ipc.get("/vault") else {
-        return false;
-    };
+    ipc.get("/vault").is_ok_and(|v| lists_path(&v, path))
+}
+
+/// True if the app's `/vault` reply `v` lists `path` among its files or
+/// recents.
+fn lists_path(v: &Value, path: &str) -> bool {
     let in_files = v["files"]
         .as_array()
         .map(|a| a.iter().any(|f| f["path"].as_str() == Some(path)))

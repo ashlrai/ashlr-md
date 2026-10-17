@@ -406,8 +406,10 @@ below; it needs no app.
 
 `resources/read` is **scoped**: a `file://` URI is only readable if it is one of
 the paths the app currently advertises in the vault or recents. Any other path
-is rejected (`-32002`), so the resource channel can't be used as an
-arbitrary-filesystem read primitive. Percent-encoded URIs
+is rejected (`-32002`, saying to open it with `open_file` first), so the resource channel can't be used as an
+arbitrary-filesystem read primitive. When the app cannot be reached it lists
+no path, and the read is `-32000` saying the app is not running, as for
+`mdopener://current` (it used to be `-32002` "not in vault"). Percent-encoded URIs
 (`file:///notes/My%20Notes.md`) and `file://localhost/...` are accepted; the
 check runs on the decoded path, so encoding cannot reach a file outside the
 vault. A malformed escape (`%ZZ`, a lone `%`; write a literal `%` as `%25`) or
