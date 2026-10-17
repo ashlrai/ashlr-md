@@ -124,7 +124,8 @@ cargo build --release
 
 /// A temp vault: `plan.md`, its revision, a non-Markdown file and a dotfile.
 fn vault() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+    // Not `tempdir()`: its `.tmpXXXX` folder is hidden, and a hidden vault is refused.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
     let v = dir.path();
     std::fs::write(v.join("plan.md"), PLAN).unwrap();
     std::fs::write(

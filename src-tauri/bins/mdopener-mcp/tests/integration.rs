@@ -2560,7 +2560,8 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
 /// stays the error, and an unreachable app falls back with a note.
 #[test]
 fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
-    let dir = tempfile::tempdir().unwrap();
+    // Not `tempdir()`: its `.tmpXXXX` folder is hidden, and a hidden vault is refused.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
     std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
     let vault = dir.path().to_str().unwrap();
     let args = json!({ "query": "target", "semantic": false, "vault": vault });
@@ -2586,6 +2587,35 @@ fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
     let bad = json!({ "query": "target", "vault": dir.path().join("a.md") });
     let msg = tool_error_text(&tool_search_vault(id(3), &bad, &ipc));
     assert!(msg.contains("not a directory"), "{msg}");
+}
+
+/// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
+/// though the walk skips hidden folders below a vault: its own notes were
+/// read and grepped. It is now refused, as the hidden subfolders are skipped.
+#[test]
+fn search_vault_refuses_a_hidden_vault_folder() {
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let hidden = dir.path().join(".git");
+    std::fs::create_dir(&hidden).unwrap();
+    std::fs::write(hidden.join("notes.md"), "the target topic\n").unwrap();
+    std::fs::create_dir(dir.path().join("notes")).unwrap();
+
+    let err = mdopener_mcp::disk_vault_dir(hidden.to_str().unwrap())
+        .expect_err("a hidden vault folder is refused");
+    assert!(err.contains("`vault`") && err.contains("hidden"), "{err}");
+    // Reached through a relative path or `..`, it is still the hidden folder.
+    let dotted = dir.path().join("notes/../.git");
+    assert!(mdopener_mcp::disk_vault_dir(dotted.to_str().unwrap()).is_err());
+    // Its non-hidden sibling is fine.
+    assert!(mdopener_mcp::disk_vault_dir(dir.path().join("notes").to_str().unwrap()).is_ok());
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": hidden });
+    let msg = tool_error_text(&tool_search_vault(id(1), &args, &ipc));
+    assert!(msg.contains("hidden"), "{msg}");
 }
 
 /// When every document's embedding fails, semantic search compared nothing,

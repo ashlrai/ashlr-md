@@ -729,7 +729,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "description": "Max number of results to return. Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
-                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read. Ignored while the app is reachable." }
+                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -1968,7 +1968,8 @@ const DISK_VAULT_MAX_DEPTH: usize = 16;
 
 /// Resolve a `vault` argument (relative to the server's working directory)
 /// to the canonical directory to search on disk; anything that is not an
-/// existing directory is refused. Only the documents [`disk_vault_files`]
+/// existing directory is refused, and so is a hidden (dot) folder, which the
+/// walk would skip below a vault. Only the documents [`disk_vault_files`]
 /// finds under it are read. Errors are for `isError`.
 pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
     let dir =
@@ -1976,6 +1977,19 @@ pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
     if !dir.is_dir() {
         return Err(format!(
             "`vault` '{}' is not a directory: name the folder of Markdown files to search.",
+            dir.display()
+        ));
+    }
+    // The walk skips hidden folders below a vault, so a hidden vault itself
+    // (`.git`, `.obsidian`) is refused rather than read.
+    if dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with('.'))
+    {
+        return Err(format!(
+            "`vault` '{}' is a hidden folder, and hidden folders are not searched: name \
+             the folder of Markdown notes that contains it instead.",
             dir.display()
         ));
     }
