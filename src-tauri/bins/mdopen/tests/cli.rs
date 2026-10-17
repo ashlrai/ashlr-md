@@ -97,6 +97,30 @@ fn stdin_temp_file_is_removed_when_the_open_fails() {
     assert!(left.is_empty(), "temp files left behind: {left:?}");
 }
 
+/// `mdopen -` with nothing on stdin refuses instead of opening an empty temp
+/// document, and leaves no temp file behind.
+#[cfg(unix)]
+#[test]
+fn empty_stdin_is_refused() {
+    for input in [&b""[..], &b" \n\t\n"[..]] {
+        use std::io::Write as _;
+        let s = Scratch::new("stdin-empty");
+        let mut child = headless(&s)
+            .arg("-")
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{out:?}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("stdin was empty"), "stderr: {err}");
+        let left: Vec<_> = std::fs::read_dir(s.0.join("tmp")).unwrap().collect();
+        assert!(left.is_empty(), "temp files left behind: {left:?}");
+    }
+}
+
 /// With the app running (port + token files present) the file is opened over
 /// its IPC server, with no URL launcher needed: the common Linux case where
 /// `mdopener://` is not registered.

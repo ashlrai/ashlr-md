@@ -203,11 +203,26 @@ fn read_stdin_to_temp() -> PathBuf {
             eprintln!("mdopen: failed to read stdin: {e}");
             process::exit(1);
         });
+    if let Err(msg) = check_stdin_content(&content) {
+        eprintln!("mdopen: {msg}");
+        process::exit(1);
+    }
 
     write_new_temp(&std::env::temp_dir(), &content).unwrap_or_else(|e| {
         eprintln!("mdopen: failed to write temp file: {e}");
         process::exit(1);
     })
+}
+
+/// Refuse piped content with nothing to show, so `mdopen -` never opens an
+/// empty temp document (e.g. `mdopen - < /dev/null`, or a failed producer).
+fn check_stdin_content(content: &[u8]) -> Result<(), String> {
+    if content.iter().all(u8::is_ascii_whitespace) {
+        return Err("stdin was empty, so there is nothing to open. \
+                    Pipe Markdown in, e.g. `cat notes.md | mdopen -`."
+            .into());
+    }
+    Ok(())
 }
 
 /// Write `content` to a new `mdopen-stdin-*.md` file in `dir`. The file is
