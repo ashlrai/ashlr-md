@@ -2915,6 +2915,23 @@ fn resource_read_vault_search_honours_semantic_option() {
     assert!(err.message.contains("semantic"), "{}", err.message);
 }
 
+/// `limit=ten` on the resource was read as the default of 50.
+#[test]
+fn resource_read_vault_search_rejects_a_non_numeric_limit() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(id(314), "text://vault-search?q=x&limit=ten", &ipc);
+    let err = resp.error.expect("a non-numeric limit is an error");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("`limit` must be a whole number"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let ok = handle_resource_read(id(315), "text://vault-search?q=x&limit=3", &ipc);
+    assert!(ok.error.is_none(), "{:?}", ok.error);
+}
+
 /// `search_vault` with `semantic: "false"` (a string) silently auto-detected
 /// instead of forcing grep.
 #[test]

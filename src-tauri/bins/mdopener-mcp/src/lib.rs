@@ -2478,7 +2478,20 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     }
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
-                limit = val.parse().unwrap_or(50);
+                limit = match val.parse() {
+                    Ok(l) => l,
+                    Err(_) => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!(
+                                "text://vault-search: `limit` must be a whole number, got \
+                                 {:?}. Omit it for the default of 50.",
+                                decode(val)
+                            ),
+                        )
+                    }
+                };
             }
         }
         if query.is_empty() {

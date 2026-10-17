@@ -771,10 +771,10 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
             (Method::Post, "/open") => handle_open(req, app),
 
             (Method::Get, "/recent") => {
-                let limit: usize = query
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("limit=").and_then(|v| v.parse().ok()))
-                    .unwrap_or(10);
+                let limit = match limit_param(query, 10) {
+                    Ok(l) => l,
+                    Err(e) => return send_error(req, 400, &e),
+                };
 
                 let mirror = app.state::<RecentMirror>();
                 let recents: Vec<_> =
@@ -1114,6 +1114,20 @@ fn query_param(query: &str, key: &str) -> Option<String> {
         .map(|v| v.into_owned())
 }
 
+/// The `limit` query param, or `default` when it is absent. A value that is
+/// not a whole number is refused rather than read as the default, so a
+/// caller's `limit=ten` does not quietly get a different count.
+fn limit_param(query: &str, default: usize) -> Result<usize, String> {
+    match query_param(query, "limit") {
+        None => Ok(default),
+        Some(v) => v.parse().map_err(|_| {
+            format!(
+                "limit must be a whole number, got '{v}'; omit it for the default of {default}."
+            )
+        }),
+    }
+}
+
 /// The status `/review/result` reports: the recorded one, except that a review
 /// still pending once its window has closed is `timeout`. The panel only
 /// expires the review it is showing, so one a newer review displaced would
@@ -1294,11 +1308,10 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
         .find_map(|kv| kv.strip_prefix("q="))
         .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
         .unwrap_or_default();
-    let limit: usize = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("limit=").and_then(|v| v.parse::<usize>().ok()))
-        .unwrap_or(50)
-        .clamp(1, 200);
+    let limit = match limit_param(query, 50) {
+        Ok(l) => l.clamp(1, 200),
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     if q.trim().is_empty() {
         return send_json(req, serde_json::json!({ "query": q, "results": [] }));
@@ -2226,6 +2239,18 @@ mod tests {
 
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn a_limit_that_is_not_a_number_is_refused() {
+        use super::limit_param;
+        assert_eq!(limit_param("", 10), Ok(10));
+        assert_eq!(limit_param("q=x", 50), Ok(50));
+        assert_eq!(limit_param("q=x&limit=7", 50), Ok(7));
+        for bad in ["limit=ten", "limit=", "limit=-1", "limit=2.5"] {
+            let err = limit_param(bad, 10).unwrap_err();
+            assert!(err.contains("limit must be a whole number"), "{bad}: {err}");
+        }
+    }
+
     #[test]
     fn annotations_need_a_path() {
         use super::annotations_path;
