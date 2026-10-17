@@ -562,7 +562,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "mode": {
                         "type": "string",
                         "enum": ["read", "edit"],
-                        "description": "Initial view mode. Defaults to 'read'."
+                        "description": "View to show the document in. Omit to keep the window's current view (a document already open in a tab keeps its own; an app this call launches starts in 'read')."
                     }
                 },
                 "required": ["path"]

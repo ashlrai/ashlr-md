@@ -549,6 +549,30 @@ fn open_file_mode_edit_forwarded_in_post_body() {
     assert_eq!(body["mode"], json!("edit"));
 }
 
+/// Without `mode` the app keeps the window's current view, so the tool sends
+/// none and its schema says so (it used to promise a `read` default).
+#[test]
+fn open_file_without_mode_keeps_the_current_view() {
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
+    assert!(resp.error.is_none());
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(m, p, _)| m == "POST" && p == "/open")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["mode"], Value::Null);
+    let open_file = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "open_file")
+        .unwrap();
+    let desc = open_file.input_schema["properties"]["mode"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(desc.contains("current view"), "{desc}");
+    assert!(!desc.contains("Defaults to 'read'"), "{desc}");
+}
+
 /// A Markdown file that exists, for the URL-scheme fallback tests: with the
 /// app unreachable, `open_file` refuses a missing file before launching.
 fn existing_notes() -> (tempfile::TempDir, String) {
