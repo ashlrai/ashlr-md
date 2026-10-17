@@ -1064,7 +1064,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced. An empty path is refused."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty path is refused."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -3315,10 +3315,28 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
     if let Some(i) = cited.iter().position(|v| v.as_str() == Some("")) {
         return Response::err(id, -32602, format!("`cited_docs[{i}]` must not be empty"));
     }
-    let cited_docs: Vec<String> = cited
+    // Stored as absolute paths, as the schema says: a relative one used to be
+    // stored as given, and read back later it named nothing an agent (or
+    // the window, which records absolute paths) could match. It is resolved
+    // against this server's working directory, as every other path argument
+    // is; an absolute one is kept exactly as given.
+    let mut cited_docs: Vec<String> = Vec::with_capacity(cited.len());
+    for (i, raw) in cited
         .iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
+        .enumerate()
+        .filter_map(|(i, v)| v.as_str().map(|s| (i, s)))
+    {
+        match std::path::absolute(raw) {
+            Ok(p) => cited_docs.push(p.to_string_lossy().into_owned()),
+            Err(e) => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("`cited_docs[{i}]` {raw:?} cannot be made absolute: {e}"),
+                )
+            }
+        }
+    }
 
     match append_message(&session_id, role, &content, cited_docs) {
         Ok((msg, dropped)) => {

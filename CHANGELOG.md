@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`cited_docs` paths are stored absolute.** `save_conversation_message`
+  described `cited_docs` as absolute paths but stored a relative one as
+  given, so `recentDocs` returned a path no agent could match. A relative
+  path is now resolved against the server's working directory when saved, as
+  the other path arguments are.
 - **`recentDocs` leaves out empty paths from older session files.** A
   session saved before `cited_docs` refused an empty path still returned it
   in `get_conversation_context`'s `recentDocs`, as the first entry when it

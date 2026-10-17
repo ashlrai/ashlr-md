@@ -8624,6 +8624,32 @@ fn empty_cited_doc_is_refused() {
     assert!(!is_error(&ok), "{ok:?}");
 }
 
+/// `cited_docs` is described as absolute paths, but a relative one was
+/// stored as given and came back in `recentDocs` naming nothing an agent
+/// could match against the open document. It is now resolved against the
+/// server's working directory when saved; an absolute path is kept as given.
+#[test]
+fn relative_cited_docs_are_stored_absolute() {
+    let sess = unique_session();
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["notes/plan.md", "/abs/spec.md"] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
+    let cwd = std::env::current_dir().unwrap();
+    let want = cwd.join("notes/plan.md").to_string_lossy().into_owned();
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!([want, "/abs/spec.md"])
+    );
+    assert_eq!(ctx["recentDocs"], json!([want, "/abs/spec.md"]));
+}
+
 #[test]
 fn blank_session_id_is_refused() {
     use_temp_sessions_dir();
