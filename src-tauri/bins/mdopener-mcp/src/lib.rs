@@ -1606,8 +1606,16 @@ pub fn tool_request_review_with(
                 "content": content,
                 "timeoutMs": timeout_ms,
             });
-            if let Err(e) = ipc.post("/review", post_body) {
-                return tool_error(id, app_not_running_msg(&e));
+            match ipc.post("/review", post_body) {
+                // The app opens `path` before it registers the review, and
+                // answers `ok: false` with the window's reason when it could
+                // not, so there is no review to wait on.
+                Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+                    let what = path.as_deref().unwrap_or("the document");
+                    return tool_error(id, window_refusal(&resp, "open", what));
+                }
+                Ok(_) => {}
+                Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
             if !blocking {
                 return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));

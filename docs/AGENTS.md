@@ -320,7 +320,9 @@ before proceeding.
 1. **Agent calls `request_review`** with either a file `path` or inline
    `content`. The MCP server registers the review with the app (a unique
    `reviewId` is generated) and, if a `path` was given, opens that file in read
-   mode. The app shows its **review panel**.
+   mode. The app shows its **review panel**. If the app cannot open the file,
+   no review is registered and the call returns `isError: true` with the
+   app's reason.
 2. **The call BLOCKS** (when `blocking` is `true`, the default). Under the hood
    the MCP binary polls the app every ~1.5s for a verdict, for at most
    `wait_ms` (default 50 s, below the 60 s request timeout of common MCP

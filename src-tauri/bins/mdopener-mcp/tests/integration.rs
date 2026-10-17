@@ -1111,6 +1111,32 @@ fn request_review_non_blocking_registers_and_returns_pending() {
         .unwrap_or(false));
 }
 
+/// A review whose file the window could not open is refused with the
+/// window's reason, blocking or not, instead of waiting on a review the
+/// human never sees.
+#[test]
+fn request_review_reports_a_file_the_app_could_not_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.md");
+    std::fs::write(&plan, "# Plan").unwrap();
+    for blocking in [false, true] {
+        let ipc = MockIpc::new().on_post(
+            "/review",
+            Ok(json!({ "ok": false, "error": "Could not read plan.md: Permission denied" })),
+        );
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "path": plan.to_str().unwrap(), "blocking": blocking }),
+            &ipc,
+        );
+        let text = tool_error_text(&resp);
+        assert!(text.contains("Permission denied"), "{text}");
+        let calls = ipc.calls();
+        let polled = calls.iter().any(|(_, p, _)| p.starts_with("/review/"));
+        assert!(!polled, "no poll for a review that was never registered");
+    }
+}
+
 #[test]
 fn request_review_ipc_down_returns_error() {
     let ipc = MockIpc::new().on_post("/review", Err("ipc-port not found".into()));
