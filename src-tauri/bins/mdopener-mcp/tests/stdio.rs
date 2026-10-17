@@ -171,6 +171,83 @@ fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
     assert_eq!(out[4], json!({"jsonrpc":"2.0","id":10,"result":{}}));
 }
 
+/// A `notifications/*` method sent with an `id` is a request, so it is
+/// answered (-32600 with that id) instead of dropped like a notification:
+/// before, the client waited on that id forever. Without an id it stays
+/// silent, alone and inside a batch.
+#[test]
+fn notification_method_with_an_id_is_answered() {
+    let out = raw_session(&[
+        r#"{"jsonrpc":"2.0","id":1,"method":"notifications/initialized"}"#,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        r#"[{"jsonrpc":"2.0","id":"c","method":"notifications/cancelled","params":{"requestId":1}},{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}]"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#,
+    ]);
+    assert_eq!(out.len(), 3, "{out:?}");
+    assert_eq!(out[0]["id"], 1);
+    assert_eq!(out[0]["error"]["code"], -32600, "{:?}", out[0]);
+    let msg = out[0]["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("notifications/initialized"), "{msg}");
+    let batch = out[1].as_array().expect("batch reply is an array");
+    assert_eq!(batch.len(), 1, "{batch:?}");
+    assert_eq!(batch[0]["id"], "c");
+    assert_eq!(batch[0]["error"]["code"], -32600);
+    assert_eq!(out[2], json!({"jsonrpc":"2.0","id":2,"result":{}}));
+}
+
+/// The JSON-RPC envelope is checked before a request is served: `jsonrpc`
+/// must be "2.0", `params` structured, and (MCP) the `id` a string or an
+/// integer, never `null`. Each of these used to be answered as a valid ping.
+/// An id that is not valid is not echoed back.
+#[test]
+fn invalid_envelopes_are_refused_with_32600() {
+    let out = raw_session(&[
+        r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#,
+        r#"{"jsonrpc":2,"id":2,"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":1.5,"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":true,"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"ping","params":"x"}"#,
+        r#"[{"jsonrpc":"2.0","id":[4],"method":"ping"},{"jsonrpc":"2.0","id":5,"method":"ping"}]"#,
+        r#"{"jsonrpc":"2.0","id":"s","method":"ping","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":-6,"method":"ping","params":null}"#,
+    ]);
+    assert_eq!(out.len(), 10, "{out:?}");
+    let expect_ids = [
+        json!(1),
+        json!(2),
+        Value::Null,
+        Value::Null,
+        Value::Null,
+        Value::Null,
+        json!(3),
+    ];
+    for (reply, id) in out.iter().zip(expect_ids) {
+        assert_eq!(reply["error"]["code"], -32600, "{reply:?}");
+        assert_eq!(reply["id"], id, "{reply:?}");
+        assert!(reply.get("result").is_none(), "{reply:?}");
+    }
+    assert!(out[0]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("jsonrpc"));
+    assert!(out[2]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("`id`"));
+    assert!(out[6]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("params"));
+    let batch = out[7].as_array().expect("batch reply is an array");
+    assert_eq!(batch[0]["error"]["code"], -32600);
+    assert_eq!(batch[0]["id"], Value::Null);
+    assert_eq!(batch[1], json!({"jsonrpc":"2.0","id":5,"result":{}}));
+    assert_eq!(out[8], json!({"jsonrpc":"2.0","id":"s","result":{}}));
+    assert_eq!(out[9], json!({"jsonrpc":"2.0","id":-6,"result":{}}));
+}
+
 /// An unknown command-line argument is still ignored (old client configs may
 /// pass one) but named in one stderr line, and stdout stays JSON-RPC only.
 /// Before, a typo such as `--verison` started the server without a word.

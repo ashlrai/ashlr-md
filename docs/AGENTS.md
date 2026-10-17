@@ -37,7 +37,11 @@ The MCP server understands the MCP lifecycle (`initialize` →
 client's requested `protocolVersion` when it's one of these, and otherwise
 advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
 which `2025-03-26` clients may send) gets one array reply; a message without
-an `id` is a notification and gets no reply.
+an `id` is a notification and gets no reply. A `notifications/*` method
+sent *with* an `id` is answered `-32600`, so the client is not left waiting.
+A message whose `jsonrpc` is not `"2.0"`, whose `params` is not an object, or
+whose `id` is not a string or an integer (MCP never allows `null`) is answered
+`-32600` Invalid Request.
 
 ---
 
@@ -79,14 +83,14 @@ already exists is treated as success.
 # macOS
 claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
 
-# Windows — verify path; shown here for a typical per-user install
-claude mcp add --scope user ashlr-md "%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe"
+# Windows (PowerShell) — verify path; shown here for a typical per-user install
+claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.exe"
 
 # Linux (.deb install default; AppImage: use the resource dir inside the mount)
 claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
 ```
 
-After running either, **restart Claude Code** (or run `claude restart`) once.
+After running it, **restart Claude Code** (quit and start a new session) once.
 
 To get the exact command (with the real binary path) for your machine, use the
 **Copy** button in **Preferences → AI agents (MCP)** — it produces precisely:
@@ -179,7 +183,7 @@ servers untouched.
 ### Manual
 
 Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
-`%APPDATA%\Cursor\mcp.json` (Windows):
+`%USERPROFILE%\.cursor\mcp.json` (Windows), the file **Connect to Cursor** writes:
 
 ```json
 {
@@ -719,7 +723,8 @@ The integration is **local-only and token-authenticated**:
 ## Dev / build-from-source
 
 ```bash
-# Full install (builds the app, sidecars, and CLI):
+# Full install (macOS: builds and installs the app, sidecars, and CLI;
+# elsewhere: CLI + MCP only, get the app from Releases):
 bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
 
 # Or from a checkout:
@@ -729,10 +734,11 @@ bash scripts/install.sh
 SKIP_APP_BUILD=1 bash scripts/install.sh
 ```
 
-The install script requires **Rust** (rustup) and **Bun**.
-On macOS, also Xcode Command Line Tools; on Windows, MSVC build tools; on Linux,
-`build-essential` and the [Tauri Linux dependencies](https://tauri.app/start/prerequisites/#linux).
-See the script header for full prerequisites.
+The install script requires **Rust** (rustup), **Bun** and **git**. It is a
+bash script for macOS and Linux. On macOS the full install also needs Xcode
+(see the script header). On Linux it builds and installs only `mdopen` and
+`mdopener-mcp` (a C toolchain such as `build-essential` is enough) and says so;
+install the app itself from a `.deb`, `.rpm` or `.AppImage` release.
 
 In a dev build the MCP binary lives at:
 

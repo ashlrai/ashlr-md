@@ -2,7 +2,8 @@
 # =============================================================================
 # Ashlr MD — build-from-source installer
 #
-# Clones (or uses an existing checkout), builds the app and its CLI tools,
+# Clones (or uses an existing checkout), builds the app (macOS only; other
+# systems get the CLI and MCP server) and its CLI tools,
 # installs them to standard locations, and registers the MCP server with
 # Claude Code if the CLI is present.
 #
@@ -124,6 +125,11 @@ APP_BINARY="$MCP_BIN"   # default: use the target/release binary for MCP reg
 
 if [[ "$SKIP_APP_BUILD" == "1" ]]; then
   warn "SKIP_APP_BUILD=1 — skipping Tauri build and .app installation."
+elif [[ "$(uname -s)" != "Darwin" ]]; then
+  # Only the macOS .app is built and installed here; elsewhere the build ran
+  # for minutes and then failed looking for bundle/macos.
+  warn "Building and installing the app is macOS-only; installing the CLI and MCP server only."
+  warn "Get the app for this OS from https://github.com/ashlrai/ashlr-md/releases/latest"
 else
   info "Building Ashlr MD.app (bun run tauri build)…"
   info "This takes 2–5 minutes on first run."
@@ -152,14 +158,15 @@ fi
 
 # ── 6. Symlink mdopen CLI ─────────────────────────────────────────────────────
 info "Symlinking mdopen CLI…"
+# An existing directory the user cannot write (a root-owned /usr/local/bin)
+# passes `mkdir -p`, so writability is checked after it, and a failed link
+# falls through to the next directory instead of being reported as done.
 install_cli_to() {
   local dir="$1"
-  if [[ -w "$dir" ]] || mkdir -p "$dir" 2>/dev/null; then
-    ln -sf "$MDOPEN_BIN" "$dir/mdopen"
-    success "mdopen → $dir/mdopen"
-    return 0
-  fi
-  return 1
+  mkdir -p "$dir" 2>/dev/null || return 1
+  [[ -w "$dir" ]] || return 1
+  ln -sf "$MDOPEN_BIN" "$dir/mdopen" || return 1
+  success "mdopen → $dir/mdopen"
 }
 
 if ! install_cli_to "$CLI_BIN_DIR"; then

@@ -41,7 +41,7 @@
 
 use std::io::{self, BufRead, IsTerminal as _, Write as _};
 
-use mdopener_mcp::{dispatch, IpcClient, RealIpcClient, Request, Response};
+use mdopener_mcp::{dispatch, invalid_envelope, IpcClient, RealIpcClient, Request, Response};
 use serde_json::Value;
 
 const HELP: &str = "mdopener-mcp — MCP server for Ashlr MD (stdio JSON-RPC 2.0)
@@ -160,6 +160,9 @@ fn handle_line(line: &str, ipc: &dyn IpcClient) -> Option<String> {
 /// notification and gets no reply; a malformed one gets `-32600` carrying its
 /// `id` when it has one, so the client waiting on that id is not left hanging.
 fn handle_message(message: Value, ipc: &dyn IpcClient) -> Option<Response> {
+    if let Some(invalid) = invalid_envelope(&message) {
+        return Some(invalid);
+    }
     let id = message.get("id").cloned();
     match serde_json::from_value::<Request>(message) {
         Ok(req) => {

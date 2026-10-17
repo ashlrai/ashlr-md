@@ -36,6 +36,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A `notifications/*` method sent with an `id` is answered.** The server
+  dropped it like a notification, so a client that sent one as a request
+  waited on that id forever. It is now `-32600` with the id, saying that a
+  notification must not carry one; without an id it is still silent.
+- **The JSON-RPC envelope is checked.** A request was served whatever its
+  `jsonrpc` said (`"1.0"`, `2`), with an object, a fraction, `true` or
+  `null` as its `id`, and with a string or number as its `params`. Each is
+  now `-32600` Invalid Request; an `id` that is not a string or an integer
+  (MCP never allows `null`) is answered with `null`, not echoed.
+- **`open_file` carries tool annotations.** It was the one tool listed
+  without them, and MCP clients must then assume `destructiveHint` and
+  `openWorldHint` are `true`, so it read as destructive. It now states
+  all four hints (not read-only, not destructive, idempotent, closed world).
+- **`scripts/install.sh` falls back to `~/.local/bin` when `/usr/local/bin`
+  is not writable.** An existing directory passes `mkdir -p`, so a
+  root-owned `/usr/local/bin` was picked, the link failed, and the script
+  still printed `mdopen → /usr/local/bin/mdopen` without trying the
+  fallback. Writability and the link itself are now checked.
+- **`scripts/install.sh` on Linux installs the CLI and MCP server.** Without
+  `SKIP_APP_BUILD=1` it ran the full `tauri build` and then failed looking
+  for a macOS `.app` bundle, before linking `mdopen` or registering the MCP
+  server. Off macOS it now skips the app build, says so, and points to the
+  release packages.
 - **`resources/list` says when the vault's files are cut short.** The app
   lists only the newest Markdown files of a large watched folder, and the
   `file://` entries gave no sign of it, so a client read them as the whole

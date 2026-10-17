@@ -203,7 +203,8 @@ bash scripts/install.sh
 The full macOS source installer builds the Swift sidecars declared in the app's
 bundle configuration. It needs Xcode 26 / Swift 6.2+ with the macOS 26 SDK for
 `mdopener-afm`; a missing sidecar stops packaging with its build instructions.
-For the Rust CLI and MCP server only, use `SKIP_APP_BUILD=1 bash scripts/install.sh`.
+For the Rust CLI and MCP server only, use `SKIP_APP_BUILD=1 bash scripts/install.sh`;
+on Linux that is all the script installs (get the app from the release packages).
 
 ## Develop
 

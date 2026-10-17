@@ -1515,8 +1515,9 @@ mdopen PLAN.md
             <pre><span class="cm"># open a file in Ashlr MD from anywhere</span>
 <span class="pr">$</span> mdopen PLAN.md
 
-<span class="cm"># let Claude Code drive the app</span>
-<span class="pr">$</span> claude mcp add mdopener <span class="ac">mdopener-mcp</span>
+<span class="cm"># let Claude Code drive the app (or: Preferences → AI agents → Connect)</span>
+<span class="pr">$</span> claude mcp add --scope user ashlr-md \
+    <span class="ac">"/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"</span>
 <span class="cm">✓ connected · 20 tools available</span>
 
 <span class="cm"># now, inside Claude Code:</span>

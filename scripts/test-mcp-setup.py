@@ -4,7 +4,7 @@
 Compiles only the dependency-free command formatters, sidecar path lookup and
 agent CLI PATH search.
 Installer branch fixtures evaluate only its sidecar-build section, with all build commands mocked and an
-isolated, empty PATH. No app, Swift build, or MCP registration is executed.
+isolated, empty PATH, and its mdopen-link section, with `ln` mocked and HOME in a temp dir. No app, Swift build, or MCP registration is executed.
 """
 
 import json
@@ -186,6 +186,96 @@ die() { printf '%s\\n' "$*" >&2; exit 77; }
         source = (ROOT / "scripts/install.sh").read_text()
         self.assertLess(source.index('[[ -f "src-tauri/target/release/mdopener-afm" ]]'), source.index("bun run tauri build\n"))
         self.assertLess(source.index('[[ -f "src-tauri/target/release/mdopener-setdefault" ]]'), source.index("bun run tauri build\n"))
+
+
+class AppInstallTests(unittest.TestCase):
+    """Evaluates only the installer's app build/install section, with `bun`,
+    `find`, `head`, `rm`, `cp` and `uname` mocked; nothing is built or copied."""
+
+    def run_section(self, os_name, skip):
+        source = (ROOT / "scripts/install.sh").read_text()
+        start = source.index('APP_BINARY="$MCP_BIN"')
+        section = source[start:source.index("# ── 6.", start)]
+        with tempfile.TemporaryDirectory(prefix="md-app-install-") as directory:
+            mocks = """
+uname() { printf '%s\\n' "$MOCK_OS"; }
+bun() { printf 'MOCK bun: %s\\n' "$*"; }
+find() { printf '%s\\n' "$REPO_ROOT/src-tauri/target/release/bundle/macos/Ashlr MD.app"; }
+head() { local line; IFS= read -r line && printf '%s\\n' "$line"; }
+rm() { :; }
+cp() { printf 'MOCK cp: %s\\n' "$*"; }
+info() { :; }
+success() { :; }
+warn() { printf 'WARN %s\\n' "$*"; }
+die() { printf '%s\\n' "$*" >&2; exit 77; }
+"""
+            tail = '\nprintf "APP_BINARY=%s\\n" "$APP_BINARY"\n'
+            return subprocess.run(
+                ["/bin/bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + mocks + section + tail],
+                cwd=directory,
+                env={"PATH": "/nonexistent", "HOME": directory, "MOCK_OS": os_name,
+                     "SKIP_APP_BUILD": skip, "MCP_BIN": "/repo/mdopener-mcp",
+                     "REPO_ROOT": "/repo", "INSTALL_DIR": directory},
+                capture_output=True,
+                text=True,
+            )
+
+    def test_non_macos_installs_cli_and_mcp_only_without_building_the_app(self):
+        result = self.run_section("Linux", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("MOCK bun:", result.stdout)
+        self.assertIn("macOS-only", result.stdout)
+        self.assertIn("releases/latest", result.stdout)
+        self.assertIn("APP_BINARY=/repo/mdopener-mcp", result.stdout)
+
+    def test_macos_builds_and_registers_the_installed_app(self):
+        result = self.run_section("Darwin", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MOCK bun: run tauri build", result.stdout)
+        self.assertIn("Ashlr MD.app/Contents/Resources/mdopener-mcp", result.stdout)
+
+
+class CliLinkTests(unittest.TestCase):
+    """Evaluates only the installer's mdopen-link section; `ln` is mocked to
+    refuse the first directory, as a root-owned /usr/local/bin does."""
+
+    def run_section(self, blocked):
+        source = (ROOT / "scripts/install.sh").read_text()
+        start = source.index("install_cli_to() {")
+        section = source[start:source.index("# ── 7.", start)]
+        with tempfile.TemporaryDirectory(prefix="md-cli-link-") as directory:
+            cli = Path(directory) / "cli-bin"
+            cli.mkdir()
+            mocks = """
+success() { printf 'OK %s\\n' "$*"; }
+warn() { printf 'WARN %s\\n' "$*"; }
+ln() {
+  if [[ -n "$BLOCKED" && "$3" == "$BLOCKED"/* ]]; then
+    echo "ln: $3: Permission denied" >&2; return 1
+  fi
+  printf 'LINK %s\\n' "$3"
+}
+"""
+            env = {"PATH": "/usr/bin:/bin", "HOME": directory, "CLI_BIN_DIR": str(cli),
+                   "MDOPEN_BIN": "/synthetic/mdopen", "BLOCKED": str(cli) if blocked else ""}
+            result = subprocess.run(
+                ["/bin/bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + mocks + section],
+                cwd=directory, env=env, capture_output=True, text=True,
+            )
+            return result, cli, Path(directory) / ".local/bin"
+
+    def test_unwritable_existing_dir_falls_back_to_local_bin(self):
+        result, cli, local = self.run_section(blocked=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(f"OK mdopen → {cli}/mdopen", result.stdout)
+        self.assertIn(f"LINK {local}/mdopen", result.stdout)
+        self.assertIn(f"OK mdopen → {local}/mdopen", result.stdout)
+
+    def test_writable_dir_is_used_without_fallback(self):
+        result, cli, local = self.run_section(blocked=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"OK mdopen → {cli}/mdopen", result.stdout)
+        self.assertNotIn(str(local), result.stdout)
 
 
 if __name__ == "__main__":

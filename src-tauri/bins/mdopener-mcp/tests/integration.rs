@@ -391,6 +391,38 @@ fn destructive_tools_have_destructive_hint_annotation() {
     }
 }
 
+/// Every tool states all four hints. MCP clients must assume a missing
+/// `destructiveHint` / `openWorldHint` is `true`, so a tool listed without
+/// annotations (`open_file` was) reads as destructive and open-world.
+#[test]
+fn every_tool_states_all_four_annotation_hints() {
+    for def in tool_registry() {
+        let ann = def
+            .annotations
+            .as_ref()
+            .unwrap_or_else(|| panic!("tool '{}' has no annotations", def.name));
+        for hint in [
+            "readOnlyHint",
+            "destructiveHint",
+            "idempotentHint",
+            "openWorldHint",
+        ] {
+            assert!(
+                ann[hint].is_boolean(),
+                "tool '{}' does not state {hint}",
+                def.name
+            );
+        }
+        assert!(ann["title"].is_string(), "tool '{}' has no title", def.name);
+        assert_eq!(
+            ann["destructiveHint"].as_bool(),
+            Some(def.tier == ToolTier::Destructive),
+            "tool '{}': destructiveHint disagrees with its tier",
+            def.name
+        );
+    }
+}
+
 /// Non-destructive tools must NOT carry destructiveHint=true.
 #[test]
 fn non_destructive_tools_do_not_have_destructive_hint() {
