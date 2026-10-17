@@ -6162,7 +6162,8 @@ fn diff_zero_context_hunks_name_the_preceding_line() {
 }
 
 /// A huge `context_lines` must not overflow (a debug build panicked and took
-/// the whole MCP session down).
+/// the whole MCP session down). The tool now refuses one above 10000, which
+/// it used to read as 10000 in silence; the diff itself still takes any.
 #[test]
 fn diff_documents_huge_context_does_not_overflow() {
     use std::io::Write;
@@ -6177,12 +6178,32 @@ fn diff_documents_huge_context_does_not_overflow() {
         .unwrap()
         .write_all(b"x\nz\n")
         .unwrap();
+    let (_, hunks, _, _) = compute_unified_diff("a", "b", "x\ny\n", "x\nz\n", usize::MAX);
+    assert_eq!(hunks, 1);
     let resp = mdopener_mcp::tool_diff_documents(
         id(1),
-        &json!({ "path_a": a, "path_b": b, "context_lines": u64::MAX }),
+        &json!({ "path_a": a, "path_b": b, "context_lines": 10_000 }),
     );
-    assert!(!is_error(&resp));
+    assert!(!is_error(&resp), "{resp:?}");
     assert_eq!(content_text(&resp)["hunks"], 1);
+    for bad in [json!(u64::MAX), json!(10_001), json!(2.5)] {
+        let resp = mdopener_mcp::tool_diff_documents(
+            id(1),
+            &json!({ "path_a": a, "path_b": b, "context_lines": bad }),
+        );
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`context_lines` must be a whole number from 0 to 10000, got {bad}; \
+                 omit it for the default of 3"
+            )
+        );
+    }
+    let msg = param_error(&call_tool(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": b, "context_lines": 10_001 }),
+    ));
+    assert_eq!(msg, "`context_lines` must be at most 10000, got 10001");
 }
 
 /// Two server processes (two agents) appending to one session must not drop

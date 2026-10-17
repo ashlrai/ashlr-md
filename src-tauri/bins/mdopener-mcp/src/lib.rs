@@ -1089,7 +1089,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Number of unchanged context lines surrounding each change hunk. Defaults to 3."
+                        "maximum": DIFF_MAX_CONTEXT_LINES,
+                        "description": "Number of unchanged context lines surrounding each change hunk, a whole number from 0 to 10000 (a value outside that range is refused, not clamped). Defaults to 3."
                     }
                 },
                 "required": ["path_a", "path_b"]
@@ -4942,6 +4943,9 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 
 // ── diff_documents tool ───────────────────────────────────────────────────────
 
+/// Most unchanged lines of context `diff_documents` shows around a change.
+pub const DIFF_MAX_CONTEXT_LINES: u64 = 10_000;
+
 /// Compare two Markdown files and return a unified diff with line numbers.
 ///
 /// Reads both files from disk directly (no IPC needed — read-only).  Produces
@@ -4966,7 +4970,24 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         Err(e) => return Response::err(id, -32602, e),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
-    let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
+    // A `context_lines` above DIFF_MAX_CONTEXT_LINES used to be read as that
+    // many in silence; it is refused like the other limits. Omitted is 3.
+    let context_lines = match &args["context_lines"] {
+        Value::Null => 3,
+        v => match whole_number_value(v).filter(|n| *n <= DIFF_MAX_CONTEXT_LINES) {
+            Some(n) => n as usize,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`context_lines` must be a whole number from 0 to \
+                         {DIFF_MAX_CONTEXT_LINES}, got {v}; omit it for the default of 3"
+                    ),
+                )
+            }
+        },
+    };
 
     let doc_a = match checked_document(&raw_a, "path_a") {
         Ok(p) => p,
@@ -5096,7 +5117,7 @@ pub fn compute_unified_diff(
             run_end += 1;
         }
         let start = i.saturating_sub(context);
-        let end = (run_end + context).min(n);
+        let end = run_end.saturating_add(context).min(n);
         // Merge with the previous hunk when their context windows touch.
         match hunk_ranges.last_mut() {
             Some(last) if start <= last.1 => last.1 = end,
