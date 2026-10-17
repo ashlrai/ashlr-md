@@ -243,7 +243,10 @@ are reserved for protocol problems: an unknown tool or invalid arguments
 (`-32602`). An optional whole-number argument (`limit`, `wait_ms`,
 `context_lines`, `preview_lines`, `match_index`) given as anything but a
 whole number (a string such as `"1"`, a negative number or a fraction) is
-invalid, never read as absent: omit it to get the default.
+invalid, never read as absent: omit it to get the default. Likewise a
+boolean argument (`save`, `blocking`, `preview`, `include_prompts`,
+`semantic`) must be `true` or `false`; `"true"` is refused rather than
+read as absent.
 
 ### `edit_document` — exact, unique find/replace
 

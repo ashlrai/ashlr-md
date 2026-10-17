@@ -1331,7 +1331,10 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Some(c) => c.to_string(),
         None => return Response::err(id, -32602, "`content` is required"),
     };
-    let save = args["save"].as_bool().unwrap_or(false);
+    let save = match boolean_arg(args, "save") {
+        Ok(b) => b.unwrap_or(false),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     post_content(id, &content, save, ipc)
 }
 
@@ -1624,7 +1627,10 @@ pub fn tool_request_review_with(
         Err(e) => return tool_error(id, e),
     };
     let content = args["content"].as_str().map(str::to_string);
-    let blocking = args["blocking"].as_bool().unwrap_or(true);
+    let blocking = match boolean_arg(args, "blocking") {
+        Ok(b) => b.unwrap_or(true),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
         Ok(t) => t,
         Err(e) => return Response::err(id, -32602, e),
@@ -1808,7 +1814,10 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let save = args["save"].as_bool().unwrap_or(false);
+    let save = match boolean_arg(args, "save") {
+        Ok(b) => b.unwrap_or(false),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let mut body = json!({ "find": find, "replace": replace, "save": save });
     if let Some(p) = args["path"].as_str() {
@@ -1832,7 +1841,10 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Some(c) => c.to_string(),
         None => return Response::err(id, -32602, "`content` is required"),
     };
-    let save = args["save"].as_bool().unwrap_or(false);
+    let save = match boolean_arg(args, "save") {
+        Ok(b) => b.unwrap_or(false),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     post_content(id, &content, save, ipc)
 }
 
@@ -2396,7 +2408,10 @@ pub fn ai_actions_registry() -> Value {
 }
 
 pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
-    let include_prompts = args["include_prompts"].as_bool().unwrap_or(true);
+    let include_prompts = match boolean_arg(args, "include_prompts") {
+        Ok(b) => b.unwrap_or(true),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let actions = ai_actions_registry();
     let filtered: Vec<Value> = actions
@@ -3250,6 +3265,19 @@ pub fn whole_number_arg(args: &Value, name: &str) -> Result<Option<u64>, String>
                 "`{name}` must be a whole number (0 or more), got {v}; omit it for the default."
             )
         })
+}
+
+/// An optional boolean argument: `Ok(None)` when absent or null, else its
+/// value. Anything else (`"true"`, `1`) is an invalid-params message rather
+/// than read as absent: `save: "true"` used to leave the edit unsaved.
+pub fn boolean_arg(args: &Value, name: &str) -> Result<Option<bool>, String> {
+    match &args[name] {
+        Value::Null => Ok(None),
+        Value::Bool(b) => Ok(Some(*b)),
+        other => Err(format!(
+            "`{name}` must be a boolean (true or false), got {other}; omit it for the default."
+        )),
+    }
 }
 
 /// Wrap a value in the MCP `content` envelope.
@@ -4263,7 +4291,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     };
 
     // ── Write to disk ────────────────────────────────────────────────────────
-    let save = args["save"].as_bool().unwrap_or(true);
+    let save = match boolean_arg(args, "save") {
+        Ok(b) => b.unwrap_or(true),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     if save {
         if let Err(e) = std::fs::write(&path, &serialised) {
             return tool_error(id, format!("Failed to write {path}: {e}"));
@@ -4415,7 +4446,10 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let preview = args["preview"].as_bool().unwrap_or(true);
+    let preview = match boolean_arg(args, "preview") {
+        Ok(b) => b.unwrap_or(true),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let preview_lines = match whole_number_arg(args, "preview_lines") {
         Ok(p) => p.unwrap_or(5).min(20) as u32,
         Err(e) => return Response::err(id, -32602, e),
@@ -4470,7 +4504,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         },
         Err(e) => return Response::err(id, -32602, e),
     };
-    let save = args["save"].as_bool().unwrap_or(false);
+    let save = match boolean_arg(args, "save") {
+        Ok(b) => b.unwrap_or(false),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({

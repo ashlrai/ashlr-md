@@ -6171,3 +6171,54 @@ fn a_whole_number_argument_written_as_a_float_is_accepted() {
         .unwrap();
     assert_eq!(body.as_ref().unwrap()["matchIndex"], json!(2));
 }
+
+/// A boolean argument given as a string or number is an invalid-params error
+/// that never reaches the app: `save: "true"` used to be read as absent, so
+/// the edit was applied but quietly left unsaved.
+#[test]
+fn a_boolean_argument_of_the_wrong_type_is_refused() {
+    let cases = [
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": "b", "save": "true" }),
+            "save",
+        ),
+        ("set_content", json!({ "content": "x", "save": 1 }), "save"),
+        (
+            "replace_document",
+            json!({ "content": "x", "save": "yes" }),
+            "save",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview": "false" }),
+            "preview",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "save": "true" }),
+            "save",
+        ),
+        (
+            "request_review",
+            json!({ "content": "# x", "blocking": "false" }),
+            "blocking",
+        ),
+        (
+            "list_ai_actions",
+            json!({ "include_prompts": "no" }),
+            "include_prompts",
+        ),
+    ];
+    for (tool, args, name) in cases {
+        let ipc = MockIpc::new();
+        let resp = call(tool, args.clone(), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{tool} {args}: {resp:?}"));
+        assert_eq!(err.code, -32602, "{tool} {args}");
+        assert!(err.message.contains(name), "{tool}: {}", err.message);
+        assert!(ipc.calls().is_empty(), "{tool} must not reach the app");
+    }
+}
