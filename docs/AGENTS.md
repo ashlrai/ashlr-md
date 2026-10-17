@@ -519,12 +519,17 @@ The integration is **local-only and token-authenticated**:
   avoid leaking a timing signal, and a mismatch returns `401`.
 - The MCP `resources/read` channel is **scoped to advertised vault/recents
   files** — it cannot be used to read arbitrary paths off disk.
-- The tools that read a path straight from disk (`diff_documents`, and
-  `export_text` / `export_metadata` with `path`) only read Markdown files
+- The tools that read a path straight from disk (`diff_documents`,
+  `export_text` / `export_metadata` with `path`, and the task list of
+  `get_user_annotations` for a file that is not the open document) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
   refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
   after resolving symlinks.
+- `export` with `output_path` writes that file without a dialog and replaces
+  an existing file of that name. It only accepts a non-dotfile path with the
+  format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
+  directory, so it cannot overwrite Markdown or other file types.
 - The token and port files are **removed on clean app exit**, so a stale process
   can't authenticate against a new session.
 
