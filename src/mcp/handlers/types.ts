@@ -32,6 +32,9 @@ export interface EditPayload {
 // ── Export ────────────────────────────────────────────────────────────────────
 
 export interface ExportPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back; set only
+   * for a headless export (one with `outputPath`). */
+  editId?: string;
   format: "pdf" | "docx" | "html" | "epub";
   outputPath?: string | null;
 }

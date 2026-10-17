@@ -25,7 +25,8 @@
 //! Content is kept in [`DocMirror`], a managed Tauri state struct that the
 //! frontend syncs via `mcp_sync_state` on every document change (debounced
 //! 200 ms). Mutations emit a Tauri event the frontend picks up and applies;
-//! `/content`, `/open` and `/present` wait for the window's outcome like `/edit`.
+//! `/content`, `/open`, `/present` and `/export` with an `outputPath` wait for
+//! the window's outcome like `/edit`.
 //!
 //! `/edit` is special: because the 200 ms debounce makes [`DocMirror`] stale
 //! right after the user types, applying a find/replace against it could miss
@@ -929,7 +930,18 @@ fn window_round_trip(
     app: &AppHandle,
     prefix: &str,
     event: &str,
+    payload: serde_json::Value,
+) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
+    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT)
+}
+
+/// [`window_round_trip`] waiting up to `timeout` for the window's answer.
+fn window_round_trip_within(
+    app: &AppHandle,
+    prefix: &str,
+    event: &str,
     mut payload: serde_json::Value,
+    timeout: Duration,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
     let _inflight = InflightEdit::acquire()?;
     let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
@@ -945,7 +957,7 @@ fn window_round_trip(
             error: Some(window_unreachable_msg(&e)),
         }));
     }
-    let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
+    let outcome = rx.recv_timeout(timeout);
     if outcome.is_err() {
         pending.0.lock_recover().remove(&edit_id);
     }
@@ -1060,13 +1072,64 @@ fn handle_export(mut req: Request, app: &AppHandle) {
                 Ok(p) => p.map(|p| p.to_string_lossy().into_owned()),
                 Err(e) => return send_error(req, 400, &e),
             };
-            let emitted = app.emit("mcp://export", serde_json::json!({
+            let payload = serde_json::json!({
                 "format": b.format,
                 "outputPath": output_path,
-            }));
-            send_json(req, emitted_reply(emitted, serde_json::json!({"ok": true})));
+            });
+            // A headless export waits for the window to report it written
+            // (or why not) through `mcp_edit_result`; one for the dialog
+            // returns once the window is told.
+            let reply = match output_path {
+                Some(out) => match window_round_trip_within(
+                    app,
+                    "export",
+                    "mcp://export",
+                    payload,
+                    EXPORT_ROUNDTRIP_TIMEOUT,
+                ) {
+                    Some(outcome) => export_reply(outcome, &out),
+                    None => window_busy("export", &out),
+                },
+                None => emitted_reply(
+                    app.emit("mcp://export", payload),
+                    serde_json::json!({"ok": true}),
+                ),
+            };
+            send_json(req, reply);
         }
         Err((code, e)) => send_error(req, code, &e),
+    }
+}
+
+/// How long a headless `/export` waits for the window to write the file.
+/// mdopener-mcp reads this reply with a longer timeout than its usual 5 s
+/// (`EXPORT_WRITE_DEADLINE` plus a margin), so the reason reaches the agent.
+const EXPORT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The headless `/export` reply for what the window reported (or did not
+/// report) after it was asked to write `path`.
+fn export_reply(
+    outcome: Result<EditOutcome, mpsc::RecvTimeoutError>,
+    path: &str,
+) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true, "path": path }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": o
+                .error
+                .unwrap_or_else(|| format!("The app could not export {path}.")),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": format!(
+                "The app did not finish exporting {path} within {}s; it may still write it. \
+                 Headless export renders the Read view: check the app for an error message.",
+                EXPORT_ROUNDTRIP_TIMEOUT.as_secs()
+            ),
+        }),
     }
 }
 
@@ -2241,6 +2304,35 @@ mod tests {
     use super::checked_agent_path;
 
     use super::export_refusal;
+
+    /// A headless export reports what the window did, so a failed write
+    /// reaches the agent with its reason instead of only a toast.
+    #[test]
+    fn a_headless_export_reports_what_the_window_did() {
+        use super::{export_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let done = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(
+            export_reply(Ok(done), "/out/a.html"),
+            serde_json::json!({ "ok": true, "path": "/out/a.html" })
+        );
+        let failed = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Switch to Read view to export.".into()),
+        };
+        let v = export_reply(Ok(failed), "/out/a.html");
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "Switch to Read view to export.");
+        let v = export_reply(Err(RecvTimeoutError::Timeout), "/out/a.html");
+        assert_eq!(v["ok"], false);
+        let e = v["error"].as_str().unwrap();
+        assert!(e.contains("within 30s") && e.contains("/out/a.html"), "{e}");
+    }
 
     #[test]
     fn export_needs_an_open_document_and_a_known_format() {

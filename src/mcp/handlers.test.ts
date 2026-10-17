@@ -227,6 +227,56 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("export handler: reports a headless export's outcome to the waiting request", async () => {
+    const { exportHtml } = await import("../lib/export");
+    useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_1",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_1",
+      ok: true,
+      replaced: 1,
+      error: null,
+    });
+
+    vi.mocked(exportHtml).mockRejectedValueOnce(
+      "Switch to Read view before exporting.",
+    );
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_2",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_2",
+      ok: false,
+      replaced: 0,
+      error: "Export failed in the app: Switch to Read view before exporting.",
+    });
+
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_3",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "mcp_edit_result",
+      expect.objectContaining({ editId: "export_3", ok: false }),
+    );
+  });
+
   // edit module
   it("edit handler: applies find/replace to live document", async () => {
     useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<

@@ -4653,6 +4653,62 @@ fn export_output_path_errors_when_the_app_never_writes_it() {
     );
 }
 
+/// Stands in for an app whose window reports the headless export failed:
+/// it answers `/export` with the window's reason, read with a longer timeout.
+struct FailingExportApp {
+    read_timeout: Mutex<Option<std::time::Duration>>,
+}
+
+impl IpcClient for FailingExportApp {
+    fn get(&self, path: &str) -> Result<Value, String> {
+        Err(format!("unexpected GET {path}"))
+    }
+    fn post(&self, path: &str, _body: Value) -> Result<Value, String> {
+        Err(format!(
+            "a headless export must wait longer than 5 s for {path}"
+        ))
+    }
+    fn post_within(
+        &self,
+        path: &str,
+        _body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        assert_eq!(path, "/export");
+        *self.read_timeout.lock().unwrap() = Some(read_timeout);
+        Ok(json!({
+            "ok": false,
+            "path": "/out/plan.html",
+            "error": "Export failed in the app: Switch to Read view before exporting."
+        }))
+    }
+}
+
+#[test]
+fn export_output_path_returns_the_windows_error_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("plan.html");
+    let app = FailingExportApp {
+        read_timeout: Mutex::new(None),
+    };
+    let deadline = std::time::Duration::from_secs(30);
+    let started = std::time::Instant::now();
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &app,
+        deadline,
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let text = tool_error_text(&resp);
+    assert!(text.contains("Switch to Read view"), "{text}");
+    let waited = app.read_timeout.lock().unwrap().expect("post_within used");
+    assert!(
+        waited > deadline,
+        "the app's answer must outlast its own wait"
+    );
+}
+
 #[test]
 fn export_output_path_resolves_a_symlinked_directory() {
     let dir = tempfile::tempdir().unwrap();

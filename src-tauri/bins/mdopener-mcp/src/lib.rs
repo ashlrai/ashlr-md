@@ -64,6 +64,17 @@ impl Response {
 pub trait IpcClient: Send + Sync {
     fn get(&self, path: &str) -> Result<Value, String>;
     fn post(&self, path: &str, body: Value) -> Result<Value, String>;
+    /// [`IpcClient::post`] for a request the app answers only after slow
+    /// work (a headless export), read with `read_timeout` instead of 5 s.
+    fn post_within(
+        &self,
+        path: &str,
+        body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        let _ = read_timeout;
+        self.post(path, body)
+    }
 }
 
 // ── Real IPC client ───────────────────────────────────────────────────────────
@@ -76,6 +87,17 @@ impl IpcClient for RealIpcClient {
     }
     fn post(&self, path: &str, body: Value) -> Result<Value, String> {
         ipc_post(path, body)
+    }
+    fn post_within(
+        &self,
+        path: &str,
+        body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        let port = read_ipc_port()?;
+        let token = read_ipc_token()?;
+        let url = format!("http://127.0.0.1:{port}{path}");
+        http_post_within(&url, &body, &token, read_timeout)
     }
 }
 
@@ -610,7 +632,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1344,6 +1366,11 @@ pub const EXPORT_FORMATS: [&str; 4] = ["pdf", "docx", "html", "epub"];
 /// How long `export` waits for the app to write `output_path`.
 pub const EXPORT_WRITE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// How much longer than the write deadline a headless `/export` request is
+/// read for, so the app's own answer (it waits up to 30 s for its window)
+/// arrives before this server gives up on it.
+pub const EXPORT_REPLY_MARGIN: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     tool_export_with(id, args, ipc, EXPORT_WRITE_DEADLINE)
 }
@@ -1454,14 +1481,19 @@ pub fn tool_export_with(
     };
     let before = output_path.as_deref().and_then(file_fingerprint);
 
-    match ipc.post(
-        "/export",
-        json!({
-            "format": format,
-            "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
-        }),
-    ) {
-        // The app could not hand the export to its window: nothing will run.
+    let body = json!({
+        "format": format,
+        "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
+    });
+    // A headless export is answered once the window has written the file, or
+    // with its reason for not writing it, which can take up to the deadline.
+    let sent = match output_path {
+        Some(_) => ipc.post_within("/export", body, write_deadline + EXPORT_REPLY_MARGIN),
+        None => ipc.post("/export", body),
+    };
+    match sent {
+        // The app could not hand the export to its window, or the window
+        // reported that the export failed: say why at once.
         Ok(resp) if resp["ok"].as_bool() == Some(false) => {
             return tool_error(id, window_refusal(&resp, "export", "the document"));
         }
@@ -1474,8 +1506,9 @@ pub fn tool_export_with(
         return tool_result(id, json!({ "ok": true, "format": format, "dialog": true }));
     };
 
-    // The app accepts the request before it renders, and reports nothing back,
-    // so the export only counts as done once a new version of the file exists.
+    // The app answers once the window reports the file written (an older app
+    // answers before it renders), so the export only counts as done once a
+    // new version of the file exists.
     let deadline = std::time::Instant::now() + write_deadline;
     loop {
         if let Some(now) = file_fingerprint(&out) {
@@ -3071,13 +3104,26 @@ pub fn http_get(url: &str, token: &str) -> Result<Value, String> {
 }
 
 pub fn http_post(url: &str, body: &Value, token: &str) -> Result<Value, String> {
+    http_post_within(url, body, token, IPC_READ_TIMEOUT)
+}
+
+/// How long an IPC request waits for the app's answer by default.
+pub const IPC_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// [`http_post`] waiting up to `read_timeout` for the answer.
+pub fn http_post_within(
+    url: &str,
+    body: &Value,
+    token: &str,
+    read_timeout: std::time::Duration,
+) -> Result<Value, String> {
     let (host, port, path) = parse_url(url)?;
     let body_str = body.to_string();
     let request = format!(
         "POST {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
         body_str.len()
     );
-    let response_body = tcp_roundtrip(&host, port, request.as_bytes())?;
+    let response_body = tcp_roundtrip_within(&host, port, request.as_bytes(), read_timeout)?;
     parse_http_body(&response_body)
 }
 
@@ -3097,6 +3143,16 @@ pub fn parse_url(url: &str) -> Result<(String, u16, String), String> {
 }
 
 pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, String> {
+    tcp_roundtrip_within(host, port, request, IPC_READ_TIMEOUT)
+}
+
+/// [`tcp_roundtrip`] waiting up to `read_timeout` for the answer.
+pub fn tcp_roundtrip_within(
+    host: &str,
+    port: u16,
+    request: &[u8],
+    read_timeout: std::time::Duration,
+) -> Result<Vec<u8>, String> {
     use std::io::{Read as _, Write as _};
     use std::net::TcpStream;
     use std::time::Duration;
@@ -3104,7 +3160,7 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
     let addr = format!("{host}:{port}");
     let mut stream = TcpStream::connect(&addr)
         .map_err(|e| format!("Could not connect to IPC server at {addr}: {e}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    stream.set_read_timeout(Some(read_timeout)).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
     stream
         .write_all(request)
@@ -3116,7 +3172,10 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
             e.kind(),
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
         ) {
-            "IPC read error: Ashlr MD did not answer within 5 s".to_string()
+            format!(
+                "IPC read error: Ashlr MD did not answer within {} s",
+                read_timeout.as_secs()
+            )
         } else {
             format!("IPC read error: {e}")
         }
