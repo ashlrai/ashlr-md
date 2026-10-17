@@ -806,8 +806,30 @@ fn get_current_content_no_doc_open_returns_null_path() {
     let ipc = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
     let resp = tool_get_content(id(1), &ipc);
     assert!(resp.error.is_none());
+    assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
     let text = content_text(&resp);
     assert!(text["path"].is_null());
+    assert_eq!(text["content"], "");
+}
+
+/// The description said nothing of a null `path` or of what comes back with
+/// no document open, though `mdopener://current` and `export_text` call that
+/// an error and this tool answers it as a success.
+#[test]
+fn get_current_content_description_says_what_null_path_and_no_document_mean() {
+    let reg = tool_registry();
+    let def = reg
+        .iter()
+        .find(|d| d.name == "get_current_content")
+        .unwrap();
+    let d = def.description;
+    assert!(d.contains("`path` is null for an unsaved document"), "{d}");
+    assert!(
+        d.contains("With no document open this is not an error"),
+        "{d}"
+    );
+    assert!(d.contains(r#"{ path: null, content: "" }"#), "{d}");
+    assert!(d.contains("mdopener://current and export_text"), "{d}");
 }
 
 #[test]

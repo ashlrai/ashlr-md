@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_current_content` says what a null `path` and no open document mean.**
+  Its description now says that `path` is `null` for an unsaved document and
+  that with no document open the call succeeds with
+  `{ "path": null, "content": "" }`, where `mdopener://current` and
+  `export_text` report an error. The behaviour is unchanged; docs/AGENTS.md
+  says the same.
 - **The landing page has no em or en dashes.** Its title, meta and social
   descriptions and body copy used them; they are plain punctuation now, as
   the repo's style asks, and the dash guard test covers the page (HTML
