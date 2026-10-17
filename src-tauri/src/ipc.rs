@@ -511,15 +511,38 @@ struct SessionFileOut<'a> {
 /// `MAX_MESSAGES_PER_SESSION`.
 const MAX_SESSION_MESSAGES: usize = 200;
 
+/// Largest session file the app reads: mdopener-mcp's `MAX_SESSION_FILE_BYTES`
+/// (16 MiB). A session file was read whole however large it was (another
+/// process, or a hand edit, can make it any size). Writes drop the oldest
+/// messages to stay under it, so a file the app writes stays readable.
+const MAX_SESSION_FILE_BYTES: u64 = 16 * 1024 * 1024;
+
 fn parse_session_file(path: &std::path::Path) -> Result<Vec<SessionMessage>, String> {
-    if !std::fs::metadata(path)
-        .map(|m| m.is_file())
-        .unwrap_or(false)
-    {
+    use std::io::Read as _;
+    let meta = std::fs::metadata(path).ok().filter(|m| m.is_file());
+    let Some(meta) = meta else {
         return Err(format!("{} is not a regular file", path.display()));
+    };
+    let too_large = |len: u64| {
+        format!(
+            "Session file {} is {:.1} MiB, more than the {} MiB a session file may be, so \
+             it was not read; move it aside to start the session afresh.",
+            path.display(),
+            len as f64 / (1024.0 * 1024.0),
+            MAX_SESSION_FILE_BYTES / (1024 * 1024)
+        )
+    };
+    if meta.len() > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(meta.len()));
     }
-    let text = std::fs::read_to_string(path)
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(MAX_SESSION_FILE_BYTES + 1).read_to_string(&mut text))
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    // It grew while it was read.
+    if text.len() as u64 > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
     match serde_json::from_str::<SessionFile>(&text) {
         Ok(SessionFile::Log { messages } | SessionFile::Bare(messages)) => Ok(messages),
         Err(e) => Err(format!("{} is not a session file: {e}", path.display())),
@@ -611,8 +634,7 @@ fn write_session_file(
         merged.drain(..excess);
     }
 
-    let json = serde_json::to_string_pretty(&SessionFileOut { messages: &merged })
-        .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+    let json = fit_session_json(&mut merged)?;
     // Write a temp file and rename it over the target, so a reader never sees
     // a torn file.
     let target = dir.join(&name);
@@ -623,6 +645,34 @@ fn write_session_file(
         format!("Rename failed: {e}")
     })?;
     Ok(merged)
+}
+
+/// Serialise `merged` as a session file, dropping its oldest messages until
+/// it fits in [`MAX_SESSION_FILE_BYTES`] (as mdopener-mcp does), so the file
+/// written is one [`parse_session_file`] will read back. An error when even
+/// the newest message alone is too large.
+fn fit_session_json(merged: &mut Vec<SessionMessage>) -> Result<String, String> {
+    loop {
+        let json = serde_json::to_string_pretty(&SessionFileOut { messages: merged })
+            .map_err(|e| format!("JSON serialisation failed: {e}"))?;
+        let len = json.len() as u64;
+        if len <= MAX_SESSION_FILE_BYTES {
+            return Ok(json);
+        }
+        if merged.len() <= 1 {
+            return Err(format!(
+                "The message is too large: the session file would be {:.1} MiB, more than \
+                 the {} MiB a session file may be.",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ));
+        }
+        // Drop about the share that is over, at least one, never the newest.
+        let n = merged.len() as u64;
+        let excess = len - MAX_SESSION_FILE_BYTES;
+        let cut = (excess.saturating_mul(n).div_ceil(len) as usize).clamp(1, merged.len() - 1);
+        merged.drain(..cut);
+    }
 }
 
 /// Write `bytes` to `path`, readable by this user only (`0600` on Unix) from
@@ -2518,7 +2568,10 @@ mod tests {
 
     // ── Session files shared with mdopener-mcp ───────────────────────────────
 
-    use super::{read_session_file, write_session_file, SessionMessage};
+    use super::{
+        fit_session_json, parse_session_file, read_session_file, session_file_name,
+        write_session_file, SessionMessage, MAX_SESSION_FILE_BYTES,
+    };
 
     // ── Paths an agent may open, present or send for review ─────────────────
 
@@ -3144,6 +3197,53 @@ mod tests {
     /// What mdopener-mcp writes for one message (its `SessionLog`).
     fn mcp_file(messages: &[SessionMessage]) -> String {
         serde_json::to_string_pretty(&serde_json::json!({ "messages": messages })).unwrap()
+    }
+
+    /// The app read a session file whole however large it was. Past 16 MiB
+    /// it is now refused before reading, saying how large it is, and a
+    /// write over it is refused rather than replacing it.
+    #[test]
+    fn a_session_file_past_the_cap_is_not_read() {
+        let d = Scratch::new("huge");
+        let path = d.0.join(session_file_name("s1"));
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_SESSION_FILE_BYTES + 1)
+            .unwrap();
+        let err = parse_session_file(&path).err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let err = read_session_file(&d.0, "s1").err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        let err = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).err().expect("refused");
+        assert!(err.contains("more than the 16 MiB"), "{err}");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            MAX_SESSION_FILE_BYTES + 1,
+            "left untouched"
+        );
+    }
+
+    /// A log too large for the cap drops its oldest messages when written,
+    /// so the file the app writes is one it can read back.
+    #[test]
+    fn a_session_written_past_the_cap_keeps_its_newest_messages() {
+        let d = Scratch::new("fit");
+        let big = |id: &str, ts: u64| SessionMessage {
+            content: "x".repeat(6 * 1024 * 1024),
+            ..msg(id, "s1", ts)
+        };
+        let kept = write_session_file(&d.0, "s1", &[big("a", 1), big("b", 2), big("c", 3)])
+            .unwrap();
+        assert_eq!(ids(&kept), ["b", "c"]);
+        let path = d.0.join(session_file_name("s1"));
+        assert!(std::fs::metadata(&path).unwrap().len() <= MAX_SESSION_FILE_BYTES);
+        assert_eq!(ids(&read_session_file(&d.0, "s1").unwrap()), ["b", "c"]);
+        let err = fit_session_json(&mut vec![SessionMessage {
+            content: "x".repeat(17 * 1024 * 1024),
+            ..msg("z", "s1", 9)
+        }])
+        .unwrap_err();
+        assert!(err.contains("too large"), "{err}");
     }
 
     /// Persisting from the window used to leave the session file `0644` in a

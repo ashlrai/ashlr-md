@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The app reads session files up to 16 MiB too.** The app read a
+  session file whole however large it was. Like the MCP server, it now
+  refuses one past 16 MiB, saying how large it is, and a write drops the
+  oldest messages to stay under the cap so the file stays readable.
 - **`mdopen` reads at most 64 MiB of the app's answer.** Opening a file
   through the running app read the IPC answer to its end however long it
   was, so a peer on the port that kept sending grew `mdopen`'s memory
