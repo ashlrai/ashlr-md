@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Session files are read up to 16 MiB.** `get_conversation_context` and
+  `save_conversation_message` read the session file whole however large it
+  was, and a file that could not be read answered as an empty session. A
+  file past 16 MiB is now not read: getting it is `isError: true` saying how
+  large it is and what to do, and saving refuses without touching it.
+  Appends keep the file within 16 MiB by dropping the oldest messages, and
+  the result says how many (`dropped`, `note`).
 - **`mdopen -` stops at 16 MiB.** It read all of stdin into memory and then
   into a temp file, however much was piped in (`mdopen - < /dev/zero` never
   finished). Past the 16 MiB a document may be it now exits `1`, saying so,

@@ -317,6 +317,82 @@ fn session_file_stem(session_id: &str) -> String {
 /// `.json` and a `.<pid>-<seq>.tmp` suffix of up to 36 bytes to the stem.
 pub const MAX_SESSION_FILE_STEM: usize = 200;
 
+/// Largest session file the conversation tools read: the 16 MiB a document
+/// may be ([`MAX_DOCUMENT_BYTES`]). A session file was read whole however
+/// large it was (another process, or a hand edit, can make it any size), so
+/// one `get_conversation_context` could pull gigabytes into memory. Appends
+/// drop the oldest messages to keep the file under it (see
+/// [`fit_session_log`]), so a log this server writes is always readable.
+pub const MAX_SESSION_FILE_BYTES: u64 = MAX_DOCUMENT_BYTES;
+
+/// Read a session file, refusing one larger than [`MAX_SESSION_FILE_BYTES`]
+/// (before reading it, and if it grows while read) with a message that says
+/// how large it is and what to do.
+fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let meta = std::fs::metadata(path)?;
+    if !meta.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let too_large = |len: u64| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "it is {:.1} MiB, more than the {} MiB a session file may be, so it was \
+                 not read; use a new `session_id`, or move the file aside",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ),
+        )
+    };
+    if meta.len() > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(meta.len()));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_SESSION_FILE_BYTES + 1)
+        .read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_SESSION_FILE_BYTES {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
+}
+
+/// Drop the oldest messages of `log` until it serialises (as
+/// [`persist_session`] writes it) within [`MAX_SESSION_FILE_BYTES`]. Returns
+/// how many were dropped; an error when even the newest message alone is too
+/// large.
+fn fit_session_log(log: &mut SessionLog) -> Result<usize, String> {
+    let mut dropped = 0;
+    loop {
+        let len = serde_json::to_string_pretty(log)
+            .map_err(|e| format!("Serialisation error: {e}"))?
+            .len() as u64;
+        if len <= MAX_SESSION_FILE_BYTES {
+            return Ok(dropped);
+        }
+        if log.messages.len() <= 1 {
+            return Err(format!(
+                "the message is too large: the session file would be {:.1} MiB, more \
+                 than the {} MiB a session file may be",
+                len as f64 / (1024.0 * 1024.0),
+                MAX_SESSION_FILE_BYTES / (1024 * 1024)
+            ));
+        }
+        // Drop about the share of messages that is over, at least one, and
+        // never the newest.
+        let n = log.messages.len() as u64;
+        let excess = len - MAX_SESSION_FILE_BYTES;
+        let cut =
+            (excess.saturating_mul(n).div_ceil(len) as usize).clamp(1, log.messages.len() - 1);
+        log.messages.drain(..cut);
+        dropped += cut;
+    }
+}
+
 /// The file name earlier builds used: every character other than an
 /// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
 /// Only read, as a fallback, so that history saved before the injective
@@ -359,7 +435,7 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
     };
     if path.exists() {
         let text =
-            read_regular_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+            read_session_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
         return parse_session_log(&text)
             .map(|log| Some(own(log)))
             .map_err(|e| format!("{} is not a session file: {e}", path.display()));
@@ -370,7 +446,7 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
     if legacy == path {
         return Ok(None);
     }
-    let Some(log) = read_regular_file(&legacy)
+    let Some(log) = read_session_file(&legacy)
         .ok()
         .and_then(|text| parse_session_log(&text).ok())
     else {
@@ -473,7 +549,7 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<(
 /// or cannot be parsed.
 pub fn load_session_from_disk(session_id: &str) -> Option<SessionLog> {
     let path = session_file_path(session_id)?;
-    let text = read_regular_file(&path).ok()?;
+    let text = read_session_file(&path).ok()?;
     parse_session_log(&text).ok()
 }
 
@@ -485,6 +561,18 @@ pub fn store_append_message(
     content: &str,
     cited_docs: Vec<String>,
 ) -> Result<ConversationMessage, String> {
+    append_message(session_id, role, content, cited_docs).map(|(msg, _)| msg)
+}
+
+/// [`store_append_message`] that also returns how many of the oldest
+/// messages were dropped to keep the session file within
+/// [`MAX_SESSION_FILE_BYTES`].
+fn append_message(
+    session_id: &str,
+    role: &str,
+    content: &str,
+    cited_docs: Vec<String>,
+) -> Result<(ConversationMessage, usize), String> {
     let role = role.trim();
     match role {
         "agent" | "human" | "system" => {}
@@ -547,13 +635,15 @@ pub fn store_append_message(
         let excess = log.messages.len() - MAX_MESSAGES_PER_SESSION;
         log.messages.drain(..excess);
     }
+    // And bound the file, so every reader can read what was written.
+    let dropped = fit_session_log(&mut log).map_err(|e| format!("Message not saved: {e}"))?;
 
     // Only a log that reached disk replaces the cached one, so a failed
     // write leaves no unsaved message behind.
     persist_session(session_id, &log)
         .map_err(|e| format!("Message not saved to the session file: {e}"))?;
     store.insert(session_id.to_string(), log);
-    Ok(msg)
+    Ok((msg, dropped))
 }
 
 /// Retrieve the last `n` messages for `session_id`.
@@ -565,9 +655,16 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
         .map_err(|e| format!("Lock error: {e}"))?;
 
     // The persisted log is authoritative (other processes append to it); the
-    // in-process copy only answers when it cannot be read.
-    if let Ok(Some((log, _))) = load_own_session(session_id) {
-        store.insert(session_id.to_string(), log);
+    // in-process copy only answers when it cannot be read. With no copy, an
+    // unreadable file (one past MAX_SESSION_FILE_BYTES, say) is an error: an
+    // empty list would claim the session has no messages.
+    match load_own_session(session_id) {
+        Ok(Some((log, _))) => {
+            store.insert(session_id.to_string(), log);
+        }
+        Ok(None) => {}
+        Err(e) if !store.contains_key(session_id) => return Err(e),
+        Err(_) => {}
     }
 
     let messages = store
@@ -844,7 +941,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_conversation_context",
-            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet.",
+            description: "Return the last N messages of a session's conversation memory store (oldest first), plus the distinct document paths those messages cite. Use this at the start of a multi-turn workflow to recover prior context — what edits were made, which docs were open, and what the human approved — before continuing. Returns an empty list when the session has no messages yet. A session file larger than 16 MiB is not read (an error saying how large it is).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -871,7 +968,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_conversation_message",
-            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name).",
+            description: "Append an agent action or human verdict into the session's persistent memory store so future calls to get_conversation_context can retrieve it. Call this after every significant agent action (edit, export, review result) and after the human provides feedback. Messages survive app restarts via disk persistence at ~/.mdopener/sessions/{session_id}.json (the id encoded for a file name). The file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, `note`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2859,17 +2956,25 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         })
         .unwrap_or_default();
 
-    match store_append_message(&session_id, role, &content, cited_docs) {
-        Ok(msg) => tool_result(
-            id,
-            json!({
+    match append_message(&session_id, role, &content, cited_docs) {
+        Ok((msg, dropped)) => {
+            let mut body = json!({
                 "ok": true,
                 "messageId": msg.id,
                 "sessionId": msg.session_id,
                 "role": msg.role,
                 "timestampMs": msg.timestamp_ms,
-            }),
-        ),
+            });
+            if dropped > 0 {
+                body["dropped"] = json!(dropped);
+                body["note"] = json!(format!(
+                    "The session file may be at most {} MiB, so its {dropped} oldest \
+                     message(s) were dropped to make room for this one.",
+                    MAX_SESSION_FILE_BYTES / (1024 * 1024)
+                ));
+            }
+            tool_result(id, body)
+        }
         // The arguments were valid (checked above); this is a failure to
         // store the message, e.g. the session file could not be written.
         Err(e) => tool_error(id, e),

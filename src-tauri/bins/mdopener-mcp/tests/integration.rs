@@ -6038,8 +6038,92 @@ fn save_message_reports_a_failed_session_write() {
     );
     let err = tool_error_text(&resp);
     assert!(err.contains("not saved"), "{err}");
-    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    // Nothing unsaved lingers, and the unreadable "file" is not passed off
+    // as an empty session either.
+    let err = store_get_context(&sid, 20).unwrap_err();
+    assert!(err.contains("Cannot read"), "{err}");
     std::fs::remove_dir(&path).unwrap();
+}
+
+/// A session file was read whole however large it was. Past 16 MiB it is
+/// now not read at all: getting the context is an error saying how large it
+/// is (not an empty session), and saving refuses without touching the file.
+#[test]
+fn a_session_file_past_the_cap_is_not_read() {
+    use mdopener_mcp::MAX_SESSION_FILE_BYTES;
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(MAX_SESSION_FILE_BYTES + 1)
+        .unwrap();
+    let err = tool_error_text(&tool_get_conversation_context(
+        id(1),
+        &json!({ "session_id": sid }),
+    ));
+    assert!(
+        err.contains("more than the 16 MiB a session file may be"),
+        "{err}"
+    );
+    assert!(err.contains("new `session_id`"), "{err}");
+    let err = tool_error_text(&tool_save_conversation_message(
+        id(2),
+        &json!({ "session_id": sid, "role": "agent", "content": "x" }),
+    ));
+    assert!(err.contains("not saved") && err.contains("16 MiB"), "{err}");
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        MAX_SESSION_FILE_BYTES + 1
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+/// Appends keep the session file within the cap, dropping the oldest
+/// messages and saying how many, so a log this server writes stays readable.
+#[test]
+fn saving_past_the_session_cap_drops_the_oldest_and_says_so() {
+    use mdopener_mcp::{persist_session, ConversationMessage, SessionLog, MAX_SESSION_FILE_BYTES};
+    let sid = unique_session();
+    let old = ConversationMessage {
+        id: "msg-old".into(),
+        session_id: sid.clone(),
+        role: "agent".into(),
+        content: "o".repeat(MAX_SESSION_FILE_BYTES as usize - 512 * 1024),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    persist_session(
+        &sid,
+        &SessionLog {
+            messages: vec![old],
+        },
+    )
+    .unwrap();
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "n".repeat(1024 * 1024) }),
+    );
+    let body = content_text(&resp);
+    assert_eq!(body["ok"], true, "{body}");
+    assert_eq!(body["dropped"], 1, "{body}");
+    let note = body["note"].as_str().unwrap();
+    assert!(note.contains("1 oldest message(s) were dropped"), "{note}");
+    let path = session_file_path(&sid).unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() <= MAX_SESSION_FILE_BYTES);
+    let ctx = store_get_context(&sid, 20).unwrap();
+    assert_eq!(ctx.len(), 1);
+    assert!(ctx[0].content.starts_with('n'));
+    // A save that fits drops nothing and says nothing about it.
+    let body = content_text(&tool_save_conversation_message(
+        id(2),
+        &json!({ "session_id": sid, "role": "human", "content": "ok" }),
+    ));
+    assert!(
+        body.get("dropped").is_none() && body.get("note").is_none(),
+        "{body}"
+    );
+    std::fs::remove_file(&path).unwrap();
 }
 
 // ── edit_canvas keeps what it does not edit ───────────────────────────────────
