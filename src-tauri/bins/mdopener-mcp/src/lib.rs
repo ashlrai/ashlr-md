@@ -153,7 +153,10 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
         "prompts/get" => {
             let params = req.params.unwrap_or(Value::Null);
             let name = params["name"].as_str().unwrap_or("").to_string();
-            handle_prompt_get(id, &name, ipc)
+            match prompt_arguments_problem(&name, &params["arguments"]) {
+                Some(msg) => Response::err(id, -32602, msg),
+                None => handle_prompt_get(id, &name, ipc),
+            }
         }
 
         other => Response::err(id, -32601, format!("Method not found: {other}")),
@@ -4076,6 +4079,38 @@ pub fn unknown_prompt_msg(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("{shown}{hint} The prompts are {all} (see prompts/list).")
+}
+
+/// Why `prompts/get`'s `arguments` cannot be used, or `None`. No prompt
+/// declares an argument, so any given one used to be dropped in silence while
+/// the prompt ran on the open document. Omitted, `null` or `{}` is fine. An
+/// unknown prompt name is left to [`handle_prompt_get`], which names it first.
+pub fn prompt_arguments_problem(name: &str, arguments: &Value) -> Option<String> {
+    if !PROMPT_NAMES.contains(&name) {
+        return None;
+    }
+    match arguments {
+        Value::Null => None,
+        Value::Object(m) if m.is_empty() => None,
+        Value::Object(m) => {
+            let mut keys: Vec<&str> = m.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            let given = keys
+                .iter()
+                .map(|k| format!("`{k}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(format!(
+                "Prompt `{name}` takes no arguments, got {given}. It works on the document \
+                 open in Ashlr MD: open the one you mean with open_file first, then get the \
+                 prompt without `arguments`."
+            ))
+        }
+        other => Some(format!(
+            "`arguments` for prompt `{name}` must be an object, got {}",
+            json_type_phrase(other)
+        )),
+    }
 }
 
 pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response {

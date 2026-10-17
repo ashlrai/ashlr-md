@@ -9661,3 +9661,38 @@ fn vault_search_resource_refuses_repeated_and_malformed_parameters() {
     assert_eq!(text["query"], "c+d 100%");
     assert_eq!(text["results"].as_array().unwrap().len(), 1, "{text}");
 }
+
+/// No prompt declares an argument, but `prompts/get` with
+/// `arguments: { "path": "plan.md" }` dropped it and ran the prompt on
+/// whatever document was open. A given argument is now -32602 before the app
+/// is asked; omitted, `null` or `{}` still works.
+#[test]
+fn prompts_get_refuses_arguments_no_prompt_declares() {
+    for p in mdopener_mcp::prompts_list().as_array().unwrap() {
+        assert!(p.get("arguments").is_none(), "{p}");
+    }
+    let doc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/v/a.md", "content": "# A" })),
+    );
+    let get = |params: Value| dispatch(dispatch_req("prompts/get", params), &doc).unwrap();
+    let msg = param_error(&get(
+        json!({ "name": "summarize", "arguments": { "path": "plan.md" } }),
+    ));
+    assert!(msg.contains("takes no arguments, got `path`"), "{msg}");
+    let msg = param_error(&get(json!({ "name": "summarize", "arguments": ["x"] })));
+    assert!(msg.contains("must be an object"), "{msg}");
+    for ok in [
+        json!({ "name": "summarize" }),
+        json!({ "name": "summarize", "arguments": null }),
+        json!({ "name": "summarize", "arguments": {} }),
+    ] {
+        let resp = get(ok.clone());
+        assert!(resp.error.is_none(), "{ok}: {:?}", resp.error);
+    }
+    // An unknown prompt is still named first.
+    let msg = param_error(&get(
+        json!({ "name": "sumarize", "arguments": { "x": "1" } }),
+    ));
+    assert!(msg.contains("Unknown prompt"), "{msg}");
+}

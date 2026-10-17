@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`prompts/get` refuses arguments no prompt declares.** The prompts take
+  none, but `arguments: { "path": "plan.md" }` was dropped in silence and
+  the prompt ran on whatever document was open. A given argument is now
+  `-32602` saying to open the document with `open_file` first; leaving
+  `arguments` out, `null` or `{}` still works.
 - **`text://vault-search` refuses a repeated parameter and a malformed
   escape.** `?q=a&q=b` searched for `b` alone, and `?q=%ZZ` (or a lone `%`)
   searched for the literal text, so the search ran on something the agent
