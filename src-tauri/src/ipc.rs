@@ -1109,7 +1109,10 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
 /// (find/replace, `setContent`, and an optional save) is sub-millisecond, but the
 /// app may be briefly busy. A timeout still bounds the worker so a wedged or
 /// missing frontend can't pin it forever — the 3 other workers stay free anyway.
-const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(5);
+///
+/// It must stay below mdopener-mcp's 5 s IPC read timeout (`tcp_roundtrip`),
+/// or the client hangs up first and the agent never sees this server's reply.
+const EDIT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Process-monotonic sequence for unique edit ids. The [`PendingEdits`] map is
 /// per-process, so a plain counter is collision-free — unlike a millisecond
@@ -1141,6 +1144,43 @@ impl Drop for InflightEdit {
     fn drop(&mut self) {
         INFLIGHT_EDITS.fetch_sub(1, Ordering::AcqRel);
     }
+}
+
+/// True when `want` (a path an agent named) is the open document `have_raw`.
+/// Canonical paths are compared when both resolve; otherwise the raw strings,
+/// so both sides are always normalized the same way.
+fn names_open_document(want: &str, have_raw: &str) -> bool {
+    match (std::fs::canonicalize(want), std::fs::canonicalize(have_raw)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => want == have_raw,
+    }
+}
+
+/// The open document's path as the frontend knows it, when `want` names it.
+fn open_document_named(app: &AppHandle, want: &str) -> Option<String> {
+    let have_raw = app
+        .state::<DocMirror>()
+        .0
+        .lock()
+        .unwrap()
+        .path
+        .clone()
+        .unwrap_or_default();
+    names_open_document(want, &have_raw).then_some(have_raw)
+}
+
+fn not_the_open_document() -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "The named path is not the currently open document — open it first with open_file.",
+    })
+}
+
+fn editor_busy() -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "The editor is busy applying another edit — retry in a moment.",
+    })
 }
 
 /// POST /edit — exact-string find/replace on the LIVE document.
@@ -1188,18 +1228,8 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // only when BOTH resolve; otherwise fall back to a raw string compare on both
     // sides so the two legs are always normalized the same way.
     if let Some(ref p) = body.path {
-        let have_raw = app.state::<DocMirror>().0.lock().unwrap().path.clone().unwrap_or_default();
-        let want_canon = std::fs::canonicalize(p).ok();
-        let have_canon = std::fs::canonicalize(&have_raw).ok();
-        let matches = match (want_canon, have_canon) {
-            (Some(a), Some(b)) => a == b,
-            _ => p == &have_raw,
-        };
-        if !matches {
-            return send_json(req, serde_json::json!({
-                "ok": false,
-                "error": "The named path is not the currently open document — open it first with open_file.",
-            }));
+        if open_document_named(app, p).is_none() {
+            return send_json(req, not_the_open_document());
         }
     }
 
@@ -1209,12 +1239,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // IPC server appearing wedged. The guard releases its slot on every path.
     let _inflight = match InflightEdit::acquire() {
         Some(g) => g,
-        None => {
-            return send_json(req, serde_json::json!({
-                "ok": false,
-                "error": "The editor is busy applying another edit — retry in a moment.",
-            }));
-        }
+        None => return send_json(req, editor_busy()),
     };
 
     // Register a oneshot keyed by a unique editId, then ask the frontend to apply
@@ -1285,6 +1310,19 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             "error": "`find` must not be empty.",
         }));
     }
+    // Same canonical path check as `/edit`. The frontend re-checks against
+    // the path it knows (in case the tab changes meanwhile), so it is sent
+    // that path rather than the agent's spelling of it.
+    let path = match body.path.as_deref().map(|p| open_document_named(app, p)) {
+        None => None,
+        Some(Some(have)) => Some(have),
+        Some(None) => return send_json(req, not_the_open_document()),
+    };
+    // Parks a worker like `/edit`, so it shares the same admission cap.
+    let _inflight = match InflightEdit::acquire() {
+        Some(g) => g,
+        None => return send_json(req, editor_busy()),
+    };
 
     let edit_id = format!("sedit_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     let (tx, rx) = mpsc::channel::<StreamEditPreviewOutcome>();
@@ -1293,14 +1331,17 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(edit_id.clone(), tx);
     }
 
-    let _ = app.emit("mcp://stream-edit", serde_json::json!({
-        "editId": edit_id,
-        "find": body.find,
-        "replace": body.replace,
-        "preview": body.preview,
-        "previewLines": body.preview_lines,
-        "path": body.path,
-    }));
+    let _ = app.emit(
+        "mcp://stream-edit",
+        serde_json::json!({
+            "editId": edit_id,
+            "find": body.find,
+            "replace": body.replace,
+            "preview": body.preview,
+            "previewLines": body.preview_lines,
+            "path": path,
+        }),
+    );
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1355,6 +1396,15 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             "error": "`find` must not be empty.",
         }));
     }
+    let path = match body.path.as_deref().map(|p| open_document_named(app, p)) {
+        None => None,
+        Some(Some(have)) => Some(have),
+        Some(None) => return send_json(req, not_the_open_document()),
+    };
+    let _inflight = match InflightEdit::acquire() {
+        Some(g) => g,
+        None => return send_json(req, editor_busy()),
+    };
 
     let apply_id = format!("sapply_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     let (tx, rx) = mpsc::channel::<StreamEditApplyOutcome>();
@@ -1363,15 +1413,18 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
         pending.0.lock().unwrap().insert(apply_id.clone(), tx);
     }
 
-    let _ = app.emit("mcp://stream-edit-apply", serde_json::json!({
-        "editId": apply_id,
-        "find": body.find,
-        "replace": body.replace,
-        "matchIndex": body.match_index,
-        "save": body.save,
-        "path": body.path,
-        "originalEditId": body.edit_id,
-    }));
+    let _ = app.emit(
+        "mcp://stream-edit-apply",
+        serde_json::json!({
+            "editId": apply_id,
+            "find": body.find,
+            "replace": body.replace,
+            "matchIndex": body.match_index,
+            "save": body.save,
+            "path": path,
+            "originalEditId": body.edit_id,
+        }),
+    );
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1646,6 +1699,38 @@ mod tests {
     // ── Paths an agent may open, present or send for review ─────────────────
 
     use super::checked_agent_path;
+
+    // ── Edit round-trips ─────────────────────────────────────────────────────
+
+    use super::{names_open_document, EDIT_ROUNDTRIP_TIMEOUT};
+
+    /// mdopener-mcp gives up reading an IPC reply after 5 s (`tcp_roundtrip`).
+    /// A round-trip that waits as long answers after the client has gone, so
+    /// the agent sees "IPC read error" instead of the app's own reason.
+    #[test]
+    fn edit_round_trips_answer_before_the_mcp_client_gives_up() {
+        assert!(EDIT_ROUNDTRIP_TIMEOUT < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_named_path_is_compared_with_the_open_document_canonically() {
+        let d = Scratch::new("names-open");
+        let open = d.0.join("open.md");
+        std::fs::write(&open, "x").unwrap();
+        let open_s = open.to_str().unwrap();
+        let via_dots = format!("{}/./open.md", d.0.display());
+        let canon = std::fs::canonicalize(&open).unwrap();
+        for want in [open_s, via_dots.as_str(), canon.to_str().unwrap()] {
+            assert!(names_open_document(want, open_s), "{want}");
+            assert!(names_open_document(open_s, &via_dots), "{want}");
+        }
+        let other = d.0.join("other.md");
+        std::fs::write(&other, "y").unwrap();
+        assert!(!names_open_document(other.to_str().unwrap(), open_s));
+        assert!(!names_open_document(open_s, ""));
+        // Unsaved buffers have no path to resolve; only an exact match counts.
+        assert!(names_open_document("Untitled", "Untitled"));
+    }
 
     #[test]
     fn agents_can_open_only_markdown_documents() {
