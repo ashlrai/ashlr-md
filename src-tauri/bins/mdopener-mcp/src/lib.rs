@@ -5511,7 +5511,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Write to disk ────────────────────────────────────────────────────────
     let save = args["save"].as_bool().unwrap_or(true);
     if save {
-        if let Err(e) = std::fs::write(&path, &serialised) {
+        if let Err(e) = replace_file(std::path::Path::new(&path), serialised.as_bytes()) {
             return tool_error(id, format!("Failed to write {path}: {e}"));
         }
     }
@@ -5531,6 +5531,59 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "content": if save { Value::Null } else { json!(serialised) },
         }),
     )
+}
+
+/// Replace the file at `path` with `bytes`: written into a new sibling temp
+/// file (created with `create_new`, so never through an existing name or
+/// symlink) that takes the old file's permissions, then renamed over `path`.
+/// The rename replaces whatever is at `path` and never follows it, so a
+/// `.canvas` swapped for a symlink to `~/.bashrc` after `edit_canvas` checked
+/// and read it is replaced, not written through: the write used to be
+/// `std::fs::write`, which follows the link.
+pub fn replace_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let keep = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.permissions());
+    let mut attempt = 0;
+    let (tmp, mut file) = loop {
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(
+            ".{}-{seq}-{nanos:x}.mdopener.tmp",
+            std::process::id()
+        ));
+        let tmp = std::path::PathBuf::from(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(f) => break (tmp, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt < 16 => {
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    };
+    let written = keep
+        .map_or(Ok(()), |p| file.set_permissions(p))
+        .and_then(|()| file.write_all(bytes))
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&tmp, path)
+        });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 // ── Canvas JSON helpers ───────────────────────────────────────────────────────

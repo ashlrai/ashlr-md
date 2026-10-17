@@ -5158,6 +5158,52 @@ fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
     );
 }
 
+/// `edit_canvas` saved with `std::fs::write`, which follows a symlink: a
+/// `.canvas` swapped for a link to `~/.bashrc` after it was checked and read
+/// had the canvas JSON written into `~/.bashrc`. The save replaces the file
+/// instead (shown here with the link already in place, as after the swap),
+/// keeping its permissions, and a real save still works.
+#[cfg(unix)]
+#[test]
+fn canvas_saves_replace_the_file_and_never_write_through_a_link() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("bashrc");
+    std::fs::write(&outside, "keep me").unwrap();
+    let swapped = dir.path().join("board.canvas");
+    std::os::unix::fs::symlink(&outside, &swapped).unwrap();
+    mdopener_mcp::replace_file(&swapped, b"{}").unwrap();
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
+    assert!(!std::fs::symlink_metadata(&swapped)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(std::fs::read_to_string(&swapped).unwrap(), "{}");
+
+    let board = dir.path().join("plan.canvas");
+    std::fs::write(&board, "{\"nodes\":[{\"id\":\"a\",\"type\":\"text\",\"text\":\"x\",\"x\":0,\"y\":0,\"width\":10,\"height\":10}],\"edges\":[]}").unwrap();
+    std::fs::set_permissions(&board, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let resp = call(
+        "edit_canvas",
+        json!({
+            "path": board.to_string_lossy(),
+            "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }],
+        }),
+        &MockIpc::new(),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&board).unwrap()).unwrap();
+    assert_eq!(saved["nodes"][0]["x"], json!(5.0));
+    let mode = std::fs::metadata(&board).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+    let left: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // export output_path is written by the app and confirmed on disk
 // ════════════════════════════════════════════════════════════════════════════

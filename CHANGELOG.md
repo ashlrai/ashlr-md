@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` never writes through a symlink.** It saved with a write
+  that follows symlinks, so a `.canvas` swapped for a link to `~/.bashrc`
+  after the tool checked and read it had the canvas JSON written into
+  `~/.bashrc`. It now writes a new temp file and renames it over the canvas,
+  which replaces a link instead of following it, and keeps the file's
+  permissions.
 - **Saving keeps the file's permissions.** A save (or an export over an
   existing file) replaced the file with a new one in the default mode, so a
   private `0600` note became readable by every user on the machine after its

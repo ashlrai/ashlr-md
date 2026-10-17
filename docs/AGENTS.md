@@ -707,7 +707,9 @@ The integration is **local-only and token-authenticated**:
   `get_current_content` would return it; the app's `/open`, `/present` and
   `/review` endpoints refuse such a path too (HTTP 400, and the reason
   reaches the agent). `edit_canvas` likewise re-checks `.canvas`
-  after resolving symlinks.
+  after resolving symlinks, and saves by renaming a new temp file over the
+  canvas (keeping its permissions), so a canvas swapped for a symlink after
+  the check is replaced, never written through.
 - `export` with `output_path` writes that file without a dialog and replaces
   an existing file of that name. It only accepts a non-dotfile path with the
   format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
