@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`resources/list` says when the vault's files are cut short.** The app
+  lists only the newest Markdown files of a large watched folder, and the
+  `file://` entries gave no sign of it, so a client read them as the whole
+  vault. The result now carries `_meta["mdopener/vaultFilesTruncated"]`
+  with the reason and the app's cap, as `search_vault` says `truncated`.
 - **`resources/templates/list` offers the vault search.** The method was
   unknown (`-32601`), so a client that discovers parameterised resources
   through it never saw `text://vault-search`, and the bare URI that

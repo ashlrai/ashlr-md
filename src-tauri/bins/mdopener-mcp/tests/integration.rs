@@ -3125,6 +3125,60 @@ fn resources_list_says_when_the_vault_files_could_not_be_listed() {
         .any(|r| r["uri"] == "file:///v/a.md"));
 }
 
+/// The app lists only the newest files of a large watched folder;
+/// resources/list said nothing, so its `file://` entries read as the whole
+/// vault. It now says so in `_meta`, naming the cap the app sent.
+#[test]
+fn resources_list_says_when_the_vault_files_are_cut_short() {
+    use mdopener_mcp::{VAULT_FILES_TRUNCATED_META, VAULT_FILES_UNLISTED_META};
+    let listed = |extra: Value| {
+        let mut v = json!({ "files": [{ "path": "/v/a.md", "name": "a.md" }], "recents": [] });
+        for (k, val) in extra.as_object().unwrap() {
+            v[k] = val.clone();
+        }
+        let ipc = MockIpc::new().on_get("/vault", Ok(v));
+        handle_resources_list(id(306), &ipc).result.unwrap()
+    };
+
+    let result = listed(json!({ "truncated": true, "limit": 200 }));
+    let why = result["_meta"][VAULT_FILES_TRUNCATED_META]
+        .as_str()
+        .unwrap_or_else(|| panic!("no _meta marker: {result}"));
+    assert!(
+        why.contains("more Markdown files than Ashlr MD lists"),
+        "{why}"
+    );
+    assert!(why.contains("only the 200 most recently changed"), "{why}");
+    assert!(
+        result["_meta"].get(VAULT_FILES_UNLISTED_META).is_none(),
+        "{result}"
+    );
+    assert!(result["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["uri"] == "file:///v/a.md"));
+
+    let result = listed(json!({ "truncated": true, "scanCut": true, "depthCut": true }));
+    let why = result["_meta"][VAULT_FILES_TRUNCATED_META]
+        .as_str()
+        .unwrap();
+    assert!(why.contains("too deeply nested"), "{why}");
+    assert!(
+        why.contains("only the most recently changed"),
+        "no cap claimed: {why}"
+    );
+
+    let result = listed(json!({ "scanCut": true }));
+    let why = result["_meta"][VAULT_FILES_TRUNCATED_META]
+        .as_str()
+        .unwrap();
+    assert!(why.contains("too large"), "{why}");
+
+    let result = listed(json!({ "truncated": false, "scanCut": false, "depthCut": false }));
+    assert!(result.get("_meta").is_none(), "{result}");
+}
+
 #[test]
 fn resources_list_vault_search_has_json_mime_type() {
     let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": [] })));

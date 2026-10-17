@@ -367,7 +367,12 @@ below; it needs no app.
   running, or it refused), the list has none, and the result carries
   `_meta: { "mdopener/vaultFilesUnlisted": "<reason>" }` (also logged on
   stderr) so a client can tell that from a vault with no files; a listing
-  that worked has no such key.
+  that worked has no such key. When the app's vault list is cut short (the
+  watched folder has more Markdown files than the app lists, or is too large
+  or too deeply nested to scan in full, as `search_vault`'s `truncated`
+  says), the result carries `_meta: { "mdopener/vaultFilesTruncated":
+  "<reason>" }`, naming the app's cap, so the `file://` entries are not
+  read as the whole vault.
 
 `resources/read` is **scoped**: a `file://` URI is only readable if it is one of
 the paths the app currently advertises in the vault or recents. Any other path
