@@ -5368,13 +5368,45 @@ fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
             "tags": ["launch", "q4, late", 3],
             "aliases": ["Plan", "Launch"],
             "authors": ["Zoë"],
-            "owner": "",
+            "owner": { "name": "Sam", "team": "core" },
             "draft": true,
         })
     );
     assert_eq!(
         extract_frontmatter("---\ntags: []\n---\n"),
         json!({ "tags": [] })
+    );
+}
+
+/// One level of nesting becomes an object (its values parsed like top-level
+/// ones, lists included), deeper levels are not parsed (null), and a bare
+/// `key:` with nothing under it is null rather than "".
+#[test]
+fn frontmatter_parses_one_level_of_nesting_and_empty_values_are_null() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               summary:\n\
+               author:\n    name: Zoë\n    links: [a, b]\n    roles:\n      - lead\n      - qa\n    \
+               address:\n      city: Oslo\n    email:\n\
+               quoted: \"\"\n\
+               tilde: ~\n\
+               last:\n\
+               ---\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({
+            "summary": null,
+            "author": {
+                "name": "Zoë",
+                "links": ["a", "b"],
+                "roles": ["lead", "qa"],
+                "address": null,
+                "email": null,
+            },
+            "quoted": "",
+            "tilde": null,
+            "last": null,
+        })
     );
 }
 

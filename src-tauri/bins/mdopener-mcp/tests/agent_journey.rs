@@ -215,6 +215,11 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         meta["frontmatter"].get("name").is_none(),
         "nested key leaked: {meta}"
     );
+    assert_eq!(
+        meta["frontmatter"]["owner"],
+        json!({ "name": "Zoë" }),
+        "{meta}"
+    );
     let headings: Vec<(u64, &str)> = meta["headings"]
         .as_array()
         .unwrap()

@@ -1055,7 +1055,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "export_metadata",
             description: "Extract structural metadata from a Markdown document without the full \
-                content: YAML front-matter (parsed to an object), a headings tree (level + text for \
+                content: YAML front-matter (a simple subset parsed to an object: scalars, lists, one \
+                level of nested mapping; an empty value is null), a headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
@@ -4752,27 +4753,42 @@ fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
 
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
-/// Returns a `serde_json::Value::Object` with the parsed top-level key/value
-/// pairs, or `Value::Null` when no front-matter is present or it holds no
-/// `key: value` lines. Scalars become strings, bools or numbers, and lists of
-/// scalars (`tags: [a, b]`, or `- item` lines under `tags:`) become arrays.
-/// A nested mapping is not parsed: its key keeps an empty string, and its
-/// indented lines are never read as top-level keys.
+/// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
+/// `Value::Null` when no front-matter is present or it holds no `key: value`
+/// lines. A simple subset of YAML is read (documented in docs/AGENTS.md):
+/// scalars become strings, bools, numbers or null (`~`, `null`, or nothing
+/// after the colon), lists of scalars (`tags: [a, b]`, or `- item` lines under
+/// `tags:`) become arrays, and one level of nested mapping (indented
+/// `key: value` lines under `owner:`) becomes an object whose values are read
+/// the same way. Anything nested deeper is not parsed: its key holds null.
 pub fn extract_frontmatter(content: &str) -> Value {
     let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
     };
     let mut map = serde_json::Map::new();
-    // The key whose value was left empty, which `- item` lines then fill.
-    let mut list_key: Option<String> = None;
+    // The top-level key whose value was left empty: `- item` lines make it a
+    // list, indented `key: value` lines a mapping.
+    let mut open_key: Option<String> = None;
+    // The indentation of that mapping's keys, once its first one is seen.
+    let mut map_indent: Option<usize> = None;
+    // The nested key whose value was left empty, which `- item` lines
+    // indented deeper than it then fill.
+    let mut open_sub: Option<String> = None;
     for line in &fm_lines {
         let t = line.trim();
         if t.is_empty() || t.starts_with('#') {
             continue;
         }
+        let indent = line.len() - line.trim_start().len();
         if let Some(item) = t.strip_prefix("- ").or((t == "-").then_some("")) {
-            if let Some(entry) = list_key.as_ref().and_then(|k| map.get_mut(k)) {
-                if *entry == json!("") {
+            let parent = open_key.as_ref().and_then(|k| map.get_mut(k));
+            let entry = match (parent, &open_sub, map_indent) {
+                (Some(Value::Object(m)), Some(sub), Some(mi)) if indent > mi => m.get_mut(sub),
+                (Some(v), _, None) => Some(v),
+                _ => None,
+            };
+            if let Some(entry) = entry {
+                if entry.is_null() {
                     *entry = json!([]);
                 }
                 if let Some(items) = entry.as_array_mut() {
@@ -4781,32 +4797,41 @@ pub fn extract_frontmatter(content: &str) -> Value {
             }
             continue;
         }
-        if line.starts_with([' ', '\t']) {
-            // Part of a nested value: not a top-level key.
+        if indent > 0 {
+            // A nested mapping's key, one level down; deeper lines are not read.
+            let Some(key) = &open_key else {
+                continue;
+            };
+            if map_indent.is_some_and(|mi| mi != indent) {
+                continue;
+            }
+            let Some((sub, val_str)) = frontmatter_key_value(t) else {
+                continue;
+            };
+            let parent = map.get_mut(key);
+            let Some(parent) = parent.filter(|v| v.is_null() || v.is_object()) else {
+                continue;
+            };
+            if parent.is_null() {
+                *parent = json!({});
+            }
+            map_indent = Some(indent);
+            open_sub = val_str.is_empty().then(|| sub.clone());
+            if let Some(m) = parent.as_object_mut() {
+                m.insert(sub, frontmatter_value(val_str));
+            }
             continue;
         }
-        list_key = None;
-        let Some(colon) = line.find(':') else {
+        open_key = None;
+        map_indent = None;
+        open_sub = None;
+        let Some((key, val_str)) = frontmatter_key_value(t) else {
             continue;
-        };
-        let key = line[..colon].trim().to_string();
-        if key.is_empty() {
-            continue;
-        }
-        let val_str = line[colon + 1..].trim();
-        let val = match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
-            Some(items) => Value::Array(
-                split_flow_items(items)
-                    .into_iter()
-                    .map(frontmatter_scalar)
-                    .collect(),
-            ),
-            None => frontmatter_scalar(val_str),
         };
         if val_str.is_empty() {
-            list_key = Some(key.clone());
+            open_key = Some(key.clone());
         }
-        map.insert(key, val);
+        map.insert(key, frontmatter_value(val_str));
     }
     if map.is_empty() {
         Value::Null
@@ -4815,10 +4840,36 @@ pub fn extract_frontmatter(content: &str) -> Value {
     }
 }
 
-/// One front-matter scalar: a bool, an integer, a float, else a string with
-/// any surrounding quotes removed.
+/// Split a `key: value` line into its key and its trimmed value text.
+fn frontmatter_key_value(line: &str) -> Option<(String, &str)> {
+    let colon = line.find(':')?;
+    let key = line[..colon].trim();
+    (!key.is_empty()).then(|| (key.to_string(), line[colon + 1..].trim()))
+}
+
+/// The value after a key's colon: null when there is none, an array for a
+/// flow list (`[a, b]`), else a scalar.
+fn frontmatter_value(val_str: &str) -> Value {
+    if val_str.is_empty() {
+        return Value::Null;
+    }
+    match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        Some(items) => Value::Array(
+            split_flow_items(items)
+                .into_iter()
+                .map(frontmatter_scalar)
+                .collect(),
+        ),
+        None => frontmatter_scalar(val_str),
+    }
+}
+
+/// One front-matter scalar: null, a bool, an integer, a float, else a string
+/// with any surrounding quotes removed.
 fn frontmatter_scalar(val_str: &str) -> Value {
-    if val_str == "true" {
+    if matches!(val_str, "~" | "null" | "Null" | "NULL") {
+        Value::Null
+    } else if val_str == "true" {
         json!(true)
     } else if val_str == "false" {
         json!(false)

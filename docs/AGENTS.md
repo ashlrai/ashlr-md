@@ -233,7 +233,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately (unsaved, `find` must match once) and the result has `applied: true`, so do not call `stream_edit_apply` after it. A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). The app re-finds `find` in the live document; `edit_id` is for correlation only. |
 | `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept): `~~struck~~` text keeps its words, table rows become tab-separated cells (the `|---|` row is dropped, `\|` reads `|`), and footnotes read `[1]` at the reference and `[1] text` at the definition. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
-| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). Top-level scalars are parsed, and lists (`tags: [a, b]` or `- item` lines) become arrays; a nested mapping is not parsed and its key holds `""`. |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). The supported YAML subset is described under [Front matter in `export_metadata`](#front-matter-in-export_metadata). |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -263,6 +263,24 @@ live buffer until saved).
 ### `request_review` — blocking human sign-off
 
 See the dedicated [Human review loop](#human-review-loop) section.
+
+### Front matter in `export_metadata`
+
+`frontmatter` reads a small subset of YAML, not full YAML:
+
+- **Scalars**: `true` / `false` become booleans, integers and decimals become
+  numbers, `~`, `null` and an empty value (`key:` with nothing after it and
+  nothing under it) become `null`, and anything else is a string with
+  surrounding `"` or `'` removed (`key: ""` is the empty string).
+- **Lists of scalars**: a flow list (`tags: [a, "b, c"]`) or `- item` lines
+  under an empty `key:` become arrays.
+- **One level of nesting**: indented `name: value` lines under an empty
+  `owner:` become an object (`{"owner": {"name": "value"}}`). Their values are
+  read the same way, so `links: [a, b]` or `- item` lines under `roles:` are
+  arrays, and an empty one is `null`.
+- **Not parsed**: anything nested deeper (its key holds `null`), lists of
+  mappings (`- name: x` is the string `"name: x"`), multi-line strings (`|`,
+  `>`), anchors and tags. Comment lines (`# ...`) are skipped.
 
 ---
 
