@@ -214,8 +214,41 @@ fn registered_command(stdout: &str) -> Option<String> {
     })
 }
 
+/// Whether the program a client registered, `registered`, is this app's
+/// `mcp_path`. The same string is; otherwise, when `exists` says both are on
+/// disk, they are when their canonical paths match (a registration that
+/// reaches the binary through a symlink, such as `/tmp` against
+/// `/private/tmp`). With `case_insensitive` (macOS, whose volumes usually
+/// ignore case) two existing paths that differ only in case match too.
+fn same_program(
+    registered: &str,
+    mcp_path: &str,
+    exists: &dyn Fn(&str) -> bool,
+    case_insensitive: bool,
+) -> bool {
+    if registered == mcp_path {
+        return true;
+    }
+    if !(exists(registered) && exists(mcp_path)) {
+        return false;
+    }
+    let canonical = |p: &str| {
+        fs::canonicalize(p)
+            .map(|c| c.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string())
+    };
+    let (a, b) = (canonical(registered), canonical(mcp_path));
+    a == b || (case_insensitive && a.to_lowercase() == b.to_lowercase())
+}
+
+/// [`same_program`] as this platform compares paths: ignoring case on macOS
+/// only.
+const PATHS_IGNORE_CASE: bool = cfg!(target_os = "macos");
+
 /// Register `mcp_path` as the `ashlr-md` server with `cli`, running it through
-/// `run`; `exists` says whether a registered program is still on disk.
+/// `run`; `exists` says whether a registered program is still on disk, and
+/// `ignore_case` whether paths that differ only in case name the same file
+/// (see [`same_program`]).
 ///
 /// When the client says `ashlr-md` is already registered, the command it runs
 /// is checked. It used to be reported as success whatever it ran, so after
@@ -225,11 +258,15 @@ fn registered_command(stdout: &str) -> Option<String> {
 /// added again for `mcp_path`; one that runs some other program that does
 /// exist is the user's choice and is kept, and the message says so; and when
 /// the client does not say what it runs, the message says how to re-add it.
+/// A registration that reaches this app's binary by another path (a symlink,
+/// or on macOS a difference in case) is this app's, not another program: it
+/// used to be kept as "another program" with advice to remove it.
 fn connect_agent_cli(
     cli: &AgentCli,
     mcp_path: &str,
     run: CliRunner,
     exists: &dyn Fn(&str) -> bool,
+    ignore_case: bool,
 ) -> Result<String, String> {
     let spawn_error = |e: std::io::Error| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -269,6 +306,10 @@ fn connect_agent_cli(
         Some(current) if current == mcp_path => Ok(format!(
             "ashlr-md is already registered in {label}, running {mcp_path}. Restart \
              {label} if you haven't already."
+        )),
+        Some(current) if same_program(&current, mcp_path, exists, ignore_case) => Ok(format!(
+            "ashlr-md is already registered in {label}, running {current}, which is this \
+             app's {mcp_path}. Restart {label} if you haven't already."
         )),
         Some(old) if !exists(&old) => {
             let removed = run(cli.remove).map_err(spawn_error)?;
@@ -325,6 +366,7 @@ pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
         &mcp_path,
         &|args| run_agent_cli(CLAUDE_CLI.program, args),
         &|p| std::path::Path::new(p).is_file(),
+        PATHS_IGNORE_CASE,
     )
 }
 
@@ -459,6 +501,7 @@ pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
         &mcp_path,
         &|args| run_agent_cli(CODEX_CLI.program, args),
         &|p| std::path::Path::new(p).is_file(),
+        PATHS_IGNORE_CASE,
     )
 }
 
@@ -964,8 +1007,14 @@ mod tests {
             }
             cli.run(args)
         };
-        let msg =
-            connect_agent_cli(&CLAUDE_CLI, MCP, &removed_then_added, &|p| p != OLD_MCP).unwrap();
+        let msg = connect_agent_cli(
+            &CLAUDE_CLI,
+            MCP,
+            &removed_then_added,
+            &|p| p != OLD_MCP,
+            false,
+        )
+        .unwrap();
         assert_eq!(
             cli.calls(),
             [
@@ -989,7 +1038,7 @@ mod tests {
             (&add, fail(CLAUDE_EXISTS)),
             ("mcp get ashlr-md", ok(&claude_get(MCP))),
         ]);
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap();
         assert!(
             msg.contains("already registered") && msg.contains(MCP),
             "{msg}"
@@ -1005,7 +1054,7 @@ mod tests {
             (&add, fail(CLAUDE_EXISTS)),
             ("mcp get ashlr-md", ok(&claude_get(other))),
         ]);
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap();
         assert!(
             msg.contains(other) && msg.contains("left as it is"),
             "{msg}"
@@ -1017,11 +1066,82 @@ mod tests {
         assert!(!cli.calls().iter().any(|c| c.contains("remove")));
     }
 
+    /// A registration that reaches this app's binary through a symlink used
+    /// to count as another program: kept, with advice to remove it.
+    #[cfg(unix)]
+    #[test]
+    fn a_registration_through_a_symlink_is_this_apps() {
+        let dir = std::env::temp_dir().join(format!("ashlr-md-symlink-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("real")).unwrap();
+        let real = dir.join("real/mdopener-mcp");
+        fs::write(&real, "").unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let other = dir.join("real/other-mcp");
+        fs::write(&other, "").unwrap();
+        let real_s = real.to_str().unwrap().to_string();
+        let linked = dir.join("link/mdopener-mcp").to_str().unwrap().to_string();
+        let is_file = |p: &str| std::path::Path::new(p).is_file();
+
+        let add = format!("mcp add --scope user ashlr-md {real_s}");
+        let cli = FakeCli::new(&[
+            (&add, fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(&linked))),
+        ]);
+        let msg =
+            connect_agent_cli(&CLAUDE_CLI, &real_s, &|a| cli.run(a), &is_file, false).unwrap();
+        assert!(
+            msg.contains(&format!("running {linked}, which is this app's {real_s}")),
+            "{msg}"
+        );
+        assert!(!msg.contains("left as it is"), "{msg}");
+        assert!(!cli.calls().iter().any(|c| c.contains("remove")));
+
+        // Another file in the same folder is still another program.
+        let other_s = other.to_str().unwrap();
+        let cli = FakeCli::new(&[
+            (&add, fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(other_s))),
+        ]);
+        let msg =
+            connect_agent_cli(&CLAUDE_CLI, &real_s, &|a| cli.run(a), &is_file, false).unwrap();
+        assert!(msg.contains("left as it is"), "{msg}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On macOS a path that differs only in case names the same file; on
+    /// other platforms it is another program.
+    #[test]
+    fn a_registration_differing_only_in_case_is_this_apps_where_case_is_ignored() {
+        let upper = "/Applications/ASHLR MD.app/Contents/Resources/mdopener-mcp";
+        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        let script = [
+            (add.as_str(), fail(CLAUDE_EXISTS)),
+            ("mcp get ashlr-md", ok(&claude_get(upper))),
+        ];
+        let cli = FakeCli::new(&script);
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, true).unwrap();
+        assert!(msg.contains("which is this app's"), "{msg}");
+        assert!(!cli.calls().iter().any(|c| c.contains("remove")));
+
+        let cli = FakeCli::new(&script);
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap();
+        assert!(msg.contains("left as it is"), "{msg}");
+
+        // A registered path that is gone is stale, whatever its case.
+        let cli = FakeCli::new(&script);
+        let gone = |p: &str| p != upper;
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &gone, true).unwrap_err();
+        assert!(msg.contains("no longer exists"), "{msg}");
+
+        assert_eq!(PATHS_IGNORE_CASE, cfg!(target_os = "macos"));
+    }
+
     #[test]
     fn unreadable_registration_says_how_to_re_add() {
         let add = format!("mcp add --scope user ashlr-md {MCP}");
         let cli = FakeCli::new(&[(&add, fail(CLAUDE_EXISTS))]);
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap();
+        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap();
         assert!(
             msg.contains("did not say which program")
                 && msg.contains("claude mcp remove --scope user ashlr-md"),
@@ -1050,7 +1170,7 @@ mod tests {
             }
             cli.run(args)
         };
-        let msg = connect_agent_cli(&CODEX_CLI, MCP, &then_ok, &|_| false).unwrap();
+        let msg = connect_agent_cli(&CODEX_CLI, MCP, &then_ok, &|_| false, false).unwrap();
         assert!(msg.contains(&format!("now runs {MCP}")), "{msg}");
         assert_eq!(cli.calls().last(), Some(&add));
 
@@ -1068,11 +1188,12 @@ mod tests {
         // "exists"), and was reported as success.
         let add = format!("mcp add --scope user ashlr-md {MCP}");
         let cli = FakeCli::new(&[(&add, fail("Error: path does not exist"))]);
-        let err = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true).unwrap_err();
+        let err =
+            connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap_err();
         assert_eq!(err, "Error: path does not exist");
         let missing =
             |_: &[&str]| -> std::io::Result<CliOutput> { Err(std::io::ErrorKind::NotFound.into()) };
-        let err = connect_agent_cli(&CODEX_CLI, MCP, &missing, &|_| true).unwrap_err();
+        let err = connect_agent_cli(&CODEX_CLI, MCP, &missing, &|_| true, false).unwrap_err();
         assert!(err.starts_with("Codex CLI not found"), "{err}");
     }
 
