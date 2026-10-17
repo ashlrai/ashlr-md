@@ -2992,9 +2992,9 @@ fn resource_read_vault_search_rejects_a_non_numeric_limit() {
 #[test]
 fn search_vault_rejects_a_non_boolean_semantic() {
     let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
-    let resp = mdopener_mcp::tool_search_vault(
-        id(313),
-        &json!({ "query": "x", "semantic": "false" }),
+    let resp = call(
+        "search_vault",
+        json!({ "query": "x", "semantic": "false" }),
         &ipc,
     );
     let err = resp
@@ -4441,7 +4441,12 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
     assert_eq!((hunks, added, removed), (2, 3, 3), "{diff}");
     assert!(diff.contains("@@ -2,10 +2,10 @@"), "{diff}");
     assert!(diff.contains(" 9\n 10\n 11\n@@ -15,6 +15,6 @@"), "{diff}");
-    assert!(diff.ends_with("+eighteen\n 19\n 20"), "{diff}");
+    // `a` has no final newline, which the last context line says, as in
+    // `diff -u`.
+    assert!(
+        diff.ends_with("+eighteen\n 19\n 20\n\\ No newline at end of file"),
+        "{diff}"
+    );
 }
 
 // ── search_vault / text://vault-search when the app is down ─────────────────
@@ -6227,4 +6232,466 @@ fn a_boolean_argument_of_the_wrong_type_is_refused() {
         assert!(err.message.contains(name), "{tool}: {}", err.message);
         assert!(ipc.calls().is_empty(), "{tool} must not reach the app");
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// tools/call argument checking against the declared inputSchema
+// ════════════════════════════════════════════════════════════════════════════
+
+fn call_tool(name: &str, arguments: Value) -> mdopener_mcp::Response {
+    let ipc = MockIpc::new();
+    dispatch(
+        dispatch_req(
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        ),
+        &ipc,
+    )
+    .unwrap()
+}
+
+fn param_error(resp: &mdopener_mcp::Response) -> String {
+    let err = resp
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected a -32602 error, got {:?}", resp.result));
+    assert_eq!(err.code, -32602, "{}", err.message);
+    err.message.clone()
+}
+
+#[test]
+fn undeclared_argument_is_refused_with_the_declared_ones() {
+    // `pth` used to be ignored: export_metadata then read the open document
+    // (or failed with "not running") instead of the path the agent meant.
+    let msg = param_error(&call_tool("export_metadata", json!({ "pth": "a.md" })));
+    assert!(
+        msg.contains("Unknown argument `pth` for `export_metadata`"),
+        "{msg}"
+    );
+    assert!(msg.contains("it takes `path`"), "{msg}");
+    assert!(msg.contains("Did you mean `path`?"), "{msg}");
+
+    // A typo of a boolean flag used to return the full prompts anyway.
+    let msg = param_error(&call_tool(
+        "list_ai_actions",
+        json!({ "include_prompt": false }),
+    ));
+    assert!(msg.contains("Did you mean `include_prompts`?"), "{msg}");
+
+    // A tool with no parameters says so.
+    let msg = param_error(&call_tool("get_current_content", json!({ "x": 1 })));
+    assert!(msg.contains("it takes no arguments"), "{msg}");
+}
+
+#[test]
+fn mistyped_argument_is_refused_instead_of_defaulted() {
+    // `"no"` used to fall back to the default (true) and return prompts.
+    let msg = param_error(&call_tool(
+        "list_ai_actions",
+        json!({ "include_prompts": "no" }),
+    ));
+    assert_eq!(
+        msg,
+        "`include_prompts` must be a boolean, got a string (\"no\")"
+    );
+
+    let msg = param_error(&call_tool(
+        "get_conversation_context",
+        json!({ "session_id": "s", "limit": "5" }),
+    ));
+    assert!(msg.contains("`limit` must be an integer"), "{msg}");
+
+    let msg = param_error(&call_tool("list_recent", json!({ "limit": 2.5 })));
+    assert!(
+        msg.contains("`limit` must be an integer, got a number (2.5)"),
+        "{msg}"
+    );
+
+    // Array elements are checked against `items.type`: a number in
+    // `cited_docs` used to be dropped without a word.
+    let msg = param_error(&call_tool(
+        "save_conversation_message",
+        json!({ "session_id": "s", "role": "agent", "content": "x", "cited_docs": ["a.md", 7] }),
+    ));
+    assert!(msg.contains("`cited_docs[1]` must be a string"), "{msg}");
+
+    let msg = param_error(&call_tool("diff_documents", json!("a.md")));
+    assert!(
+        msg.contains("`arguments` for `diff_documents` must be an object"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn well_formed_arguments_still_reach_the_tool() {
+    // null means "not given", and `theme` keeps the export tool's own message.
+    let resp = call_tool("list_ai_actions", json!({ "include_prompts": null }));
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let msg = param_error(&call_tool(
+        "export",
+        json!({ "format": "html", "theme": "dark" }),
+    ));
+    assert!(msg.contains("`theme` is not supported"), "{msg}");
+    // No `arguments` at all is still the tool's own "required" error.
+    let ipc = MockIpc::new();
+    let resp = dispatch(
+        dispatch_req("tools/call", json!({ "name": "diff_documents" })),
+        &ipc,
+    )
+    .unwrap();
+    assert_eq!(param_error(&resp), "`path_a` is required");
+}
+
+#[test]
+fn every_declared_argument_passes_the_check() {
+    // Build arguments of the declared type for every property of every tool:
+    // none may be refused as undeclared or mistyped.
+    for def in tool_registry() {
+        let mut args = serde_json::Map::new();
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            let v = match prop["type"].as_str() {
+                Some("string") => json!("x"),
+                Some("boolean") => json!(true),
+                Some("integer") => json!(1),
+                Some("number") => json!(1.5),
+                Some("array") => json!([]),
+                Some("object") => json!({}),
+                _ => json!("x"),
+            };
+            args.insert(k.clone(), v);
+        }
+        let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
+        assert!(r.is_ok(), "{}: {:?}", def.name, r);
+    }
+}
+
+#[test]
+fn unknown_tool_names_the_closest_tool_and_tools_list() {
+    let msg = param_error(&call_tool("Open_File", json!({})));
+    assert!(msg.starts_with("Unknown tool: Open_File."), "{msg}");
+    assert!(msg.contains("Did you mean `open_file`?"), "{msg}");
+    assert!(msg.contains("Call tools/list"), "{msg}");
+
+    let msg = param_error(&call_tool("", json!({})));
+    assert!(msg.contains("`name` is missing or blank"), "{msg}");
+    assert!(!msg.contains("Did you mean"), "{msg}");
+}
+
+#[test]
+fn blank_session_id_is_refused() {
+    use_temp_sessions_dir();
+    let resp = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": "   ", "role": "agent", "content": "did x" }),
+    );
+    assert_eq!(param_error(&resp), "`session_id` must not be blank");
+    assert!(
+        !session_file_path("   ").unwrap().exists(),
+        "no session file for a blank id"
+    );
+    let resp = tool_get_conversation_context(json!(1), &json!({ "session_id": "\t" }));
+    assert_eq!(param_error(&resp), "`session_id` must not be blank");
+}
+
+#[test]
+fn integer_below_its_minimum_is_refused() {
+    // Each of these used to fall back to the default (`as_u64` of a negative
+    // is None): `limit: -5` listed 10 recents, `timeout_ms: -1` gave the
+    // human 5 minutes, `match_index: -1` applied the first occurrence.
+    let cases = [
+        (
+            "list_recent",
+            json!({ "limit": -5 }),
+            "`limit` must be at least 0, got -5",
+        ),
+        (
+            "search_vault",
+            json!({ "query": "q", "limit": -1 }),
+            "`limit` must be at least 0, got -1",
+        ),
+        (
+            "get_conversation_context",
+            json!({ "session_id": "s", "limit": 0 }),
+            "`limit` must be at least 1, got 0",
+        ),
+        (
+            "diff_documents",
+            json!({ "path_a": "a.md", "path_b": "b.md", "context_lines": -3 }),
+            "`context_lines` must be at least 0, got -3",
+        ),
+        (
+            "request_review",
+            json!({ "content": "x", "timeout_ms": -1 }),
+            "`timeout_ms` must be at least 0, got -1",
+        ),
+        (
+            "request_review",
+            json!({ "content": "x", "wait_ms": -1000 }),
+            "`wait_ms` must be at least 0, got -1000",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview_lines": -2 }),
+            "`preview_lines` must be at least 0, got -2",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": -1 }),
+            "`match_index` must be at least 0, got -1",
+        ),
+    ];
+    for (tool, args, want) in cases {
+        assert_eq!(param_error(&call_tool(tool, args)), want, "{tool}");
+    }
+    // Every integer argument declares a minimum, so none is left unchecked.
+    for def in tool_registry() {
+        for (k, prop) in def.input_schema["properties"].as_object().unwrap() {
+            if prop["type"] == "integer" {
+                assert!(prop["minimum"].is_i64(), "{}.{k} has no minimum", def.name);
+            }
+        }
+    }
+    // The minimum itself and values past i64 still pass.
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit_apply")
+        .unwrap();
+    for n in [json!(0), json!(u64::MAX)] {
+        let args = json!({ "find": "a", "replace": "b", "match_index": n });
+        assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+    }
+}
+
+fn prompt_get(params: Value) -> mdopener_mcp::Response {
+    let ipc = MockIpc::new();
+    dispatch(dispatch_req("prompts/get", params), &ipc).unwrap()
+}
+
+#[test]
+fn unknown_prompt_names_the_closest_prompt_and_the_prompts() {
+    // `Unknown prompt: Summarize` gave no next step.
+    let msg = param_error(&prompt_get(json!({ "name": "Summarize" })));
+    assert!(msg.starts_with("Unknown prompt: Summarize."), "{msg}");
+    assert!(msg.contains("Did you mean `summarize`?"), "{msg}");
+    assert!(
+        msg.contains("The prompts are `summarize`, `review_plan`, `improve_writing`"),
+        "{msg}"
+    );
+
+    let msg = param_error(&prompt_get(json!({})));
+    assert!(msg.contains("`name` is missing or blank"), "{msg}");
+    assert!(!msg.contains("Did you mean"), "{msg}");
+
+    // Every prompt prompts/list serves is named in the message.
+    let msg = param_error(&prompt_get(json!({ "name": "nope" })));
+    for p in mdopener_mcp::prompts_list().as_array().unwrap() {
+        let name = p["name"].as_str().unwrap();
+        assert!(msg.contains(&format!("`{name}`")), "{name}: {msg}");
+    }
+}
+
+#[test]
+fn unknown_resource_uri_names_the_closest_uri_and_resources_list() {
+    let ipc = MockIpc::new();
+    let read = |params: Value| dispatch(dispatch_req("resources/read", params), &ipc).unwrap();
+
+    let msg = param_error(&read(json!({ "uri": "mdopener://Current" })));
+    assert!(
+        msg.starts_with("Unknown resource URI: mdopener://Current."),
+        "{msg}"
+    );
+    assert!(msg.contains("Did you mean `mdopener://current`?"), "{msg}");
+    assert!(msg.contains("Call resources/list"), "{msg}");
+
+    // A missing uri used to read `Unknown resource URI: ` with nothing after.
+    let msg = param_error(&read(json!({})));
+    assert!(msg.contains("`uri` is missing or blank"), "{msg}");
+}
+
+// ── Round 9: semantics with real files ───────────────────────────────────────
+
+/// `diff_documents` compared lines without their terminators, so two files
+/// that differ only in line endings (CRLF vs LF) or in the final newline
+/// came back as `hunks: 0` with an empty diff, as if identical.
+#[test]
+fn diff_documents_reports_line_ending_and_final_newline_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let lf = dir.path().join("lf.md");
+    let crlf = dir.path().join("crlf.md");
+    let no_newline = dir.path().join("no-newline.md");
+    std::fs::write(&lf, "a\nb\n").unwrap();
+    std::fs::write(&crlf, "a\r\nb\r\n").unwrap();
+    std::fs::write(&no_newline, "a\nb").unwrap();
+    let diff = |a: &std::path::Path, b: &std::path::Path| {
+        let resp = mdopener_mcp::tool_diff_documents(id(1), &json!({ "path_a": a, "path_b": b }));
+        assert!(!is_error(&resp), "{resp:?}");
+        content_text(&resp)
+    };
+
+    let r = diff(&lf, &crlf);
+    assert_eq!(r["hunks"], 1, "{r}");
+    assert_eq!(
+        (r["added"].as_u64(), r["removed"].as_u64()),
+        (Some(2), Some(2))
+    );
+    let d = r["diff"].as_str().unwrap();
+    assert!(d.contains("\n-a\n") && d.contains("\n+a\r\n"), "{d:?}");
+
+    let r = diff(&lf, &no_newline);
+    assert_eq!(r["hunks"], 1, "{r}");
+    let d = r["diff"].as_str().unwrap();
+    assert!(d.ends_with("-b\n+b\n\\ No newline at end of file"), "{d:?}");
+
+    // Identical files still diff to nothing.
+    let r = diff(&lf, &lf);
+    assert_eq!(r["hunks"], 0);
+    assert_eq!(r["diff"], "");
+}
+
+/// Session files hold the conversation, but were created `0644` in a `0755`
+/// directory, readable by every local user (the IPC token is `0600`).
+#[cfg(unix)]
+#[test]
+fn session_files_are_readable_by_the_owner_only() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    let dir = path.parent().unwrap().to_path_buf();
+    // A directory left world-readable by an earlier build is tightened.
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    store_append_message(&sid, "human", "approved, ship it", vec![]).unwrap();
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir), 0o700, "sessions dir");
+    assert_eq!(mode(&path), 0o600, "session file");
+}
+
+/// A session id too long for a file name used to pass validation: saving
+/// then failed with "File name too long (os error 36)" while reading the
+/// same id answered an empty session. Both now refuse it as invalid params.
+#[test]
+fn over_long_session_id_is_refused_up_front() {
+    use_temp_sessions_dir();
+    let long = "x.".repeat(120); // 240 bytes, a 600-byte file name
+    for resp in [
+        tool_save_conversation_message(
+            id(1),
+            &json!({ "session_id": long, "role": "agent", "content": "hi" }),
+        ),
+        tool_get_conversation_context(id(2), &json!({ "session_id": long })),
+    ] {
+        let msg = param_error(&resp);
+        assert!(
+            msg.contains("`session_id` is too long (240 bytes)"),
+            "{msg}"
+        );
+    }
+    // The longest accepted id still saves and reads back.
+    let ok = "y".repeat(mdopener_mcp::MAX_SESSION_FILE_STEM);
+    let resp = tool_save_conversation_message(
+        id(3),
+        &json!({ "session_id": ok, "role": "agent", "content": "fits" }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let resp = tool_get_conversation_context(id(4), &json!({ "session_id": ok }));
+    assert_eq!(content_text(&resp)["count"], 1);
+    let too_long = "y".repeat(mdopener_mcp::MAX_SESSION_FILE_STEM + 1);
+    param_error(&tool_get_conversation_context(
+        id(5),
+        &json!({ "session_id": too_long }),
+    ));
+}
+
+/// The resource channel checked only that a path was advertised, then
+/// followed symlinks: a vault `notes.md` linking to a key or `.env` was
+/// served by `resources/read`, and its first 200 characters appeared in the
+/// recent-documents preview.
+#[cfg(unix)]
+#[test]
+fn resources_do_not_follow_a_markdown_symlink_to_another_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let secret = dir.join("id_rsa");
+    std::fs::write(&secret, "PRIVATE KEY\n").unwrap();
+    let link = dir.join("notes.md");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let real = dir.join("real.md");
+    std::fs::write(&real, "# Real\n").unwrap();
+    let link_s = link.to_string_lossy().into_owned();
+    let real_s = real.to_string_lossy().into_owned();
+    let vault = json!({
+        "files": [{ "path": link_s, "name": "notes.md" }],
+        "recents": [link_s, real_s],
+    });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+
+    let resp = handle_resource_read(id(1), &format!("file://{link_s}"), &ipc);
+    let err = resp
+        .error
+        .expect("a symlink to a non-Markdown file must be refused");
+    assert_eq!(err.code, -32002);
+    assert!(
+        err.message.contains("only Markdown documents"),
+        "{}",
+        err.message
+    );
+
+    let resp = mdopener_mcp::handle_recent_documents_resource(id(2), &ipc);
+    let text = resp.result.as_ref().unwrap()["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!text.contains("PRIVATE KEY"), "{text}");
+    let payload: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(payload["count"], 1, "{payload}");
+    assert_eq!(payload["documents"][0]["path"], real_s.as_str());
+
+    // A real Markdown vault file is still served.
+    let resp = handle_resource_read(id(3), &format!("file://{real_s}"), &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+}
+
+/// A UTF-8 byte order mark (Notepad saves one) hid the front-matter:
+/// `export_metadata` answered `frontmatter: null` and `export_text` kept the
+/// raw `---` block in its text and word count.
+#[test]
+fn export_tools_read_front_matter_after_a_byte_order_mark() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bom.md");
+    std::fs::write(
+        &path,
+        "\u{FEFF}---\ntitle: Plan\ntags: [a, b]\n---\n# Heading\n\nThree words here.\n",
+    )
+    .unwrap();
+    let ipc = MockIpc::new();
+
+    let resp = mdopener_mcp::tool_export_metadata(id(1), &json!({ "path": path }), &ipc);
+    let meta = content_text(&resp);
+    assert_eq!(meta["frontmatter"]["title"], "Plan", "{meta}");
+    assert_eq!(meta["frontmatter"]["tags"], json!(["a", "b"]), "{meta}");
+    assert_eq!(meta["word_count"], 4, "{meta}");
+
+    let resp = mdopener_mcp::tool_export_text(id(2), &json!({ "path": path }), &ipc);
+    let text = content_text(&resp);
+    assert_eq!(text["text"], "Heading\n\nThree words here.", "{text}");
+
+    // The open document over IPC gets the same treatment.
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/x/plan.md", "content": "\u{FEFF}---\ntitle: Live\n---\nBody\n" })),
+    );
+    let resp = mdopener_mcp::tool_export_metadata(id(3), &json!({}), &ipc);
+    assert_eq!(content_text(&resp)["frontmatter"]["title"], "Live");
+
+    // Nested front matter after a BOM goes through the recursive parser.
+    std::fs::write(
+        &path,
+        "\u{FEFF}---\nowner:\n  name: Ann\n  roles:\n    - lead\n---\nBody\n",
+    )
+    .unwrap();
+    let resp = mdopener_mcp::tool_export_metadata(id(4), &json!({ "path": path }), &ipc);
+    assert_eq!(
+        content_text(&resp)["frontmatter"],
+        json!({ "owner": { "name": "Ann", "roles": ["lead"] } })
+    );
 }

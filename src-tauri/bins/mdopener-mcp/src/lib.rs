@@ -295,6 +295,12 @@ pub fn sessions_dir() -> Option<std::path::PathBuf> {
 /// (`a%2Eb.json`) and `a_b` (`a_b.json`) no longer share a file, and no id
 /// can produce a separator, `..` or a dotfile.
 pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
+    let safe = session_file_stem(session_id);
+    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// The session file's name without `.json` (see [`session_file_path`]).
+fn session_file_stem(session_id: &str) -> String {
     let mut safe = String::with_capacity(session_id.len());
     for b in session_id.bytes() {
         if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
@@ -303,8 +309,13 @@ pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
             safe.push_str(&format!("%{b:02X}"));
         }
     }
-    sessions_dir().map(|d| d.join(format!("{safe}.json")))
+    safe
 }
+
+/// Longest session file stem the conversation tools accept. File systems
+/// cap a name at 255 bytes, and the temp file a save writes first adds
+/// `.json` and a `.<pid>-<seq>.tmp` suffix of up to 36 bytes to the stem.
+pub const MAX_SESSION_FILE_STEM: usize = 200;
 
 /// The file name earlier builds used: every character other than an
 /// alphanumeric, `-` or `_` became `_`, so `a.b` and `a_b` shared `a_b.json`.
@@ -389,7 +400,7 @@ pub fn parse_session_log(text: &str) -> Result<SessionLog, String> {
 /// session, so neither process writes a stale copy over the other's appends.
 fn lock_sessions_dir() -> Result<std::fs::File, String> {
     let dir = sessions_dir().ok_or("Cannot determine home directory")?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    create_private_dir(&dir)?;
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -408,8 +419,7 @@ fn lock_sessions_dir() -> Result<std::fs::File, String> {
 pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
     let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+        create_private_dir(dir)?;
     }
     let json =
         serde_json::to_string_pretty(log).map_err(|e| format!("Serialisation error: {e}"))?;
@@ -422,13 +432,41 @@ pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String>
     let mut tmp = path.clone().into_os_string();
     tmp.push(format!(".{}-{seq}.tmp", std::process::id()));
     let tmp = std::path::PathBuf::from(tmp);
-    let written = std::fs::write(&tmp, json)
+    let written = write_private_file(&tmp, json.as_bytes())
         .and_then(|()| std::fs::rename(&tmp, &path))
         .map_err(|e| format!("Cannot write {}: {e}", path.display()));
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+
+/// Create the sessions directory if needed and make it owner-only (`0700`
+/// on Unix). Session files hold the conversation (agent actions, human
+/// verdicts, cited paths); they used to be created `0644` in a `0755`
+/// directory, readable by every local user, unlike the `0600` IPC token and
+/// `mdopen -` temp files. An existing directory (created by an earlier build
+/// or by the app) is tightened too.
+fn create_private_dir(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Cannot make {} private: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Write `bytes` to a new file at `path`, readable by this user only (`0600`
+/// on Unix) from the moment it is created.
+fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(path)?.write_all(bytes)
 }
 
 /// Load a session log from disk.  Returns `None` when the file does not exist
@@ -617,6 +655,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "limit": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Maximum number of entries to return. Defaults to 10."
                     }
                 }
@@ -666,8 +705,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
-                    "wait_ms": { "type": "integer", "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
+                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
+                    "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
@@ -749,7 +788,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "description": "Max number of results to return. Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 0, "description": "Max number of results to return. Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -815,7 +854,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, max 200."
+                        "minimum": 1,
+                        "description": "Maximum number of messages to return: the most recent N, in chronological order. Defaults to 20, min 1, max 200."
                     }
                 },
                 "required": ["session_id"]
@@ -837,7 +877,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session)."
+                        "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session). At most 200 bytes once encoded for its file name (letters, digits, `-` and `_` count one byte, other bytes three)."
                     },
                     "role": {
                         "type": "string",
@@ -875,6 +915,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path_b": { "type": "string", "description": "Absolute path to the second (modified) document." },
                     "context_lines": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Number of unchanged context lines surrounding each change hunk. Defaults to 3."
                     }
                 },
@@ -987,6 +1028,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "preview_lines": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "Context lines on each side of the diff hunk. Defaults to 5; values above 20 are read as 20."
                     },
                     "path": {
@@ -1027,6 +1069,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "match_index": {
                         "type": "integer",
+                        "minimum": 0,
                         "description": "0-based index of the candidate to apply. Defaults to 0 (first occurrence)."
                     },
                     "save": {
@@ -1175,6 +1218,11 @@ pub fn tool_list() -> Value {
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
 pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient) -> Response {
+    if let Some(def) = tool_registry().iter().find(|t| t.name == name) {
+        if let Err(msg) = check_tool_arguments(def, &args) {
+            return Response::err(id, -32602, msg);
+        }
+    }
     match name {
         "open_file" => tool_open_file(id, &args, ipc),
         "get_current_content" => tool_get_content(id, ipc),
@@ -1197,8 +1245,195 @@ pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient)
         "stream_edit_apply" => tool_stream_edit_apply(id, &args, ipc),
         "export_text" => tool_export_text(id, &args, ipc),
         "export_metadata" => tool_export_metadata(id, &args, ipc),
-        other => Response::err(id, -32602, format!("Unknown tool: {other}")),
+        other => Response::err(id, -32602, unknown_tool_msg(other)),
     }
+}
+
+/// Arguments a tool used to take and now refuses with its own, more specific
+/// message (checked in the tool), so the generic undeclared-argument check
+/// lets them through.
+const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
+
+/// Check `tools/call` arguments against the tool's declared `inputSchema`
+/// before the tool runs. Each tool reads only the arguments it declares and
+/// falls back to a default when one has the wrong JSON type, so before this
+/// check a misspelled argument (`pth`, `include_prompt`) or a mistyped one
+/// (`"limit": "5"`, `"include_prompts": "no"`) was silently ignored and the
+/// call succeeded with defaults the agent never asked for.
+///
+/// Refused, with `-32602` and the argument named:
+/// - `arguments` that is not an object (absent or `null` means no arguments);
+/// - an argument the schema does not declare (the message lists those it does);
+/// - an argument whose JSON type differs from the declared `type`, or an array
+///   element whose type differs from the declared `items.type`;
+/// - an integer below the declared `minimum` (a negative `limit` used to fall
+///   back to the default, since the tools read it with `as_u64`).
+///
+/// A `null` value counts as "not given", as the tools already treat it.
+pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
+    let tool = def.name;
+    let given = match args {
+        Value::Null => return Ok(()),
+        Value::Object(map) => map,
+        other => {
+            return Err(format!(
+                "`arguments` for `{tool}` must be an object, got {}",
+                json_type_phrase(other)
+            ))
+        }
+    };
+    let empty = serde_json::Map::new();
+    let declared = def.input_schema["properties"].as_object().unwrap_or(&empty);
+    for (key, value) in given {
+        let Some(prop) = declared.get(key) else {
+            if RETIRED_ARGUMENTS.contains(&(tool, key.as_str())) {
+                continue;
+            }
+            let mut names: Vec<&str> = declared.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            let takes = if names.is_empty() {
+                "it takes no arguments".to_string()
+            } else {
+                format!(
+                    "it takes {}",
+                    names
+                        .iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            let hint = closest_name(key, &names)
+                .map(|n| format!(" Did you mean `{n}`?"))
+                .unwrap_or_default();
+            return Err(format!(
+                "Unknown argument `{key}` for `{tool}`: {takes}.{hint}"
+            ));
+        };
+        if value.is_null() {
+            continue;
+        }
+        if let Some(want) = prop["type"].as_str() {
+            if !json_type_matches(want, value) {
+                return Err(format!(
+                    "`{key}` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(value)
+                ));
+            }
+        }
+        if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
+            if n < min as f64 {
+                return Err(format!("`{key}` must be at least {min}, got {value}"));
+            }
+        }
+        if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
+            if let Some((i, bad)) = items
+                .iter()
+                .enumerate()
+                .find(|(_, v)| !json_type_matches(want, v))
+            {
+                return Err(format!(
+                    "`{key}[{i}]` must be {}, got {}",
+                    type_phrase(want),
+                    json_type_phrase(bad)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn json_type_matches(want: &str, value: &Value) -> bool {
+    match want {
+        "string" => value.is_string(),
+        "boolean" => value.is_boolean(),
+        // As in JSON Schema, a number with no fractional part (`2.0`) is an
+        // integer, up to 2^53 where a float still holds every whole number.
+        "integer" => {
+            value.is_i64()
+                || value.is_u64()
+                || value
+                    .as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() <= 9_007_199_254_740_992.0)
+        }
+        "number" => value.is_number(),
+        "array" => value.is_array(),
+        "object" => value.is_object(),
+        "null" => value.is_null(),
+        _ => true,
+    }
+}
+
+fn type_phrase(want: &str) -> String {
+    match want {
+        "integer" | "array" | "object" => format!("an {want}"),
+        other => format!("a {other}"),
+    }
+}
+
+fn json_type_phrase(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => format!("a boolean ({b})"),
+        Value::Number(n) => format!("a number ({n})"),
+        Value::String(s) => format!("a string ({s:?})"),
+        Value::Array(_) => "an array".to_string(),
+        Value::Object(_) => "an object".to_string(),
+    }
+}
+
+/// The candidate closest to `name`: equal ignoring case, `-`/`_` and spaces,
+/// or within an edit distance of 2. `None` when nothing is that close.
+fn closest_name<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let norm = |s: &str| -> String {
+        s.chars()
+            .filter(|c| !matches!(c, '_' | '-' | ' '))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let wanted = norm(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    candidates
+        .iter()
+        .map(|c| (edit_distance(&wanted, &norm(c)), *c))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, c)| c)
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// The `-32602` message for a `tools/call` name that is not a tool: it names
+/// the closest real tool when there is one, and says where the list is.
+pub fn unknown_tool_msg(name: &str) -> String {
+    let names: Vec<&str> = ALL_TOOL_NAMES.to_vec();
+    let shown = if name.is_empty() {
+        "Unknown tool: `name` is missing or blank.".to_string()
+    } else {
+        format!("Unknown tool: {name}.")
+    };
+    let hint = closest_name(name, &names)
+        .map(|n| format!(" Did you mean `{n}`?"))
+        .unwrap_or_default();
+    format!(
+        "{shown}{hint} Call tools/list for the {} tools this server provides.",
+        names.len()
+    )
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -1331,10 +1566,7 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Some(c) => c.to_string(),
         None => return Response::err(id, -32602, "`content` is required"),
     };
-    let save = match boolean_arg(args, "save") {
-        Ok(b) => b.unwrap_or(false),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let save = args["save"].as_bool().unwrap_or(false);
     post_content(id, &content, save, ipc)
 }
 
@@ -1355,10 +1587,7 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
 }
 
 pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let limit = match whole_number_arg(args, "limit") {
-        Ok(l) => l.unwrap_or(10),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let limit = whole_number(args, "limit").unwrap_or(10);
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -1598,7 +1827,7 @@ fn review_timeout_arg(v: &Value) -> Result<u64, String> {
     if v.is_null() {
         return Ok(300_000);
     }
-    match v.as_u64() {
+    match whole_number_value(v) {
         Some(t) if (REVIEW_MIN_TIMEOUT_MS..=REVIEW_MAX_TIMEOUT_MS).contains(&t) => Ok(t),
         _ => Err(format!(
             "`timeout_ms` must be a whole number of milliseconds between \
@@ -1627,18 +1856,14 @@ pub fn tool_request_review_with(
         Err(e) => return tool_error(id, e),
     };
     let content = args["content"].as_str().map(str::to_string);
-    let blocking = match boolean_arg(args, "blocking") {
-        Ok(b) => b.unwrap_or(true),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let blocking = args["blocking"].as_bool().unwrap_or(true);
     let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
         Ok(t) => t,
         Err(e) => return Response::err(id, -32602, e),
     };
-    let wait_ms = match whole_number_arg(args, "wait_ms") {
-        Ok(w) => w.unwrap_or(DEFAULT_REVIEW_WAIT_MS).clamp(1_000, 600_000),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let wait_ms = whole_number(args, "wait_ms")
+        .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
+        .clamp(1_000, 600_000);
 
     let resumed = resume.is_some();
     let review_id = match resume {
@@ -1821,10 +2046,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let save = match boolean_arg(args, "save") {
-        Ok(b) => b.unwrap_or(false),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let save = args["save"].as_bool().unwrap_or(false);
 
     let mut body = json!({ "find": find, "replace": replace, "save": save });
     if let Some(p) = args["path"].as_str() {
@@ -1848,10 +2070,7 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         Some(c) => c.to_string(),
         None => return Response::err(id, -32602, "`content` is required"),
     };
-    let save = match boolean_arg(args, "save") {
-        Ok(b) => b.unwrap_or(false),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let save = args["save"].as_bool().unwrap_or(false);
     post_content(id, &content, save, ipc)
 }
 
@@ -1860,29 +2079,16 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
-    let limit = match whole_number_arg(args, "limit") {
-        Ok(l) => l.unwrap_or(50),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let limit = whole_number(args, "limit").unwrap_or(50);
     let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
         Ok(v) => v,
         Err(e) => return tool_error(id, e),
     };
 
     // Determine search mode: explicit override or auto-detect via Ollama.
-    let use_semantic = match &args["semantic"] {
-        Value::Bool(b) => *b,
-        Value::Null => ollama_available(),
-        other => {
-            return Response::err(
-                id,
-                -32602,
-                format!(
-                    "`semantic` must be a boolean (true or false), got {other}. Omit it to \
-                     use semantic search when Ollama is available."
-                ),
-            )
-        }
+    let use_semantic = match args["semantic"].as_bool() {
+        Some(b) => b,
+        None => ollama_available(),
     };
 
     match search_vault_in(
@@ -2198,19 +2404,39 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
 
 // ── get_conversation_context tool ────────────────────────────────────────────
 
+/// The `session_id` of the conversation tools. A blank or whitespace-only id
+/// is refused like a missing one: it used to be accepted and stored as
+/// `%20%20%20.json`, a session no agent means to address.
+///
+/// An id whose file name would be longer than [`MAX_SESSION_FILE_STEM`] is
+/// refused too: it used to fail only when saving, with the OS error "File
+/// name too long", while reading it answered an empty session.
+fn session_id_arg(args: &Value) -> Result<String, String> {
+    match args["session_id"].as_str() {
+        Some(s) if s.trim().is_empty() => Err("`session_id` must not be blank".to_string()),
+        Some(s) if session_file_stem(s).len() > MAX_SESSION_FILE_STEM => Err(format!(
+            "`session_id` is too long ({} bytes): it must fit a {MAX_SESSION_FILE_STEM}-byte \
+             file name, where ASCII letters, digits, `-` and `_` count one byte each and \
+             every other byte counts three.",
+            s.len()
+        )),
+        Some(s) => Ok(s.to_string()),
+        None => Err("`session_id` is required".to_string()),
+    }
+}
+
 /// Return the last N messages from the session's persistent memory store.
 /// If the in-process store is empty (cold start / restart), loads from disk.
 /// Returns an empty array gracefully when the session has no messages yet.
 pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
-    let session_id = match args["session_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`session_id` is required"),
+    let session_id = match session_id_arg(args) {
+        Ok(s) => s,
+        Err(msg) => return Response::err(id, -32602, msg),
     };
 
-    let limit = match whole_number_arg(args, "limit") {
-        Ok(l) => l.unwrap_or(20).clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize,
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let limit = whole_number(args, "limit")
+        .unwrap_or(20)
+        .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
@@ -2248,9 +2474,9 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
 /// Persists to disk at `~/.mdopener/sessions/{sessionId}.json` after every
 /// append so messages survive process restarts.
 pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
-    let session_id = match args["session_id"].as_str() {
-        Some(s) if !s.is_empty() => s.to_string(),
-        _ => return Response::err(id, -32602, "`session_id` is required"),
+    let session_id = match session_id_arg(args) {
+        Ok(s) => s,
+        Err(msg) => return Response::err(id, -32602, msg),
     };
 
     let role = match args["role"].as_str() {
@@ -2415,10 +2641,7 @@ pub fn ai_actions_registry() -> Value {
 }
 
 pub fn tool_list_ai_actions(id: Value, args: &Value) -> Response {
-    let include_prompts = match boolean_arg(args, "include_prompts") {
-        Ok(b) => b.unwrap_or(true),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let include_prompts = args["include_prompts"].as_bool().unwrap_or(true);
 
     let actions = ai_actions_registry();
     let filtered: Vec<Value> = actions
@@ -2642,6 +2865,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                 _ => return Response::err(id, -32002, format!("Resource not in vault: {uri}")),
             }
         };
+        // Advertised is not enough: a vault `notes.md` that is a symlink to
+        // `~/.ssh/id_rsa` or `.env` used to be served. Like the tools that
+        // read a path from disk, only a Markdown non-dotfile is read, checked
+        // after resolving symlinks.
+        if let Err(e) = checked_document_path(&p, "uri") {
+            return Response::err(id, -32002, e);
+        }
         return match read_regular_file(&p) {
             Ok(text) => Response::ok(
                 id,
@@ -2652,7 +2882,28 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Err(e) => Response::err(id, -32002, format!("Cannot read {p}: {e}")),
         };
     }
-    Response::err(id, -32602, format!("Unknown resource URI: {uri}"))
+    Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// Resource URIs `resources/read` serves besides advertised `file://` paths.
+const FIXED_RESOURCE_URIS: &[&str] = &[
+    "mdopener://current",
+    "mdopener://recent-documents",
+    "text://vault-search",
+];
+
+/// The `-32602` message for a URI `resources/read` does not serve: the
+/// closest served URI when there is one, and where the list is.
+pub fn unknown_resource_msg(uri: &str) -> String {
+    let shown = if uri.trim().is_empty() {
+        "Unknown resource: `uri` is missing or blank.".to_string()
+    } else {
+        format!("Unknown resource URI: {uri}.")
+    };
+    let hint = closest_name(uri, FIXED_RESOURCE_URIS)
+        .map(|u| format!(" Did you mean `{u}`?"))
+        .unwrap_or_default();
+    format!("{shown}{hint} Call resources/list for the resources this server provides.")
 }
 
 /// True if `path` is one of the files the app currently advertises as part of
@@ -2682,6 +2933,28 @@ pub fn prompts_list() -> Value {
     ])
 }
 
+/// The prompts `prompts/get` serves, in `prompts/list` order.
+pub const PROMPT_NAMES: &[&str] = &["summarize", "review_plan", "improve_writing"];
+
+/// The `-32602` message for a `prompts/get` name that is not a prompt: the
+/// closest prompt when there is one, and every prompt name (there are few).
+pub fn unknown_prompt_msg(name: &str) -> String {
+    let shown = if name.trim().is_empty() {
+        "Unknown prompt: `name` is missing or blank.".to_string()
+    } else {
+        format!("Unknown prompt: {name}.")
+    };
+    let hint = closest_name(name, PROMPT_NAMES)
+        .map(|n| format!(" Did you mean `{n}`?"))
+        .unwrap_or_default();
+    let all = PROMPT_NAMES
+        .iter()
+        .map(|n| format!("`{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{shown}{hint} The prompts are {all} (see prompts/list).")
+}
+
 pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response {
     let instruction = match name {
         "summarize" => {
@@ -2693,7 +2966,7 @@ pub fn handle_prompt_get(id: Value, name: &str, ipc: &dyn IpcClient) -> Response
         "improve_writing" => {
             "Improve the writing of the following Markdown document — tighten prose and fix grammar without changing its meaning or structure:"
         }
-        other => return Response::err(id, -32602, format!("Unknown prompt: {other}")),
+        other => return Response::err(id, -32602, unknown_prompt_msg(other)),
     };
     // Without the live document the prompt would ask the model to work on an
     // empty string, so a missing app or document is an error, not "".
@@ -2843,7 +3116,7 @@ pub fn checked_document_path(raw: &str, arg: &str) -> Result<String, String> {
     if hidden || !markdown {
         return Err(format!(
             "Refusing to read `{arg}` '{abs}': only Markdown documents ({}) that are not \
-             dotfiles can be read by this tool.",
+             dotfiles can be read.",
             MD_EXTENSIONS
                 .iter()
                 .map(|e| format!(".{e}"))
@@ -3250,41 +3523,20 @@ pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
-/// An optional whole-number argument: `Ok(None)` when absent or null, else
-/// its value. Anything else (a string, a negative or fractional number) is
-/// an invalid-params message rather than read as absent, so a call never
-/// acts on a default the agent did not ask for (`match_index: "1"` used to
-/// apply the first occurrence).
-pub fn whole_number_arg(args: &Value, name: &str) -> Result<Option<u64>, String> {
-    let v = &args[name];
-    if v.is_null() {
-        return Ok(None);
-    }
-    v.as_u64()
-        .or_else(|| {
-            v.as_f64()
-                .filter(|f| *f >= 0.0 && f.fract() == 0.0 && *f <= u64::MAX as f64)
-                .map(|f| f as u64)
-        })
-        .map(Some)
-        .ok_or_else(|| {
-            format!(
-                "`{name}` must be a whole number (0 or more), got {v}; omit it for the default."
-            )
-        })
+/// An integer argument's value, `None` when absent or null. A whole number
+/// written as a float (`2.0`) is that number. [`check_tool_arguments`] has
+/// already refused any other type, a fraction and a negative, so `None` here
+/// only ever means "not given".
+pub fn whole_number(args: &Value, name: &str) -> Option<u64> {
+    whole_number_value(&args[name])
 }
 
-/// An optional boolean argument: `Ok(None)` when absent or null, else its
-/// value. Anything else (`"true"`, `1`) is an invalid-params message rather
-/// than read as absent: `save: "true"` used to leave the edit unsaved.
-pub fn boolean_arg(args: &Value, name: &str) -> Result<Option<bool>, String> {
-    match &args[name] {
-        Value::Null => Ok(None),
-        Value::Bool(b) => Ok(Some(*b)),
-        other => Err(format!(
-            "`{name}` must be a boolean (true or false), got {other}; omit it for the default."
-        )),
-    }
+fn whole_number_value(v: &Value) -> Option<u64> {
+    v.as_u64().or_else(|| {
+        v.as_f64()
+            .filter(|f| *f >= 0.0 && f.fract() == 0.0 && *f <= u64::MAX as f64)
+            .map(|f| f as u64)
+    })
 }
 
 /// Wrap a value in the MCP `content` envelope.
@@ -3363,6 +3615,12 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
 
     let mut documents: Vec<Value> = Vec::new();
     for path in &recent_paths {
+        // Skip a recent that is (or now links to) something other than a
+        // Markdown non-dotfile, as `file://` reads do: its preview would
+        // otherwise show the first 200 characters of the link's target.
+        if checked_document_path(path, "path").is_err() {
+            continue;
+        }
         // Skip paths that no longer exist on disk.
         let content = match read_regular_file(path) {
             Ok(c) => c,
@@ -3437,10 +3695,7 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         None => return Response::err(id, -32602, "`path_b` is required"),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
-    let context_lines = match whole_number_arg(args, "context_lines") {
-        Ok(c) => c.unwrap_or(3).min(10_000) as usize,
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
 
     let path_a = match checked_document_path(&raw_a, "path_a") {
         Ok(p) => p,
@@ -3491,8 +3746,11 @@ pub fn compute_unified_diff(
     text_b: &str,
     context: usize,
 ) -> (String, usize, usize, usize) {
-    let lines_a: Vec<&str> = text_a.lines().collect();
-    let lines_b: Vec<&str> = text_b.lines().collect();
+    // Lines keep their terminators, so files that differ only in line
+    // endings (CRLF vs LF) or in the final newline are not reported as
+    // identical, as they were with `str::lines`.
+    let lines_a: Vec<&str> = text_a.split_inclusive('\n').collect();
+    let lines_b: Vec<&str> = text_b.split_inclusive('\n').collect();
 
     // Build the edit script via LCS (longest common subsequence).
     let lcs = lcs_diff(&lines_a, &lines_b);
@@ -3603,7 +3861,15 @@ pub fn compute_unified_diff(
         ));
 
         for e in slice {
-            diff_lines.push(format!("{}{}", e.kind, e.text));
+            // The `\n` is the joiner; a `\r` stays visible, and a last line
+            // without a newline is marked the way `diff -u` marks it.
+            match e.text.strip_suffix('\n') {
+                Some(text) => diff_lines.push(format!("{}{}", e.kind, text)),
+                None => {
+                    diff_lines.push(format!("{}{}", e.kind, e.text));
+                    diff_lines.push("\\ No newline at end of file".to_string());
+                }
+            }
             if e.kind == '+' {
                 total_added += 1;
             }
@@ -4298,10 +4564,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     };
 
     // ── Write to disk ────────────────────────────────────────────────────────
-    let save = match boolean_arg(args, "save") {
-        Ok(b) => b.unwrap_or(true),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let save = args["save"].as_bool().unwrap_or(true);
     if save {
         if let Err(e) = std::fs::write(&path, &serialised) {
             return tool_error(id, format!("Failed to write {path}: {e}"));
@@ -4453,14 +4716,8 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let preview = match boolean_arg(args, "preview") {
-        Ok(b) => b.unwrap_or(true),
-        Err(e) => return Response::err(id, -32602, e),
-    };
-    let preview_lines = match whole_number_arg(args, "preview_lines") {
-        Ok(p) => p.unwrap_or(5).min(20) as u32,
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let preview = args["preview"].as_bool().unwrap_or(true);
+    let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
@@ -4503,18 +4760,11 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    // A `match_index` that is not a whole number used to apply occurrence 0.
-    let match_index = match whole_number_arg(args, "match_index") {
-        Ok(m) => match u32::try_from(m.unwrap_or(0)) {
-            Ok(m) => m,
-            Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
-        },
-        Err(e) => return Response::err(id, -32602, e),
+    let match_index = match u32::try_from(whole_number(args, "match_index").unwrap_or(0)) {
+        Ok(m) => m,
+        Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
     };
-    let save = match boolean_arg(args, "save") {
-        Ok(b) => b.unwrap_or(false),
-        Err(e) => return Response::err(id, -32602, e),
-    };
+    let save = args["save"].as_bool().unwrap_or(false);
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
@@ -4998,17 +5248,28 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
     if let Some(raw) = args["path"].as_str() {
         let abs = checked_document_path(raw, "path")?;
         return match read_regular_file(&abs) {
-            Ok(c) => Ok((c, Some(abs))),
+            Ok(c) => Ok((without_bom(c), Some(abs))),
             Err(e) => Err(format!("Cannot read '{abs}': {e}")),
         };
     }
     let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
-    let content = v["content"].as_str().unwrap_or("").to_string();
+    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     let path = v["path"].as_str().map(str::to_string);
     if path.is_none() && content.is_empty() {
         return Err("No document is open in Ashlr MD; pass `path` to read a file.".to_string());
     }
     Ok((content, path))
+}
+
+/// `content` without a leading UTF-8 byte order mark. Editors on Windows
+/// (Notepad among them) save one; it hid a document's front-matter from
+/// `export_metadata` (`frontmatter: null`) and left the raw front-matter in
+/// `export_text`'s text and word count.
+fn without_bom(content: String) -> String {
+    match content.strip_prefix('\u{FEFF}') {
+        Some(rest) => rest.to_string(),
+        None => content,
+    }
 }
 
 pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {

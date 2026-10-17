@@ -57,9 +57,10 @@ MCP client; see docs/AGENTS.md.
 
 fn main() {
     // Informational flags answer and exit instead of blocking on stdin.
-    // Any other arguments are still ignored, so clients that pass extra ones
-    // keep working, but a warning on stderr names them (`--verison`).
-    let mut unknown = Vec::new();
+    // Any other argument is still ignored, so an old client config that
+    // passes one keeps working, but it is named on stderr (stdout carries
+    // only JSON-RPC) so a mistyped `--verison` does not pass unnoticed.
+    let mut ignored = Vec::new();
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "--version" | "-V" => {
@@ -70,11 +71,11 @@ fn main() {
                 print!("{HELP}");
                 return;
             }
-            _ => unknown.push(arg),
+            _ => ignored.push(arg),
         }
     }
     // stdout is the protocol channel: everything said to a human is stderr.
-    for note in startup_notes(&unknown, io::stdin().is_terminal()) {
+    for note in startup_notes(&ignored, io::stdin().is_terminal()) {
         eprintln!("{note}");
     }
 
@@ -101,12 +102,17 @@ fn main() {
 /// What to tell a human on stderr before serving: a one-line warning naming
 /// ignored arguments, and, when stdin is a terminal (someone ran the binary by
 /// hand), a hint that it is an MCP stdio server waiting for JSON-RPC.
-fn startup_notes(unknown: &[String], stdin_is_terminal: bool) -> Vec<String> {
+fn startup_notes(ignored: &[String], stdin_is_terminal: bool) -> Vec<String> {
     let mut notes = Vec::new();
-    if !unknown.is_empty() {
+    if !ignored.is_empty() {
         notes.push(format!(
-            "mdopener-mcp: warning: ignoring unknown argument(s) {} (see --help); serving MCP on stdio",
-            unknown.join(" ")
+            "mdopener-mcp: ignoring unknown argument{} {}; serving MCP on stdin/stdout (see --help)",
+            if ignored.len() == 1 { "" } else { "s" },
+            ignored
+                .iter()
+                .map(|a| format!("`{a}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if stdin_is_terminal {
@@ -187,7 +193,10 @@ mod tests {
         let args = ["--verison".to_string(), "x".to_string()];
         let notes = startup_notes(&args, false);
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].contains("--verison x"), "{notes:?}");
+        assert!(
+            notes[0].contains("ignoring unknown arguments `--verison`, `x`"),
+            "{notes:?}"
+        );
         let notes = startup_notes(&[], true);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("MCP stdio server"), "{notes:?}");

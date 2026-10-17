@@ -174,16 +174,16 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
     }
 }
 
-/// Record a `--edit`/`--read` flag. Repeating the same one is harmless, but
-/// asking for both is a contradiction: keeping whichever came last would open
-/// the file in a mode the caller may not have meant.
+/// Record a `--edit`/`--read` flag. Both on one command line used to open
+/// in whichever came last, silently dropping the other; now that is a usage
+/// error. Repeating the same flag is harmless.
 fn set_mode(
     current: Option<&'static str>,
-    want: &'static str,
+    wanted: &'static str,
 ) -> Result<Option<&'static str>, String> {
     match current {
-        Some(m) if m != want => Err("--edit and --read conflict; pass only one".to_string()),
-        _ => Ok(Some(want)),
+        Some(m) if m != wanted => Err("--edit and --read conflict; pass one of them".to_string()),
+        _ => Ok(Some(wanted)),
     }
 }
 
@@ -370,8 +370,11 @@ fn open_in_app(
     match &outcome {
         launch::Launch::Opened { .. } => Ok(Opened::Confirmed),
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
+        // Both routes failed: say what each one hit, then what to do. Before,
+        // this was `<launcher error> (<ipc error>)` with no next step.
         _ => Err(NotOpened::no(format!(
-            "{} ({ipc_error})",
+            "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
+             The mdopener:// URL: {}. Start Ashlr MD, then run mdopen again.",
             outcome.describe()
         ))),
     }
@@ -572,7 +575,12 @@ mod tests {
 
     #[test]
     fn edit_and_read_together_are_a_usage_error() {
-        for pair in [["-e", "-r"], ["--read", "--edit"], ["-r", "-e"]] {
+        for pair in [
+            ["-e", "-r"],
+            ["--edit", "--read"],
+            ["--read", "--edit"],
+            ["-r", "-e"],
+        ] {
             let err = parse_args(&args(&[pair[0], pair[1], "a.md"])).unwrap_err();
             assert!(
                 err.contains("--edit and --read conflict"),
