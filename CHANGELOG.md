@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener://open` links honour `mode`.** `&mode=edit` was documented
+  (and sent by `mdopen --edit` when the app is closed, and by the Obsidian
+  plugin) but never read, so the file opened in whatever view it was. The
+  app now keeps a link's `mode` until the window has opened the file, also on
+  a cold start, and switches to that view; a link with any other `mode` is
+  ignored and logged, as `/open` refuses one.
 - **`get_current_content`'s nothing-open claim is true.** Its description
   said the error matched `export_text`'s, but `export_text` and
   `export_metadata` say to pass `path` ("No document is open in Ashlr MD;

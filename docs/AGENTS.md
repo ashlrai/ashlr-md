@@ -708,7 +708,11 @@ shell.openExternal(`mdopener://open?path=${encodeURIComponent(filePath)}`);
 Since any web page or program can launch these links, a link opens only an
 existing Markdown document that is not a dotfile (checked after resolving
 symlinks, as for `open_file`); anything else is ignored. The `path` is
-percent-decoded once.
+percent-decoded once. `mode` is `read` or `edit` and switches the document
+to that view once it is open, also when the link starts the app (so does
+`mdopen --edit` with the app closed); a link with any other `mode` is
+ignored, as `open_file` refuses one. `mode` used to be dropped, so the file
+opened in whatever view it was.
 
 ---
 

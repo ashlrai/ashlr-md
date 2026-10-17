@@ -7,6 +7,7 @@ import { Shell } from "./components/layout/Shell";
 import { getShortcutCommands } from "./lib/commands";
 import { classify } from "./lib/docClassifier";
 import { matchShortcut } from "./lib/keymap";
+import { applyLinkViewMode } from "./lib/linkViewMode";
 import { restoreSession } from "./lib/session";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
@@ -58,7 +59,11 @@ export default function App() {
       );
       if (pending.length) {
         // Open every queued file (openPath dedupes); the last stays active.
-        for (const p of pending) await openPath(p);
+        // A link's `mode` (mdopener://open?…&mode=edit) applies once open.
+        for (const p of pending) {
+          await openPath(p);
+          await applyLinkViewMode(p);
+        }
       } else {
         const n = await restoreSession();
         if (n >= 1) {
@@ -80,7 +85,8 @@ export default function App() {
       });
       unlisten = await listen<string[]>("file-opened", (e) => {
         const paths = e.payload;
-        if (paths.length) openPath(paths[paths.length - 1]);
+        const last = paths[paths.length - 1];
+        if (last) void openPath(last).then(() => applyLinkViewMode(last));
       });
     })();
     return () => {
