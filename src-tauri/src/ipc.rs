@@ -2256,9 +2256,53 @@ fn send_json(req: Request, value: serde_json::Value) {
 /// The reply for a route the server does not have: a 404 with the JSON
 /// `{"error": ...}` body every other error has. It used to be the plain text
 /// `Not Found`, which clients parsing the error body could not read.
+///
+/// A route the server has under another method (`GET /open`) is a 405 with
+/// an `Allow` header naming the methods it takes: it used to be the same
+/// 404 "No such endpoint" as a path that does not exist, so a caller that
+/// used the wrong method was told the endpoint was missing.
 fn send_not_found(req: Request, method: &Method, path: &str) {
-    send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+    let allowed: Vec<&str> = ROUTES
+        .iter()
+        .filter(|(_, p)| *p == path)
+        .map(|(m, _)| *m)
+        .collect();
+    if allowed.is_empty() {
+        return send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+    }
+    let allow = allowed.join(", ");
+    let body = serde_json::json!({
+        "error": format!("{path} does not take {method}: use {}.", allowed.join(" or "))
+    })
+    .to_string();
+    let resp = Response::from_string(body)
+        .with_status_code(405)
+        .with_header(
+            tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap(),
+        )
+        .with_header(tiny_http::Header::from_bytes(b"Allow", allow.as_bytes()).unwrap());
+    let _ = req.respond(resp);
 }
+
+/// Every route [`handle_request`] serves, as (method, path), for the 405
+/// answer to a known path under another method.
+const ROUTES: &[(&str, &str)] = &[
+    ("GET", "/health"),
+    ("POST", "/review"),
+    ("GET", "/review/result"),
+    ("GET", "/annotations"),
+    ("GET", "/vault"),
+    ("GET", "/search"),
+    ("POST", "/edit"),
+    ("POST", "/stream-edit"),
+    ("POST", "/stream-edit-apply"),
+    ("POST", "/present"),
+    ("GET", "/content"),
+    ("POST", "/content"),
+    ("POST", "/open"),
+    ("GET", "/recent"),
+    ("POST", "/export"),
+];
 
 fn send_error(req: Request, code: u16, msg: &str) {
     let body = serde_json::json!({"error": msg}).to_string();
@@ -3294,6 +3338,70 @@ mod tests {
         );
         let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
         assert_eq!(v["error"], "No such endpoint: GET /nope", "{v}");
+    }
+
+    /// Send `request` to a one-shot server, answer it with `send_not_found`,
+    /// and return the raw HTTP reply.
+    fn not_found_reply(request: &'static [u8], path: &str) -> String {
+        use std::io::{Read as _, Write as _};
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = std::thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(request).unwrap();
+            let mut raw = String::new();
+            s.read_to_string(&mut raw).unwrap();
+            raw
+        });
+        let req = server.recv().unwrap();
+        let method = req.method().clone();
+        super::send_not_found(req, &method, path);
+        client.join().unwrap()
+    }
+
+    /// A route the server has, asked for with the wrong method, was the same
+    /// 404 "No such endpoint" as a path that does not exist.
+    #[test]
+    fn a_known_route_under_the_wrong_method_is_a_json_405() {
+        let raw = not_found_reply(b"GET /open HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", "/open");
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.0 405") || head.starts_with("HTTP/1.1 405"), "{head}");
+        assert!(head.to_ascii_lowercase().contains("allow: post"), "{head}");
+        let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
+        assert_eq!(v["error"], "/open does not take GET: use POST.", "{v}");
+
+        // A path served under two methods names both.
+        let raw = not_found_reply(
+            b"DELETE /content HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+            "/content",
+        );
+        let (head, _) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.contains(" 405"), "{head}");
+        assert!(head.to_ascii_lowercase().contains("allow: get, post"), "{head}");
+    }
+
+    /// `ROUTES` lists exactly the routes `handle_request` matches, so the 405
+    /// answer cannot drift from the router.
+    #[test]
+    fn routes_match_the_router() {
+        let src = include_str!("ipc.rs");
+        let router = &src[src.find("fn handle_request(").unwrap()..];
+        let router = &router[..router.find("\n}\n").unwrap()];
+        let mut found = vec![("GET".to_string(), "/health".to_string())];
+        for line in router.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("(Method::") else { continue };
+            let Some((method, rest)) = rest.split_once(", \"") else { continue };
+            let Some((path, _)) = rest.split_once('"') else { continue };
+            found.push((method.to_ascii_uppercase(), path.to_string()));
+        }
+        found.sort();
+        let mut listed: Vec<(String, String)> = super::ROUTES
+            .iter()
+            .map(|(m, p)| (m.to_string(), p.to_string()))
+            .collect();
+        listed.sort();
+        assert_eq!(listed, found);
     }
 
     /// The app read a session file whole however large it was. Past 16 MiB
