@@ -36,6 +36,31 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`cited_docs` refuses a blank path.** An empty path was refused, but one
+  of only spaces was stored (and, resolved against the working directory,
+  became a path to a file named by those spaces). It is now `-32602` too.
+- **`request_review` refuses whitespace-only inline `content`.** An empty
+  `content` was refused, but one of only spaces or newlines still registered
+  a review with nothing to read. It is now `-32602` "`content` must not be
+  empty" too, before the app is asked.
+- **`cited_docs` paths are stored absolute.** `save_conversation_message`
+  described `cited_docs` as absolute paths but stored a relative one as
+  given, so `recentDocs` returned a path no agent could match. A relative
+  path is now resolved against the server's working directory when saved, as
+  the other path arguments are.
+- **`recentDocs` leaves out empty paths from older session files.** A
+  session saved before `cited_docs` refused an empty path still returned it
+  in `get_conversation_context`'s `recentDocs`, as the first entry when it
+  was the latest citation. Empty and blank paths are now skipped when read.
+- **`edit_canvas` refuses an empty `ops` before reading the canvas.** The
+  list was checked only after the file was read, so a missing canvas
+  answered "Failed to read" instead of naming the empty list, and the schema
+  let an empty list through. The schema now declares `minItems: 1`, the
+  argument check enforces it, and the file is neither read nor written.
+- **`stream_edit` refuses a `preview_lines` above 20.** It was read as 20 in
+  silence, and the schema declared no maximum. It is now refused with
+  `-32602` naming the range, as `diff_documents` refuses a `context_lines`,
+  and the schema declares `maximum: 20`.
 - **Empty arguments are refused before the app is asked.** An empty inline
   `content` in `request_review` registered a review of no text; an empty
   `path` in `edit_document`, `stream_edit` and `stream_edit_apply` came back

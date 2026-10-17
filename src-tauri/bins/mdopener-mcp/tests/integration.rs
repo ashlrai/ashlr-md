@@ -4553,6 +4553,29 @@ fn recent_docs_are_newest_first_and_stable() {
     }
 }
 
+/// Session files written before `save_conversation_message` refused an empty
+/// `cited_docs` path still hold such entries (and the window writes the same
+/// file). `recentDocs` leaves empty and blank paths out, so the latest real
+/// citation stays first.
+#[test]
+fn recent_docs_skip_empty_paths_from_old_sessions() {
+    let sess = unique_session();
+    store_append_message(&sess, "agent", "Read.", vec!["/v/a.md".into()]).unwrap();
+    store_append_message(
+        &sess,
+        "agent",
+        "Old build.",
+        vec!["".into(), "/v/b.md".into(), "  ".into()],
+    )
+    .unwrap();
+    store_append_message(&sess, "agent", "Old build.", vec!["".into()]).unwrap();
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    assert_eq!(
+        content_text(&resp)["recentDocs"],
+        json!(["/v/b.md", "/v/a.md"])
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
@@ -5570,6 +5593,46 @@ fn read_tools_still_read_markdown_paths() {
     assert_eq!(content_text(&resp)["word_count"], json!(3));
 }
 
+/// `edit_canvas` with `ops: []` checked the list only after it had read the
+/// canvas, so a missing file answered "Failed to read" instead of naming the
+/// empty list, and the schema let an empty list through. The schema now
+/// declares `minItems: 1`, the argument check refuses it, and the tool
+/// refuses it before the file is read; the file is never written.
+#[test]
+fn edit_canvas_refuses_empty_ops_before_reading_or_writing() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "edit_canvas")
+        .unwrap();
+    assert_eq!(def.input_schema["properties"]["ops"]["minItems"], 1);
+    let dir = tempfile::tempdir().unwrap();
+    let board = dir.path().join("board.canvas");
+    let original = "{ \"nodes\": [], \"edges\": [] }";
+    std::fs::write(&board, original).unwrap();
+    let before = std::fs::metadata(&board).unwrap().modified().unwrap();
+    let args = json!({ "path": board.to_string_lossy(), "ops": [], "save": true });
+    assert_eq!(
+        param_error(&call_tool("edit_canvas", args.clone())),
+        "`ops` must not be empty"
+    );
+    assert_eq!(
+        param_error(&mdopener_mcp::tool_edit_canvas(id(1), &args)),
+        "`ops` must not be empty"
+    );
+    assert_eq!(std::fs::read_to_string(&board).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&board).unwrap().modified().unwrap(),
+        before
+    );
+    // A missing canvas with no ops is the argument error, not a read error.
+    let missing = dir.path().join("missing.canvas");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(2),
+        &json!({ "path": missing.to_string_lossy(), "ops": [] }),
+    );
+    assert_eq!(param_error(&resp), "`ops` must not be empty");
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
@@ -5580,7 +5643,7 @@ fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
     std::os::unix::fs::symlink(&target, &link).unwrap();
     let resp = call(
         "edit_canvas",
-        json!({ "path": link.to_string_lossy(), "ops": [] }),
+        json!({ "path": link.to_string_lossy(), "ops": [{ "type": "delete_node", "id": "n" }] }),
         &MockIpc::new(),
     );
     let text = tool_error_text(&resp);
@@ -5921,6 +5984,55 @@ fn stream_edit_reports_whether_it_applied_the_edit() {
         &ipc,
     ));
     assert_eq!(applied["applied"], true, "{applied}");
+}
+
+/// `stream_edit` read a `preview_lines` above 20 as 20 in silence, and its
+/// schema declared no maximum. The schema now declares 20 and the tool
+/// refuses a larger value before the app is asked, like the other limits.
+#[test]
+fn stream_edit_refuses_preview_lines_above_20() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit")
+        .unwrap();
+    assert_eq!(
+        def.input_schema["properties"]["preview_lines"]["maximum"],
+        20
+    );
+    let msg = param_error(&call_tool(
+        "stream_edit",
+        json!({ "find": "a", "replace": "b", "preview_lines": 21 }),
+    ));
+    assert_eq!(msg, "`preview_lines` must be at most 20, got 21");
+    let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": true })));
+    for bad in [json!(21), json!(u64::MAX), json!(2.5)] {
+        let resp = tool_stream_edit(
+            id(1),
+            &json!({ "find": "a", "replace": "b", "preview_lines": bad }),
+            &ipc,
+        );
+        assert_eq!(
+            param_error(&resp),
+            format!(
+                "`preview_lines` must be a whole number from 0 to 20, got {bad}; \
+                 omit it for the default of 5"
+            )
+        );
+    }
+    assert!(ipc.calls().is_empty(), "the app was asked");
+    // 20 itself still passes, and an omitted one is the default of 5.
+    for (args, want) in [
+        (
+            json!({ "find": "a", "replace": "b", "preview_lines": 20 }),
+            20,
+        ),
+        (json!({ "find": "a", "replace": "b" }), 5),
+    ] {
+        let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": true })));
+        assert!(!is_error(&tool_stream_edit(id(1), &args, &ipc)));
+        let body = ipc.calls()[0].2.clone().unwrap();
+        assert_eq!(body["previewLines"], want);
+    }
 }
 
 /// The app re-finds `find` in the live document, so `edit_id` only
@@ -7948,7 +8060,7 @@ fn every_declared_argument_passes_the_check() {
                 // `timeout_ms` starts at 5000).
                 Some("integer") => json!(prop["minimum"].as_i64().unwrap_or(1).max(1)),
                 Some("number") => json!(1.5),
-                Some("array") => json!([]),
+                Some("array") => sample_array(prop),
                 Some("object") => json!({}),
                 _ => json!("x"),
             };
@@ -7957,6 +8069,25 @@ fn every_declared_argument_passes_the_check() {
         let r = mdopener_mcp::check_tool_arguments(&def, &Value::Object(args));
         assert!(r.is_ok(), "{}: {:?}", def.name, r);
     }
+}
+
+/// An array `prop` accepts: empty, or as many elements as its `minItems`
+/// asks for (`edit_canvas`'s `ops`), each with its required fields filled.
+fn sample_array(prop: &Value) -> Value {
+    let n = prop["minItems"].as_u64().unwrap_or(0) as usize;
+    let items = &prop["items"];
+    let item = match items["type"].as_str() {
+        Some("object") => {
+            let mut obj = serde_json::Map::new();
+            for req in items["required"].as_array().into_iter().flatten() {
+                let req = req.as_str().unwrap();
+                obj.insert(req.to_string(), sample_of(&items["properties"][req]).0);
+            }
+            Value::Object(obj)
+        }
+        _ => sample_of(items).0,
+    };
+    Value::Array(vec![item; n])
 }
 
 /// A value of the JSON type `prop` declares (its first `enum` value when it has
@@ -7970,7 +8101,7 @@ fn sample_of(prop: &Value) -> (Value, Value) {
         Some("boolean") => (json!(true), json!("yes")),
         Some("integer") => (json!(prop["minimum"].as_i64().unwrap_or(0)), json!("1")),
         Some("number") => (json!(1.5), json!("1.5")),
-        Some("array") => (json!([]), json!({})),
+        Some("array") => (sample_array(prop), json!({})),
         Some("object") => (json!({}), json!([])),
         other => panic!("property without a type: {other:?} in {prop}"),
     }
@@ -8491,6 +8622,44 @@ fn empty_cited_doc_is_refused() {
             "cited_docs": ["/a.md"] }),
     );
     assert!(!is_error(&ok), "{ok:?}");
+    // A blank path names no document either, and is refused the same way.
+    let resp = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did y",
+            "cited_docs": ["/a.md", "  "] }),
+    );
+    assert_eq!(param_error(&resp), "`cited_docs[1]` must not be empty");
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(ctx["count"], 1, "{ctx}");
+}
+
+/// `cited_docs` is described as absolute paths, but a relative one was
+/// stored as given and came back in `recentDocs` naming nothing an agent
+/// could match against the open document. It is now resolved against the
+/// server's working directory when saved; an absolute path is kept as given.
+#[test]
+fn relative_cited_docs_are_stored_absolute() {
+    let sess = unique_session();
+    let ok = tool_save_conversation_message(
+        json!(1),
+        &json!({ "session_id": sess, "role": "agent", "content": "did x",
+            "cited_docs": ["notes/plan.md", "/abs/spec.md"] }),
+    );
+    assert!(!is_error(&ok), "{ok:?}");
+    let cwd = std::env::current_dir().unwrap();
+    let want = cwd.join("notes/plan.md").to_string_lossy().into_owned();
+    let ctx = content_text(&tool_get_conversation_context(
+        json!(1),
+        &json!({ "session_id": sess }),
+    ));
+    assert_eq!(
+        ctx["messages"][0]["citedDocs"],
+        json!([want, "/abs/spec.md"])
+    );
+    assert_eq!(ctx["recentDocs"], json!([want, "/abs/spec.md"]));
 }
 
 #[test]
@@ -8575,6 +8744,23 @@ fn integer_below_its_minimum_is_refused() {
     for n in [json!(0), json!(u64::MAX)] {
         let args = json!({ "find": "a", "replace": "b", "match_index": n });
         assert!(mdopener_mcp::check_tool_arguments(&def, &args).is_ok());
+    }
+}
+
+/// `request_review` refused an empty inline `content` but registered a
+/// review of whitespace only, which the human could only approve or reject
+/// blind. Blank content is refused the same way, before the app is asked.
+#[test]
+fn request_review_refuses_whitespace_only_content() {
+    for blank in ["   ", "\n\t\n"] {
+        let ipc = MockIpc::new();
+        let resp = mdopener_mcp::tool_request_review(
+            id(1),
+            &json!({ "content": blank, "blocking": false }),
+            &ipc,
+        );
+        assert_eq!(param_error(&resp), "`content` must not be empty");
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
     }
 }
 

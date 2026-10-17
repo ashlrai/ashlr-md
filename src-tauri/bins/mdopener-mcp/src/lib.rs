@@ -872,7 +872,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
-                    "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty string is refused." },
+                    "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty or whitespace-only string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped." },
@@ -1064,7 +1064,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of absolute document paths that were open or referenced when this message was produced. An empty path is refused."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1117,7 +1117,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "ops": {
                         "type": "array",
-                        "description": "Ordered list of edit operations to apply atomically.",
+                        "minItems": 1,
+                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written).",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1205,7 +1206,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "preview_lines": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Context lines on each side of the diff hunk. Defaults to 5; values above 20 are read as 20."
+                        "maximum": STREAM_EDIT_MAX_PREVIEW_LINES,
+                        "description": "Context lines on each side of the diff hunk, a whole number from 0 to 20 (a value outside that range is refused, not clamped). Defaults to 5."
                     },
                     "path": {
                         "type": "string",
@@ -1450,6 +1452,8 @@ const RETIRED_ARGUMENTS: &[(&str, &str)] = &[("export", "theme")];
 /// - an integer below the declared `minimum` (a negative `limit` used to fall
 ///   back to the default, since the tools read it with `as_u64`);
 /// - a number above the declared `maximum` (`list_recent`'s `limit`);
+/// - an array with fewer elements than its declared `minItems`
+///   (`edit_canvas`'s `ops`), as "`ops` must not be empty";
 /// - a value outside the declared `enum`, at the top level or in a field of an
 ///   array element (`ops[0].type`), with the allowed values listed.
 ///
@@ -1534,6 +1538,18 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                     "`{key}` must be at least {min} character{} long, got {value}",
                     if min == 1 { "" } else { "s" }
                 ));
+            }
+        }
+        if let (Some(min), Some(items)) = (prop["minItems"].as_u64(), value.as_array()) {
+            if (items.len() as u64) < min {
+                return Err(if min == 1 {
+                    format!("`{key}` must not be empty")
+                } else {
+                    format!(
+                        "`{key}` must have at least {min} items, got {}",
+                        items.len()
+                    )
+                });
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -2362,6 +2378,14 @@ pub fn tool_request_review_with(
         if let Err(e) = non_empty_str(args, field) {
             return Response::err(id, -32602, e);
         }
+    }
+    // Only whitespace is no text to review either, as for
+    // `save_conversation_message`'s `content`.
+    if args["content"]
+        .as_str()
+        .is_some_and(|c| c.trim().is_empty())
+    {
+        return Response::err(id, -32602, "`content` must not be empty");
     }
     // An empty or blank `review_id` used to be read as absent, so a call
     // that meant to resume (`{ "review_id": "", "content": ... }`) registered
@@ -3232,11 +3256,14 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
             // Newest first, each path once: agents read `recentDocs[0]` as
             // the most recently cited document. This used to go through a
             // HashSet, so the order changed from one call to the next.
+            // An empty (or blank) path, which earlier builds stored, is left
+            // out: as the latest citation it came back as `recentDocs[0]`.
             let mut seen = std::collections::HashSet::new();
             let cited_docs: Vec<String> = messages
                 .iter()
                 .rev()
                 .flat_map(|m| m.cited_docs.iter())
+                .filter(|d| !d.trim().is_empty())
                 .filter(|d| seen.insert(d.as_str()))
                 .cloned()
                 .collect();
@@ -3293,13 +3320,36 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    if let Some(i) = cited.iter().position(|v| v.as_str() == Some("")) {
+    // A blank one (only whitespace) too: it named no document, and resolved
+    // against the working directory it became a path to a file named "  ".
+    if let Some(i) = cited
+        .iter()
+        .position(|v| v.as_str().is_some_and(|d| d.trim().is_empty()))
+    {
         return Response::err(id, -32602, format!("`cited_docs[{i}]` must not be empty"));
     }
-    let cited_docs: Vec<String> = cited
+    // Stored as absolute paths, as the schema says: a relative one used to be
+    // stored as given, and read back later it named nothing an agent (or
+    // the window, which records absolute paths) could match. It is resolved
+    // against this server's working directory, as every other path argument
+    // is; an absolute one is kept exactly as given.
+    let mut cited_docs: Vec<String> = Vec::with_capacity(cited.len());
+    for (i, raw) in cited
         .iter()
-        .filter_map(|v| v.as_str().map(str::to_string))
-        .collect();
+        .enumerate()
+        .filter_map(|(i, v)| v.as_str().map(|s| (i, s)))
+    {
+        match std::path::absolute(raw) {
+            Ok(p) => cited_docs.push(p.to_string_lossy().into_owned()),
+            Err(e) => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!("`cited_docs[{i}]` {raw:?} cannot be made absolute: {e}"),
+                )
+            }
+        }
+    }
 
     match append_message(&session_id, role, &content, cited_docs) {
         Ok((msg, dropped)) => {
@@ -5333,6 +5383,16 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         );
     }
 
+    // Checked before the file is read: an empty list is an argument error
+    // whether or not the canvas exists, and it never reaches the save.
+    let ops = match args["ops"].as_array() {
+        Some(a) => a.clone(),
+        None => return Response::err(id, -32602, "`ops` must be an array"),
+    };
+    if ops.is_empty() {
+        return Response::err(id, -32602, "`ops` must not be empty");
+    }
+
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
         Ok(c) => c,
@@ -5350,13 +5410,6 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     let mut output = parsed.rest;
 
     // ── Apply ops ────────────────────────────────────────────────────────────
-    let ops = match args["ops"].as_array() {
-        Some(a) => a.clone(),
-        None => return Response::err(id, -32602, "`ops` must be an array"),
-    };
-    if ops.is_empty() {
-        return Response::err(id, -32602, "`ops` must not be empty");
-    }
 
     let mut ops_applied: Vec<String> = Vec::new();
     // Edges `delete_node` removed along with their node, reported back.
@@ -6147,6 +6200,9 @@ pub struct StreamEditPayload {
     pub path: Option<String>,
 }
 
+/// Most context lines `stream_edit` shows on each side of a diff hunk.
+pub const STREAM_EDIT_MAX_PREVIEW_LINES: u64 = 20;
+
 fn default_preview() -> bool {
     true
 }
@@ -6194,7 +6250,24 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
-    let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
+    // A `preview_lines` above STREAM_EDIT_MAX_PREVIEW_LINES used to be read
+    // as that many in silence; it is refused like the other limits.
+    let preview_lines = match &args["preview_lines"] {
+        Value::Null => 5,
+        v => match whole_number_value(v).filter(|n| *n <= STREAM_EDIT_MAX_PREVIEW_LINES) {
+            Some(n) => n as u32,
+            None => {
+                return Response::err(
+                    id,
+                    -32602,
+                    format!(
+                        "`preview_lines` must be a whole number from 0 to \
+                         {STREAM_EDIT_MAX_PREVIEW_LINES}, got {v}; omit it for the default of 5"
+                    ),
+                )
+            }
+        },
+    };
     let path = match non_empty_str(args, "path") {
         Ok(p) => p.map(|p| stream_edit_path(p, ipc)),
         Err(e) => return Response::err(id, -32602, e),
