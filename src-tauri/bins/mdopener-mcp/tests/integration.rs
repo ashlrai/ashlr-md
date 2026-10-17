@@ -3825,3 +3825,70 @@ fn disk_reading_tools_refuse_a_fifo_instead_of_hanging() {
     assert_eq!(found.unwrap(), Vec::<Value>::new());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Session ids map to distinct files ─────────────────────────────────────────
+
+/// `a.b` and `a_b` used to sanitize to the same `a_b.json`, so two sessions
+/// shared (and overwrote) one memory store.
+#[test]
+fn session_ids_that_used_to_sanitize_alike_get_separate_files() {
+    let base = unique_session();
+    let ids = [
+        format!("{base}.x"),
+        format!("{base}_x"),
+        format!("{base}/x"),
+        format!("{base}%2Ex"),
+        format!("{base}é"),
+    ];
+    let mut paths = std::collections::HashSet::new();
+    for sid in &ids {
+        let path = session_file_path(sid).unwrap();
+        assert!(paths.insert(path.clone()), "{sid} shares {path:?}");
+        let dir = mdopener_mcp::sessions_dir();
+        assert_eq!(path.parent(), dir.as_deref(), "{sid}");
+        let resp = tool_save_conversation_message(
+            id(1),
+            &json!({ "session_id": sid, "role": "agent", "content": format!("only in {sid}") }),
+        );
+        assert!(!is_error(&resp), "{resp:?}");
+    }
+    for sid in &ids {
+        let ctx = store_get_context(sid, 20).unwrap();
+        let contents: Vec<_> = ctx.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(contents, [format!("only in {sid}")], "{sid}");
+        let _ = std::fs::remove_file(session_file_path(sid).unwrap());
+    }
+    // Ids that were already file-name safe keep their file.
+    let plain = session_file_path(&base).unwrap();
+    let want = format!("{base}.json");
+    assert_eq!(plain.file_name().unwrap().to_str(), Some(want.as_str()));
+}
+
+/// Where the file system still folds two ids onto one file (case-insensitive
+/// volumes: `Plan` and `plan`), reads never return the other session's
+/// messages and appends refuse rather than mix the two logs.
+#[test]
+fn session_file_holding_another_ids_messages_is_not_shared() {
+    use mdopener_mcp::{persist_session, ConversationMessage, SessionLog};
+    let sid = unique_session();
+    let other = ConversationMessage {
+        id: "msg-other".into(),
+        session_id: format!("{sid}-other"),
+        role: "agent".into(),
+        content: "belongs to another session".into(),
+        cited_docs: vec![],
+        timestamp_ms: 1,
+    };
+    let messages = vec![other];
+    persist_session(&sid, &SessionLog { messages });
+    assert!(store_get_context(&sid, 20).unwrap().is_empty());
+    let resp = tool_save_conversation_message(
+        id(1),
+        &json!({ "session_id": sid, "role": "agent", "content": "mine" }),
+    );
+    assert!(resp.error.is_some() || is_error(&resp), "{resp:?}");
+    let on_disk = load_session_from_disk(&sid).unwrap();
+    assert_eq!(on_disk.messages.len(), 1);
+    assert_eq!(on_disk.messages[0].content, "belongs to another session");
+    let _ = std::fs::remove_file(session_file_path(&sid).unwrap());
+}

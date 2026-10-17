@@ -246,13 +246,34 @@ pub fn sessions_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Path for a specific session's on-disk JSON file.
+///
+/// The mapping is injective: ASCII letters, digits, `-` and `_` are kept
+/// (so ids that were already file-name safe keep their file), and every other
+/// byte of the UTF-8 id is written as `%XX`. `%` itself is escaped, so `a.b`
+/// (`a%2Eb.json`) and `a_b` (`a_b.json`) no longer share a file, and no id
+/// can produce a separator, `..` or a dotfile.
 pub fn session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
-    // Sanitise the session ID: keep only alphanumeric, '-', and '_'.
-    let safe: String = session_id
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
+    let mut safe = String::with_capacity(session_id.len());
+    for b in session_id.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
+            safe.push(b as char);
+        } else {
+            safe.push_str(&format!("%{b:02X}"));
+        }
+    }
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
+}
+
+/// Load `session_id`'s log from disk, keeping only its own messages. On a
+/// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
+/// still share a file; their messages are told apart by `session_id`.
+/// Returns the log and whether the file also held another session's messages.
+fn load_own_session(session_id: &str) -> Option<(SessionLog, bool)> {
+    let mut log = load_session_from_disk(session_id)?;
+    let before = log.messages.len();
+    log.messages.retain(|m| m.session_id == session_id);
+    let foreign = log.messages.len() != before;
+    Some((log, foreign))
 }
 
 /// Persist `log` to `~/.mdopener/sessions/{session_id}.json`.
@@ -313,7 +334,20 @@ pub fn store_append_message(
     // process (a second agent, or this agent after a restart) may have
     // appended since this process cached it, and writing the cached copy
     // back would drop those messages.
-    let fresh = load_session_from_disk(session_id);
+    let fresh = match load_own_session(session_id) {
+        Some((_, true)) => {
+            let path = session_file_path(session_id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            return Err(format!(
+                "Session file {path} also holds another session's messages (ids that \
+                 differ only in case share a file on this file system); use a different \
+                 `session_id`."
+            ));
+        }
+        Some((disk, false)) => Some(disk),
+        None => None,
+    };
     let log = store.entry(session_id.to_string()).or_default();
     if let Some(disk) = fresh {
         *log = disk;
@@ -338,7 +372,7 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read.
-    if let Some(log) = load_session_from_disk(session_id) {
+    if let Some((log, _)) = load_own_session(session_id) {
         store.insert(session_id.to_string(), log);
     }
 
