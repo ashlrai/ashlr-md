@@ -302,7 +302,7 @@ export function LinterToast({
           ))}
           {overflow > 0 && (
             <li className="linter-toast__overflow">
-              +{overflow} more — open Settings → Linter rules to manage
+              +{overflow} more. Open Settings → Linter rules to manage
             </li>
           )}
         </ul>

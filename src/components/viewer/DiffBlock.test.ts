@@ -89,19 +89,19 @@ async function applyHunk(
       if (occurrences === 0) {
         return {
           ok: false,
-          message: "Patch not found — the document may have already changed.",
+          message: "Patch not found: the document may have already changed.",
         };
       }
       return {
         ok: false,
-        message: "Patch anchor is ambiguous — include more context lines.",
+        message: "Patch anchor is ambiguous: include more context lines.",
       };
     }
     const applied = store.applyOp(op);
     if (!applied) {
       return {
         ok: false,
-        message: "Apply failed — OT op was inconsistent with document state.",
+        message: "Apply failed: OT op was inconsistent with document state.",
       };
     }
     await store.save();

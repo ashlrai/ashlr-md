@@ -197,7 +197,7 @@ export function getCommands(): Command[] {
         try {
           await invoke("open_in_obsidian", { path });
         } catch (e) {
-          toast.error("Could not open in Obsidian — is it installed?");
+          toast.error("Could not open in Obsidian. Is it installed?");
           console.warn("[open in obsidian]", e);
         }
       },
@@ -486,7 +486,7 @@ export function getCommands(): Command[] {
       id: "file.copyRichHtml",
       title: "Copy as Rich HTML",
       group: "File",
-      hint: "Theme-aware HTML — paste into Slack, Gmail, Notion",
+      hint: "Theme-aware HTML: paste into Slack, Gmail, Notion",
       keywords: [
         "copy",
         "rich",

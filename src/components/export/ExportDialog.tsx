@@ -318,7 +318,7 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">PDF</span>
               <span className="export-format-desc">
-                Print to PDF via the system dialog — best for sharing or archiving
+                Print to PDF via the system dialog, best for sharing or archiving
               </span>
             </span>
           </button>
@@ -354,7 +354,7 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">HTML</span>
               <span className="export-format-desc">
-                Self-contained offline webpage — themes, diagrams, and math included
+                Self-contained offline webpage: themes, diagrams, and math included
               </span>
             </span>
           </button>
@@ -373,7 +373,7 @@ export function ExportDialog() {
               <span className="export-format-text">
                 <span className="export-format-name">EPUB</span>
                 <span className="export-format-desc">
-                  Reflowable eBook split into chapters by heading — for e-readers and
+                  Reflowable eBook split into chapters by heading, for e-readers and
                   Apple Books
                 </span>
               </span>
@@ -395,7 +395,7 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">Notion</span>
               <span className="export-format-desc">
-                Optimised HTML for pasting into Notion — clean semantic markup,
+                Optimised HTML for pasting into Notion: clean semantic markup,
                 simplified tables
               </span>
             </span>
@@ -436,7 +436,7 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">Email HTML</span>
               <span className="export-format-desc">
-                Fully inlined HTML for email clients — responsive, dark-mode, embedded
+                Fully inlined HTML for email clients: responsive, dark-mode, embedded
                 images
               </span>
             </span>

@@ -347,7 +347,7 @@ export async function copyAsRichText(
   // Capture and sanitize the rendered body.
   const rawBodyHtml = captureRenderedBodyHtmlForRichCopy();
   if (!rawBodyHtml) {
-    toast.info("Nothing to copy — switch to Read view first.");
+    toast.info("Nothing to copy. Switch to Read view first.");
     return;
   }
 

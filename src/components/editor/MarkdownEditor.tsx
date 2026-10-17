@@ -220,7 +220,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         } else if (e instanceof NoProviderError) {
           setPhase({
             kind: "error",
-            message: "No AI provider — set one up in the AI sidebar.",
+            message: "No AI provider. Set one up in the AI sidebar.",
             retryFn: null,
           });
         } else {

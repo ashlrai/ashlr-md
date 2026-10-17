@@ -5,7 +5,7 @@ resolver = "2"
 [package]
 name = "md-opener"
 version = "0.4.0"
-description = "MD Opener — an AI-native Markdown app for the agentic era"
+description = "MD Opener, an AI-native Markdown app for the agentic era"
 authors = ["MD Opener contributors"]
 license = "MIT"
 edition = "2021"

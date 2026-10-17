@@ -278,7 +278,7 @@ function OtChangeBadge({ op }: { op: OtOperation }) {
       data-agent={op.agentId}
       data-first-line={s.firstLine}
       data-last-line={s.lastLine}
-      title={`${op.agentId}: +${s.insertedChars} / -${s.deletedChars} chars (lines ${s.firstLine + 1}–${s.lastLine + 1})`}
+      title={`${op.agentId}: +${s.insertedChars} / -${s.deletedChars} chars (lines ${s.firstLine + 1} to ${s.lastLine + 1})`}
       aria-label={`Remote edit by ${op.agentId}`}
     >
       <span className="ot-change-badge-agent">{label}</span>

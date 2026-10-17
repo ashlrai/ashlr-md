@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **No em or en dashes in what the app shows.** Toasts (such as "Patch not
+  found: the document may have already changed."), tooltips, dialog and
+  settings text, export format descriptions, the welcome screen, the AI
+  sidebar hints, the status bar, the edit errors the window reports and the
+  package descriptions shown in app metadata used em dashes (and two en
+  dashes). They now use plain punctuation. A test parses the UI sources and
+  fails on a dash in a string literal, template text or JSX text.
 - **`edit_canvas` refuses an empty id before reading the file.** An op with
   `id: ""` read the canvas and came back as "node `` not found". An empty
   op `id`, `reorder_edges` `ids` element, `add_node` `node.id`, or

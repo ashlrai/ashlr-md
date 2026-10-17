@@ -150,7 +150,7 @@ export async function resolveLinkPreview(
     const domain = domainOf(href);
     return {
       kind: "external",
-      snippet: `External link — ${domain}`,
+      snippet: `External link: ${domain}`,
       resolvedPath: "",
     };
   }

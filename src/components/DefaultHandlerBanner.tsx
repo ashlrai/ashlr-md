@@ -218,7 +218,7 @@ export function DefaultHandlerBanner() {
           {action.kind === "error" ? (
             <span className="dh-banner-error-msg">{action.message}</span>
           ) : pendingConfirm ? (
-            "Almost there — confirm Ashlr MD in the system settings that just opened."
+            "Almost there: confirm Ashlr MD in the system settings that just opened."
           ) : (
             "Make Ashlr MD your default for Markdown files"
           )}

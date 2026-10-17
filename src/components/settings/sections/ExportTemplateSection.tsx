@@ -224,7 +224,7 @@ function CssEditor({ template, onSave, onCancel }: CssEditorProps) {
         {/* CSS textarea */}
         <div className="export-tpl-css-pane">
           <p className="export-tpl-css-hint">
-            CSS is injected after theme tokens, markdown typography, and KaTeX — so your
+            CSS is injected after theme tokens, markdown typography, and KaTeX, so your
             rules cascade on top of all base styles.
           </p>
           <textarea
@@ -365,7 +365,7 @@ export function ExportTemplateSection() {
           type="button"
           className="export-tpl-item-name"
           onClick={() => setActiveTemplateId(NO_TEMPLATE_ID)}
-          title="No template — use base styles"
+          title="No template: use base styles"
         >
           {activeTemplateId === NO_TEMPLATE_ID && (
             <span className="export-tpl-check" aria-hidden="true">

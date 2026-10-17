@@ -41,7 +41,7 @@ export function EmbedSection() {
       <p className="settings-description settings-description-muted">
         Semantic search needs a local embedding model. Run{" "}
         <code className="settings-inline-code">ollama pull nomic-embed-text</code> to
-        upgrade your “My library” chat answers from keyword to semantic — fully
+        upgrade your “My library” chat answers from keyword to semantic, fully
         on-device.
       </p>
     );

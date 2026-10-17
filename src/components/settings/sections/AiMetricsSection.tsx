@@ -47,7 +47,7 @@ function tierLabel(tier: number): string {
 }
 
 function fmtMs(ms: number): string {
-  if (ms === 0) return "—";
+  if (ms === 0) return "-";
   if (ms < 1000) return `${Math.round(ms)} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
 }
