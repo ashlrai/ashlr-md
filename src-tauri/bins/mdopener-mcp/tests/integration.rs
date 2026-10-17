@@ -545,15 +545,25 @@ fn open_file_mode_edit_forwarded_in_post_body() {
     assert_eq!(body["mode"], json!("edit"));
 }
 
+/// A Markdown file that exists, for the URL-scheme fallback tests: with the
+/// app unreachable, `open_file` refuses a missing file before launching.
+fn existing_notes() -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.md");
+    std::fs::write(&notes, "# Notes\n").unwrap();
+    (dir, notes.to_string_lossy().into_owned())
+}
+
 // When IPC fails we fall through to the url-scheme launcher. The launcher is
 // injected so no test ever starts a real OS launcher or GUI.
 #[test]
 fn open_file_ipc_failure_launches_url_scheme() {
+    let (_dir, notes) = existing_notes();
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
     let seen = Mutex::new(Vec::<String>::new());
     let resp = tool_open_file_with(
         id(1),
-        &json!({ "path": "/tmp/mdopener-notes.md", "mode": "edit" }),
+        &json!({ "path": notes, "mode": "edit" }),
         &ipc,
         &|url| {
             seen.lock().unwrap().push(url.to_string());
@@ -580,15 +590,13 @@ fn open_file_ipc_failure_launches_url_scheme() {
 
 #[test]
 fn open_file_headless_reports_no_launcher_honestly() {
+    let (_dir, notes) = existing_notes();
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(
-        id(1),
-        &json!({ "path": "/tmp/mdopener-notes.md" }),
-        &ipc,
-        &|_| Launch::NoLauncher {
+    let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|_| {
+        Launch::NoLauncher {
             tried: vec!["xdg-open".into(), "gio".into()],
-        },
-    );
+        }
+    });
     let err = tool_error_text(&resp);
     assert!(err.contains("not running"), "{}", err);
     assert!(err.contains("xdg-open, gio"), "{}", err);
@@ -597,31 +605,27 @@ fn open_file_headless_reports_no_launcher_honestly() {
 
 #[test]
 fn open_file_launcher_failure_is_an_error() {
+    let (_dir, notes) = existing_notes();
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(
-        id(1),
-        &json!({ "path": "/tmp/mdopener-notes.md" }),
-        &ipc,
-        &|_| Launch::Failed {
+    let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|_| {
+        Launch::Failed {
             launcher: "xdg-open".into(),
             code: Some(4),
-        },
-    );
+        }
+    });
     let err = tool_error_text(&resp);
     assert!(err.contains("status 4"), "{}", err);
 }
 
 #[test]
 fn open_file_pending_launcher_is_unconfirmed_success() {
+    let (_dir, notes) = existing_notes();
     let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
-    let resp = tool_open_file_with(
-        id(1),
-        &json!({ "path": "/tmp/mdopener-notes.md" }),
-        &ipc,
-        &|_| Launch::Pending {
+    let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|_| {
+        Launch::Pending {
             launcher: "xdg-open".into(),
-        },
-    );
+        }
+    });
     assert!(resp.error.is_none());
     let text = resp.result.as_ref().unwrap()["content"][0]["text"]
         .as_str()
@@ -631,6 +635,30 @@ fn open_file_pending_launcher_is_unconfirmed_success() {
         text.contains("\"confirmed\":false") || text.contains("\"confirmed\": false"),
         "{text}"
     );
+}
+
+// With the app unreachable nothing else refuses a missing file: the launcher
+// would exit 0 and the tool would report an open the window cannot do.
+#[test]
+fn open_file_without_the_app_refuses_a_missing_file_before_launching() {
+    let ipc = MockIpc::new().on_post("/open", Err("ipc-port not found".into()));
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("not-written-yet.md");
+    let launched = Mutex::new(0);
+    let resp = tool_open_file_with(
+        id(1),
+        &json!({ "path": missing.to_string_lossy() }),
+        &ipc,
+        &|_| {
+            *launched.lock().unwrap() += 1;
+            Launch::Opened {
+                launcher: "xdg-open".into(),
+            }
+        },
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains("does not exist"), "{err}");
+    assert_eq!(*launched.lock().unwrap(), 0, "launched the URL scheme");
 }
 
 #[test]

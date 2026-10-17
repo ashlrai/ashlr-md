@@ -1213,7 +1213,8 @@ pub fn tool_open_file_with(
 
     // The path is made absolute against this server's working directory: the
     // app resolves paths against its own, unrelated cwd. A missing file is
-    // left for the app to refuse ("does not exist") when it is running.
+    // left for the app to refuse ("does not exist") when it is running, and
+    // refused here before the URL-scheme fallback when it is not.
     let abs = match openable_document_path(&raw_path) {
         Ok(abs) => abs,
         Err(e) => return tool_error(id, e),
@@ -1232,6 +1233,13 @@ pub fn tool_open_file_with(
         Err(e) if app_refused(&e) => return tool_error(id, e),
         Err(e) => e,
     };
+
+    // The app is not reachable, so nothing else will refuse a missing file:
+    // the launcher would exit 0 and the open would be reported though the
+    // window cannot open it.
+    if !std::path::Path::new(&abs).is_file() {
+        return tool_error(id, format!("Cannot open '{abs}': the file does not exist."));
+    }
 
     // Fall back: launch / bring to front via the URL scheme, using the host
     // OS launcher (`open` on macOS, `xdg-open`/`gio open` on Linux, `start` on
