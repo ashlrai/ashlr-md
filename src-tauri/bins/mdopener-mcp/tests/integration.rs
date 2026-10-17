@@ -9896,12 +9896,22 @@ fn edit_canvas_refuses_empty_ids_before_reading_the_file() {
             "op[0] add_edge: edge.toNode must not be empty",
         ),
     ];
-    for (op, want) in cases {
+    // Through tools/call, the op's `id` and the `ids` elements are refused
+    // first by the schema's nested `minLength`, naming the op's field.
+    let schema_says = [
+        Some("`ops[0].id` must be at least 1 character long, got \"\""),
+        Some("`ops[0].id` must be at least 1 character long, got \"\""),
+        Some("`ops[0].ids[1]` must be at least 1 character long, got \"\""),
+        None,
+        None,
+        None,
+    ];
+    for ((op, want), schema) in cases.into_iter().zip(schema_says) {
         let args = json!({ "path": path, "ops": [op] });
         let direct = mdopener_mcp::tool_edit_canvas(id(1), &args);
         assert_eq!(param_error(&direct), want);
         let via_call = call("edit_canvas", args, &MockIpc::new());
-        assert_eq!(param_error(&via_call), want);
+        assert_eq!(param_error(&via_call), schema.unwrap_or(want));
     }
     assert!(!path.exists());
 }
@@ -9970,5 +9980,75 @@ fn edit_canvas_refuses_blank_ids_before_reading_the_file() {
         let via_call = call("edit_canvas", args, &MockIpc::new());
         assert_eq!(param_error(&via_call), want);
     }
+    assert!(!path.exists());
+}
+
+// ── nested fields of array items honour their declared bounds ────────────────
+
+/// `check_tool_arguments` enforced `minLength`, `minimum` and `maximum` on
+/// top-level arguments only: inside an array item (an `edit_canvas` op) they
+/// were declared but not checked. They are now checked there too, named as
+/// `ops[1].id`, with the same wording as at the top level.
+#[test]
+fn nested_item_fields_honour_min_length_and_bounds() {
+    let def = mdopener_mcp::ToolDef {
+        name: "probe",
+        description: "probe",
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "ops": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "minLength": 2 },
+                            "n": { "type": "integer", "minimum": 1, "maximum": 3 },
+                            "ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+                        }
+                    }
+                }
+            }
+        }),
+        annotations: None,
+        tier: ToolTier::ReadOnly,
+    };
+    let check = |op: Value| {
+        mdopener_mcp::check_tool_arguments(&def, &json!({ "ops": [{ "id": "ok" }, op] }))
+    };
+    assert_eq!(check(json!({ "id": "ab", "n": 2, "ids": ["x"] })), Ok(()));
+    assert_eq!(
+        check(json!({ "id": "a" })),
+        Err("`ops[1].id` must be at least 2 characters long, got \"a\"".to_string())
+    );
+    assert_eq!(
+        check(json!({ "n": 0 })),
+        Err("`ops[1].n` must be at least 1, got 0".to_string())
+    );
+    assert_eq!(
+        check(json!({ "n": 4 })),
+        Err("`ops[1].n` must be at most 3, got 4".to_string())
+    );
+    assert_eq!(
+        check(json!({ "ids": ["x", ""] })),
+        Err("`ops[1].ids[1]` must be at least 1 character long, got \"\"".to_string())
+    );
+
+    // The real edit_canvas schema: an empty op id or ids element is refused
+    // by tools/call before the handler, and the file is never read.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing.canvas");
+    let args = json!({ "path": path, "ops": [
+        { "type": "move_node", "id": "a", "x": 1, "y": 1 },
+        { "type": "reorder_edges", "ids": [""] }
+    ] });
+    let canvas = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "edit_canvas")
+        .unwrap();
+    assert_eq!(
+        mdopener_mcp::check_tool_arguments(&canvas, &args),
+        Err("`ops[1].ids[0]` must be at least 1 character long, got \"\"".to_string())
+    );
     assert!(!path.exists());
 }

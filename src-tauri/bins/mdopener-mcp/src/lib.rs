@@ -1640,7 +1640,9 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
 /// `properties` (an `edit_canvas` op): a field it does not declare, a field of
 /// the wrong JSON type (or an array field with an element of the wrong type),
 /// and a missing `required` field are refused, named as `` `ops[2].x` `` so
-/// the agent knows which element and field. A field the tool reads with
+/// the agent knows which element and field. A declared `minLength` (on the
+/// field or on its array elements), `minimum` and `maximum` are checked as at
+/// the top level. A field the tool reads with
 /// `as_f64`/`as_str` used to be reported as missing when mistyped (`"x": "5"`
 /// gave "`x` required"), or written to the canvas as given (`"color": 3`).
 /// `null` counts as not given, as at the top level.
@@ -1684,6 +1686,26 @@ fn check_item_fields(
         if let Some(msg) = enum_problem(&format!("{at}.{k}"), field, v) {
             return Err(msg);
         }
+        // The bounds the top level checks, so a declared `minLength` on an
+        // op's `id` is enforced here too and not only by the tool.
+        if let (Some(min), Some(n)) = (field["minimum"].as_i64(), v.as_f64()) {
+            if n < min as f64 {
+                return Err(format!("`{at}.{k}` must be at least {min}, got {v}"));
+            }
+        }
+        if let (Some(max), Some(n)) = (field["maximum"].as_i64(), v.as_f64()) {
+            if n > max as f64 {
+                return Err(format!("`{at}.{k}` must be at most {max}, got {v}"));
+            }
+        }
+        if let (Some(min), Some(text)) = (field["minLength"].as_u64(), v.as_str()) {
+            if (text.chars().count() as u64) < min {
+                return Err(format!(
+                    "`{at}.{k}` must be at least {min} character{} long, got {v}",
+                    if min == 1 { "" } else { "s" }
+                ));
+            }
+        }
         if let (Some(want), Some(elems)) = (field["items"]["type"].as_str(), v.as_array()) {
             if let Some((j, bad)) = elems
                 .iter()
@@ -1694,6 +1716,18 @@ fn check_item_fields(
                     "`{at}.{k}[{j}]` must be {}, got {}",
                     type_phrase(want),
                     json_type_phrase(bad)
+                ));
+            }
+        }
+        if let (Some(min), Some(elems)) = (field["items"]["minLength"].as_u64(), v.as_array()) {
+            if let Some((j, bad)) = elems
+                .iter()
+                .enumerate()
+                .find(|(_, e)| e.as_str().is_some_and(|t| (t.chars().count() as u64) < min))
+            {
+                return Err(format!(
+                    "`{at}.{k}[{j}]` must be at least {min} character{} long, got {bad}",
+                    if min == 1 { "" } else { "s" }
                 ));
             }
         }

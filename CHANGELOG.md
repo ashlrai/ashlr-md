@@ -43,6 +43,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   package descriptions shown in app metadata used em dashes (and two en
   dashes). They now use plain punctuation. A test parses the UI sources and
   fails on a dash in a string literal, template text or JSX text.
+- **Fields inside array items honour their declared bounds.** The argument
+  check enforced `minLength`, `minimum` and `maximum` on top-level arguments
+  only; inside an `edit_canvas` op they were declared but not checked there.
+  An op's empty `id` or `ids` element is now refused by `tools/call` with
+  `-32602` naming the field (`` `ops[0].id` must be at least 1 character
+  long ``), as a top-level argument is.
 - **A whitespace-only `edit_id` or canvas id is refused like an empty one.**
   `stream_edit_apply`'s `edit_id: " "` and an `edit_canvas` op `id`,
   `reorder_edges` `ids` element, `node.id`, `edge.id`, `edge.fromNode` or
