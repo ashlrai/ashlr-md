@@ -1256,8 +1256,20 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`content` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
+    post_content(id, &content, save, ipc)
+}
 
+/// POST `/content` for `set_content` and `replace_document`. The app answers
+/// once the window has replaced the document, and saved it when `save` is
+/// set, so a refusal (`ok: false`) is the agent's to see as a tool error.
+fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Response {
     match ipc.post("/content", json!({ "content": content, "save": save })) {
+        Ok(v) if v["ok"].as_bool() == Some(false) => {
+            let msg = v["error"]
+                .as_str()
+                .unwrap_or("The app could not replace the document content.");
+            tool_error(id, msg.to_string())
+        }
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
@@ -1632,10 +1644,7 @@ pub fn tool_replace_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
         None => return Response::err(id, -32602, "`content` is required"),
     };
     let save = args["save"].as_bool().unwrap_or(false);
-    match ipc.post("/content", json!({ "content": content, "save": save })) {
-        Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
-    }
+    post_content(id, &content, save, ipc)
 }
 
 pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {

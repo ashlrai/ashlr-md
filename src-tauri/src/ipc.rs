@@ -10,7 +10,7 @@
 //! |--------|------------|---------------------------------------|------------------------------------|
 //! | GET    | /health    | —                                     | Liveness check                     |
 //! | GET    | /content   | —                                     | Current document `{path, content}` |
-//! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content                |
+//! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file                        |
 //! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
 //! | POST   | /export    | `{"format":"pdf|docx|html","outputPath":"…|null"}` | Trigger export |
@@ -24,8 +24,8 @@
 //!
 //! Content is kept in [`DocMirror`], a managed Tauri state struct that the
 //! frontend syncs via `mcp_sync_state` on every document change (debounced
-//! 200 ms). Mutations (`/content`, `/open`, `/export`) emit a Tauri event the
-//! frontend picks up and applies.
+//! 200 ms). Mutations (`/open`, `/export`) emit a Tauri event the frontend
+//! picks up and applies; `/content` waits for the window's outcome like `/edit`.
 //!
 //! `/edit` is special: because the 200 ms debounce makes [`DocMirror`] stale
 //! right after the user types, applying a find/replace against it could miss
@@ -247,8 +247,8 @@ pub fn mcp_sync_vault(
 }
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
-/// document. Forwards the outcome to the IPC worker thread parked in
-/// `handle_edit`. Removing the sender from [`PendingEdits`] here means a stray or
+/// document, or an `mcp://set-content`. Forwards the outcome to the IPC worker
+/// thread parked in `handle_edit` or `handle_set_content`. Removing the sender from [`PendingEdits`] here means a stray or
 /// duplicate reply for an already-resolved (or timed-out) edit is silently
 /// ignored rather than panicking on a dropped receiver.
 #[tauri::command]
@@ -768,6 +768,12 @@ fn checked_agent_path(raw: &str) -> Result<String, String> {
     Ok(abs)
 }
 
+/// POST /content — replace the open document (and save it when asked).
+///
+/// A round-trip like `/edit`: the window applies the content and reports back
+/// through `mcp_edit_result` (the same [`PendingEdits`] map, so the same
+/// [`MAX_INFLIGHT_EDITS`] cap and [`EDIT_ROUNDTRIP_TIMEOUT`]), and the reply
+/// says whether the content was applied and, with `save`, written to disk.
 fn handle_set_content(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {
@@ -776,16 +782,52 @@ fn handle_set_content(mut req: Request, app: &AppHandle) {
         save: bool,
     }
 
-    let body = read_json_body::<Body>(&mut req);
-    match body {
-        Ok(b) => {
-            let _ = app.emit("mcp://set-content", serde_json::json!({
-                "content": b.content,
-                "save": b.save,
-            }));
-            send_json(req, serde_json::json!({"ok": true}));
-        }
-        Err((code, e)) => send_error(req, code, &e),
+    let b = match read_json_body::<Body>(&mut req) {
+        Ok(b) => b,
+        Err((code, e)) => return send_error(req, code, &e),
+    };
+    let _inflight = match InflightEdit::acquire() {
+        Some(g) => g,
+        None => return send_json(req, editor_busy()),
+    };
+    let edit_id = format!("content_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
+    let (tx, rx) = mpsc::channel::<EditOutcome>();
+    app.state::<PendingEdits>()
+        .0
+        .lock()
+        .unwrap()
+        .insert(edit_id.clone(), tx);
+    let _ = app.emit(
+        "mcp://set-content",
+        serde_json::json!({
+            "editId": edit_id,
+            "content": b.content,
+            "save": b.save,
+        }),
+    );
+    let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
+    if outcome.is_err() {
+        app.state::<PendingEdits>()
+            .0
+            .lock()
+            .unwrap()
+            .remove(&edit_id);
+    }
+    send_json(req, set_content_reply(outcome));
+}
+
+/// The `/content` reply for what the window reported (or did not report).
+fn set_content_reply(outcome: Result<EditOutcome, mpsc::RecvTimeoutError>) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "error": o.error.unwrap_or_else(|| "The app could not replace the document content.".into()),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "error": "Timed out waiting for the app to replace the document content — is the window responsive?",
+        }),
     }
 }
 
@@ -1784,6 +1826,44 @@ mod tests {
     #[test]
     fn edit_round_trips_answer_before_the_mcp_client_gives_up() {
         assert!(EDIT_ROUNDTRIP_TIMEOUT < std::time::Duration::from_secs(5));
+    }
+
+    /// `/content` answers with what the window did: ok once it replaced the
+    /// document (and saved it when asked), else the window's reason, and a
+    /// window that never answers is a failure rather than a silent success.
+    #[test]
+    fn set_content_reports_what_the_window_did() {
+        use super::{set_content_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let ok = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(set_content_reply(Ok(ok)), serde_json::json!({ "ok": true }));
+
+        let refused = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Content replaced in the open document but not saved: denied".into()),
+        };
+        let v = set_content_reply(Ok(refused));
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("not saved"));
+
+        let v = set_content_reply(Ok(EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: None,
+        }));
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().is_some_and(|e| !e.is_empty()));
+
+        for gone in [RecvTimeoutError::Timeout, RecvTimeoutError::Disconnected] {
+            let v = set_content_reply(Err(gone));
+            assert_eq!(v["ok"], false);
+            assert!(v["error"].as_str().unwrap().contains("Timed out"));
+        }
     }
 
     #[test]

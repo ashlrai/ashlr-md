@@ -671,6 +671,32 @@ fn set_content_large_content_not_truncated() {
     assert_eq!(sent.len(), 11 * 1024 * 1024, "large content was truncated");
 }
 
+/// The app answers `/content` once the window has replaced the document (and
+/// saved it when asked). A refusal must reach the agent as a tool error, not
+/// as a success carrying `ok: false`.
+#[test]
+fn set_content_reports_a_failed_apply_or_save() {
+    let ipc = MockIpc::new().on_post(
+        "/content",
+        Ok(json!({ "ok": false, "error": "Content replaced in the open document but not saved: Permission denied" })),
+    );
+    let resp = tool_set_content(id(1), &json!({ "content": "# X", "save": true }), &ipc);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("not saved"), "{err}");
+    assert!(err.contains("Permission denied"), "{err}");
+
+    let resp = tool_replace_document(id(2), &json!({ "content": "# X", "save": true }), &ipc);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("Permission denied"), "{err}");
+}
+
+#[test]
+fn set_content_without_a_reason_still_fails() {
+    let ipc = MockIpc::new().on_post("/content", Ok(json!({ "ok": false })));
+    let resp = tool_set_content(id(1), &json!({ "content": "# X" }), &ipc);
+    assert!(!tool_error_text(&resp).is_empty());
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool 4: list_recent
 // ════════════════════════════════════════════════════════════════════════════

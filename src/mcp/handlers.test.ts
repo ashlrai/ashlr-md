@@ -535,6 +535,40 @@ describe("handlers integration — edits with save: true", () => {
     expect(String(r.error)).toContain("not saved");
   });
 
+  it("set-content: reports the replaced content as ok", async () => {
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new body" });
+    expect(useDocumentStore.getState().content).toBe("new body");
+    expect(reply("mcp_edit_result")).toMatchObject({ editId: "c1", ok: true });
+  });
+
+  it("set-content: a successful save is reported as ok", async () => {
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      true,
+    );
+    expect(reply("mcp_edit_result")).toMatchObject({ editId: "c1", ok: true });
+  });
+
+  it("set-content: a failed save is not reported as ok", async () => {
+    failWrites();
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    expect(useDocumentStore.getState().content).toBe("new");
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+    expect(String(r.error)).toContain("Permission denied");
+  });
+
+  it("set-content: save on a document with no file is not reported as ok", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
+    const r = reply("mcp_edit_result");
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain("not saved");
+  });
+
   it("stream-edit-apply: a failed save is not reported as ok", async () => {
     failWrites();
     await fireEvent("mcp://stream-edit-apply", {

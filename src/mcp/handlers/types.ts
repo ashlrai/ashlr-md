@@ -42,6 +42,8 @@ export interface OpenPayload {
 }
 
 export interface SetContentPayload {
+  /** Round-trip id the reply on `mcp_edit_result` carries back. */
+  editId?: string;
   content: string;
   save?: boolean;
 }

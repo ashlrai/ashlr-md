@@ -42,20 +42,39 @@ async function saveForAgent(): Promise<string | null> {
   return after.error ?? "the write failed";
 }
 
-function notSaved(reason: string): string {
-  return `Edit applied to the open document but not saved: ${reason}`;
+function notSaved(reason: string, what = "Edit applied to"): string {
+  return `${what} the open document but not saved: ${reason}`;
 }
 
 // ── mcp://set-content ─────────────────────────────────────────────────────────
 
+/**
+ * Replace the open document's content, saving it when asked, and report the
+ * outcome on `mcp_edit_result` (the IPC `/content` round-trip waits for it).
+ */
 export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
   return listen<SetContentPayload>("mcp://set-content", async (e) => {
-    const { content, save } = e.payload;
-    useDocumentStore.getState().setContent(content);
-    if (save) {
-      await useDocumentStore.getState().save();
+    const { editId, content, save } = e.payload;
+    let error: string | null = null;
+    try {
+      useDocumentStore.getState().setContent(content);
+      if (save) {
+        const reason = await saveForAgent();
+        if (reason !== null) error = notSaved(reason, "Content replaced in");
+      }
+      syncNow();
+    } catch (err) {
+      error = `Replacing the content failed in app: ${String(err)}`;
     }
-    syncNow();
+    if (editId === undefined) return;
+    await invoke("mcp_edit_result", {
+      editId,
+      ok: error === null,
+      replaced: error === null ? 1 : 0,
+      error,
+    }).catch((e2) => {
+      console.error("[mcp bridge] mcp_edit_result reply for set-content failed:", e2);
+    });
   });
 }
 
