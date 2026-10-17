@@ -35,7 +35,9 @@ The MCP server understands the MCP lifecycle (`initialize` →
 `resources/*`, and `prompts/*`) and negotiates one of three protocol revisions:
 **`2024-11-05`**, **`2025-03-26`**, or **`2025-06-18`** (default). It echoes the
 client's requested `protocolVersion` when it's one of these, and otherwise
-advertises the latest, `2025-06-18`.
+advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
+which `2025-03-26` clients may send) gets one array reply; a message without
+an `id` is a notification and gets no reply.
 
 ---
 

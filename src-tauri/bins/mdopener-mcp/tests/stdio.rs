@@ -112,3 +112,57 @@ fn version_and_help_flags_exit_without_serving() {
         assert!(out.contains(&expect), "{flag}: {out:?}");
     }
 }
+
+/// Feed raw lines to the binary and return each stdout line parsed as JSON.
+fn raw_session(lines: &[&str]) -> Vec<Value> {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        for l in lines {
+            writeln!(stdin, "{l}").unwrap();
+        }
+    }
+    drop(child.stdin.take());
+    let out: Vec<Value> = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map(|l| serde_json::from_str(&l.unwrap()).expect("stdout must be JSON-RPC only"))
+        .collect();
+    assert!(child.wait().unwrap().success());
+    out
+}
+
+/// A malformed request that still carries an `id` must be answered with that
+/// id (-32600), or a client waiting on it hangs. A request without an `id` is
+/// a notification and gets no reply. Batches (MUST be accepted under
+/// 2025-03-26) get one array reply with the non-notification responses.
+#[test]
+fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
+    let out = raw_session(&[
+        r#"{"jsonrpc":"2.0","id":7}"#,
+        r#"{"jsonrpc":"2.0","method":"ping"}"#,
+        r#"[{"jsonrpc":"2.0","id":8,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":9,"method":"nope"}]"#,
+        r#"[]"#,
+        r#"{not json"#,
+        r#"{"jsonrpc":"2.0","id":10,"method":"ping"}"#,
+    ]);
+    assert_eq!(out.len(), 5, "{out:?}");
+    assert_eq!(out[0]["id"], 7);
+    assert_eq!(out[0]["error"]["code"], -32600);
+    let batch = out[1].as_array().expect("batch reply is an array");
+    assert_eq!(batch.len(), 2, "{batch:?}");
+    assert_eq!(batch[0], json!({"jsonrpc":"2.0","id":8,"result":{}}));
+    assert_eq!(batch[1]["id"], 9);
+    assert_eq!(batch[1]["error"]["code"], -32601);
+    assert_eq!(out[2]["error"]["code"], -32600);
+    assert_eq!(out[2]["id"], Value::Null);
+    assert_eq!(out[3]["error"]["code"], -32700);
+    assert_eq!(out[4], json!({"jsonrpc":"2.0","id":10,"result":{}}));
+}
