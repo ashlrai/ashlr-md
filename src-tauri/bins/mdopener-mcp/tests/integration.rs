@@ -7459,3 +7459,119 @@ fn export_tools_read_front_matter_after_a_byte_order_mark() {
         json!({ "owner": { "name": "Ann", "roles": ["lead"] } })
     );
 }
+
+/// The resource channel checked the canonical target of an advertised path,
+/// then read the advertised path again, re-resolving its symlink. A
+/// `notes.md` link re-pointed from a Markdown file to `id_rsa` between the
+/// check and the read was served. The read now uses the checked path.
+#[cfg(unix)]
+#[test]
+fn resource_reads_use_the_checked_path_not_the_link_again() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let secret = dir.join("id_rsa");
+    std::fs::write(&secret, "PRIVATE KEY\n").unwrap();
+    let real = dir.join("real.md");
+    std::fs::write(&real, "# Real\n").unwrap();
+    let link = dir.join("notes.md");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let link_s = link.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": link_s, "name": "notes.md" }], "recents": [link_s] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let swapper = {
+        let (stop, dir, link, real, secret) = (
+            stop.clone(),
+            dir.clone(),
+            link.clone(),
+            real.clone(),
+            secret.clone(),
+        );
+        std::thread::spawn(move || {
+            let tmp = dir.join("swap.tmp");
+            let mut flip = false;
+            while !stop.load(Ordering::Relaxed) {
+                let _ = std::fs::remove_file(&tmp);
+                let target = if flip { &secret } else { &real };
+                std::os::unix::fs::symlink(target, &tmp).unwrap();
+                std::fs::rename(&tmp, &link).unwrap();
+                flip = !flip;
+            }
+        })
+    };
+    let mut leaked = 0;
+    let uri = format!("file://{link_s}");
+    for i in 0..20_000u64 {
+        let resp = handle_resource_read(id(i), &uri, &ipc);
+        if let Some(r) = &resp.result {
+            if r.to_string().contains("PRIVATE KEY") {
+                leaked += 1;
+            }
+        }
+        if i % 10 == 0 {
+            let resp = mdopener_mcp::handle_recent_documents_resource(id(i), &ipc);
+            if resp
+                .result
+                .as_ref()
+                .unwrap()
+                .to_string()
+                .contains("PRIVATE KEY")
+            {
+                leaked += 1;
+            }
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    swapper.join().unwrap();
+    assert_eq!(leaked, 0, "the secret behind a re-pointed link was served");
+}
+
+// Hostile front matter must not abort the server: a panic or a stack overflow
+// in export_metadata kills the stdio process and every later request.
+#[test]
+fn frontmatter_non_ascii_whitespace_in_a_block_scalar_does_not_panic() {
+    use mdopener_mcp::extract_frontmatter;
+    // A no-break space after an explicit indentation indicator.
+    let nbsp = "---\nk: |1\n\u{a0}x\nnext: 1\n---\n";
+    assert_eq!(extract_frontmatter(nbsp)["next"], json!(1));
+    // Ideographic spaces deeper than the block's ASCII indentation.
+    let ideo = "---\nk: |\n    a\n\u{3000}\u{3000}b\nnext: 2\n---\n";
+    assert_eq!(extract_frontmatter(ideo)["k"], json!("a\n"));
+}
+
+#[test]
+fn frontmatter_empty_sequence_items_are_siblings_and_do_not_overflow() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\ntags:\n-\n- a\n-\n---\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({ "tags": [null, "a", null] })
+    );
+
+    // Thousands of empty items used to recurse once per line and abort.
+    let many = format!("---\nk:\n{}next: 1\n---\n", "-\n".repeat(200_000));
+    let v = extract_frontmatter(&many);
+    assert_eq!(v["k"].as_array().map(Vec::len), Some(200_000));
+    assert_eq!(v["next"], json!(1));
+}
+
+#[test]
+fn frontmatter_nesting_deeper_than_the_cap_is_null() {
+    use mdopener_mcp::{extract_frontmatter, FRONTMATTER_MAX_DEPTH};
+    let levels = 8_000;
+    let mut doc = String::from("---\n");
+    for i in 0..levels {
+        doc.push_str(&format!("{}k{i}:\n", " ".repeat(i)));
+    }
+    doc.push_str("after: 1\n---\n");
+    let v = extract_frontmatter(&doc);
+    assert_eq!(v["after"], json!(1));
+    let mut cur = &v;
+    for i in 0..FRONTMATTER_MAX_DEPTH {
+        cur = &cur[format!("k{i}")];
+        assert!(cur.is_object() || cur.is_null(), "level {i}: {cur}");
+    }
+}

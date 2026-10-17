@@ -3188,10 +3188,13 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         // `~/.ssh/id_rsa` or `.env` used to be served. Like the tools that
         // read a path from disk, only a Markdown non-dotfile is read, checked
         // after resolving symlinks.
-        if let Err(e) = checked_document_path(&p, "uri") {
-            return Response::err(id, -32002, e);
-        }
-        return match read_regular_file(&p) {
+        // Read the checked (canonical) path: reading `p` again would follow
+        // a link re-pointed after the check.
+        let checked = match checked_document_path(&p, "uri") {
+            Ok(c) => c,
+            Err(e) => return Response::err(id, -32002, e),
+        };
+        return match read_regular_file(&checked) {
             Ok(text) => Response::ok(
                 id,
                 json!({
@@ -3977,17 +3980,18 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
         // Skip a recent that is (or now links to) something other than a
         // Markdown non-dotfile, as `file://` reads do: its preview would
         // otherwise show the first 200 characters of the link's target.
-        if checked_document_path(path, "path").is_err() {
+        let Ok(checked) = checked_document_path(path, "path") else {
             continue;
-        }
-        // Skip paths that no longer exist on disk.
-        let content = match read_regular_file(path) {
+        };
+        // Skip paths that no longer exist on disk. The checked (canonical)
+        // path is read, so a link re-pointed after the check is not followed.
+        let content = match read_regular_file(&checked) {
             Ok(c) => c,
             Err(_) => continue,
         };
 
         // mtime in milliseconds since the Unix epoch.
-        let mtime_ms: u64 = std::fs::metadata(path)
+        let mtime_ms: u64 = std::fs::metadata(&checked)
             .ok()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -5805,6 +5809,7 @@ pub fn extract_frontmatter(content: &str) -> Value {
     let mut parser = FrontMatter {
         lines: fm_lines,
         pos: 0,
+        depth: 0,
     };
     let mut map = serde_json::Map::new();
     parser.mapping(0, &mut map);
@@ -5820,11 +5825,23 @@ pub fn extract_frontmatter(content: &str) -> Value {
 struct FrontMatter<'a> {
     lines: Vec<&'a str>,
     pos: usize,
+    /// How many nested mappings and sequences enclose the current line.
+    depth: usize,
 }
 
-/// A line's indentation in bytes of leading whitespace.
+/// Deepest nesting of mappings and sequences read; a value nested deeper is
+/// null. Every level is a recursive call, so without a bound a hostile
+/// document (thousands of `-` lines) overflows the stack and aborts the
+/// server.
+pub const FRONTMATTER_MAX_DEPTH: usize = 64;
+
+/// A line's indentation: its leading ASCII spaces and tabs, in bytes. YAML
+/// indents with spaces only, and counting other Unicode whitespace (a no-break
+/// space, an ideographic space) would put a slice inside a multi-byte char.
 fn line_indent(line: &str) -> usize {
-    line.len() - line.trim_start().len()
+    line.bytes()
+        .take_while(|b| matches!(b, b' ' | b'\t'))
+        .count()
 }
 
 /// The text of a `- item` line after its dash, or `None` for other lines.
@@ -5878,6 +5895,30 @@ impl<'a> FrontMatter<'a> {
         if !val_str.is_empty() {
             return frontmatter_value(val_str);
         }
+        if self.depth >= FRONTMATTER_MAX_DEPTH {
+            self.skip_deeper(indent);
+            return Value::Null;
+        }
+        self.depth += 1;
+        let value = self.nested_block(indent);
+        self.depth -= 1;
+        value
+    }
+
+    /// Consume every following line indented deeper than `indent`, and any
+    /// `- item` line at `indent` (a list may sit at its key's indentation).
+    fn skip_deeper(&mut self, indent: usize) {
+        while let Some((ind, t)) = self.peek() {
+            if ind < indent || (ind == indent && sequence_item(t).is_none()) {
+                break;
+            }
+            self.pos += 1;
+        }
+    }
+
+    /// The block under an empty `key:` at `indent`: a list, a mapping, or
+    /// null when nothing is nested under it.
+    fn nested_block(&mut self, indent: usize) -> Value {
         match self.peek() {
             // A list may sit at its key's own indentation.
             Some((ind, t)) if ind >= indent && sequence_item(t).is_some() => self.sequence(ind),
@@ -5909,7 +5950,12 @@ impl<'a> FrontMatter<'a> {
             let item_indent = ind + (t.len() - item_text.len());
             let item_text = item_text.trim_end();
             let value = if item_text.is_empty() {
-                self.value_after_key(ind, "")
+                // An empty `-` item holds what is indented under it; the next
+                // `-` at its own indentation is a sibling item, not its value.
+                match self.peek() {
+                    Some((next, _)) if next > ind => self.value_after_key(ind, ""),
+                    _ => Value::Null,
+                }
             } else if let Some(header) = block_scalar_header(item_text) {
                 self.block_scalar(ind, header)
             } else if let Some((key, val_str)) = mapping_item(item_text) {
