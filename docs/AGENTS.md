@@ -852,7 +852,8 @@ at that path and is executable (`chmod +x`). Running
 check that the path is right (`--help` prints usage). Any other argument is
 ignored, so an old client config that passes one still starts the server, but
 it is named on stderr (`ignoring unknown argument ...`); look there in the
-client's MCP log for a typo such as `--verison`. Run from a terminal, it says
+client's MCP log for a typo such as `--verison`. That holds for an argument
+that is not valid UTF-8 too (it used to stop the server with a panic). Run from a terminal, it says
 on stderr that it is waiting for JSON-RPC on stdin; stdout carries only
 protocol messages.
 

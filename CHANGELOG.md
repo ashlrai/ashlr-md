@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener-mcp` starts with an argument that is not valid UTF-8.** Such an
+  argument in a client config made the server panic before it read a request
+  (exit `101`), so the client reported that it failed to start. It is now
+  ignored and named on stderr like any unknown argument.
 - **`set_content` is listed as destructive, as `replace_document` is.** Both
   send the whole new text to the app and overwrite the open document, but
   `tools/list` gave `set_content` `destructiveHint: false`, so a client that

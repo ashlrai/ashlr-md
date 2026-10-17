@@ -60,8 +60,14 @@ fn main() {
     // Any other argument is still ignored, so an old client config that
     // passes one keeps working, but it is named on stderr (stdout carries
     // only JSON-RPC) so a mistyped `--verison` does not pass unnoticed.
+    // Read as OS strings: `std::env::args` panics on an argument that is not
+    // valid UTF-8, which stopped the server before it served anything. Such
+    // an argument is ignored and named (lossily) like any other.
     let mut ignored = Vec::new();
-    for arg in std::env::args().skip(1) {
+    for arg in std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+    {
         match arg.as_str() {
             "--version" | "-V" => {
                 println!("mdopener-mcp {}", env!("CARGO_PKG_VERSION"));
