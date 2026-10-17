@@ -1139,6 +1139,32 @@ fn request_review_non_blocking_registers_and_returns_pending() {
         .unwrap_or(false));
 }
 
+/// A review whose file the window could not open is refused with the
+/// window's reason, blocking or not, instead of waiting on a review the
+/// human never sees.
+#[test]
+fn request_review_reports_a_file_the_app_could_not_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.md");
+    std::fs::write(&plan, "# Plan").unwrap();
+    for blocking in [false, true] {
+        let ipc = MockIpc::new().on_post(
+            "/review",
+            Ok(json!({ "ok": false, "error": "Could not read plan.md: Permission denied" })),
+        );
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "path": plan.to_str().unwrap(), "blocking": blocking }),
+            &ipc,
+        );
+        let text = tool_error_text(&resp);
+        assert!(text.contains("Permission denied"), "{text}");
+        let calls = ipc.calls();
+        let polled = calls.iter().any(|(_, p, _)| p.starts_with("/review/"));
+        assert!(!polled, "no poll for a review that was never registered");
+    }
+}
+
 #[test]
 fn request_review_ipc_down_returns_error() {
     let ipc = MockIpc::new().on_post("/review", Err("ipc-port not found".into()));
@@ -2568,6 +2594,45 @@ fn search_vault_falls_back_when_every_embedding_fails() {
     let v = search_vault_with("target topic", 50, true, &ipc, &embed_all).unwrap();
     assert_eq!(v["mode"], "semantic");
     assert_eq!(v["results"].as_array().unwrap().len(), 1);
+}
+
+/// When only some documents fail to embed, the semantic results leave them
+/// out, and the note says how many, so their absence is not read as
+/// "unrelated to the query".
+#[test]
+fn search_vault_notes_documents_whose_embedding_failed() {
+    use mdopener_mcp::search_vault_with;
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = Vec::new();
+    for (name, body) in [
+        ("a.md", "# A\nthe target topic"),
+        ("big1.md", "# Big one\nTOO BIG"),
+        ("big2.md", "# Big two\nTOO BIG"),
+    ] {
+        let p = dir.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        files.push(json!({ "path": p.to_str().unwrap() }));
+    }
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": files, "recents": [] })));
+    let embed = |text: &str| {
+        if text.contains("TOO BIG") {
+            Err("Ollama embed request failed: HTTP 500".to_string())
+        } else {
+            Ok(vec![1.0, 0.0])
+        }
+    };
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed).unwrap();
+    assert_eq!(v["mode"], "semantic");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1);
+    let note = v["note"].as_str().expect("the skipped documents are said");
+    assert!(note.contains("2 of 3 documents"), "{note}");
+    assert!(note.contains("HTTP 500"), "{note}");
+
+    // With every document embedded there is nothing to note.
+    let embed_all = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = search_vault_with("target topic", 50, true, &ipc, &embed_all).unwrap();
+    assert_eq!(v["results"].as_array().unwrap().len(), 3);
+    assert!(v.get("note").is_none(), "{v}");
 }
 
 // ── text://vault-search resource ──────────────────────────────────────────────
@@ -4689,6 +4754,18 @@ fn export_metadata_headings_need_a_space_after_the_hashes() {
     );
 }
 
+/// An ATX heading's closing `#`s are not part of its text (CommonMark), but
+/// a `#` that ends a word (`C#`) is.
+#[test]
+fn heading_closing_hashes_are_not_heading_text() {
+    use mdopener_mcp::{extract_headings, strip_markdown};
+    let h = extract_headings("# Title #\n## Steps ###  \n### Learn C#\n## Only ##\n");
+    let texts: Vec<&str> = h.iter().map(|h| h["text"].as_str().unwrap()).collect();
+    assert_eq!(texts, ["Title", "Steps", "Learn C#", "Only"]);
+    assert_eq!(strip_markdown("# Title #\n\nBody").trim(), "Title\n\nBody");
+    assert_eq!(strip_markdown("## Learn C#").trim(), "Learn C#");
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
@@ -5205,6 +5282,37 @@ fn unclosed_leading_fence_is_not_frontmatter() {
     let dots = "---\ntitle: Plan\n...\nBody\n";
     assert_eq!(strip_markdown(dots).trim(), "Body");
     assert_eq!(extract_frontmatter(dots), json!({ "title": "Plan" }));
+}
+
+/// Lists are the most common front-matter (tags, aliases). A flow list was
+/// returned as the string "[a, b]", a block list as "" (its `- item` lines
+/// dropped), and a nested mapping's indented keys leaked to the top level.
+#[test]
+fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               title: \"Q4: plan\"\n\
+               tags: [launch, \"q4, late\", 3]\n\
+               aliases:\n  - Plan\n  - 'Launch'\n\
+               authors:\n- Zoë\n\
+               owner:\n  name: Sam\n  team: core\n\
+               draft: true\n\
+               ---\nBody\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({
+            "title": "Q4: plan",
+            "tags": ["launch", "q4, late", 3],
+            "aliases": ["Plan", "Launch"],
+            "authors": ["Zoë"],
+            "owner": "",
+            "draft": true,
+        })
+    );
+    assert_eq!(
+        extract_frontmatter("---\ntags: []\n---\n"),
+        json!({ "tags": [] })
+    );
 }
 
 // ── file:// resource URIs are percent-decoded ─────────────────────────────────

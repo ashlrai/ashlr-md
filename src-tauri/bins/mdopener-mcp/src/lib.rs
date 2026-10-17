@@ -720,7 +720,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1614,8 +1614,16 @@ pub fn tool_request_review_with(
                 "content": content,
                 "timeoutMs": timeout_ms,
             });
-            if let Err(e) = ipc.post("/review", post_body) {
-                return tool_error(id, app_not_running_msg(&e));
+            match ipc.post("/review", post_body) {
+                // The app opens `path` before it registers the review, and
+                // answers `ok: false` with the window's reason when it could
+                // not, so there is no review to wait on.
+                Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+                    let what = path.as_deref().unwrap_or("the document");
+                    return tool_error(id, window_refusal(&resp, "open", what));
+                }
+                Ok(_) => {}
+                Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
             if !blocking {
                 return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
@@ -1791,8 +1799,14 @@ pub fn search_vault_with(
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_search_vault_with(query, limit, ipc, embed) {
-            Ok(results) => return Ok(json!({ "results": results, "mode": "semantic" })),
+        match semantic_hits(query, limit, ipc, embed) {
+            Ok(hits) => {
+                let mut v = json!({ "results": hits.results, "mode": "semantic" });
+                if let Some(note) = hits.skipped_note() {
+                    v["note"] = json!(note);
+                }
+                return Ok(v);
+            }
             Err(e) => {
                 // Embedding failed — fall through to grep, and say so.
                 semantic_note = Some(format!(
@@ -2529,10 +2543,47 @@ pub fn semantic_search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Vec<Value>, String> {
+    semantic_hits(query, limit, ipc, embed).map(|hits| hits.results)
+}
+
+/// What [`semantic_hits`] found, and how many documents it had to leave out
+/// because their embedding failed.
+struct SemanticHits {
+    results: Vec<Value>,
+    /// Documents read but not ranked: embedding them failed.
+    skipped: usize,
+    /// Documents that were embedded and ranked.
+    compared: usize,
+    /// The last embedding error, quoted in the note.
+    skip_error: Option<String>,
+}
+
+impl SemanticHits {
+    /// Says how many documents the results leave out, so an agent does not
+    /// read their absence as "unrelated to the query".
+    fn skipped_note(&self) -> Option<String> {
+        let e = self.skip_error.as_deref()?;
+        let n = self.skipped;
+        let total = n + self.compared;
+        let docs = if n == 1 { "document was" } else { "documents were" };
+        Some(format!(
+            "{n} of {total} {docs} left out of these semantic results because \
+             embedding failed ({e})."
+        ))
+    }
+}
+
+fn semantic_hits(
+    query: &str,
+    limit: u64,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<SemanticHits, String> {
     let paths = vault_file_paths(ipc)?;
     let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
     let mut embed_error = None;
+    let mut skipped = 0;
 
     for path in &paths {
         let content = match read_regular_file(path) {
@@ -2545,6 +2596,7 @@ pub fn semantic_search_vault_with(
             Ok(v) => v,
             Err(e) => {
                 embed_error = Some(e);
+                skipped += 1;
                 continue;
             }
         };
@@ -2558,17 +2610,23 @@ pub fn semantic_search_vault_with(
         });
     }
 
-    if let (true, Some(e)) = (scored.is_empty(), embed_error) {
+    if let (true, Some(e)) = (scored.is_empty(), &embed_error) {
         return Err(format!("embedding every document failed: {e}"));
     }
 
+    let compared = scored.len();
     scored.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     scored.truncate(limit as usize);
-    Ok(scored.iter().map(|r| r.to_json()).collect())
+    Ok(SemanticHits {
+        results: scored.iter().map(|r| r.to_json()).collect(),
+        skipped,
+        compared,
+        skip_error: embed_error,
+    })
 }
 
 /// Grep the vault files directly on disk (used when the app's own `/search`
@@ -4065,7 +4123,7 @@ pub fn strip_markdown(content: &str) -> String {
         let line = {
             let stripped = trimmed.trim_start_matches('#');
             if stripped.len() < trimmed.len() && stripped.starts_with(' ') {
-                stripped.trim_start()
+                without_closing_hashes(stripped.trim_start())
             } else {
                 line
             }
@@ -4390,47 +4448,120 @@ fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
 
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
-/// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
-/// `Value::Null` when no front-matter is present or it cannot be parsed as
-/// simple key: value lines.  Only scalar string/bool/number values are parsed;
-/// multi-line and nested YAML are returned as raw strings.
+/// Returns a `serde_json::Value::Object` with the parsed top-level key/value
+/// pairs, or `Value::Null` when no front-matter is present or it holds no
+/// `key: value` lines. Scalars become strings, bools or numbers, and lists of
+/// scalars (`tags: [a, b]`, or `- item` lines under `tags:`) become arrays.
+/// A nested mapping is not parsed: its key keeps an empty string, and its
+/// indented lines are never read as top-level keys.
 pub fn extract_frontmatter(content: &str) -> Value {
     let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
     };
-    if fm_lines.is_empty() {
-        return Value::Null;
-    }
-    // Simple line-by-line `key: value` parse (handles scalar YAML only).
     let mut map = serde_json::Map::new();
+    // The key whose value was left empty, which `- item` lines then fill.
+    let mut list_key: Option<String> = None;
     for line in &fm_lines {
-        if let Some(colon) = line.find(':') {
-            let key = line[..colon].trim().to_string();
-            if key.is_empty() || key.starts_with('#') {
-                continue;
-            }
-            let val_str = line[colon + 1..].trim();
-            // Try bool, then integer, then float, then string.
-            let val = if val_str == "true" {
-                json!(true)
-            } else if val_str == "false" {
-                json!(false)
-            } else if let Ok(n) = val_str.parse::<i64>() {
-                json!(n)
-            } else if let Ok(f) = val_str.parse::<f64>() {
-                json!(f)
-            } else {
-                // Strip surrounding quotes if present.
-                let s = val_str.trim_matches('"').trim_matches('\'').to_string();
-                json!(s)
-            };
-            map.insert(key, val);
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
         }
+        if let Some(item) = t.strip_prefix("- ").or((t == "-").then_some("")) {
+            if let Some(entry) = list_key.as_ref().and_then(|k| map.get_mut(k)) {
+                if *entry == json!("") {
+                    *entry = json!([]);
+                }
+                if let Some(items) = entry.as_array_mut() {
+                    items.push(frontmatter_scalar(item.trim()));
+                }
+            }
+            continue;
+        }
+        if line.starts_with([' ', '\t']) {
+            // Part of a nested value: not a top-level key.
+            continue;
+        }
+        list_key = None;
+        let Some(colon) = line.find(':') else {
+            continue;
+        };
+        let key = line[..colon].trim().to_string();
+        if key.is_empty() {
+            continue;
+        }
+        let val_str = line[colon + 1..].trim();
+        let val = match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+            Some(items) => Value::Array(
+                split_flow_items(items)
+                    .into_iter()
+                    .map(frontmatter_scalar)
+                    .collect(),
+            ),
+            None => frontmatter_scalar(val_str),
+        };
+        if val_str.is_empty() {
+            list_key = Some(key.clone());
+        }
+        map.insert(key, val);
     }
     if map.is_empty() {
         Value::Null
     } else {
         Value::Object(map)
+    }
+}
+
+/// One front-matter scalar: a bool, an integer, a float, else a string with
+/// any surrounding quotes removed.
+fn frontmatter_scalar(val_str: &str) -> Value {
+    if val_str == "true" {
+        json!(true)
+    } else if val_str == "false" {
+        json!(false)
+    } else if let Ok(n) = val_str.parse::<i64>() {
+        json!(n)
+    } else if let Ok(f) = val_str.parse::<f64>() {
+        json!(f)
+    } else {
+        json!(val_str.trim_matches('"').trim_matches('\''))
+    }
+}
+
+/// The items of a flow sequence's inside (`a, "b, c", d`), split on commas
+/// outside quotes, trimmed, empty ones dropped.
+fn split_flow_items(inner: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut quote = None;
+    let mut start = 0;
+    for (i, c) in inner.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), _) if c == q => quote = None,
+            (None, ',') => {
+                items.push(inner[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(inner[start..].trim());
+    items.retain(|s| !s.is_empty());
+    items
+}
+
+/// An ATX heading's text without its optional closing sequence: `Title ##`
+/// is `Title`, while `C#` and `#hashtag` keep their `#`.
+fn without_closing_hashes(text: &str) -> &str {
+    let text = text.trim_end();
+    let body = text.trim_end_matches('#');
+    if body.len() == text.len() {
+        text
+    } else if body.is_empty() {
+        ""
+    } else if body.ends_with([' ', '\t']) {
+        body.trim_end()
+    } else {
+        text
     }
 }
 
@@ -4455,7 +4586,7 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
             // ATX headings need whitespace after the `#`s: `#tag` and
             // `#!/bin/sh` are text, not headings.
             if level <= 6 && rest.starts_with([' ', '\t']) {
-                let after = rest.trim();
+                let after = without_closing_hashes(rest.trim());
                 if !after.is_empty() {
                     headings.push(json!({ "level": level, "text": after }));
                 }

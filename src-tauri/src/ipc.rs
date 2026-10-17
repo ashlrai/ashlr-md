@@ -919,7 +919,7 @@ fn handle_open(mut req: Request, app: &AppHandle) {
             let payload = serde_json::json!({ "path": abs, "mode": b.mode });
             let reply = match window_round_trip(app, "open", "mcp://open", payload) {
                 Some(outcome) => window_open_reply(outcome, &abs, "open"),
-                None => editor_busy(),
+                None => window_busy("open", &abs),
             };
             send_json(req, reply);
         }
@@ -1037,9 +1037,17 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         );
     }
 
-    // If a file was given, open it (reuses the existing open machinery).
+    // If a file was given, open it the way `/open` does and wait for the
+    // window's answer, so a file it cannot open reaches the agent with the
+    // reason instead of a review panel for a document that never loaded.
     if let Some(ref p) = abs_path {
-        let _ = app.emit("mcp://open", serde_json::json!({ "path": p, "mode": "read" }));
+        let payload = serde_json::json!({ "path": p, "mode": "read" });
+        let outcome = window_round_trip(app, "review_open", "mcp://open", payload);
+        if let Some(refusal) = review_open_refusal(outcome, p) {
+            let state = app.state::<ReviewState>();
+            state.0.lock().unwrap().remove(&body.review_id);
+            return send_json(req, refusal);
+        }
     }
     // Tell the frontend a review is pending so it shows the review panel.
     let _ = app.emit(
@@ -1052,6 +1060,20 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         }),
     );
     send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
+}
+
+/// The `/review` reply when the window did not open the document under
+/// review (`None` once it did): the window's own reason, a timeout, or that
+/// the app is busy with other round-trips.
+fn review_open_refusal(
+    outcome: Option<Result<EditOutcome, mpsc::RecvTimeoutError>>,
+    path: &str,
+) -> Option<serde_json::Value> {
+    let reply = match outcome {
+        Some(outcome) => window_open_reply(outcome, path, "open"),
+        None => window_busy("open", path),
+    };
+    (reply["ok"] != true).then_some(reply)
 }
 
 /// The percent-decoded value of `key` in a query string, or `None` when it is
@@ -1371,6 +1393,20 @@ fn editor_busy() -> serde_json::Value {
     })
 }
 
+/// The `/open`, `/present` or `/review` reply when [`MAX_INFLIGHT_EDITS`]
+/// round-trips are already parked: worded for what was refused (`doing` the
+/// document at `path`), not as an edit.
+fn window_busy(doing: &str, path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "path": path,
+        "error": format!(
+            "The app is busy finishing other agent requests, so it did not {doing} \
+             {path} — retry in a moment."
+        ),
+    })
+}
+
 /// POST /edit — exact-string find/replace on the LIVE document.
 ///
 /// The find/replace is applied on the FRONTEND, against `documentStore`'s current
@@ -1659,7 +1695,7 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     let payload = serde_json::json!({ "path": requested });
     let reply = match window_round_trip(app, "present", "mcp://present", payload) {
         Some(outcome) => window_open_reply(outcome, &path, "present"),
-        None => editor_busy(),
+        None => window_busy("present", &path),
     };
     send_json(req, reply);
 }
@@ -2065,6 +2101,51 @@ mod tests {
             let v = window_open_reply(Err(gone), "/d/a.md", "open");
             assert_eq!(v["ok"], false);
             assert!(v["error"].as_str().unwrap().contains("Timed out"));
+        }
+    }
+
+    /// `/review` with a path opens it like `/open` and refuses the review,
+    /// with the window's reason, when the document did not open.
+    #[test]
+    fn review_reports_a_document_the_window_could_not_open() {
+        use super::{review_open_refusal, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let opened = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(review_open_refusal(Some(Ok(opened)), "/d/a.md"), None);
+
+        let failed = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Could not read /d/a.md: Permission denied".into()),
+        };
+        let v = review_open_refusal(Some(Ok(failed)), "/d/a.md").unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "Could not read /d/a.md: Permission denied");
+
+        let v = review_open_refusal(Some(Err(RecvTimeoutError::Timeout)), "/d/a.md").unwrap();
+        assert!(v["error"].as_str().unwrap().contains("Timed out"));
+
+        let v = review_open_refusal(None, "/d/a.md").unwrap();
+        assert_eq!(v["ok"], false);
+        let e = v["error"].as_str().unwrap();
+        assert!(e.contains("did not open /d/a.md"), "{e}");
+    }
+
+    /// At the in-flight cap, `/open` and `/present` say what they did not
+    /// do, rather than that the editor is busy applying an edit.
+    #[test]
+    fn a_busy_open_or_present_names_what_was_refused() {
+        use super::window_busy;
+        for doing in ["open", "present"] {
+            let v = window_busy(doing, "/d/a.md");
+            assert_eq!(v["ok"], false);
+            let e = v["error"].as_str().unwrap();
+            assert!(e.contains(&format!("did not {doing} /d/a.md")), "{e}");
+            assert!(!e.contains("edit"), "{e}");
         }
     }
 

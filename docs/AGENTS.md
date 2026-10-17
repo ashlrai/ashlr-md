@@ -223,7 +223,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. With `save: true`, a save that fails (or a document with no file yet) returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. Reports a failed apply or save as `set_content` does. |
-| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
+| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
 | `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, max `200`) of a session's memory store, oldest first. Empty when the session has none. |
@@ -233,7 +233,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately (unsaved, `find` must match once) and the result has `applied: true`, so do not call `stream_edit_apply` after it. A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). The app re-finds `find` in the live document; `edit_id` is for correlation only. |
 | `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
-| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). Top-level scalars are parsed, and lists (`tags: [a, b]` or `- item` lines) become arrays; a nested mapping is not parsed and its key holds `""`. |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -320,7 +320,9 @@ before proceeding.
 1. **Agent calls `request_review`** with either a file `path` or inline
    `content`. The MCP server registers the review with the app (a unique
    `reviewId` is generated) and, if a `path` was given, opens that file in read
-   mode. The app shows its **review panel**.
+   mode. The app shows its **review panel**. If the app cannot open the file,
+   no review is registered and the call returns `isError: true` with the
+   app's reason.
 2. **The call BLOCKS** (when `blocking` is `true`, the default). Under the hood
    the MCP binary polls the app every ~1.5s for a verdict, for at most
    `wait_ms` (default 50 s, below the 60 s request timeout of common MCP
@@ -432,7 +434,8 @@ registered (an AppImage or dev build on Linux). Otherwise it opens the
 for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
-stderr.
+stderr. Run with no arguments at all, it prints its help to stderr and exits
+`1`; `mdopen --help` prints it to stdout and exits `0`.
 
 ### Install
 

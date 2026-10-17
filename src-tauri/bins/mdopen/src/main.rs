@@ -57,6 +57,12 @@ fn main() {
             println!("{}", version_line());
             process::exit(0);
         }
+        Ok(Cli::Usage) => {
+            // No file to open is bad usage: a script that ran `mdopen` with an
+            // empty variable must not read the help as a successful open.
+            eprint!("{HELP}");
+            process::exit(1);
+        }
         Ok(Cli::Open { mode, target }) => (mode, target),
         Err(msg) => {
             eprintln!("mdopen: {msg}");
@@ -109,6 +115,8 @@ fn is_hook(args: &[String]) -> bool {
 #[derive(Debug, PartialEq, Eq)]
 enum Cli {
     Help,
+    /// No arguments at all: the help, as a usage error.
+    Usage,
     Version,
     Open {
         mode: Option<&'static str>,
@@ -118,7 +126,10 @@ enum Cli {
 
 /// Parse the non-hook command line. `Err` carries a one-line usage error.
 fn parse_args(args: &[String]) -> Result<Cli, String> {
-    if args.is_empty() || flag_args(args).iter().any(|a| a == "--help" || a == "-h") {
+    if args.is_empty() {
+        return Ok(Cli::Usage);
+    }
+    if flag_args(args).iter().any(|a| a == "--help" || a == "-h") {
         return Ok(Cli::Help);
     }
     if flag_args(args)
@@ -401,7 +412,8 @@ EXIT STATUS:
     1  bad usage, unresolvable path, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
-       on stderr says which. A `-` temp file is removed in that case.
+       on stderr says which. A `-` temp file is removed in that case. With
+       no arguments at all, this help is printed on stderr.
     --hook always exits 0 and prints nothing
 ";
 
@@ -457,7 +469,7 @@ mod tests {
 
     #[test]
     fn help_and_no_args_are_help() {
-        assert_eq!(parse_args(&[]), Ok(Cli::Help));
+        assert_eq!(parse_args(&[]), Ok(Cli::Usage));
         assert_eq!(parse_args(&args(&["--help"])), Ok(Cli::Help));
         assert_eq!(parse_args(&args(&["x.md", "-h"])), Ok(Cli::Help));
         assert!(HELP.contains("--hook"));
