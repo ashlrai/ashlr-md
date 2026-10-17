@@ -420,6 +420,7 @@ cat notes.md | mdopen -         # pipe stdin → temp file → open in app
 mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
 mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
 mdopen --help
+mdopen --version               # print the version (-V also works)
 ```
 
 ### From an agent
@@ -495,6 +496,12 @@ The integration is **local-only and token-authenticated**:
   avoid leaking a timing signal, and a mismatch returns `401`.
 - The MCP `resources/read` channel is **scoped to advertised vault/recents
   files** — it cannot be used to read arbitrary paths off disk.
+- The tools that read a path straight from disk (`diff_documents`, and
+  `export_text` / `export_metadata` with `path`) only read Markdown files
+  (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
+  check runs after symlinks are resolved, so a `notes.md` link to `.env` is
+  refused with `isError: true`. `edit_canvas` likewise re-checks `.canvas`
+  after resolving symlinks.
 - The token and port files are **removed on clean app exit**, so a stale process
   can't authenticate against a new session.
 
@@ -553,7 +560,9 @@ regenerates `~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`.
 
 **Claude Code shows "ashlr-md: failed to start"**
 Run `claude mcp list` to see the registered path, then verify the binary exists
-at that path and is executable (`chmod +x`).
+at that path and is executable (`chmod +x`). Running
+`<path> --version` prints `mdopener-mcp <version>` and exits, so it is a quick
+check that the path is right (`--help` prints usage).
 
 **Cursor MCP panel shows the server as offline**
 Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
