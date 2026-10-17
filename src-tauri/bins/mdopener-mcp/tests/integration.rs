@@ -6093,3 +6093,81 @@ fn open_file_does_not_relaunch_a_path_the_app_refused() {
     );
     assert!(tool_error_text(&resp).contains("Refusing to open"));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Argument types: a value of the wrong type is refused, never defaulted
+// ════════════════════════════════════════════════════════════════════════════
+
+/// A whole-number argument given as a string, a negative or a fraction is
+/// an invalid-params error that never reaches the app: `match_index: "1"`
+/// used to be read as absent and apply the first occurrence.
+#[test]
+fn a_whole_number_argument_of_the_wrong_type_is_refused() {
+    let cases = [
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": "1" }),
+            "match_index",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": -1 }),
+            "match_index",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview_lines": 2.5 }),
+            "preview_lines",
+        ),
+        ("list_recent", json!({ "limit": "ten" }), "limit"),
+        (
+            "search_vault",
+            json!({ "query": "q", "limit": -5 }),
+            "limit",
+        ),
+        (
+            "get_conversation_context",
+            json!({ "session_id": "s", "limit": "all" }),
+            "limit",
+        ),
+        (
+            "diff_documents",
+            json!({ "path_a": "/a.md", "path_b": "/b.md", "context_lines": "3" }),
+            "context_lines",
+        ),
+        (
+            "request_review",
+            json!({ "content": "# x", "wait_ms": "50000" }),
+            "wait_ms",
+        ),
+    ];
+    for (tool, args, name) in cases {
+        let ipc = MockIpc::new();
+        let resp = call(tool, args.clone(), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{tool} {args}: {resp:?}"));
+        assert_eq!(err.code, -32602, "{tool} {args}");
+        assert!(err.message.contains(name), "{tool}: {}", err.message);
+        assert!(ipc.calls().is_empty(), "{tool} must not reach the app");
+    }
+}
+
+/// A whole number written as a float (`2.0`) is still that number.
+#[test]
+fn a_whole_number_argument_written_as_a_float_is_accepted() {
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let resp = call(
+        "stream_edit_apply",
+        json!({ "find": "a", "replace": "b", "match_index": 2.0 }),
+        &ipc,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(_, p, _)| p == "/stream-edit-apply")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["matchIndex"], json!(2));
+}

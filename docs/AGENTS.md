@@ -240,7 +240,10 @@ or written, the app rejects the operation), the call still succeeds at the
 JSON-RPC level and returns `isError: true` with the reason as text, as the MCP
 spec asks, so the agent sees the message and can act on it. JSON-RPC errors
 are reserved for protocol problems: an unknown tool or invalid arguments
-(`-32602`).
+(`-32602`). An optional whole-number argument (`limit`, `wait_ms`,
+`context_lines`, `preview_lines`, `match_index`) given as anything but a
+whole number (a string such as `"1"`, a negative number or a fraction) is
+invalid, never read as absent: omit it to get the default.
 
 ### `edit_document` — exact, unique find/replace
 

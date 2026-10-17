@@ -987,7 +987,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "preview_lines": {
                         "type": "integer",
-                        "description": "Context lines on each side of the diff hunk. Defaults to 5."
+                        "description": "Context lines on each side of the diff hunk. Defaults to 5; values above 20 are read as 20."
                     },
                     "path": {
                         "type": "string",
@@ -1352,7 +1352,10 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
 }
 
 pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let limit = args["limit"].as_u64().unwrap_or(10);
+    let limit = match whole_number_arg(args, "limit") {
+        Ok(l) => l.unwrap_or(10),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -1626,10 +1629,10 @@ pub fn tool_request_review_with(
         Ok(t) => t,
         Err(e) => return Response::err(id, -32602, e),
     };
-    let wait_ms = args["wait_ms"]
-        .as_u64()
-        .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
-        .clamp(1_000, 600_000);
+    let wait_ms = match whole_number_arg(args, "wait_ms") {
+        Ok(w) => w.unwrap_or(DEFAULT_REVIEW_WAIT_MS).clamp(1_000, 600_000),
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let resumed = resume.is_some();
     let review_id = match resume {
@@ -1838,7 +1841,10 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
-    let limit = args["limit"].as_u64().unwrap_or(50);
+    let limit = match whole_number_arg(args, "limit") {
+        Ok(l) => l.unwrap_or(50),
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
         Ok(v) => v,
         Err(e) => return tool_error(id, e),
@@ -2182,10 +2188,10 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         _ => return Response::err(id, -32602, "`session_id` is required"),
     };
 
-    let limit = args["limit"]
-        .as_u64()
-        .unwrap_or(20)
-        .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
+    let limit = match whole_number_arg(args, "limit") {
+        Ok(l) => l.unwrap_or(20).clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize,
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     match store_get_context(&session_id, limit) {
         Ok(messages) => {
@@ -3222,6 +3228,30 @@ pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
+/// An optional whole-number argument: `Ok(None)` when absent or null, else
+/// its value. Anything else (a string, a negative or fractional number) is
+/// an invalid-params message rather than read as absent, so a call never
+/// acts on a default the agent did not ask for (`match_index: "1"` used to
+/// apply the first occurrence).
+pub fn whole_number_arg(args: &Value, name: &str) -> Result<Option<u64>, String> {
+    let v = &args[name];
+    if v.is_null() {
+        return Ok(None);
+    }
+    v.as_u64()
+        .or_else(|| {
+            v.as_f64()
+                .filter(|f| *f >= 0.0 && f.fract() == 0.0 && *f <= u64::MAX as f64)
+                .map(|f| f as u64)
+        })
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "`{name}` must be a whole number (0 or more), got {v}; omit it for the default."
+            )
+        })
+}
+
 /// Wrap a value in the MCP `content` envelope.
 pub fn tool_result(id: Value, value: Value) -> Response {
     Response::ok(
@@ -3372,7 +3402,10 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         None => return Response::err(id, -32602, "`path_b` is required"),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
-    let context_lines = args["context_lines"].as_u64().unwrap_or(3).min(10_000) as usize;
+    let context_lines = match whole_number_arg(args, "context_lines") {
+        Ok(c) => c.unwrap_or(3).min(10_000) as usize,
+        Err(e) => return Response::err(id, -32602, e),
+    };
 
     let path_a = match checked_document_path(&raw_a, "path_a") {
         Ok(p) => p,
@@ -4383,7 +4416,10 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
-    let preview_lines = args["preview_lines"].as_u64().unwrap_or(5).clamp(0, 20) as u32;
+    let preview_lines = match whole_number_arg(args, "preview_lines") {
+        Ok(p) => p.unwrap_or(5).min(20) as u32,
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
@@ -4426,7 +4462,14 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let match_index = args["match_index"].as_u64().unwrap_or(0) as u32;
+    // A `match_index` that is not a whole number used to apply occurrence 0.
+    let match_index = match whole_number_arg(args, "match_index") {
+        Ok(m) => match u32::try_from(m.unwrap_or(0)) {
+            Ok(m) => m,
+            Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
+        },
+        Err(e) => return Response::err(id, -32602, e),
+    };
     let save = args["save"].as_bool().unwrap_or(false);
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
