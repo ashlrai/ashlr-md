@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The canvas view says when it cannot show part of a canvas.** Malformed
+  nodes and edges, edges to a missing node, and a `nodes` or `edges` that is
+  not a list were left out without a word, so a canvas written badly by an
+  agent or another tool looked complete. A notice now says what is missing.
 - **MCP tool schemas describe the arguments as they work.** Path arguments
   of `request_review`, `get_user_annotations`, `present_document`,
   `diff_documents`, `edit_canvas`, `export_text` and `export_metadata` said

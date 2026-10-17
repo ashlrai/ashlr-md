@@ -6,6 +6,7 @@ import {
   CANVAS_PRESET_COLORS,
   canvasBounds,
   canvasEditorToCanvas,
+  canvasSkippedNotice,
   fitTransform,
   nodeAnchor,
   parseCanvas,
@@ -2624,5 +2625,66 @@ describe("round-trip: edit → serialize → parse → verify", () => {
     if (!reparsed.ok) return;
     expect(reparsed.canvas.edges[0].id).toBe("e2");
     expect(reparsed.canvas.edges[1].id).toBe("e1");
+  });
+});
+
+describe("parseCanvas skipped report + canvasSkippedNotice", () => {
+  const node = (id: string) => ({
+    id,
+    type: "text",
+    text: id,
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+  });
+
+  it("reports nothing for a well-formed canvas", () => {
+    const r = parseCanvas(
+      JSON.stringify({
+        nodes: [node("a"), node("b")],
+        edges: [{ id: "e", fromNode: "a", toNode: "b" }],
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.skipped).toEqual({ nodes: 0, edges: 0, danglingEdges: 0, notArrays: [] });
+    expect(canvasSkippedNotice(r.skipped)).toBeNull();
+    // A canvas with no nodes/edges keys at all is not "skipping" anything.
+    const empty = parseCanvas("{}");
+    expect(empty.ok && canvasSkippedNotice(empty.skipped)).toBeNull();
+  });
+
+  it("counts dropped nodes, dropped edges and edges to missing nodes", () => {
+    const r = parseCanvas(
+      JSON.stringify({
+        nodes: [node("a"), { id: "b", type: "text" }, { ...node("c"), type: "card" }],
+        edges: [
+          { id: "ok", fromNode: "a", toNode: "a" },
+          { id: "dangling", fromNode: "a", toNode: "b" },
+          { id: "", fromNode: "a", toNode: "a" },
+        ],
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.canvas.nodes.map((n) => n.id)).toEqual(["a"]);
+    expect(r.skipped).toEqual({ nodes: 2, edges: 1, danglingEdges: 1, notArrays: [] });
+    expect(canvasSkippedNotice(r.skipped)).toBe(
+      "Not everything in this canvas is shown: 2 nodes malformed, 1 edge malformed, 1 edge to a missing node.",
+    );
+  });
+
+  it("names a nodes or edges field that is not a list", () => {
+    const r = parseCanvas(JSON.stringify({ nodes: { a: node("a") }, edges: 42 }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.canvas.nodes).toEqual([]);
+    expect(r.skipped.notArrays).toEqual(["nodes", "edges"]);
+    expect(canvasSkippedNotice(r.skipped)).toBe(
+      "Not everything in this canvas is shown: `nodes` is not a list, `edges` is not a list.",
+    );
+    const nulls = parseCanvas(JSON.stringify({ nodes: null, edges: null }));
+    expect(nulls.ok && nulls.skipped.notArrays).toEqual([]);
   });
 });

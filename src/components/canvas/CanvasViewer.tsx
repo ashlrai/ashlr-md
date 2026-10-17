@@ -21,6 +21,7 @@ import {
   type CanvasNode,
   type CanvasNodeBase,
   canvasBounds,
+  canvasSkippedNotice,
   fitTransform,
   nodeAnchor,
   parseCanvas,
@@ -68,6 +69,7 @@ export function CanvasViewer({ content }: { content: string }) {
   const edges = parsed.ok ? parsed.canvas.edges : EMPTY_EDGES;
   const bounds = useMemo(() => canvasBounds(nodes), [nodes]);
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const notice = parsed.ok ? canvasSkippedNotice(parsed.skipped) : null;
 
   // Fit the whole canvas into view (used by the effect below and the Fit button).
   const fit = useMemo(
@@ -172,6 +174,11 @@ export function CanvasViewer({ content }: { content: string }) {
           Fit
         </button>
       </div>
+      {notice && (
+        <div className="canvas-notice" role="status">
+          {notice}
+        </div>
+      )}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: pan surface */}
       <div
         ref={containerRef}

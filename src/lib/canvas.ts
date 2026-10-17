@@ -66,8 +66,22 @@ export interface Canvas {
   edges: CanvasEdge[];
 }
 
+/**
+ * What `parseCanvas` left out of a canvas it could otherwise read: nodes and
+ * edges it dropped as malformed (see `parseNode` / `parseEdge`), edges whose
+ * `fromNode` or `toNode` names no shown node (kept in `edges`, never drawn),
+ * and top-level `nodes` / `edges` that are present but not arrays (read as
+ * empty). All zero / empty for a well-formed canvas.
+ */
+export interface CanvasSkipped {
+  nodes: number;
+  edges: number;
+  danglingEdges: number;
+  notArrays: ("nodes" | "edges")[];
+}
+
 export type CanvasParseResult =
-  | { ok: true; canvas: Canvas }
+  | { ok: true; canvas: Canvas; skipped: CanvasSkipped }
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
@@ -201,6 +215,12 @@ export function parseCanvas(raw: string): CanvasParseResult {
 
   const obj = parsed as Record<string, unknown>;
 
+  const notArrays: CanvasSkipped["notArrays"] = [];
+  for (const key of ["nodes", "edges"] as const) {
+    if (obj[key] !== undefined && obj[key] !== null && !Array.isArray(obj[key])) {
+      notArrays.push(key);
+    }
+  }
   const rawNodes = Array.isArray(obj.nodes) ? obj.nodes : [];
   const rawEdges = Array.isArray(obj.edges) ? obj.edges : [];
 
@@ -216,7 +236,43 @@ export function parseCanvas(raw: string): CanvasParseResult {
     if (edge !== null) edges.push(edge);
   }
 
-  return { ok: true, canvas: { nodes, edges } };
+  const ids = new Set(nodes.map((n) => n.id));
+  const danglingEdges = edges.filter(
+    (e) => !ids.has(e.fromNode) || !ids.has(e.toNode),
+  ).length;
+
+  return {
+    ok: true,
+    canvas: { nodes, edges },
+    skipped: {
+      nodes: rawNodes.length - nodes.length,
+      edges: rawEdges.length - edges.length,
+      danglingEdges,
+      notArrays,
+    },
+  };
+}
+
+function plural(n: number, one: string): string {
+  return `${n} ${one}${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * A one-line notice of what a canvas view cannot show, or `null` when it
+ * shows everything. The viewer used to drop malformed nodes and edges (and a
+ * `nodes` that is not a list) without a word, so a canvas an agent or another
+ * tool wrote badly looked complete but was missing parts.
+ */
+export function canvasSkippedNotice(skipped: CanvasSkipped): string | null {
+  const parts: string[] = [];
+  for (const key of skipped.notArrays) parts.push(`\`${key}\` is not a list`);
+  if (skipped.nodes > 0) parts.push(`${plural(skipped.nodes, "node")} malformed`);
+  if (skipped.edges > 0) parts.push(`${plural(skipped.edges, "edge")} malformed`);
+  if (skipped.danglingEdges > 0) {
+    parts.push(`${plural(skipped.danglingEdges, "edge")} to a missing node`);
+  }
+  if (parts.length === 0) return null;
+  return `Not everything in this canvas is shown: ${parts.join(", ")}.`;
 }
 
 // ---------------------------------------------------------------------------

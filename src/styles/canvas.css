@@ -64,6 +64,23 @@
   color: var(--text-muted);
 }
 
+/* Shown when parseCanvas left nodes or edges out (canvasSkippedNotice). */
+.canvas-notice {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  max-width: calc(100% - 220px);
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-muted);
+  font-family: var(--ui-font);
+  font-size: 12px;
+}
+
 /* ── Surface + world ──────────────────────────────────────────────────────── */
 
 .canvas-surface {
