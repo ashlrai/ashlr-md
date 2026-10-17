@@ -36,6 +36,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md has no em or en dashes in its prose.** Headings, lists,
+  the tool table and the hook and security sections now use plain
+  punctuation, as the repo's style asks; ranges read "5 000 to 600 000".
+- **`mdopen -- -` opens a file named `-`, and `--help` wins over `--hook`.**
+  After `--`, `-` was still read as "read stdin", so a file named `-` could
+  not be opened; `--` now ends option parsing for it too, and a `-` before
+  any `--` still reads stdin. `mdopen --hook --help` ran the hook (reading
+  stdin, printing nothing); the help now wins, on stdout with exit `0`.
+- **`get_current_content` says what a null `path` and no open document mean.**
+  Its description now says that `path` is `null` for an unsaved document and
+  that with no document open the call succeeds with
+  `{ "path": null, "content": "" }`, where `mdopener://current` and
+  `export_text` report an error. The behaviour is unchanged; docs/AGENTS.md
+  says the same.
+- **The landing page has no em or en dashes.** Its title, meta and social
+  descriptions and body copy used them; they are plain punctuation now, as
+  the repo's style asks, and the dash guard test covers the page (HTML
+  comments aside) so they do not return.
+- **The app starts with a launch argument that is not valid UTF-8.** Such an
+  argument (a file name in a legacy encoding, passed by a file manager or a
+  script) made the app panic at startup, before its window opened. It is now
+  skipped and named on stderr, and the other files on the command line still
+  open.
 - **`mdopener-mcp` starts with an argument that is not valid UTF-8.** Such an
   argument in a client config made the server panic before it read a request
   (exit `101`), so the client reported that it failed to start. It is now

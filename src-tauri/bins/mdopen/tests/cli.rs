@@ -43,6 +43,22 @@ fn help_exits_0() {
     );
 }
 
+/// `--hook` used to win over `--help`: `mdopen --hook --help` read stdin as
+/// a hook payload and printed nothing. The help wins, on stdout, exit 0.
+#[test]
+fn help_wins_over_hook() {
+    for argv in [["--hook", "--help"], ["--help", "--hook"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopen"))
+            .args(argv)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{argv:?}: {out:?}");
+        let help = String::from_utf8(out.stdout).unwrap();
+        assert!(help.contains("USAGE:"), "{argv:?}: {help}");
+    }
+}
+
 /// With no arguments there is nothing to open: the help goes to stderr and
 /// the exit is 1, so a script that passed an empty variable sees a failure.
 #[test]
@@ -135,6 +151,27 @@ fn empty_stdin_is_refused() {
         let left: Vec<_> = std::fs::read_dir(s.0.join("tmp")).unwrap().collect();
         assert!(left.is_empty(), "temp files left behind: {left:?}");
     }
+}
+
+/// `mdopen -- -` read stdin like `mdopen -`. After `--`, `-` is a file
+/// named `-`: here one that is not a Markdown document, so it is refused by
+/// name, and stdin is never read.
+#[cfg(unix)]
+#[test]
+fn a_dash_after_double_dash_is_a_file_not_stdin() {
+    let s = Scratch::new("dash-file");
+    let cwd = s.sub("cwd");
+    std::fs::write(cwd.join("-"), "# a file named dash\n").unwrap();
+    let out = headless(&s)
+        .current_dir(&cwd)
+        .args(["--", "-"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("is not a Markdown document"), "stderr: {err}");
+    assert!(!err.contains("stdin"), "stderr: {err}");
 }
 
 /// `mdopen -` reads at most the 16 MiB a document may be: past it, it exits 1

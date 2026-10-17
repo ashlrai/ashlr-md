@@ -45,10 +45,7 @@ pub fn handle_opened(app: &AppHandle, urls: Vec<Url>) {
 /// Buffer file paths passed as CLI arguments at launch (covers `mdopen file.md`
 /// and non-macOS platforms where files arrive as argv rather than RunEvent).
 pub fn buffer_cli_args(app: &AppHandle) {
-    let args: Vec<String> = std::env::args()
-        .skip(1)
-        .filter_map(|a| cli_arg_to_path(&a))
-        .collect();
+    let args = launch_paths(std::env::args_os().skip(1));
 
     if args.is_empty() {
         return;
@@ -57,6 +54,23 @@ pub fn buffer_cli_args(app: &AppHandle) {
     let state = app.state::<PendingFiles>();
     let mut buf = state.0.lock().unwrap();
     buf.extend(args);
+}
+
+/// The files the launch arguments name. They are read as OS strings because
+/// `std::env::args` panics on an argument that is not valid UTF-8, which
+/// stopped the app before its window opened. The app takes paths as UTF-8
+/// text, so such an argument could only name some other file: it is skipped
+/// and named (lossily) on stderr, and the other arguments still open.
+fn launch_paths(args: impl IntoIterator<Item = std::ffi::OsString>) -> Vec<String> {
+    args.into_iter()
+        .filter_map(|a| match a.into_string() {
+            Ok(arg) => cli_arg_to_path(&arg),
+            Err(a) => {
+                eprintln!("[file_handler] ignoring launch argument {a:?}: not valid UTF-8");
+                None
+            }
+        })
+        .collect()
 }
 
 /// A second launch while the app is already running (Linux/Windows; wired via
@@ -123,7 +137,7 @@ pub fn take_pending_files(state: tauri::State<PendingFiles>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_arg_to_path, cli_arg_to_path_in};
+    use super::{cli_arg_to_path, cli_arg_to_path_in, launch_paths};
 
     #[test]
     fn launch_args_accept_paths_and_file_uris() {
@@ -147,6 +161,27 @@ mod tests {
         // A second instance's relative path resolves against ITS cwd.
         assert_eq!(cli_arg_to_path_in("a file é.md", &dir), Some(canonical));
         assert_eq!(cli_arg_to_path_in("mdopener://open?path=x", &dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A launch argument that is not valid UTF-8 used to panic the app at
+    /// startup. It is skipped, and the valid paths beside it still open.
+    #[cfg(unix)]
+    #[test]
+    fn a_launch_argument_that_is_not_utf8_is_skipped_not_a_panic() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = std::env::temp_dir().join(format!("md-cli-utf8-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("ok.md");
+        std::fs::write(&file, "# hi").unwrap();
+        let canonical = std::fs::canonicalize(&file)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+
+        let bad = std::ffi::OsString::from_vec(b"bad\xff.md".to_vec());
+        let paths = launch_paths([bad, file.clone().into_os_string(), "--flag".into()]);
+        assert_eq!(paths, vec![canonical]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

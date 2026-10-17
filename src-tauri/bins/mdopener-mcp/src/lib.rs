@@ -787,7 +787,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD.",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is not an error: it returns { path: null, content: \"\" }, the same as an empty unsaved document (mdopener://current and export_text report no open document as an error instead).",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",

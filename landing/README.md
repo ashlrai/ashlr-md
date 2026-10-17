@@ -1,4 +1,4 @@
-# Ashlr MD — landing page
+# Ashlr MD landing page
 
 A self-contained, dependency-free marketing page (`index.html`). Editorial
 "paper" aesthetic: Fraunces display + Hanken Grotesk body + JetBrains Mono,
@@ -15,7 +15,7 @@ python3 -m http.server 8899   # then visit http://localhost:8899
 
 ## Deploy
 
-It's a single static file — host it anywhere:
+It's a single static file; host it anywhere:
 
 - **Vercel:** `vercel deploy` from this `landing/` folder (or set the project
   root to `landing/`). No framework, no config needed.
