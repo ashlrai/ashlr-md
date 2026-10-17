@@ -36,6 +36,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A path of only whitespace is refused like an empty one.** `"path": " "`
+  passed the `minLength: 1` check and the empty checks, and reached the file
+  checks ("only Markdown documents can be read", "No such file or
+  directory") or the app. A blank `path` (of `open_file`, `present_document`,
+  `export_text`, `export_metadata`, `request_review`, `edit_document`,
+  `stream_edit`, `stream_edit_apply`, `get_user_annotations` and
+  `edit_canvas`), `path_a`, `path_b`, `vault` or `output_path` is now
+  `-32602` saying the field must not be empty. Whitespace in `find`,
+  `replace` and document text is still content.
 - **No em or en dashes in what the app shows.** Toasts (such as "Patch not
   found: the document may have already changed."), tooltips, dialog and
   settings text, export format descriptions, the welcome screen, the AI

@@ -8754,6 +8754,90 @@ fn required_strings_refused_when_empty_declare_min_length() {
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
 
+/// A path, id or name of only whitespace names nothing, as an empty one
+/// does. It passed the `minLength: 1` check and the tools' empty checks, and
+/// reached the file checks ("only Markdown documents can be read", "node
+/// `` not found") or the app. It is refused with `-32602` saying the field
+/// must not be empty, before anything is read or sent; whitespace in text
+/// arguments (`find`, `replace`) is still content.
+#[test]
+fn blank_path_arguments_are_refused_like_empty_ones() {
+    for blank in [" ", "  \t\n"] {
+        let calls: [(&str, &str, Value); 15] = [
+            ("open_file", "path", json!({ "path": blank })),
+            ("present_document", "path", json!({ "path": blank })),
+            (
+                "diff_documents",
+                "path_a",
+                json!({ "path_a": blank, "path_b": "b.md" }),
+            ),
+            (
+                "diff_documents",
+                "path_b",
+                json!({ "path_a": "a.md", "path_b": blank }),
+            ),
+            ("export_text", "path", json!({ "path": blank })),
+            ("export_metadata", "path", json!({ "path": blank })),
+            (
+                "request_review",
+                "path",
+                json!({ "path": blank, "blocking": false }),
+            ),
+            (
+                "search_vault",
+                "vault",
+                json!({ "query": "x", "vault": blank }),
+            ),
+            (
+                "edit_document",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "stream_edit",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "stream_edit_apply",
+                "path",
+                json!({ "find": "a", "replace": "b", "path": blank }),
+            ),
+            (
+                "export",
+                "output_path",
+                json!({ "format": "html", "output_path": blank }),
+            ),
+            ("get_user_annotations", "path", json!({ "path": blank })),
+            (
+                "edit_canvas",
+                "path",
+                json!({ "path": blank, "ops": [{ "type": "delete_node", "id": "n" }] }),
+            ),
+            (
+                "request_review",
+                "content",
+                json!({ "content": blank, "blocking": false }),
+            ),
+        ];
+        for (tool, field, args) in calls {
+            assert_eq!(
+                param_error(&call_tool(tool, args)),
+                format!("`{field}` must not be empty"),
+                "{tool}.{field} = {blank:?}"
+            );
+        }
+    }
+    // Whitespace is still valid text to find and to write.
+    let ipc = MockIpc::new();
+    let resp =
+        mdopener_mcp::tool_edit_document(id(1), &json!({ "find": " ", "replace": " " }), &ipc);
+    assert!(
+        resp.error.as_ref().is_none_or(|e| e.code != -32602),
+        "{resp:?}"
+    );
+}
+
 /// An empty path in `cited_docs` used to be stored, and came back in
 /// `recentDocs` (as its first entry when it was the latest citation). It is
 /// refused by the schema check and by the tool, and nothing is saved.

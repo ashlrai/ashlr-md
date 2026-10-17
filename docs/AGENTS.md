@@ -281,7 +281,8 @@ required string a tool cannot use when empty declares `1`: `search_vault`'s
 `request_review`'s inline `content` and `search_vault`'s `vault`, and
 the optional `path` of `edit_document`, `stream_edit` and
 `stream_edit_apply`, `stream_edit_apply`'s `edit_id` and `export`'s
-`output_path` (omitting them is still allowed): an empty one is refused with `-32602`
+`output_path` (omitting them is still allowed): an empty one, or one of only
+whitespace, is refused with `-32602`
 (`` `path` must not be empty ``), where it used to reach the file checks and
 come back as "only Markdown documents can be read", "No such file or
 directory", "not the open document" or "cannot make an empty path
