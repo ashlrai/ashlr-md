@@ -52,15 +52,21 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
   return listen<SetContentPayload>("mcp://set-content", async (e) => {
     const { editId, content, save } = e.payload;
     let error: string | null = null;
-    try {
-      useDocumentStore.getState().setContent(content);
-      if (save) {
-        const reason = await saveForAgent();
-        if (reason !== null) error = notSaved(reason, "Content replaced in");
+    if (!useDocumentStore.getState().path) {
+      // With no document open the window shows its welcome screen, so the
+      // content would land in a buffer nobody sees and still read as ok.
+      error = "No document is open in Ashlr MD; open one first (open_file).";
+    } else {
+      try {
+        useDocumentStore.getState().setContent(content);
+        if (save) {
+          const reason = await saveForAgent();
+          if (reason !== null) error = notSaved(reason, "Content replaced in");
+        }
+        syncNow();
+      } catch (err) {
+        error = `Replacing the content failed in app: ${String(err)}`;
       }
-      syncNow();
-    } catch (err) {
-      error = `Replacing the content failed in app: ${String(err)}`;
     }
     if (editId === undefined) return;
     await invoke("mcp_edit_result", {
@@ -79,6 +85,7 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
 export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
   return listen<EditPayload>("mcp://edit", async (e) => {
     const { editId, find, replace, save } = e.payload;
+    let reply: { ok: boolean; replaced: number; error: string | null };
     try {
       const liveContent = useDocumentStore.getState().content;
       const outcome = applyUniqueEdit(liveContent, find, replace);
@@ -90,22 +97,20 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
         }
         syncNow();
       }
-      await invoke("mcp_edit_result", {
-        editId,
+      reply = {
         ok: outcome.ok && saveError === null,
         replaced: outcome.replaced,
         error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
-      });
+      };
     } catch (err) {
-      await invoke("mcp_edit_result", {
-        editId,
-        ok: false,
-        replaced: 0,
-        error: `Edit failed in app: ${String(err)}`,
-      }).catch((e2) => {
-        console.error("[mcp bridge] mcp_edit_result recovery reply failed:", e2);
-      });
+      reply = { ok: false, replaced: 0, error: `Edit failed in app: ${String(err)}` };
     }
+    // One reply only. When sending it fails, a second "Edit failed" reply
+    // would tell the agent an edit that was applied did not happen, and a
+    // retry would apply it twice.
+    await invoke("mcp_edit_result", { editId, ...reply }).catch((e2) => {
+      console.error("[mcp bridge] mcp_edit_result reply for edit failed:", e2);
+    });
   });
 }
 

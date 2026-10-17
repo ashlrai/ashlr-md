@@ -6,6 +6,15 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+const toastError = vi.fn();
+vi.mock("./toastStore", () => ({
+  toast: {
+    error: (...args: unknown[]) => toastError(...args),
+    info: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
 import { type PendingReview, useReviewStore } from "./reviewStore";
 
 function makePending(overrides?: Partial<PendingReview>): PendingReview {
@@ -141,6 +150,29 @@ describe("reviewStore", () => {
       verdict: "dismissed",
       comments: null,
     });
+  });
+
+  it("a dismissal that fails to record is reported to the human", async () => {
+    // Silently swallowed, the agent kept waiting and then saw `timeout`.
+    toastError.mockClear();
+    invokeMock.mockRejectedValue("review not found");
+    useReviewStore.getState().registerReview(makePending());
+    useReviewStore.getState().dismiss("rev-001");
+    expect(useReviewStore.getState().pending).toBeNull();
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    expect(String(toastError.mock.calls[0][0])).toContain("not recorded");
+    expect(String(toastError.mock.calls[0][0])).toContain("review not found");
+  });
+
+  it("a timeout that fails to record is only logged", async () => {
+    toastError.mockClear();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("gone");
+    useReviewStore.getState().registerReview(makePending());
+    useReviewStore.getState().expire("rev-001");
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(toastError).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("dismiss with stale reviewId does NOT dismiss the current review", () => {

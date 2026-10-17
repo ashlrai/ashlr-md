@@ -214,26 +214,26 @@ Every tool returns its payload inside the standard MCP `content` envelope
 
 | Tool | Parameters | Returns | Notes |
 |---|---|---|---|
-| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). `mode` defaults to `read`. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a file that does not exist is refused (by the running app, or before launching it). A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason. |
+| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, … }` | Opens a file in the Ashlr MD window. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). Without `mode` the window keeps its current view (a file already open in a tab keeps its own, and an app this call launches starts in `read`); pass `read` before an `export`, which needs Read view. Only Markdown documents that are not dotfiles can be opened (see [Security](#security)), and a file that does not exist is refused (by the running app, or before launching it). A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason. A running app that answers with a server error or not in time is a tool error too, never retried through the URL scheme (which could open the file twice). |
 | `get_current_content` | — | `{ path, content }` | Path + full Markdown source of the open document. |
 | `set_content` | `content: string`, `save?: boolean` | `{ ok }` | Replace the open document's content. `save` defaults to `false`. The call returns once the window has applied the content (and saved it, with `save: true`); a save that fails, a document with no file yet, or a window that does not answer within 4 s returns `isError: true` with the reason. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
-| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once it is on disk, or `isError` after 30s; the document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
-| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. |
+| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once the window reports it written and it is on disk. An export that fails in the window (for example, the document is not in Read view) returns `isError` at once with the window's reason; one the window has not finished within 30 s returns `isError` saying so. The document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
+| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. `verdict` is `approved`, `changes_requested`, `dismissed`, `timeout` or `superseded` (a newer review replaced it in the panel). |
 | `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. With `save: true`, a save that fails (or a document with no file yet) returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. Reports a failed apply or save as `set_content` does. |
-| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean` | `{ results, mode, note? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app running (it supplies the vault file list); returns `isError: true` otherwise. |
+| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean`, `vault?: string` | `{ results, mode, note?, vault? }` | Search across the vault (watched folder) + recents. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50`. Needs the app (it supplies the vault file list). When the app cannot be reached (no `~/.mdopener/ipc-port`, or nothing listening; not when it refuses), `vault` names a directory (absolute, or relative to the server's working directory) whose Markdown files are searched on disk instead: `mode` is `grep-disk` (or `semantic`), `vault` is the directory searched, and `note` says the app was unreachable and the disk was searched. The walk reads only Markdown files that are not dotfiles, skips hidden folders, `node_modules` and `target`, does not follow directory symlinks, and stops at 5000 files (the `note` says so). Without `vault`, an unreachable app is `isError: true`, and the message names `vault`. A `vault` that is not a directory, or is itself a hidden folder (`.git`, `.obsidian`), is `isError: true`. |
 | `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into distraction-free, full-screen reading presentation — ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. |
 | `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, icon, scope, and (by default) their prompt templates. No app needed. |
 | `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | The last N messages (default `20`, min `1`, max `200`) of a session's memory store, oldest first. Empty when the session has none. A `session_id` too long for its file name is refused with `-32602` (see `save_conversation_message`). |
 | `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). That file name (without `.json`) may be at most 200 bytes, so an id of up to 200 letters, digits, `-` and `_` always fits (other bytes count three each); a longer id is refused with `-32602` instead of failing when the file is written. The sessions directory is owner-only (`0700`, tightened if an earlier build left it open) and each session file is `0600`, on Unix. Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format, and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed is left as it is. A message that cannot be written to disk is not saved and returns `isError: true`. |
 | `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `context_lines` defaults to `3`. Lines are compared with their line endings, so files that differ only in CRLF vs LF or in the final newline are not reported as identical: a `\r` stays visible in the diff, and a last line without a newline is followed by `\ No newline at end of file`, as in `diff -u`. |
-| `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, ops_applied }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. |
+| `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }` | Apply typed edit ops (move/resize/edit/colour/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. `node_ids` / `edge_ids` are the ids left afterwards (for follow-up ops), `removed_edge_ids` the edges `delete_node` removed with their node, and `content` the new canvas JSON when `save` is `false`. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. |
 | `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | the app's diff preview | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `preview` defaults to `true`; `false` applies immediately (unsaved, `find` must match once) and the result has `applied: true`, so do not call `stream_edit_apply` after it. A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. |
 | `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | the app's apply result | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`). The app re-finds `find` in the live document; `edit_id` is for correlation only. |
-| `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
-| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). Top-level scalars are parsed, and lists (`tags: [a, b]` or `- item` lines) become arrays; a nested mapping is not parsed and its key holds `""`. A leading UTF-8 byte order mark (as Notepad saves) is ignored by both `export_text` and `export_metadata`, so it does not hide the front-matter. |
+| `export_text` | `path?: string` | `{ text, word_count, char_count, path? }` | Plain text of a Markdown file with the syntax stripped (code blocks kept): `~~struck~~` text keeps its words, table rows become tab-separated cells, also in a blockquote or list item (the `|---|` row is dropped, `\|` reads `|`; as in GFM and the app's own rendering, an unescaped `|` inside `` `code` `` still splits a cell), and footnotes read `[1]` at the reference and `[1] text` at the definition. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, embedded_image_count, word_count, … }` | Structural metadata of a Markdown file. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). The supported YAML subset is described under [Front matter in `export_metadata`](#front-matter-in-export_metadata). A leading UTF-8 byte order mark (as Notepad saves) is ignored by both `export_text` and `export_metadata`, so it does not hide the front-matter. |
 
 When a tool fails while running (the app is not running, a file cannot be read
 or written, the app rejects the operation), the call still succeeds at the
@@ -250,7 +250,10 @@ naming the argument; an undeclared one also lists the arguments the tool
 takes and the closest match. Every integer argument declares a `minimum` in
 its schema (`0`, or `1` for `get_conversation_context`'s `limit`), and a value
 below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
-of falling back to the default. `null` counts as not given. An unknown tool
+of falling back to the default. So a string such as `"1"`, a negative or a
+fractional `match_index` is refused rather than read as `0`, and `"save":
+"true"` rather than read as `false`. A whole number written as a float
+(`2.0`) is an integer, as in JSON Schema. `null` counts as not given. An unknown tool
 name gets the closest tool name, if any, and a pointer to `tools/list`. A
 blank `session_id` is refused like a missing one. `prompts/get` with an
 unknown or missing `name` and `resources/read` with an unknown or missing
@@ -279,6 +282,37 @@ live buffer until saved).
 
 See the dedicated [Human review loop](#human-review-loop) section.
 
+### Front matter in `export_metadata`
+
+`frontmatter` reads a small subset of YAML, not full YAML:
+
+- **Scalars**: `true` / `false` become booleans, integers and decimals become
+  numbers, `~`, `null` and an empty value (`key:` with nothing after it and
+  nothing under it) become `null`, and anything else is a string with
+  surrounding `"` or `'` removed (`key: ""` is the empty string).
+- **Lists**: a flow list (`tags: [a, "b, c"]`) or `- item` lines under an
+  empty `key:` become arrays. An item written as `- name: x` starts an object,
+  and the lines aligned with `name` add keys to it, so
+  `- name: Ann` / `  role: lead` is `{"name": "Ann", "role": "lead"}`. An item
+  in quotes, or whose colons are not followed by a space (`- http://x`), stays
+  a string.
+- **Nesting**: indented `name: value` lines under an empty `owner:` become an
+  object (`{"owner": {"name": "value"}}`), at any depth. Their values are read
+  the same way, so `links: [a, b]` or `- item` lines under `roles:` are
+  arrays, and an empty one is `null`.
+- **Block scalars**: `key: |` keeps the indented lines under it as written,
+  and `key: >` folds them: a line break between two lines becomes a space, a
+  blank line becomes a line break, and lines indented further keep their
+  breaks. Both end with one line break; `|-` / `>-` drop it and `|+` / `>+`
+  keep every trailing blank line. An explicit indentation digit (`|2`) is
+  honoured. Lines inside a block scalar are text, so `# ...` there is kept.
+- A key's colon must be followed by a space or end the line, so `time: 10:30`
+  is the string `"10:30"`.
+- **Not parsed**: anchors and aliases (`&a`, `*a`), tags (`!!str`), flow
+  mappings (`{a: 1}` stays a string), and multi-line plain or quoted scalars
+  (their continuation lines are skipped). Comment lines (`# ...`) outside
+  block scalars are skipped.
+
 ---
 
 ## Resources reference
@@ -288,9 +322,13 @@ The server implements `resources/list` and `resources/read`.
 - **`mdopener://current`** — the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content.
 - **`text://vault-search?q=<query>`** — the same search as `search_vault`, as a
-  resource (`mimeType: application/json`; optional `&limit=`). Returns
-  `{ results, mode, query, note? }`, with the same `note` as `search_vault`
-  when it fell back; an error when the app is not running.
+  resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
+  `&semantic=false` or `true` to force grep or semantic search, like
+  `search_vault`'s `semantic`; any other value, or a `limit` that is not a
+  whole number, is an error).
+  Returns `{ results, mode, query, note?, vault? }`, with the same `note` as
+  `search_vault` when it fell back; an error when the app is not running and
+  no `vault` is given.
 - **`mdopener://recent-documents`** — recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`).
@@ -353,17 +391,36 @@ before proceeding.
 4. **The agent receives the verdict** as the tool result:
    `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
    `dismissed` means the human closed the panel. If the panel's countdown runs
-   out with no decision, the verdict is `timeout`.
+   out with no decision, the verdict is `timeout`. A `timeout` never replaces
+   a verdict already given. If the human still decides after the window has
+   closed (an agent may already have been told `timeout`), that verdict is
+   recorded with `"late": true` and a `message` saying so, in the
+   `request_review` result of a resumed call and in `get_user_annotations`.
+5. **One review at a time.** The panel shows a single review. When another
+   `request_review` (from this agent or another) reaches the panel before the
+   human has decided, the review it replaces ends at once with
+   `{ "verdict": "superseded", "reviewId": "…", "supersededBy": "…", "message": "…" }`
+   (also when resumed with `review_id`, and in `get_user_annotations`), rather
+   than waiting out its window and reporting `timeout`. Call `request_review`
+   again if it still needs sign-off. Reviews are not queued: a queued review's
+   window would run out while it is hidden, and the human sees the newest
+   request, which is usually the one that matters. A verdict the human was
+   already submitting as the panel switched is still recorded, marked `late`.
 
 ### Parameters
 
 - `path` *or* `content` — **one is required.** `path` opens that file for review;
   `content` reviews inline Markdown.
 - `blocking` (default `true`) — if `false`, the review is registered and the call
-  returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
-  can later check the outcome via `get_user_annotations`.
-- `timeout_ms` (default `300000` = 5 min, clamped to **5 000–600 000**) — how long
-  the human has to decide (the review panel's window). When the window closes
+  returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
+  Call `request_review` with that `review_id` to wait for the verdict. A
+  review of a `path` can also be read later via `get_user_annotations`; one
+  of inline `content` has no path, so only `review_id` finds it.
+- `timeout_ms` (default `300000` = 5 min, must be **5 000–600 000**) — how long
+  the human has to decide (the review panel's window). A value outside that
+  range (or not a whole number) is refused with an invalid-params error naming
+  the range, and no review is registered; the app's `/review` refuses the same
+  values with a 400. When the window closes
   during a call (the first one, or one resumed with `review_id`) with no
   decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
   review never waits past its window.
@@ -381,7 +438,8 @@ before proceeding.
 ### Reading the result later
 
 `get_user_annotations(path)` returns the **latest** verdict and comments recorded
-for a file, plus the current state of its GFM task checkboxes
+for a file (with `late: true` when that verdict came after its review window
+closed), plus the current state of its GFM task checkboxes
 (`- [ ]` / `- [x]`, including `*`/`+` bullets). Use it after a non-blocking
 `request_review`, or to re-check whether the human has ticked off task items.
 
@@ -567,7 +625,8 @@ The integration is **local-only and token-authenticated**:
 - Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
   server keeps the directory `0700` and writes each session file `0600`.
 - The tools that read a path straight from disk (`diff_documents`,
-  `export_text` / `export_metadata` with `path`, and the task list of
+  `export_text` / `export_metadata` with `path`, `search_vault` with `vault`
+  when the app is unreachable, and the task list of
   `get_user_annotations` for a file that is not the open document) only read Markdown files
   (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
   check runs after symlinks are resolved, so a `notes.md` link to `.env` is
@@ -581,7 +640,9 @@ The integration is **local-only and token-authenticated**:
 - `export` with `output_path` writes that file without a dialog and replaces
   an existing file of that name. It only accepts a non-dotfile path with the
   format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
-  directory, so it cannot overwrite Markdown or other file types.
+  directory, so it cannot overwrite Markdown or other file types. The app's
+  `/export` endpoint applies the same rule to `outputPath` (which must also be
+  absolute) and refuses anything else with HTTP 400, whoever calls it.
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files
   only, so a FIFO or device named `x.md` is refused (or skipped) instead of
@@ -649,7 +710,9 @@ at that path and is executable (`chmod +x`). Running
 check that the path is right (`--help` prints usage). Any other argument is
 ignored, so an old client config that passes one still starts the server, but
 it is named on stderr (`ignoring unknown argument ...`); look there in the
-client's MCP log for a typo such as `--verison`.
+client's MCP log for a typo such as `--verison`. Run from a terminal, it says
+on stderr that it is waiting for JSON-RPC on stdin; stdout carries only
+protocol messages.
 
 **Cursor MCP panel shows the server as offline**
 Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the

@@ -10,6 +10,7 @@ mod default_handler;
 mod document;
 mod embed;
 mod export;
+mod export_path;
 mod file_handler;
 mod ipc;
 mod run;
