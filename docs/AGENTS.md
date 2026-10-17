@@ -220,7 +220,7 @@ Every tool returns its payload inside the standard MCP `content` envelope
 | `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files. `limit` defaults to `10`. |
 | `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document (`isError` when none is open). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once the window reports it written and it is on disk. An export that fails in the window (for example, the document is not in Read view) returns `isError` at once with the window's reason; one the window has not finished within 30 s returns `isError` saying so. The app writes one headless export at a time, in a slot of its own, so a slow export never makes edits, opens, presents or reviews wait; a second headless export sent while one is being written returns `isError` at once saying so (retry once the first finishes). The document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). |
 | `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](#human-review-loop). One of `path`, `content` or `review_id` is required. `verdict` is `approved`, `changes_requested`, `dismissed`, `timeout` or `superseded` (a newer review replaced it in the panel). |
-| `get_user_annotations` | `path: string` | `{ path, verdict, comments, tasks }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). Read-only. |
+| `get_user_annotations` | `path: string` | `{ path, verdict, comments, late, tasks, tasksNote? }` | The human's latest review verdict + comments for that file, plus its GFM task-checkbox states: from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). A file on disk larger than 16 MiB (or not UTF-8 text) is not read: `tasks` is empty and `tasksNote` says why. Read-only. |
 | `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok, replaced }` | **Exact, unique find/replace** on the open document. See below. With `save: true`, a save that fails (or a document with no file yet) returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. |
 | `replace_document` | `content: string`, `save?: boolean` | `{ ok }` | Replace the **entire** content of the open document. Prefer `edit_document` for targeted changes. Reports a failed apply or save as `set_content` does. |
 | `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean`, `vault?: string` | `{ results, mode, note?, vault?, truncated?, depthCut? }` | Search across the vault (watched folder) + recents. The app lists the watched folder's 200 most recently changed Markdown files (the app sends that cap with its vault list, and the `note` quotes the app's number); when the folder has more, the result has `truncated: true` and a `note` saying only those were searched (the Activity drawer says so too). The app keeps the newest files of the whole folder while it walks it, but reads at most 50,000 directory entries and enters folders at most 8 levels down; past the entry budget the walk stops, and below that depth a folder is skipped. Either way the list is the newest of the files it reached, and `truncated: true` comes with a `note` saying newer files elsewhere in the folder may have been missed. When the depth limit is what cut the walk, the result also has `depthCut: true` and the `note` says the folder is too deeply nested (with only the entry budget, there is no `depthCut` and the `note` says the folder is too large); the app's `/vault` reply carries the same `scanCut` (either limit) and `depthCut` (the depth limit) flags. An older app that sends no `depthCut` gets the note naming both limits. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many; if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50` and is 1 to 200 in every mode (a larger value returns at most 200, as the app's own search always did; `0` is refused with `-32602`, by the tool and by `text://vault-search?…&limit=0`). Needs the app (it supplies the vault file list). When the app cannot be reached (no `~/.mdopener/ipc-port`, or nothing listening; not when it refuses), `vault` names a directory (absolute, or relative to the server's working directory) whose Markdown files are searched on disk instead: `mode` is `grep-disk` (or `semantic`), `vault` is the directory searched, and `note` says the app was unreachable and the disk was searched. The walk reads only Markdown files that are not dotfiles, skips hidden folders, `node_modules` and `target`, does not follow directory symlinks, and stops at 5000 files (the `note` says so). It enters folders at most 16 levels below `vault`; a deeper folder is not searched, and the result then has `truncated: true`, `depthCut: true` and a `note` saying so (deeper folders used to be skipped in silence). Without `vault`, an unreachable app is `isError: true`, and the message names `vault`. A `vault` that is not a directory, or is itself a hidden folder (`.git`, `.obsidian`), is `isError: true`. |
@@ -248,7 +248,8 @@ wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
 `cited_docs`) or `arguments` that is not an object is refused with `-32602`
 naming the argument; an undeclared one also lists the arguments the tool
 takes and the closest match. Every integer argument declares a `minimum` in
-its schema (`0`, or `1` for `get_conversation_context`'s `limit`), and a value
+its schema (`0`, or `1` for the `limit` of `search_vault` and
+`get_conversation_context`), and a value
 below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
 of falling back to the default. A string outside the property's `enum`
 (`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
@@ -329,7 +330,10 @@ See the dedicated [Human review loop](#human-review-loop) section.
 
 ## Resources reference
 
-The server implements `resources/list` and `resources/read`.
+The server implements `resources/list`, `resources/templates/list` and
+`resources/read`. `resources/templates/list` offers one template,
+`text://vault-search?q={query}` (`mimeType: application/json`), the search
+below; it needs no app.
 
 - **`mdopener://current`** — the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content; an open
@@ -355,13 +359,20 @@ The server implements `resources/list` and `resources/read`.
   An app with no recents gives an empty list;
   an app that cannot be reached is `-32000`, as for `mdopener://current` (it
   used to be an empty list too).
-- **`file://<path>` (vault files)** — every file the app advertises as part of
-  the **vault** (watched folder) plus **recents** is listed as an individually
-  readable resource. When the app cannot be asked for them (it is not
+- **`file://<path>` (vault files)** — every file the app lists in the
+  **vault** (watched folder) is listed as an individually readable resource.
+  Recently opened files are not listed as `file://` entries (read
+  `mdopener://recent-documents` for them), but a recent's `file://<path>` is
+  still readable through `resources/read`. When the app cannot be asked for them (it is not
   running, or it refused), the list has none, and the result carries
   `_meta: { "mdopener/vaultFilesUnlisted": "<reason>" }` (also logged on
   stderr) so a client can tell that from a vault with no files; a listing
-  that worked has no such key.
+  that worked has no such key. When the app's vault list is cut short (the
+  watched folder has more Markdown files than the app lists, or is too large
+  or too deeply nested to scan in full, as `search_vault`'s `truncated`
+  says), the result carries `_meta: { "mdopener/vaultFilesTruncated":
+  "<reason>" }`, naming the app's cap, so the `file://` entries are not
+  read as the whole vault.
 
 `resources/read` is **scoped**: a `file://` URI is only readable if it is one of
 the paths the app currently advertises in the vault or recents. Any other path
@@ -505,7 +516,8 @@ edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
 silent and always succeeds, so it never disrupts Claude's tool flow — it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
 read mode: through the running app's loopback IPC channel, or via the
-`mdopener://` scheme when the app is not running.
+`mdopener://` scheme when the app is not running. It reads at most 64 MiB of
+stdin; a longer payload opens nothing (still silently, exit `0`).
 
 ### One-click install
 

@@ -36,6 +36,28 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`resources/list` says when the vault's files are cut short.** The app
+  lists only the newest Markdown files of a large watched folder, and the
+  `file://` entries gave no sign of it, so a client read them as the whole
+  vault. The result now carries `_meta["mdopener/vaultFilesTruncated"]`
+  with the reason and the app's cap, as `search_vault` says `truncated`.
+- **`resources/templates/list` offers the vault search.** The method was
+  unknown (`-32601`), so a client that discovers parameterised resources
+  through it never saw `text://vault-search`, and the bare URI that
+  `resources/list` shows cannot be read without a query. It now returns the
+  template `text://vault-search?q={query}`.
+- **`get_user_annotations` reads a task list up to 16 MiB.** For a file
+  that is not the open document, the app's `/annotations` read the file
+  whole however large it was. Past 16 MiB (or for text that is not UTF-8)
+  it is not read, and the reply's `tasksNote` says why `tasks` is empty.
+- **`mdopen --hook` reads at most 64 MiB of stdin.** The hook read its
+  payload to the end however long it was, so a runaway producer grew its
+  memory without bound. Past 64 MiB it stops reading and opens nothing,
+  still silently and with exit 0.
+- **The app's IPC server answers a wrong method with 405.** A route it
+  has, asked for with another method (`GET /open`), got the same 404 "No
+  such endpoint" as a path that does not exist. It is now a 405 with an
+  `Allow` header and `{"error": "/open does not take GET: use POST."}`.
 - **The app's IPC server answers an unknown route in JSON.** A request for
   a route it does not have got the plain text `Not Found`, unlike every
   other error. It is now a 404 with `{"error": "No such endpoint: <method>
