@@ -549,6 +549,30 @@ fn open_file_mode_edit_forwarded_in_post_body() {
     assert_eq!(body["mode"], json!("edit"));
 }
 
+/// Without `mode` the app keeps the window's current view, so the tool sends
+/// none and its schema says so (it used to promise a `read` default).
+#[test]
+fn open_file_without_mode_keeps_the_current_view() {
+    let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
+    let resp = tool_open_file(id(1), &json!({ "path": "/tmp/mdopener-notes.md" }), &ipc);
+    assert!(resp.error.is_none());
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(m, p, _)| m == "POST" && p == "/open")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["mode"], Value::Null);
+    let open_file = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "open_file")
+        .unwrap();
+    let desc = open_file.input_schema["properties"]["mode"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(desc.contains("current view"), "{desc}");
+    assert!(!desc.contains("Defaults to 'read'"), "{desc}");
+}
+
 /// A Markdown file that exists, for the URL-scheme fallback tests: with the
 /// app unreachable, `open_file` refuses a missing file before launching.
 fn existing_notes() -> (tempfile::TempDir, String) {
@@ -590,6 +614,25 @@ fn open_file_ipc_failure_launches_url_scheme() {
     assert_eq!(urls.len(), 1);
     assert!(urls[0].starts_with("mdopener://open?path="), "{}", urls[0]);
     assert!(urls[0].ends_with("&mode=edit"), "{}", urls[0]);
+}
+
+#[test]
+fn open_file_does_not_retry_through_the_url_scheme_when_the_app_was_reached() {
+    // A 5xx or no answer in time comes from a running app that may still open
+    // the file: falling back would report success wrongly or open it twice.
+    let (_dir, notes) = existing_notes();
+    for err in [
+        "IPC server returned HTTP 500: lock poisoned",
+        "IPC read error: Ashlr MD did not answer within 5 s",
+    ] {
+        let ipc = MockIpc::new().on_post("/open", Err(err.into()));
+        let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|url: &str| {
+            panic!("must not fall back to the URL scheme: {url}")
+        });
+        let text = tool_error_text(&resp);
+        assert!(text.contains("did not confirm opening"), "{text}");
+        assert!(text.contains(err), "{text}");
+    }
 }
 
 #[test]
@@ -932,6 +975,17 @@ fn export_ipc_error_propagated() {
     tool_error_text(&resp);
 }
 
+/// The app answers `{ "ok": false, "error" }` when it could not hand the
+/// export to its window; the tool read any reply as accepted and reported
+/// the export dialog as shown.
+#[test]
+fn export_reports_the_apps_ok_false_reply() {
+    let reason = "The app could not reach its window: window closed";
+    let ipc = MockIpc::new().on_post("/export", Ok(json!({ "ok": false, "error": reason })));
+    let msg = tool_error_text(&tool_export(id(1), &json!({ "format": "pdf" }), &ipc));
+    assert!(msg.contains(reason), "{msg}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool 6: edit_document
 // ════════════════════════════════════════════════════════════════════════════
@@ -1141,6 +1195,12 @@ fn request_review_non_blocking_registers_and_returns_pending() {
         .as_str()
         .map(|s| !s.is_empty())
         .unwrap_or(false));
+    // It says how to get the verdict: get_user_annotations cannot find a
+    // review of inline content, which has no path.
+    assert!(
+        text["message"].as_str().unwrap().contains("review_id"),
+        "{text}"
+    );
 }
 
 /// A review whose file the window could not open is refused with the
@@ -1181,52 +1241,58 @@ fn request_review_ipc_down_returns_error() {
 }
 
 #[test]
-fn request_review_timeout_ms_clamped_to_minimum() {
-    // timeout_ms below 5000 should be clamped up — non-blocking so no sleep
-    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
-    let resp = tool_request_review(
-        id(1),
-        &json!({ "content": "x", "blocking": false, "timeout_ms": 100 }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(
-        actual_timeout >= 5_000,
-        "timeout should be clamped to >=5000, got {actual_timeout}"
-    );
+fn request_review_timeout_ms_out_of_range_is_refused_not_clamped() {
+    // Clamping silently gave the agent a window it did not ask for.
+    for bad in [
+        json!(100),
+        json!(4_999),
+        json!(600_001),
+        json!(-1),
+        json!(1.5),
+        json!("60000"),
+    ] {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "content": "x", "blocking": false, "timeout_ms": bad }),
+            &ipc,
+        );
+        let err = resp.error.expect("out-of-range timeout_ms must be refused");
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message.contains("between 5000 and 600000"),
+            "{bad}: {}",
+            err.message
+        );
+        assert!(
+            !ipc.calls()
+                .iter()
+                .any(|(m, p, _)| m == "POST" && p == "/review"),
+            "no review may be registered for {bad}"
+        );
+    }
 }
 
 #[test]
-fn request_review_timeout_ms_clamped_to_maximum() {
-    let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
-    let resp = tool_request_review(
-        id(1),
-        &json!({ "content": "x", "blocking": false, "timeout_ms": 9_999_999 }),
-        &ipc,
-    );
-    assert!(resp.error.is_none());
-    let calls = ipc.calls();
-    let body = calls
-        .iter()
-        .find(|(m, p, _)| m == "POST" && p == "/review")
-        .unwrap()
-        .2
-        .as_ref()
-        .unwrap();
-    let actual_timeout = body["timeoutMs"].as_u64().unwrap();
-    assert!(
-        actual_timeout <= 600_000,
-        "timeout should be clamped to <=600000, got {actual_timeout}"
-    );
+fn request_review_timeout_ms_at_the_bounds_is_passed_through() {
+    for ok in [5_000u64, 600_000] {
+        let ipc = MockIpc::new().on_post("/review", Ok(json!({ "ok": true })));
+        let resp = tool_request_review(
+            id(1),
+            &json!({ "content": "x", "blocking": false, "timeout_ms": ok }),
+            &ipc,
+        );
+        assert!(resp.error.is_none(), "{:?}", resp.error);
+        let calls = ipc.calls();
+        let body = calls
+            .iter()
+            .find(|(m, p, _)| m == "POST" && p == "/review")
+            .unwrap()
+            .2
+            .as_ref()
+            .unwrap();
+        assert_eq!(body["timeoutMs"], json!(ok));
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2556,6 +2622,68 @@ fn search_vault_reports_the_apps_refusal_when_local_grep_cannot_run() {
     assert!(msg.contains("search is disabled"), "got: {msg}");
 }
 
+/// `vault` is searched on disk only when the app cannot be reached: a refusal
+/// stays the error, and an unreachable app falls back with a note.
+#[test]
+fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
+    // Not `tempdir()`: its `.tmpXXXX` folder is hidden, and a hidden vault is refused.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
+    let vault = dir.path().to_str().unwrap();
+    let args = json!({ "query": "target", "semantic": false, "vault": vault });
+
+    let refused = "IPC server returned HTTP 403: vault is disabled";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(refused.into()))
+        .on_get("/search", Err(refused.into()));
+    let msg = tool_error_text(&tool_search_vault(id(1), &args, &ipc));
+    assert!(msg.contains("vault is disabled"), "{msg}");
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(note.contains(down) && note.contains("on disk"), "{note}");
+
+    // A `vault` that is not a directory is an error result, app or not.
+    let bad = json!({ "query": "target", "vault": dir.path().join("a.md") });
+    let msg = tool_error_text(&tool_search_vault(id(3), &bad, &ipc));
+    assert!(msg.contains("not a directory"), "{msg}");
+}
+
+/// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
+/// though the walk skips hidden folders below a vault: its own notes were
+/// read and grepped. It is now refused, as the hidden subfolders are skipped.
+#[test]
+fn search_vault_refuses_a_hidden_vault_folder() {
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let hidden = dir.path().join(".git");
+    std::fs::create_dir(&hidden).unwrap();
+    std::fs::write(hidden.join("notes.md"), "the target topic\n").unwrap();
+    std::fs::create_dir(dir.path().join("notes")).unwrap();
+
+    let err = mdopener_mcp::disk_vault_dir(hidden.to_str().unwrap())
+        .expect_err("a hidden vault folder is refused");
+    assert!(err.contains("`vault`") && err.contains("hidden"), "{err}");
+    // Reached through a relative path or `..`, it is still the hidden folder.
+    let dotted = dir.path().join("notes/../.git");
+    assert!(mdopener_mcp::disk_vault_dir(dotted.to_str().unwrap()).is_err());
+    // Its non-hidden sibling is fine.
+    assert!(mdopener_mcp::disk_vault_dir(dir.path().join("notes").to_str().unwrap()).is_ok());
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": hidden });
+    let msg = tool_error_text(&tool_search_vault(id(1), &args, &ipc));
+    assert!(msg.contains("hidden"), "{msg}");
+}
+
 /// When every document's embedding fails, semantic search compared nothing,
 /// so it falls back to grep with a note instead of returning no results.
 #[test]
@@ -2783,6 +2911,102 @@ fn resource_read_vault_search_ipc_down_falls_back_to_local_grep() {
     )
     .unwrap();
     assert_eq!(payload["mode"].as_str().unwrap_or(""), "grep-local");
+}
+
+/// `semantic=` on the resource was ignored: it always auto-detected Ollama,
+/// so an agent could not force grep (or semantic) the way `search_vault`'s
+/// `semantic` argument does, and a typo was silently dropped.
+#[test]
+fn resource_read_vault_search_honours_semantic_option() {
+    let payload_of = |resp: &mdopener_mcp::Response| -> Value {
+        serde_json::from_str(
+            resp.result.as_ref().unwrap()["contents"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let mock = || {
+        MockIpc::new()
+            .on_get("/vault", Ok(json!({ "files": [], "recents": [] })))
+            .on_get("/search", Ok(json!({ "results": [] })))
+    };
+
+    // semantic=false never asks for the vault list (the embedding path's
+    // first step) and answers with the app's grep, without a note.
+    let ipc = mock();
+    let resp = handle_resource_read(id(310), "text://vault-search?q=x&semantic=false", &ipc);
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let payload = payload_of(&resp);
+    assert_eq!(payload["mode"], "grep", "{payload}");
+    assert!(payload.get("note").is_none(), "{payload}");
+    assert!(
+        ipc.calls()
+            .iter()
+            .all(|(_, path, _)| !path.starts_with("/vault")),
+        "semantic=false tried embeddings: {:?}",
+        ipc.calls()
+    );
+
+    // semantic=true tries embeddings even when auto-detection would not,
+    // and says so when it fell back.
+    if !mdopener_mcp::ollama_available() {
+        let ipc = mock();
+        let resp = handle_resource_read(id(311), "text://vault-search?q=x&semantic=true", &ipc);
+        let payload = payload_of(&resp);
+        assert_eq!(payload["mode"], "grep", "{payload}");
+        assert!(
+            payload["note"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Semantic search was unavailable"),
+            "{payload}"
+        );
+    }
+
+    let resp = handle_resource_read(id(312), "text://vault-search?q=x&semantic=maybe", &mock());
+    let err = resp.error.expect("an invalid semantic value is an error");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("semantic"), "{}", err.message);
+}
+
+/// `limit=ten` on the resource was read as the default of 50.
+#[test]
+fn resource_read_vault_search_rejects_a_non_numeric_limit() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(id(314), "text://vault-search?q=x&limit=ten", &ipc);
+    let err = resp.error.expect("a non-numeric limit is an error");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("`limit` must be a whole number"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    let ok = handle_resource_read(id(315), "text://vault-search?q=x&limit=3", &ipc);
+    assert!(ok.error.is_none(), "{:?}", ok.error);
+}
+
+/// `search_vault` with `semantic: "false"` (a string) silently auto-detected
+/// instead of forcing grep.
+#[test]
+fn search_vault_rejects_a_non_boolean_semantic() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = call(
+        "search_vault",
+        json!({ "query": "x", "semantic": "false" }),
+        &ipc,
+    );
+    let err = resp
+        .error
+        .expect("a string semantic is an invalid argument");
+    assert_eq!(err.code, -32602);
+    assert!(
+        err.message.contains("`semantic` must be a boolean"),
+        "{}",
+        err.message
+    );
+    assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
 }
 
 /// The resource falls back the way `search_vault` does and says so: a grep
@@ -4464,6 +4688,62 @@ fn export_output_path_errors_when_the_app_never_writes_it() {
     );
 }
 
+/// Stands in for an app whose window reports the headless export failed:
+/// it answers `/export` with the window's reason, read with a longer timeout.
+struct FailingExportApp {
+    read_timeout: Mutex<Option<std::time::Duration>>,
+}
+
+impl IpcClient for FailingExportApp {
+    fn get(&self, path: &str) -> Result<Value, String> {
+        Err(format!("unexpected GET {path}"))
+    }
+    fn post(&self, path: &str, _body: Value) -> Result<Value, String> {
+        Err(format!(
+            "a headless export must wait longer than 5 s for {path}"
+        ))
+    }
+    fn post_within(
+        &self,
+        path: &str,
+        _body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        assert_eq!(path, "/export");
+        *self.read_timeout.lock().unwrap() = Some(read_timeout);
+        Ok(json!({
+            "ok": false,
+            "path": "/out/plan.html",
+            "error": "Export failed in the app: Switch to Read view before exporting."
+        }))
+    }
+}
+
+#[test]
+fn export_output_path_returns_the_windows_error_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("plan.html");
+    let app = FailingExportApp {
+        read_timeout: Mutex::new(None),
+    };
+    let deadline = std::time::Duration::from_secs(30);
+    let started = std::time::Instant::now();
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &app,
+        deadline,
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let text = tool_error_text(&resp);
+    assert!(text.contains("Switch to Read view"), "{text}");
+    let waited = app.read_timeout.lock().unwrap().expect("post_within used");
+    assert!(
+        waited > deadline,
+        "the app's answer must outlast its own wait"
+    );
+}
+
 #[test]
 fn export_output_path_resolves_a_symlinked_directory() {
     let dir = tempfile::tempdir().unwrap();
@@ -4745,6 +5025,76 @@ fn export_text_keeps_literal_angle_brackets_underscores_and_asterisks() {
     assert_eq!(
         strip_markdown("see <https://example.com/x>"),
         "see https://example.com/x"
+    );
+}
+
+/// A table inside a blockquote or a list item was not detected (its
+/// delimiter row starts with `>` or a list marker), so its rows came back
+/// with their pipes and the `|---|` row kept.
+#[test]
+fn export_text_reads_tables_in_blockquotes_and_lists() {
+    use mdopener_mcp::strip_markdown;
+    assert_eq!(
+        strip_markdown(
+            "> Note\n>\n> | Name | Role |\n> |------|------|\n> | Zoë | **Lead** |\n\nAfter"
+        ),
+        "Note\n\nName\tRole\nZoë\tLead\n\nAfter"
+    );
+    assert_eq!(
+        strip_markdown("> > | a | b |\n> > |---|---|\n> > | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "nested blockquote"
+    );
+    assert_eq!(
+        strip_markdown("- Item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n- Next"),
+        "Item\n\na\tb\n1\t2\nNext",
+        "table indented under a list item"
+    );
+    assert_eq!(
+        strip_markdown("1. | a | b |\n   |---|---|\n   | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "table starting on the list marker line"
+    );
+    assert_eq!(
+        strip_markdown("> - | a | b |\n>   |---|---|\n>   | 1 | 2 |"),
+        "a\tb\n1\t2",
+        "list inside a blockquote"
+    );
+    assert_eq!(
+        strip_markdown("> a | b\n\nc"),
+        "a | b\n\nc",
+        "a quoted line with a pipe and no delimiter row stays text"
+    );
+}
+
+/// Strikethrough keeps its text without the tildes, table rows become
+/// tab-separated cells with the delimiter row gone, and footnotes read as
+/// `[1]` at the reference and `[1] text` at the definition.
+#[test]
+fn export_text_cleans_strikethrough_tables_and_footnotes() {
+    use mdopener_mcp::strip_markdown;
+    assert_eq!(
+        strip_markdown("Ship ~~Friday~~ Monday, ~5 min, a ~~ b, ~/x"),
+        "Ship Friday Monday, ~5 min, a ~~ b, ~/x"
+    );
+    let table = "Intro\n\n| Name | **Role** |\n|:-----|-------:|\n| Zoë | Lead \\| QA |\n| [Al](http://a.b) | `dev` |\n\nAfter | not a table\n";
+    assert_eq!(
+        strip_markdown(table),
+        "Intro\n\nName\tRole\nZoë\tLead | QA\nAl\tdev\n\nAfter | not a table"
+    );
+    assert_eq!(
+        strip_markdown("a | b\n--- | ---\nc | d"),
+        "a\tb\nc\td",
+        "a table without outer pipes"
+    );
+    assert_eq!(
+        strip_markdown("Claim.[^1] More[^note].\n\n[^1]: The **source**.\n[^note]: Second."),
+        "Claim.[1] More[note].\n\n[1] The source.\n[note] Second."
+    );
+    // Code keeps everything as written.
+    assert_eq!(
+        strip_markdown("```\n| a | b |\n|---|---|\n~~x~~ [^1]\n```"),
+        "| a | b |\n|---|---|\n~~x~~ [^1]"
     );
 }
 
@@ -5040,6 +5390,85 @@ fn request_review_resumed_after_its_window_reports_timeout() {
     assert_eq!(v["reviewId"], "rev_1");
 }
 
+/// A verdict the human gave after the window closed is reported, but marked
+/// `late` with a note: an earlier call may already have said `timeout`.
+#[test]
+fn request_review_marks_a_late_verdict() {
+    use mdopener_mcp::tool_request_review_with;
+    let late = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "approved", "verdict": "approved", "comments": "ok", "late": true })),
+    );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "review_id": "rev_1" }),
+        &late,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["late"], true, "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("after the review window closed"),
+        "{v}"
+    );
+
+    let on_time = MockIpc::new().on_get(
+        "/review/result",
+        Ok(json!({ "status": "approved", "verdict": "approved", "comments": null, "late": false })),
+    );
+    let resp = tool_request_review_with(
+        id(2),
+        &json!({ "review_id": "rev_2" }),
+        &on_time,
+        std::time::Duration::from_millis(10),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert!(v.get("late").is_none(), "{v}");
+}
+
+/// A review a newer one replaced in the panel ends at once as `superseded`
+/// (naming its replacement), instead of waiting out its window as a timeout.
+#[test]
+fn request_review_reports_a_superseded_review_at_once() {
+    use mdopener_mcp::tool_request_review_with;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Ok(json!({
+                "status": "superseded",
+                "verdict": "superseded",
+                "comments": null,
+                "late": false,
+                "supersededBy": "rev_newer"
+            })),
+        );
+    let started = std::time::Instant::now();
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "# Plan", "timeout_ms": 600_000 }),
+        &ipc,
+        std::time::Duration::from_millis(10),
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(!is_error(&resp), "{resp:?}");
+    let v = content_text(&resp);
+    assert_eq!(v["verdict"], "superseded", "{v}");
+    assert_eq!(v["supersededBy"], "rev_newer", "{v}");
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("request_review again"),
+        "{v}"
+    );
+}
+
 // ── Disk reads only open regular files ────────────────────────────────────────
 
 /// Run `f` on a worker thread and fail (instead of hanging the suite) when it
@@ -5246,6 +5675,37 @@ fn edit_canvas_preserves_unknown_top_level_keys() {
     assert_eq!(saved["nodes"][0]["pluginData"], json!({ "k": 1 }));
 }
 
+/// The reply names the ids left in the canvas, so a follow-up op can target
+/// them, and the edges `delete_node` removed with its node, which used to go
+/// unreported.
+#[test]
+fn edit_canvas_reports_the_ids_left_and_the_edges_delete_node_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let node = |id: &str| json!({ "id": id, "type": "text", "text": id, "x": 0, "y": 0, "width": 9, "height": 9 });
+    let canvas = json!({
+        "nodes": [node("a"), node("b"), node("c")],
+        "edges": [
+            { "id": "ab", "fromNode": "a", "toNode": "b" },
+            { "id": "bc", "fromNode": "b", "toNode": "c" },
+            { "id": "ca", "fromNode": "c", "toNode": "a" }
+        ]
+    });
+    std::fs::write(&path, canvas.to_string()).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [
+            { "type": "delete_node", "id": "b" },
+            { "type": "add_node", "node": node("d") }
+        ] }),
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let v = content_text(&resp);
+    assert_eq!(v["node_ids"], json!(["a", "c", "d"]), "{v}");
+    assert_eq!(v["edge_ids"], json!(["ca"]), "{v}");
+    assert_eq!(v["removed_edge_ids"], json!(["ab", "bc"]), "{v}");
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]
@@ -5313,7 +5773,7 @@ fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
             "tags": ["launch", "q4, late", 3],
             "aliases": ["Plan", "Launch"],
             "authors": ["Zoë"],
-            "owner": "",
+            "owner": { "name": "Sam", "team": "core" },
             "draft": true,
         })
     );
@@ -5323,19 +5783,105 @@ fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
     );
 }
 
-/// A list inside a nested mapping belongs to the nested key, not to the
-/// top-level one: `owner:` / `  roles:` / `    - admin` came back as
-/// `owner: ["admin"]`, as if owner were a list of roles.
+/// Nesting becomes an object (its values parsed like top-level ones, lists
+/// included, and a level deeper too), and a bare `key:` with nothing under it
+/// is null rather than "".
 #[test]
-fn frontmatter_list_inside_a_nested_mapping_does_not_fill_its_parent() {
+fn frontmatter_parses_nesting_and_empty_values_are_null() {
     use mdopener_mcp::extract_frontmatter;
     let doc = "---\n\
-               owner:\n  name: Sam\n  roles:\n    - admin\n    - editor\n\
-               tags:\n  - a\n\
+               summary:\n\
+               author:\n    name: Zoë\n    links: [a, b]\n    roles:\n      - lead\n      - qa\n    \
+               address:\n      city: Oslo\n    email:\n\
+               quoted: \"\"\n\
+               tilde: ~\n\
+               last:\n\
+               ---\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({
+            "summary": null,
+            "author": {
+                "name": "Zoë",
+                "links": ["a", "b"],
+                "roles": ["lead", "qa"],
+                "address": { "city": "Oslo" },
+                "email": null,
+            },
+            "quoted": "",
+            "tilde": null,
+            "last": null,
+        })
+    );
+}
+
+/// Lists of mappings were read as strings (`"name: Ann"`), block scalars
+/// (`|`, `>`) as the literal indicator with their lines dropped, and a
+/// second nesting level as null.
+#[test]
+fn frontmatter_reads_lists_of_mappings_block_scalars_and_deep_nesting() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               authors:\n\
+               \x20 - name: Ann\n\
+               \x20   role: lead\n\
+               \x20   links:\n\
+               \x20     - a\n\
+               \x20 - name: Bo\n\
+               \x20 - plain\n\
+               \x20 - \"q: quoted\"\n\
+               \x20 - http://example.com\n\
+               steps:\n\
+               - id: 1\n\
+               \x20 done: true\n\
+               literal: |\n\
+               \x20 line one\n\
+               \x20   indented\n\
+               \n\
+               \x20 # not a comment\n\
+               folded: >\n\
+               \x20 one\n\
+               \x20 two\n\
+               \n\
+               \x20 three\n\
+               \x20   kept\n\
+               \x20 four\n\
+               strip: |-\n\
+               \x20 a\n\
+               \x20 b\n\
+               keep: >+\n\
+               \x20 a\n\
+               \n\
+               empty: |\n\
+               deep:\n\
+               \x20 a:\n\
+               \x20   b:\n\
+               \x20     c: 3\n\
+               \x20     note: >-\n\
+               \x20       x\n\
+               \x20       y\n\
+               \x20   d: [1, 2]\n\
+               time: 10:30\n\
                ---\nBody\n";
     assert_eq!(
         extract_frontmatter(doc),
-        json!({ "owner": "", "tags": ["a"] })
+        json!({
+            "authors": [
+                { "name": "Ann", "role": "lead", "links": ["a"] },
+                { "name": "Bo" },
+                "plain",
+                "q: quoted",
+                "http://example.com",
+            ],
+            "steps": [{ "id": 1, "done": true }],
+            "literal": "line one\n  indented\n\n# not a comment\n",
+            "folded": "one two\nthree\n  kept\nfour\n",
+            "strip": "a\nb",
+            "keep": "a\n\n",
+            "empty": "",
+            "deep": { "a": { "b": { "c": 3, "note": "x y" }, "d": [1, 2] } },
+            "time": "10:30",
+        })
     );
 }
 
@@ -5557,6 +6103,135 @@ fn open_file_does_not_relaunch_a_path_the_app_refused() {
         &|_| panic!("must not launch"),
     );
     assert!(tool_error_text(&resp).contains("Refusing to open"));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Argument types: a value of the wrong type is refused, never defaulted
+// ════════════════════════════════════════════════════════════════════════════
+
+/// A whole-number argument given as a string, a negative or a fraction is
+/// an invalid-params error that never reaches the app: `match_index: "1"`
+/// used to be read as absent and apply the first occurrence.
+#[test]
+fn a_whole_number_argument_of_the_wrong_type_is_refused() {
+    let cases = [
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": "1" }),
+            "match_index",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "match_index": -1 }),
+            "match_index",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview_lines": 2.5 }),
+            "preview_lines",
+        ),
+        ("list_recent", json!({ "limit": "ten" }), "limit"),
+        (
+            "search_vault",
+            json!({ "query": "q", "limit": -5 }),
+            "limit",
+        ),
+        (
+            "get_conversation_context",
+            json!({ "session_id": "s", "limit": "all" }),
+            "limit",
+        ),
+        (
+            "diff_documents",
+            json!({ "path_a": "/a.md", "path_b": "/b.md", "context_lines": "3" }),
+            "context_lines",
+        ),
+        (
+            "request_review",
+            json!({ "content": "# x", "wait_ms": "50000" }),
+            "wait_ms",
+        ),
+    ];
+    for (tool, args, name) in cases {
+        let ipc = MockIpc::new();
+        let resp = call(tool, args.clone(), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{tool} {args}: {resp:?}"));
+        assert_eq!(err.code, -32602, "{tool} {args}");
+        assert!(err.message.contains(name), "{tool}: {}", err.message);
+        assert!(ipc.calls().is_empty(), "{tool} must not reach the app");
+    }
+}
+
+/// A whole number written as a float (`2.0`) is still that number.
+#[test]
+fn a_whole_number_argument_written_as_a_float_is_accepted() {
+    let ipc = MockIpc::new().on_post("/stream-edit-apply", Ok(json!({ "ok": true })));
+    let resp = call(
+        "stream_edit_apply",
+        json!({ "find": "a", "replace": "b", "match_index": 2.0 }),
+        &ipc,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    let calls = ipc.calls();
+    let (_, _, body) = calls
+        .iter()
+        .find(|(_, p, _)| p == "/stream-edit-apply")
+        .unwrap();
+    assert_eq!(body.as_ref().unwrap()["matchIndex"], json!(2));
+}
+
+/// A boolean argument given as a string or number is an invalid-params error
+/// that never reaches the app: `save: "true"` used to be read as absent, so
+/// the edit was applied but quietly left unsaved.
+#[test]
+fn a_boolean_argument_of_the_wrong_type_is_refused() {
+    let cases = [
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": "b", "save": "true" }),
+            "save",
+        ),
+        ("set_content", json!({ "content": "x", "save": 1 }), "save"),
+        (
+            "replace_document",
+            json!({ "content": "x", "save": "yes" }),
+            "save",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": "a", "replace": "b", "preview": "false" }),
+            "preview",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": "b", "save": "true" }),
+            "save",
+        ),
+        (
+            "request_review",
+            json!({ "content": "# x", "blocking": "false" }),
+            "blocking",
+        ),
+        (
+            "list_ai_actions",
+            json!({ "include_prompts": "no" }),
+            "include_prompts",
+        ),
+    ];
+    for (tool, args, name) in cases {
+        let ipc = MockIpc::new();
+        let resp = call(tool, args.clone(), &ipc);
+        let err = resp
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{tool} {args}: {resp:?}"));
+        assert_eq!(err.code, -32602, "{tool} {args}");
+        assert!(err.message.contains(name), "{tool}: {}", err.message);
+        assert!(ipc.calls().is_empty(), "{tool} must not reach the app");
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -6007,6 +6682,18 @@ fn export_tools_read_front_matter_after_a_byte_order_mark() {
     );
     let resp = mdopener_mcp::tool_export_metadata(id(3), &json!({}), &ipc);
     assert_eq!(content_text(&resp)["frontmatter"]["title"], "Live");
+
+    // Nested front matter after a BOM goes through the recursive parser.
+    std::fs::write(
+        &path,
+        "\u{FEFF}---\nowner:\n  name: Ann\n  roles:\n    - lead\n---\nBody\n",
+    )
+    .unwrap();
+    let resp = mdopener_mcp::tool_export_metadata(id(4), &json!({ "path": path }), &ipc);
+    assert_eq!(
+        content_text(&resp)["frontmatter"],
+        json!({ "owner": { "name": "Ann", "roles": ["lead"] } })
+    );
 }
 
 /// The resource channel checked the canonical target of an advertised path,

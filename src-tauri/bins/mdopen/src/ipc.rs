@@ -15,8 +15,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 /// How long to wait for the app's answer. `/open` answers only once the
 /// window has opened the document or given up (`EDIT_ROUNDTRIP_TIMEOUT`, 4 s,
 /// in src-tauri/src/ipc.rs), so this must outlast that: hanging up first
-/// reports a slow open as an unreachable app and retries it through the URL
-/// scheme, opening the file a second time.
+/// reports an open that was about to succeed as a failure. Running out of it
+/// is reported as [`Failure::Failed`], never retried through the URL scheme
+/// (which would open the file a second time).
 const IO_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// The user's home directory, as the app (via `dirs::home_dir`) sees it.
@@ -29,7 +30,8 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// Ask the running app to open `abs_path`. `Err` says why it could not: the
 /// app is not running or the token was refused (the caller then falls back to
-/// the URL scheme), or the app refused the file.
+/// the URL scheme), the app refused the file, or the app was reached but
+/// failed or did not answer in time.
 pub fn open(home: &Path, abs_path: &str, mode: Option<&str>) -> Result<(), Failure> {
     send_open(home, abs_path, mode).map_err(Failure::Unreachable)?
 }
@@ -43,6 +45,10 @@ pub enum Failure {
     /// The running app refused the request, with its reason. The URL scheme
     /// would reach the same app, so there is nothing to fall back to.
     Refused(String),
+    /// The app was reached but answered with a server error, or did not
+    /// answer within [`IO_TIMEOUT`]. It may still open the file, so retrying
+    /// through the URL scheme could report a false success or open it twice.
+    Failed(String),
 }
 
 /// POST `/open`. The outer `Err` is an unreachable app; the inner result is
@@ -77,21 +83,40 @@ fn send_open(
         .map_err(|e| format!("Ashlr MD is not reachable at {addr}: {e}"))?;
     stream.set_read_timeout(Some(IO_TIMEOUT)).ok();
     stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("IPC write error: {e}"))?;
+    // From here on the app has (or may have) the request: a failure is
+    // reported, never retried through the URL scheme.
+    if let Err(e) = stream.write_all(request.as_bytes()) {
+        return Ok(Err(Failure::Failed(format!(
+            "the connection to Ashlr MD at {addr} failed while sending the request: {e}"
+        ))));
+    }
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|e| format!("IPC read error: {e}"))?;
+    if let Err(e) = stream.read_to_end(&mut raw) {
+        let why = if matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
+            format!(
+                "Ashlr MD did not answer within {} s; it may still open the file",
+                IO_TIMEOUT.as_secs()
+            )
+        } else {
+            format!("the connection to Ashlr MD failed while waiting for its answer: {e}")
+        };
+        return Ok(Err(Failure::Failed(why)));
+    }
 
     let text = String::from_utf8_lossy(&raw);
-    let status = text
+    let Some(status) = text
         .lines()
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u16>().ok())
-        .ok_or_else(|| "IPC server sent no HTTP status".to_string())?;
+    else {
+        return Ok(Err(Failure::Failed(
+            "Ashlr MD's IPC server sent no HTTP status".to_string(),
+        )));
+    };
     let reply = || {
         text.split_once("\r\n\r\n")
             .and_then(|(_, body)| serde_json::from_str::<serde_json::Value>(body).ok())
@@ -116,7 +141,15 @@ fn send_open(
                 .unwrap_or_else(|| format!("Ashlr MD refused the file (HTTP {code})"));
             Ok(Err(Failure::Refused(reason)))
         }
-        code => Err(format!("IPC server returned HTTP {code}")),
+        code => {
+            let reason = reply()
+                .and_then(|v| v["error"].as_str().map(str::to_string))
+                .map(|e| format!(": {e}"))
+                .unwrap_or_default();
+            Ok(Err(Failure::Failed(format!(
+                "Ashlr MD failed to handle the open (HTTP {code}){reason}"
+            ))))
+        }
     }
 }
 
@@ -288,6 +321,68 @@ mod tests {
             Failure::Refused(
                 "Could not read /a.md: stream did not contain valid UTF-8".to_string()
             )
+        );
+    }
+
+    #[test]
+    fn a_server_error_is_a_failure_not_an_unreachable_app() {
+        // The app is up: a 5xx must not send the caller to the URL scheme,
+        // which would reach the same app and could open the file twice.
+        let s = Scratch::new("server-error");
+        let (port, app) =
+            fake_app_with("500 Internal Server Error", r#"{"error":"lock poisoned"}"#);
+        s.write("ipc-port", &port.to_string());
+        s.write("ipc-token", "tok");
+        let err = open(&s.0, "/a.md", None).unwrap_err();
+        app.join().unwrap();
+        assert_eq!(
+            err,
+            Failure::Failed("Ashlr MD failed to handle the open (HTTP 500): lock poisoned".into())
+        );
+
+        let (port, app) = fake_app_with("503 Service Unavailable", "");
+        s.write("ipc-port", &port.to_string());
+        let err = open(&s.0, "/a.md", None).unwrap_err();
+        app.join().unwrap();
+        assert_eq!(
+            err,
+            Failure::Failed("Ashlr MD failed to handle the open (HTTP 503)".into())
+        );
+    }
+
+    #[test]
+    fn no_answer_in_time_is_a_failure_naming_the_timeout() {
+        let s = Scratch::new("timeout");
+        let (port, app) = fake_app_after(
+            "200 OK",
+            r#"{"ok":true}"#,
+            IO_TIMEOUT + Duration::from_millis(500),
+        );
+        s.write("ipc-port", &port.to_string());
+        s.write("ipc-token", "tok");
+        let err = open(&s.0, "/a.md", None).unwrap_err();
+        app.join().unwrap();
+        assert!(
+            matches!(&err, Failure::Failed(m) if m.contains("did not answer within 6 s")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn a_refused_connection_is_unreachable() {
+        let s = Scratch::new("refused-conn");
+        // Bind then drop, so nothing listens on the port.
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        s.write("ipc-port", &port.to_string());
+        s.write("ipc-token", "tok");
+        let err = open(&s.0, "/a.md", None).unwrap_err();
+        assert!(
+            matches!(&err, Failure::Unreachable(m) if m.contains("not reachable")),
+            "{err:?}"
         );
     }
 

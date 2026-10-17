@@ -13,7 +13,7 @@
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10)               | Recent-file list                   |
-//! | POST   | /export    | `{"format":"pdf|docx|html","outputPath":"…|null"}` | Trigger export |
+//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null"}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir) |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
@@ -25,7 +25,8 @@
 //! Content is kept in [`DocMirror`], a managed Tauri state struct that the
 //! frontend syncs via `mcp_sync_state` on every document change (debounced
 //! 200 ms). Mutations emit a Tauri event the frontend picks up and applies;
-//! `/content`, `/open` and `/present` wait for the window's outcome like `/edit`.
+//! `/content`, `/open`, `/present` and `/export` with an `outputPath` wait for
+//! the window's outcome like `/edit`.
 //!
 //! `/edit` is special: because the 200 ms debounce makes [`DocMirror`] stale
 //! right after the user types, applying a find/replace against it could miss
@@ -37,7 +38,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 // ── Session persistence types ──────────────────────────────────────────────────
@@ -65,6 +66,21 @@ pub struct SessionStore(pub Mutex<HashMap<String, Vec<SessionMessage>>>);
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tiny_http::{Method, Request, Response, Server};
+
+/// Lock a mutex, recovering it if a thread panicked while holding it. Every
+/// value behind these locks (mirrors of the window's state, maps of pending
+/// round-trips and reviews) is valid after any single insert or remove, so
+/// one panicked request must not turn every later request touching the same
+/// state into a panic too (a dropped connection, with no reason given).
+trait LockRecover<T> {
+    fn lock_recover(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> LockRecover<T> for Mutex<T> {
+    fn lock_recover(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 // ── Managed state ─────────────────────────────────────────────────────────────
 
@@ -95,7 +111,8 @@ pub struct RecentMirror(pub Mutex<Vec<RecentFileEntry>>);
 /// MCP tool). Keyed by reviewId in [`ReviewState`].
 #[derive(Clone, Serialize)]
 pub struct ReviewRecord {
-    /// "pending" | "approved" | "changes_requested" | "dismissed".
+    /// "pending" | "approved" | "changes_requested" | "dismissed" |
+    /// "timeout" | "superseded" (a newer review took the panel first).
     pub status: String,
     pub verdict: Option<String>,
     pub comments: Option<String>,
@@ -103,7 +120,39 @@ pub struct ReviewRecord {
     pub created_at: u64,
     /// The review panel's window: the human has this long to decide.
     pub timeout_ms: u64,
+    /// The human's verdict was recorded after the window closed, when an
+    /// agent may already have been told `timeout`.
+    pub late: bool,
+    /// The panel was told to show this review (`mcp://review` delivered).
+    pub shown: bool,
+    /// The review that replaced this one in the panel, when `superseded`.
+    pub superseded_by: Option<String>,
 }
+
+/// Mark `superseded` every open review the panel was showing other than
+/// `newest`, which the panel shows from now on, and mark `newest` shown. The
+/// panel holds one review at a time, so a displaced review can never get a
+/// verdict; resolving it now tells its agent at once instead of after its
+/// window. A review still opening its file (not yet shown) is left alone:
+/// when it is shown it supersedes `newest` in turn.
+fn supersede_shown(map: &mut HashMap<String, ReviewRecord>, newest: &str, now: u64) {
+    for (id, r) in map.iter_mut() {
+        let open = r.status == "pending" && now < r.created_at.saturating_add(r.timeout_ms);
+        if id != newest && r.shown && open {
+            r.status = "superseded".into();
+            r.verdict = Some("superseded".into());
+            r.superseded_by = Some(newest.to_string());
+        }
+    }
+    if let Some(r) = map.get_mut(newest) {
+        r.shown = true;
+    }
+}
+
+/// Held while `/review` tells the panel to show a review and records which
+/// review that displaced, so two reviews shown at once cannot each mark the
+/// other superseded.
+static REVIEW_PANEL: Mutex<()> = Mutex::new(());
 
 /// How long a review is kept after its window closes, so an agent that got
 /// `pending` back can still resume it by `review_id` and read the verdict.
@@ -260,8 +309,8 @@ pub fn mcp_sync_state(
     mirror: tauri::State<DocMirror>,
     recent_mirror: tauri::State<RecentMirror>,
 ) {
-    *mirror.0.lock().unwrap() = DocMirrorInner { path, content };
-    *recent_mirror.0.lock().unwrap() = recents;
+    *mirror.0.lock_recover() = DocMirrorInner { path, content };
+    *recent_mirror.0.lock_recover() = recents;
 }
 
 /// The verdicts the review panel may record. `timeout` is the panel's own
@@ -281,16 +330,35 @@ pub fn set_review_verdict(
     if !REVIEW_VERDICTS.contains(&verdict.as_str()) {
         return Err(format!("Invalid verdict: {verdict}"));
     }
-    let mut map = state.0.lock().unwrap();
+    let mut map = state.0.lock_recover();
     match map.get_mut(&review_id) {
         None => Err(format!("Review {review_id} not found")),
         Some(r) => {
-            r.status = verdict.clone();
-            r.verdict = Some(verdict);
-            r.comments = comments;
+            record_verdict(r, verdict, comments, now_ms());
             Ok(())
         }
     }
+}
+
+/// Record `verdict` on `r` at `now`. A `timeout` never replaces a decision
+/// already recorded. A decision made once the window has closed (or after
+/// `timeout` was recorded) is kept, since it is what the human decided, but
+/// marked `late`: an agent may already have been told `timeout`, and on
+/// re-reading must see why the outcome changed.
+fn record_verdict(r: &mut ReviewRecord, verdict: String, comments: Option<String>, now: u64) {
+    if verdict == "timeout" {
+        if r.status == "pending" {
+            r.status = verdict.clone();
+            r.verdict = Some(verdict);
+            r.comments = comments;
+        }
+        return;
+    }
+    r.late = matches!(r.status.as_str(), "timeout" | "superseded")
+        || now >= r.created_at.saturating_add(r.timeout_ms);
+    r.status = verdict.clone();
+    r.verdict = Some(verdict);
+    r.comments = comments;
 }
 
 /// Called by the frontend (debounced) when the watched folder or its file list
@@ -302,7 +370,7 @@ pub fn mcp_sync_vault(
     files: Vec<VaultFileEntry>,
     vault: tauri::State<VaultMirror>,
 ) {
-    *vault.0.lock().unwrap() = VaultInner { watched_dir, files };
+    *vault.0.lock_recover() = VaultInner { watched_dir, files };
 }
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
@@ -319,7 +387,7 @@ pub fn mcp_edit_result(
     error: Option<String>,
     pending: tauri::State<PendingEdits>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         // The receiver may already be gone if handle_edit timed out; ignore.
         let _ = tx.send(EditOutcome { ok, replaced, error });
@@ -341,7 +409,7 @@ pub fn mcp_stream_edit_preview(
     error: Option<String>,
     pending: tauri::State<PendingStreamEdits>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         let _ = tx.send(StreamEditPreviewOutcome { ok, diff, candidates, match_count, error });
     }
@@ -358,7 +426,7 @@ pub fn mcp_stream_edit_apply_result(
     error: Option<String>,
     pending: tauri::State<PendingStreamEditsApply>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error });
     }
@@ -759,7 +827,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
             (Method::Get, "/content") => {
                 let mirror = app.state::<DocMirror>();
-                let inner = mirror.0.lock().unwrap().clone();
+                let inner = mirror.0.lock_recover().clone();
                 send_json(req, serde_json::json!({
                     "path": inner.path,
                     "content": inner.content,
@@ -771,14 +839,14 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
             (Method::Post, "/open") => handle_open(req, app),
 
             (Method::Get, "/recent") => {
-                let limit: usize = query
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("limit=").and_then(|v| v.parse().ok()))
-                    .unwrap_or(10);
+                let limit = match limit_param(query, 10) {
+                    Ok(l) => l,
+                    Err(e) => return send_error(req, 400, &e),
+                };
 
                 let mirror = app.state::<RecentMirror>();
                 let recents: Vec<_> =
-                    mirror.0.lock().unwrap().iter().take(limit).cloned().collect();
+                    mirror.0.lock_recover().iter().take(limit).cloned().collect();
                 send_json(req, serde_json::json!(recents));
             }
 
@@ -862,25 +930,36 @@ fn window_round_trip(
     app: &AppHandle,
     prefix: &str,
     event: &str,
+    payload: serde_json::Value,
+) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
+    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT)
+}
+
+/// [`window_round_trip`] waiting up to `timeout` for the window's answer.
+fn window_round_trip_within(
+    app: &AppHandle,
+    prefix: &str,
+    event: &str,
     mut payload: serde_json::Value,
+    timeout: Duration,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
     let _inflight = InflightEdit::acquire()?;
     let edit_id = format!("{prefix}_{}", EDIT_SEQ.fetch_add(1, Ordering::Relaxed));
     payload["editId"] = serde_json::Value::String(edit_id.clone());
     let (tx, rx) = mpsc::channel::<EditOutcome>();
     let pending = app.state::<PendingEdits>();
-    pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+    pending.0.lock_recover().insert(edit_id.clone(), tx);
     if let Err(e) = app.emit(event, payload) {
-        pending.0.lock().unwrap().remove(&edit_id);
+        pending.0.lock_recover().remove(&edit_id);
         return Some(Ok(EditOutcome {
             ok: false,
             replaced: 0,
-            error: Some(format!("The app could not reach its window: {e}")),
+            error: Some(window_unreachable_msg(&e)),
         }));
     }
-    let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
+    let outcome = rx.recv_timeout(timeout);
     if outcome.is_err() {
-        pending.0.lock().unwrap().remove(&edit_id);
+        pending.0.lock_recover().remove(&edit_id);
     }
     Some(outcome)
 }
@@ -911,6 +990,9 @@ fn handle_open(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
+            if let Some(e) = open_mode_refusal(b.mode.as_deref()) {
+                return send_error(req, 400, &e);
+            }
             let abs = match checked_agent_path(&b.path) {
                 Ok(abs) => abs,
                 Err(e) => return send_error(req, 400, &e),
@@ -924,6 +1006,18 @@ fn handle_open(mut req: Request, app: &AppHandle) {
             send_json(req, reply);
         }
         Err((code, e)) => send_error(req, code, &e),
+    }
+}
+
+/// Why `/open` refuses `mode`, if it does. The window switches only to
+/// `read` or `edit` and ignores anything else, so a misspelt mode would be
+/// answered `ok` with the document left in whatever view it was.
+fn open_mode_refusal(mode: Option<&str>) -> Option<String> {
+    match mode {
+        None | Some("read" | "edit") => None,
+        Some(other) => Some(format!(
+            "Unknown mode '{other}': use \"read\" or \"edit\", or omit it to keep the current view."
+        )),
     }
 }
 
@@ -964,18 +1058,87 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
-            let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+            let open = app.state::<DocMirror>().0.lock_recover().path.clone();
             if let Some(e) = export_refusal(&b.format, open.as_deref()) {
                 return send_error(req, 400, &e);
             }
-            let _ = app.emit("mcp://export", serde_json::json!({
+            // The window writes `outputPath` without asking, so the app holds
+            // it to the same rule the MCP tool does, whoever is calling.
+            let checked = b
+                .output_path
+                .as_deref()
+                .map(|p| app_export_path(p, &b.format));
+            let output_path = match checked.transpose() {
+                Ok(p) => p.map(|p| p.to_string_lossy().into_owned()),
+                Err(e) => return send_error(req, 400, &e),
+            };
+            let payload = serde_json::json!({
                 "format": b.format,
-                "outputPath": b.output_path,
-            }));
-            send_json(req, serde_json::json!({"ok": true}));
+                "outputPath": output_path,
+            });
+            // A headless export waits for the window to report it written
+            // (or why not) through `mcp_edit_result`; one for the dialog
+            // returns once the window is told.
+            let reply = match output_path {
+                Some(out) => match window_round_trip_within(
+                    app,
+                    "export",
+                    "mcp://export",
+                    payload,
+                    EXPORT_ROUNDTRIP_TIMEOUT,
+                ) {
+                    Some(outcome) => export_reply(outcome, &out),
+                    None => window_busy("export", &out),
+                },
+                None => emitted_reply(
+                    app.emit("mcp://export", payload),
+                    serde_json::json!({"ok": true}),
+                ),
+            };
+            send_json(req, reply);
         }
         Err((code, e)) => send_error(req, code, &e),
     }
+}
+
+/// How long a headless `/export` waits for the window to write the file.
+/// mdopener-mcp reads this reply with a longer timeout than its usual 5 s
+/// (`EXPORT_WRITE_DEADLINE` plus a margin), so the reason reaches the agent.
+const EXPORT_ROUNDTRIP_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The headless `/export` reply for what the window reported (or did not
+/// report) after it was asked to write `path`.
+fn export_reply(
+    outcome: Result<EditOutcome, mpsc::RecvTimeoutError>,
+    path: &str,
+) -> serde_json::Value {
+    match outcome {
+        Ok(o) if o.ok => serde_json::json!({ "ok": true, "path": path }),
+        Ok(o) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": o
+                .error
+                .unwrap_or_else(|| format!("The app could not export {path}.")),
+        }),
+        Err(_) => serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": format!(
+                "The app did not finish exporting {path} within {}s; it may still write it. \
+                 Headless export renders the Read view: check the app for an error message.",
+                EXPORT_ROUNDTRIP_TIMEOUT.as_secs()
+            ),
+        }),
+    }
+}
+
+/// `/export`'s `outputPath`, checked by the rule the `export` MCP tool applies
+/// ([`crate::export_path`]): an absolute path (the app's working directory is
+/// unrelated to the caller's) to a file with the format's extension, not a
+/// dotfile, in an existing directory.
+fn app_export_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
+    crate::export_path::checked_export_path(std::path::Path::new(raw), format, "outputPath")
 }
 
 /// Why `/export` cannot run, if it cannot. The window exports only the open
@@ -1010,7 +1173,10 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     if body.review_id.is_empty() {
         return send_error(req, 400, "reviewId is required");
     }
-    let timeout_ms = body.timeout_ms.unwrap_or(300_000).clamp(5_000, 600_000);
+    let timeout_ms = match review_timeout(body.timeout_ms) {
+        Ok(t) => t,
+        Err(e) => return send_error(req, 400, &e),
+    };
     let abs_path = match body.path.as_deref().map(checked_agent_path).transpose() {
         Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
@@ -1018,7 +1184,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
 
     {
         let state = app.state::<ReviewState>();
-        let mut map = state.0.lock().unwrap();
+        let mut map = state.0.lock_recover();
         if map.contains_key(&body.review_id) {
             return send_error(req, 409, "reviewId already exists");
         }
@@ -1033,6 +1199,9 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
                 path: abs_path.clone(),
                 created_at: now,
                 timeout_ms,
+                late: false,
+                shown: false,
+                superseded_by: None,
             },
         );
     }
@@ -1045,12 +1214,16 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         let outcome = window_round_trip(app, "review_open", "mcp://open", payload);
         if let Some(refusal) = review_open_refusal(outcome, p) {
             let state = app.state::<ReviewState>();
-            state.0.lock().unwrap().remove(&body.review_id);
+            state.0.lock_recover().remove(&body.review_id);
             return send_json(req, refusal);
         }
     }
     // Tell the frontend a review is pending so it shows the review panel.
-    let _ = app.emit(
+    // When the window cannot be told, no panel will ever show, so the review
+    // is dropped and refused rather than left for the agent to wait on. Once
+    // it is told, the review the panel showed before is superseded.
+    let _panel = REVIEW_PANEL.lock_recover();
+    let emitted = app.emit(
         "mcp://review",
         serde_json::json!({
             "reviewId": body.review_id,
@@ -1059,7 +1232,41 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
             "timeoutMs": timeout_ms,
         }),
     );
-    send_json(req, serde_json::json!({ "ok": true, "reviewId": body.review_id }));
+    let reply = emitted_reply(
+        emitted,
+        serde_json::json!({ "ok": true, "reviewId": body.review_id }),
+    );
+    {
+        let state = app.state::<ReviewState>();
+        let mut map = state.0.lock_recover();
+        if reply["ok"] == true {
+            supersede_shown(&mut map, &body.review_id, now_ms());
+        } else {
+            map.remove(&body.review_id);
+        }
+    }
+    drop(_panel);
+    send_json(req, reply);
+}
+
+/// The review window when `timeoutMs` is not given: 5 minutes.
+const REVIEW_DEFAULT_TIMEOUT_MS: u64 = 300_000;
+/// The shortest and longest review windows accepted (mirrored by the
+/// `request_review` MCP tool, which refuses the same values).
+const REVIEW_MIN_TIMEOUT_MS: u64 = 5_000;
+const REVIEW_MAX_TIMEOUT_MS: u64 = 600_000;
+
+/// The review window for a `/review` request's `timeoutMs`. A value outside
+/// the accepted range is refused rather than clamped, so the caller never
+/// waits on a window it did not ask for.
+fn review_timeout(requested: Option<u64>) -> Result<u64, String> {
+    match requested {
+        None => Ok(REVIEW_DEFAULT_TIMEOUT_MS),
+        Some(t) if (REVIEW_MIN_TIMEOUT_MS..=REVIEW_MAX_TIMEOUT_MS).contains(&t) => Ok(t),
+        Some(t) => Err(format!(
+            "timeoutMs must be between {REVIEW_MIN_TIMEOUT_MS} and {REVIEW_MAX_TIMEOUT_MS} ms, got {t}."
+        )),
+    }
 }
 
 /// The `/review` reply when the window did not open the document under
@@ -1077,19 +1284,37 @@ fn review_open_refusal(
 }
 
 /// The percent-decoded value of `key` in a query string, or `None` when it is
-/// absent or does not decode to UTF-8.
-fn query_param(query: &str, key: &str) -> Option<String> {
+/// absent. A value that does not decode to UTF-8 is an error (a 400), not
+/// read as absent or empty: `/search` used to answer it with no results.
+fn query_param(query: &str, key: &str) -> Result<Option<String>, String> {
     query
         .split('&')
         .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
-        .and_then(|v| urlencoding::decode(v).ok())
-        .map(|v| v.into_owned())
+        .map(|v| {
+            urlencoding::decode(v)
+                .map(|v| v.into_owned())
+                .map_err(|_| format!("the {key} query param is not percent-encoded UTF-8: '{v}'"))
+        })
+        .transpose()
+}
+
+/// The `limit` query param, or `default` when it is absent. A value that is
+/// not a whole number is refused rather than read as the default, so a
+/// caller's `limit=ten` does not quietly get a different count.
+fn limit_param(query: &str, default: usize) -> Result<usize, String> {
+    match query_param(query, "limit")? {
+        None => Ok(default),
+        Some(v) => v.parse().map_err(|_| {
+            format!(
+                "limit must be a whole number, got '{v}'; omit it for the default of {default}."
+            )
+        }),
+    }
 }
 
 /// The status `/review/result` reports: the recorded one, except that a review
-/// still pending once its window has closed is `timeout`. The panel only
-/// expires the review it is showing, so one a newer review displaced would
-/// otherwise stay `pending` and a resuming agent would wait on it forever.
+/// still pending once its window has closed is `timeout`, so a review whose
+/// panel never reported back (the window closed or reloaded) still ends.
 fn review_status(r: &ReviewRecord, now: u64) -> &str {
     if r.status == "pending" && now >= r.created_at.saturating_add(r.timeout_ms) {
         "timeout"
@@ -1099,7 +1324,10 @@ fn review_status(r: &ReviewRecord, now: u64) -> &str {
 }
 
 fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
-    let id = query_param(query, "id").unwrap_or_default();
+    let id = match query_param(query, "id") {
+        Ok(id) => id.unwrap_or_default(),
+        Err(e) => return send_error(req, 400, &e),
+    };
     let id = id.as_str();
     if id.is_empty() {
         return send_error(req, 400, "id query param required");
@@ -1109,22 +1337,26 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     // and every other ReviewState reader against a slow client).
     let record = {
         let state = app.state::<ReviewState>();
-        let map = state.0.lock().unwrap();
+        let map = state.0.lock_recover();
         let now = now_ms();
         map.get(id).map(|r| {
             (
                 review_status(r, now).to_string(),
                 r.verdict.clone(),
                 r.comments.clone(),
+                r.late,
+                r.superseded_by.clone(),
             )
         })
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
-        Some((status, verdict, comments)) => send_json(req, serde_json::json!({
+        Some((status, verdict, comments, late, superseded_by)) => send_json(req, serde_json::json!({
             "status": status,
             "verdict": verdict,
             "comments": comments,
+            "late": late,
+            "supersededBy": superseded_by,
         })),
     }
 }
@@ -1192,16 +1424,27 @@ fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The `path` `/annotations` reports on. Without one there is no file to
+/// read tasks from or match reviews against, and the reply used to be an
+/// empty result for the path "", which reads as "no tasks, no verdict".
+fn annotations_path(query: &str) -> Result<String, String> {
+    query_param(query, "path")?
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| {
+            "path query param required: /annotations?path=<percent-encoded path of the document>"
+                .to_string()
+        })
+}
+
 fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
-    let raw_path = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("path="))
-        .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
-        .unwrap_or_default();
+    let raw_path = match annotations_path(query) {
+        Ok(p) => p,
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     let (open_path, open_content) = {
         let mirror = app.state::<DocMirror>();
-        let inner = mirror.0.lock().unwrap();
+        let inner = mirror.0.lock_recover();
         (inner.path.clone(), inner.content.clone())
     };
     let tasks = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
@@ -1209,20 +1452,21 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
     // Resolve the latest matching verdict/comments, then drop the lock before
     // the blocking send_json response. Reviews store the canonical path, so a
     // relative or symlinked `path` still finds them.
-    let (verdict, comments) = {
+    let (verdict, comments, late) = {
         let review_state = app.state::<ReviewState>();
-        let map = review_state.0.lock().unwrap();
+        let map = review_state.0.lock_recover();
         map.values()
             .filter(|r| r.path.as_deref().is_some_and(|p| same_path(p, &raw_path)))
             .max_by_key(|r| r.created_at)
-            .map(|r| (r.verdict.clone(), r.comments.clone()))
-            .unwrap_or((None, None))
+            .map(|r| (r.verdict.clone(), r.comments.clone(), r.late))
+            .unwrap_or((None, None, false))
     };
 
     send_json(req, serde_json::json!({
         "path": raw_path,
         "verdict": verdict,
         "comments": comments,
+        "late": late,
         "tasks": tasks,
     }));
 }
@@ -1232,12 +1476,11 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
 /// GET /vault — enumerate the user's notes: the watched folder's files (mirrored
 /// from the frontend) unioned with recent-file paths.
 fn handle_vault(req: Request, app: &AppHandle) {
-    let vault = app.state::<VaultMirror>().0.lock().unwrap().clone();
+    let vault = app.state::<VaultMirror>().0.lock_recover().clone();
     let recents: Vec<String> = app
         .state::<RecentMirror>()
         .0
-        .lock()
-        .unwrap()
+        .lock_recover()
         .iter()
         .map(|r| r.path.clone())
         .collect();
@@ -1250,16 +1493,14 @@ fn handle_vault(req: Request, app: &AppHandle) {
 
 /// GET /search?q=…&limit=N — full-text search across the vault + recents.
 fn handle_search(req: Request, query: &str, app: &AppHandle) {
-    let q = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("q="))
-        .map(|v| urlencoding::decode(v).map(|c| c.into_owned()).unwrap_or_default())
-        .unwrap_or_default();
-    let limit: usize = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("limit=").and_then(|v| v.parse::<usize>().ok()))
-        .unwrap_or(50)
-        .clamp(1, 200);
+    let q = match query_param(query, "q") {
+        Ok(q) => q.unwrap_or_default(),
+        Err(e) => return send_error(req, 400, &e),
+    };
+    let limit = match limit_param(query, 50) {
+        Ok(l) => l.clamp(1, 200),
+        Err(e) => return send_error(req, 400, &e),
+    };
 
     if q.trim().is_empty() {
         return send_json(req, serde_json::json!({ "query": q, "results": [] }));
@@ -1270,7 +1511,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     let mut seen = std::collections::HashSet::new();
     {
         let vault_state = app.state::<VaultMirror>();
-        let vault = vault_state.0.lock().unwrap();
+        let vault = vault_state.0.lock_recover();
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1279,7 +1520,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
     {
         let recent_state = app.state::<RecentMirror>();
-        let recents = recent_state.0.lock().unwrap();
+        let recents = recent_state.0.lock_recover();
         for r in recents.iter() {
             if seen.insert(r.path.clone()) {
                 paths.push(r.path.clone());
@@ -1371,8 +1612,7 @@ fn open_document_named(app: &AppHandle, want: &str) -> Option<String> {
     let have_raw = app
         .state::<DocMirror>()
         .0
-        .lock()
-        .unwrap()
+        .lock_recover()
         .path
         .clone()
         .unwrap_or_default();
@@ -1391,6 +1631,30 @@ fn editor_busy() -> serde_json::Value {
         "ok": false,
         "error": "The editor is busy applying another edit — retry in a moment.",
     })
+}
+
+/// Why a request did not reach the window: the app's event could not be
+/// delivered, so nothing will act on it or report back.
+fn window_unreachable_msg(e: &dyn std::fmt::Display) -> String {
+    format!("The app could not reach its window: {e}")
+}
+
+/// The `{ "ok": false }` reply for an event that could not be delivered, or
+/// `None` once it was. The window never hears of an undelivered request, so
+/// answering `ok` (or waiting out the round-trip timeout and guessing why)
+/// would tell the agent something that is not happening.
+fn emit_failure<E: std::fmt::Display>(emitted: Result<(), E>) -> Option<serde_json::Value> {
+    emitted
+        .err()
+        .map(|e| serde_json::json!({ "ok": false, "error": window_unreachable_msg(&e) }))
+}
+
+/// `ok` when the event was delivered, else the [`emit_failure`] reply.
+fn emitted_reply<E: std::fmt::Display>(
+    emitted: Result<(), E>,
+    ok: serde_json::Value,
+) -> serde_json::Value {
+    emit_failure(emitted).unwrap_or(ok)
 }
 
 /// The `/open`, `/present` or `/review` reply when [`MAX_INFLIGHT_EDITS`]
@@ -1472,14 +1736,23 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<EditOutcome>();
     {
         let pending = app.state::<PendingEdits>();
-        pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+        pending.0.lock_recover().insert(edit_id.clone(), tx);
     }
-    let _ = app.emit("mcp://edit", serde_json::json!({
+    let emitted = app.emit("mcp://edit", serde_json::json!({
         "editId": edit_id,
         "find": body.find,
         "replace": body.replace,
         "save": body.save,
     }));
+    // Nothing will report back when the window was never told: say so now
+    // instead of timing out with a guess.
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingEdits>()
+            .0
+            .lock_recover()
+            .remove(&edit_id);
+        return send_json(req, reply);
+    }
 
     // Park until the frontend reports back, or give up after the timeout. On
     // timeout (or a closed channel) drop the pending entry so a late reply is a
@@ -1495,7 +1768,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingEdits>().0.lock().unwrap().remove(&edit_id);
+            app.state::<PendingEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for the app to apply the edit — is a document open and the window responsive?",
@@ -1552,10 +1825,10 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<StreamEditPreviewOutcome>();
     {
         let pending = app.state::<PendingStreamEdits>();
-        pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+        pending.0.lock_recover().insert(edit_id.clone(), tx);
     }
 
-    let _ = app.emit(
+    let emitted = app.emit(
         "mcp://stream-edit",
         serde_json::json!({
             "editId": edit_id,
@@ -1566,6 +1839,13 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             "path": path,
         }),
     );
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingStreamEdits>()
+            .0
+            .lock_recover()
+            .remove(&edit_id);
+        return send_json(req, reply);
+    }
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1582,7 +1862,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingStreamEdits>().0.lock().unwrap().remove(&edit_id);
+            app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for stream-edit preview — is a document open?",
@@ -1634,10 +1914,10 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<StreamEditApplyOutcome>();
     {
         let pending = app.state::<PendingStreamEditsApply>();
-        pending.0.lock().unwrap().insert(apply_id.clone(), tx);
+        pending.0.lock_recover().insert(apply_id.clone(), tx);
     }
 
-    let _ = app.emit(
+    let emitted = app.emit(
         "mcp://stream-edit-apply",
         serde_json::json!({
             "editId": apply_id,
@@ -1649,6 +1929,13 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             "originalEditId": body.edit_id,
         }),
     );
+    if let Some(reply) = emit_failure(emitted) {
+        app.state::<PendingStreamEditsApply>()
+            .0
+            .lock_recover()
+            .remove(&apply_id);
+        return send_json(req, reply);
+    }
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
@@ -1663,7 +1950,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingStreamEditsApply>().0.lock().unwrap().remove(&apply_id);
+            app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for stream-edit-apply — is a document open?",
@@ -1684,7 +1971,7 @@ fn handle_present(mut req: Request, app: &AppHandle) {
         Ok(b) => b,
         Err((code, e)) => return send_error(req, code, &e),
     };
-    let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+    let open = app.state::<DocMirror>().0.lock_recover().path.clone();
     let path = match present_target(body.path.as_deref(), open.as_deref()) {
         Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
@@ -1762,10 +2049,69 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_tasks, apply_unique_edit, parse_tasks, same_path, InflightEdit, INFLIGHT_EDITS,
-        MAX_INFLIGHT_EDITS,
+        annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
+        same_path, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_poisoned_lock_is_recovered_not_a_panic() {
+        use super::LockRecover;
+        use std::sync::{Arc, Mutex};
+        let m = Arc::new(Mutex::new(vec![1]));
+        let m2 = Arc::clone(&m);
+        let _ = std::thread::spawn(move || {
+            let mut g = m2.lock().unwrap();
+            g.push(2);
+            panic!("a request handler panicked holding the lock");
+        })
+        .join();
+        assert!(m.is_poisoned());
+        // The state is still usable, and later requests see it.
+        m.lock_recover().push(3);
+        assert_eq!(*m.lock_recover(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn export_output_path_is_checked_by_the_app_too() {
+        let dir = std::env::temp_dir().join(format!("mdopener-ipc-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub.html")).unwrap();
+        let p = |rel: &str| dir.join(rel).to_string_lossy().into_owned();
+
+        let ok = app_export_path(&p("out.HTML"), "html").unwrap();
+        assert_eq!(ok, std::fs::canonicalize(&dir).unwrap().join("out.HTML"));
+        assert!(app_export_path(&p("book.epub"), "epub").is_ok());
+
+        let cases = [
+            (p("out.pdf"), "pdf", "not supported for pdf"),
+            (p(".bashrc"), "html", "must name a html file"),
+            (p(".x.html"), "html", "not a dotfile"),
+            (p("notes.md"), "html", "must name a html file"),
+            (p("out.html"), "docx", "must name a docx file"),
+            (p("missing/out.html"), "html", "directory does not exist"),
+            (p("sub.html"), "html", "is a directory"),
+            ("out.html".to_string(), "html", "must be an absolute path"),
+        ];
+        for (raw, format, want) in cases {
+            let err = app_export_path(&raw, format).unwrap_err();
+            assert!(err.contains(want), "{format} {raw}: {err}");
+            assert!(err.contains("`outputPath`"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn review_timeout_outside_the_range_is_refused_not_clamped() {
+        assert_eq!(review_timeout(None), Ok(300_000));
+        assert_eq!(review_timeout(Some(5_000)), Ok(5_000));
+        assert_eq!(review_timeout(Some(600_000)), Ok(600_000));
+        for bad in [0, 4_999, 600_001, u64::MAX] {
+            let err = review_timeout(Some(bad)).unwrap_err();
+            assert!(err.contains("between 5000 and 600000 ms"), "{bad}: {err}");
+            assert!(err.contains(&bad.to_string()), "{err}");
+        }
+    }
 
     #[test]
     fn inflight_edit_guard_caps_concurrency() {
@@ -1959,6 +2305,35 @@ mod tests {
 
     use super::export_refusal;
 
+    /// A headless export reports what the window did, so a failed write
+    /// reaches the agent with its reason instead of only a toast.
+    #[test]
+    fn a_headless_export_reports_what_the_window_did() {
+        use super::{export_reply, EditOutcome};
+        use std::sync::mpsc::RecvTimeoutError;
+        let done = EditOutcome {
+            ok: true,
+            replaced: 1,
+            error: None,
+        };
+        assert_eq!(
+            export_reply(Ok(done), "/out/a.html"),
+            serde_json::json!({ "ok": true, "path": "/out/a.html" })
+        );
+        let failed = EditOutcome {
+            ok: false,
+            replaced: 0,
+            error: Some("Switch to Read view to export.".into()),
+        };
+        let v = export_reply(Ok(failed), "/out/a.html");
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "Switch to Read view to export.");
+        let v = export_reply(Err(RecvTimeoutError::Timeout), "/out/a.html");
+        assert_eq!(v["ok"], false);
+        let e = v["error"].as_str().unwrap();
+        assert!(e.contains("within 30s") && e.contains("/out/a.html"), "{e}");
+    }
+
     #[test]
     fn export_needs_an_open_document_and_a_known_format() {
         assert_eq!(export_refusal("html", Some("/notes/a.md")), None);
@@ -2138,6 +2513,64 @@ mod tests {
     /// At the in-flight cap, `/open` and `/present` say what they did not
     /// do, rather than that the editor is busy applying an edit.
     #[test]
+    fn a_limit_that_is_not_a_number_is_refused() {
+        use super::limit_param;
+        assert_eq!(limit_param("", 10), Ok(10));
+        assert_eq!(limit_param("q=x", 50), Ok(50));
+        assert_eq!(limit_param("q=x&limit=7", 50), Ok(7));
+        for bad in ["limit=ten", "limit=", "limit=-1", "limit=2.5"] {
+            let err = limit_param(bad, 10).unwrap_err();
+            assert!(err.contains("limit must be a whole number"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn annotations_need_a_path() {
+        use super::annotations_path;
+        assert_eq!(
+            annotations_path("path=%2Fnotes%2Fa%20b.md").unwrap(),
+            "/notes/a b.md"
+        );
+        assert_eq!(annotations_path("x=1&path=/a.md").unwrap(), "/a.md");
+        for query in ["", "path=", "x=1"] {
+            let err = annotations_path(query).unwrap_err();
+            assert!(err.contains("path query param required"), "{query}: {err}");
+        }
+        // An undecodable path says so, rather than that none was given.
+        let err = annotations_path("path=%FF").unwrap_err();
+        assert!(err.contains("not percent-encoded UTF-8"), "{err}");
+    }
+
+    #[test]
+    fn open_refuses_a_mode_the_window_ignores() {
+        use super::open_mode_refusal;
+        assert_eq!(open_mode_refusal(None), None);
+        assert_eq!(open_mode_refusal(Some("read")), None);
+        assert_eq!(open_mode_refusal(Some("edit")), None);
+        let err = open_mode_refusal(Some("Edit")).unwrap();
+        assert!(
+            err.contains("'Edit'") && err.contains("\"read\" or \"edit\""),
+            "{err}"
+        );
+        assert!(open_mode_refusal(Some("")).is_some());
+    }
+
+    #[test]
+    fn an_undelivered_window_event_is_refused_not_answered_ok() {
+        use super::{emit_failure, emitted_reply};
+        let ok = serde_json::json!({ "ok": true, "reviewId": "r1" });
+        assert_eq!(emitted_reply(Ok::<(), String>(()), ok.clone()), ok);
+        let v = emitted_reply(Err("window closed"), ok);
+        assert_eq!(v["ok"], false);
+        assert_eq!(
+            v["error"],
+            "The app could not reach its window: window closed"
+        );
+        assert_eq!(emit_failure(Ok::<(), String>(())), None);
+        assert!(emit_failure(Err("gone")).is_some());
+    }
+
+    #[test]
     fn a_busy_open_or_present_names_what_was_refused() {
         use super::window_busy;
         for doing in ["open", "present"] {
@@ -2151,7 +2584,7 @@ mod tests {
 
     // ── Review retention ─────────────────────────────────────────────────────
 
-    use super::{prune_reviews, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
+    use super::{prune_reviews, record_verdict, ReviewRecord, MAX_REVIEWS, REVIEW_RETENTION_MS};
     use std::collections::HashMap;
 
     fn review(status: &str, path: Option<&str>, created_at: u64, timeout_ms: u64) -> ReviewRecord {
@@ -2162,7 +2595,106 @@ mod tests {
             path: path.map(str::to_string),
             created_at,
             timeout_ms,
+            late: false,
+            shown: status == "pending",
+            superseded_by: None,
         }
+    }
+
+    #[test]
+    fn a_review_the_panel_replaces_is_superseded_at_once() {
+        use super::{review_status, supersede_shown};
+        let t0 = 1_000_000;
+        let mut map = HashMap::new();
+        map.insert(
+            "old".to_string(),
+            review("pending", Some("/a.md"), t0, 300_000),
+        );
+        // Still opening its file, so not in the panel yet.
+        let mut opening = review("pending", Some("/b.md"), t0 + 1, 300_000);
+        opening.shown = false;
+        map.insert("opening".to_string(), opening);
+        map.insert(
+            "done".to_string(),
+            review("approved", Some("/c.md"), t0, 300_000),
+        );
+        let mut new = review("pending", Some("/d.md"), t0 + 2, 300_000);
+        new.shown = false;
+        map.insert("new".to_string(), new);
+
+        supersede_shown(&mut map, "new", t0 + 10);
+
+        let old = &map["old"];
+        assert_eq!(review_status(old, t0 + 10), "superseded");
+        assert_eq!(old.verdict.as_deref(), Some("superseded"));
+        assert_eq!(old.superseded_by.as_deref(), Some("new"));
+        assert!(map["new"].shown);
+        assert_eq!(map["new"].status, "pending");
+        assert_eq!(map["opening"].status, "pending", "not shown, not displaced");
+        assert_eq!(
+            map["done"].status, "approved",
+            "a decision is never replaced"
+        );
+
+        // The review that finishes opening later takes the panel in turn.
+        supersede_shown(&mut map, "opening", t0 + 20);
+        assert_eq!(map["new"].status, "superseded");
+        assert_eq!(map["new"].superseded_by.as_deref(), Some("opening"));
+        assert_eq!(map["opening"].status, "pending");
+    }
+
+    #[test]
+    fn a_verdict_on_a_superseded_review_is_kept_but_late() {
+        // A click in flight as the panel switched: the human did decide, but
+        // the agent may already have been told `superseded`.
+        let mut r = review("pending", None, 1_000, 5_000);
+        r.status = "superseded".into();
+        record_verdict(&mut r, "timeout".into(), None, 2_000);
+        assert_eq!(r.status, "superseded", "a timeout does not replace it");
+        record_verdict(&mut r, "approved".into(), None, 2_000);
+        assert_eq!(r.status, "approved");
+        assert!(r.late);
+    }
+
+    #[test]
+    fn a_verdict_inside_the_window_is_not_late() {
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), Some("ok".into()), 5_999);
+        assert_eq!(r.status, "approved");
+        assert_eq!(r.comments.as_deref(), Some("ok"));
+        assert!(!r.late);
+    }
+
+    #[test]
+    fn a_verdict_after_the_window_closed_is_kept_but_marked_late() {
+        // Past the window, still pending: the agent was (or will be) told
+        // `timeout`, so the human's verdict is marked late.
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "changes_requested".into(), None, 6_000);
+        assert_eq!(r.status, "changes_requested");
+        assert!(r.late);
+
+        // After the panel recorded `timeout`, even if the clock says the
+        // window is still open (the window and the panel keep separate time).
+        let mut r = review("timeout", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), None, 2_000);
+        assert_eq!(r.verdict.as_deref(), Some("approved"));
+        assert!(r.late);
+    }
+
+    #[test]
+    fn a_timeout_never_replaces_a_recorded_decision() {
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "approved".into(), Some("lgtm".into()), 2_000);
+        record_verdict(&mut r, "timeout".into(), None, 7_000);
+        assert_eq!(r.status, "approved");
+        assert_eq!(r.comments.as_deref(), Some("lgtm"));
+        assert!(!r.late);
+
+        let mut r = review("pending", None, 1_000, 5_000);
+        record_verdict(&mut r, "timeout".into(), None, 6_000);
+        assert_eq!(r.status, "timeout");
+        assert!(!r.late);
     }
 
     #[test]
@@ -2263,13 +2795,35 @@ mod tests {
     #[test]
     fn query_params_are_percent_decoded() {
         use super::query_param;
-        assert_eq!(query_param("id=rev_1", "id").as_deref(), Some("rev_1"));
+        assert_eq!(query_param("id=rev_1", "id"), Ok(Some("rev_1".into())));
         assert_eq!(
-            query_param("x=1&id=my%20review%26co", "id").as_deref(),
-            Some("my review&co")
+            query_param("x=1&id=my%20review%26co", "id"),
+            Ok(Some("my review&co".into()))
         );
-        assert_eq!(query_param("idx=1", "id"), None);
-        assert_eq!(query_param("", "id"), None);
+        assert_eq!(query_param("idx=1", "id"), Ok(None));
+        assert_eq!(query_param("", "id"), Ok(None));
+        assert_eq!(query_param("q=", "q"), Ok(Some(String::new())));
+    }
+
+    /// A query param that does not decode to UTF-8 is refused (`/search`
+    /// answered it with no results, which reads as "nothing matches").
+    #[test]
+    fn an_undecodable_query_param_is_an_error_not_empty() {
+        use super::{annotations_path, limit_param, query_param};
+        let err = query_param("q=%FF%FE&limit=5", "q").unwrap_err();
+        assert!(
+            err.contains("q query param is not percent-encoded UTF-8"),
+            "{err}"
+        );
+        assert!(err.contains("%FF%FE"), "{err}");
+        // Other params of the same query still read.
+        assert_eq!(query_param("q=%FF&limit=5", "limit"), Ok(Some("5".into())));
+        assert!(limit_param("limit=%C3", 50)
+            .unwrap_err()
+            .contains("limit query param"));
+        assert!(annotations_path("path=%80.md")
+            .unwrap_err()
+            .contains("path query param"));
     }
 
     #[test]

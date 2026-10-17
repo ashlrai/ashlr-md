@@ -9,7 +9,9 @@
 //! If the file is absent, tools that need the app return an error. `open_file`
 //! can launch the app via the `mdopener://` URL scheme. `diff_documents`,
 //! `edit_canvas`, `list_ai_actions`, the two conversation tools, and
-//! `export_text` / `export_metadata` given a `path` work without the app.
+//! `export_text` / `export_metadata` given a `path` work without the app, and
+//! `search_vault` given a `vault` directory greps it on disk when the app is
+//! unreachable.
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
@@ -37,7 +39,7 @@
 //!   and file://<path> for each vault file. `export:current` is not served;
 //!   reading it returns a -32002 error.
 
-use std::io::{self, BufRead, Write as _};
+use std::io::{self, BufRead, IsTerminal as _, Write as _};
 
 use mdopener_mcp::{dispatch, IpcClient, RealIpcClient, Request, Response};
 use serde_json::Value;
@@ -49,7 +51,8 @@ USAGE:
     mdopener-mcp --version     print the version
     mdopener-mcp --help        print this help
 
-Register it with your MCP client; see docs/AGENTS.md.
+Other arguments are ignored with a warning on stderr. Register it with your
+MCP client; see docs/AGENTS.md.
 ";
 
 fn main() {
@@ -71,16 +74,9 @@ fn main() {
             _ => ignored.push(arg),
         }
     }
-    if !ignored.is_empty() {
-        eprintln!(
-            "mdopener-mcp: ignoring unknown argument{} {}; serving MCP on stdin/stdout (see --help)",
-            if ignored.len() == 1 { "" } else { "s" },
-            ignored
-                .iter()
-                .map(|a| format!("`{a}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    // stdout is the protocol channel: everything said to a human is stderr.
+    for note in startup_notes(&ignored, io::stdin().is_terminal()) {
+        eprintln!("{note}");
     }
 
     let stdin = io::stdin();
@@ -101,6 +97,32 @@ fn main() {
             let _ = stdout.flush();
         }
     }
+}
+
+/// What to tell a human on stderr before serving: a one-line warning naming
+/// ignored arguments, and, when stdin is a terminal (someone ran the binary by
+/// hand), a hint that it is an MCP stdio server waiting for JSON-RPC.
+fn startup_notes(ignored: &[String], stdin_is_terminal: bool) -> Vec<String> {
+    let mut notes = Vec::new();
+    if !ignored.is_empty() {
+        notes.push(format!(
+            "mdopener-mcp: ignoring unknown argument{} {}; serving MCP on stdin/stdout (see --help)",
+            if ignored.len() == 1 { "" } else { "s" },
+            ignored
+                .iter()
+                .map(|a| format!("`{a}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if stdin_is_terminal {
+        notes.push(
+            "mdopener-mcp: this is an MCP stdio server: it reads JSON-RPC requests on stdin. \
+             Register it with your MCP client (see docs/AGENTS.md), or run --help. Ctrl-D exits."
+                .to_string(),
+        );
+    }
+    notes
 }
 
 /// Answer one stdin line: a JSON-RPC request, a notification, or (protocol
@@ -159,4 +181,25 @@ fn handle_message(message: Value, ipc: &dyn IpcClient) -> Option<Response> {
 
 fn to_line(response: &Response) -> String {
     serde_json::to_string(response).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_notes;
+
+    #[test]
+    fn startup_notes_warn_once_and_hint_only_on_a_terminal() {
+        assert!(startup_notes(&[], false).is_empty());
+        let args = ["--verison".to_string(), "x".to_string()];
+        let notes = startup_notes(&args, false);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("ignoring unknown arguments `--verison`, `x`"),
+            "{notes:?}"
+        );
+        let notes = startup_notes(&[], true);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("MCP stdio server"), "{notes:?}");
+        assert_eq!(startup_notes(&args, true).len(), 2);
+    }
 }

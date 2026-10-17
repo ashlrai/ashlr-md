@@ -172,8 +172,8 @@ fn envelope_errors_keep_the_id_notifications_are_silent_and_batches_work() {
 }
 
 /// An unknown command-line argument is still ignored (old client configs may
-/// pass one) but named on stderr, and stdout stays JSON-RPC only. Before, a
-/// typo such as `--verison` started the server without a word.
+/// pass one) but named in one stderr line, and stdout stays JSON-RPC only.
+/// Before, a typo such as `--verison` started the server without a word.
 #[test]
 fn unknown_argument_is_named_on_stderr_and_the_server_still_serves() {
     let home = tempfile::tempdir().unwrap();
@@ -188,15 +188,17 @@ fn unknown_argument_is_named_on_stderr_and_the_server_still_serves() {
         .unwrap();
     writeln!(
         child.stdin.as_mut().unwrap(),
-        r#"{{"jsonrpc":"2.0","id":1,"method":"ping"}}"#
+        "{}",
+        json!({"jsonrpc":"2.0","id":1,"method":"ping"})
     )
     .unwrap();
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert_eq!(stdout.trim(), r#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
+    assert_eq!(stdout, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n");
     let stderr = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(stderr.lines().count(), 1, "one line: {stderr:?}");
     assert!(
         stderr.contains("ignoring unknown arguments `--verison`, `--stdio`"),
         "stderr: {stderr:?}"

@@ -227,6 +227,56 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("export handler: reports a headless export's outcome to the waiting request", async () => {
+    const { exportHtml } = await import("../lib/export");
+    useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_1",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_1",
+      ok: true,
+      replaced: 1,
+      error: null,
+    });
+
+    vi.mocked(exportHtml).mockRejectedValueOnce(
+      "Switch to Read view before exporting.",
+    );
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_2",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_2",
+      ok: false,
+      replaced: 0,
+      error: "Export failed in the app: Switch to Read view before exporting.",
+    });
+
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_3",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      "mcp_edit_result",
+      expect.objectContaining({ editId: "export_3", ok: false }),
+    );
+  });
+
   // edit module
   it("edit handler: applies find/replace to live document", async () => {
     useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
@@ -384,14 +434,41 @@ describe("handlers integration — edits with save: true", () => {
     expect(String(r.error)).toContain("Permission denied");
   });
 
-  it("set-content: save on a document with no file is not reported as ok", async () => {
-    useDocumentStore.setState({ path: null } as Parameters<
+  it("set-content: with no document open it is refused, not applied unseen", async () => {
+    // The window shows its welcome screen with no document: the content would
+    // go into a buffer nobody can see, and the agent was told ok.
+    useDocumentStore.setState({ path: null, content: "" } as Parameters<
       typeof useDocumentStore.setState
     >[0]);
-    await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
-    const r = reply("mcp_edit_result");
-    expect(r.ok).toBe(false);
-    expect(String(r.error)).toContain("not saved");
+    for (const save of [false, true]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://set-content", { editId: "c1", content: "new", save });
+      const r = reply("mcp_edit_result");
+      expect(r).toMatchObject({ editId: "c1", ok: false, replaced: 0 });
+      expect(String(r.error)).toContain("No document is open");
+      expect(useDocumentStore.getState().content).toBe("");
+      expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+        false,
+      );
+    }
+  });
+
+  it("edit: a reply that fails to send is not followed by a contradicting one", async () => {
+    // The edit was applied; a second "Edit failed" reply would tell the agent
+    // it was not, and a retry would apply it twice.
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "mcp_edit_result"
+        ? Promise.reject("window closing")
+        : Promise.resolve(undefined),
+    );
+    await fireEvent("mcp://edit", { editId: "e1", find: "hello", replace: "hi" });
+    expect(useDocumentStore.getState().content).toBe("hi world");
+    const replies = invokeMock.mock.calls.filter((c) => c[0] === "mcp_edit_result");
+    expect(replies).toHaveLength(1);
+    expect(replies[0][1]).toMatchObject({ editId: "e1", ok: true, replaced: 1 });
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 
   it("stream-edit-apply: a failed save is not reported as ok", async () => {

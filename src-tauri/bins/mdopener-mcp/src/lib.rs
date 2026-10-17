@@ -64,6 +64,17 @@ impl Response {
 pub trait IpcClient: Send + Sync {
     fn get(&self, path: &str) -> Result<Value, String>;
     fn post(&self, path: &str, body: Value) -> Result<Value, String>;
+    /// [`IpcClient::post`] for a request the app answers only after slow
+    /// work (a headless export), read with `read_timeout` instead of 5 s.
+    fn post_within(
+        &self,
+        path: &str,
+        body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        let _ = read_timeout;
+        self.post(path, body)
+    }
 }
 
 // ── Real IPC client ───────────────────────────────────────────────────────────
@@ -76,6 +87,17 @@ impl IpcClient for RealIpcClient {
     }
     fn post(&self, path: &str, body: Value) -> Result<Value, String> {
         ipc_post(path, body)
+    }
+    fn post_within(
+        &self,
+        path: &str,
+        body: Value,
+        read_timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        let port = read_ipc_port()?;
+        let token = read_ipc_token()?;
+        let url = format!("http://127.0.0.1:{port}{path}");
+        http_post_within(&url, &body, &token, read_timeout)
     }
 }
 
@@ -578,7 +600,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "mode": {
                         "type": "string",
                         "enum": ["read", "edit"],
-                        "description": "Initial view mode. Defaults to 'read'."
+                        "description": "View to show the document in. Omit to keep the window's current view (a document already open in a tab keeps its own; an app this call launches starts in 'read')."
                     }
                 },
                 "required": ["path"]
@@ -649,7 +671,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export",
-            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view. Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -676,14 +698,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_review",
-            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
-                    "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min), min 5000, max 600000." },
+                    "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
+                    "timeout_ms": { "type": "integer", "minimum": 0, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "minimum": 0, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
                 },
@@ -761,13 +783,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Requires the Ashlr MD app to be running (it supplies the vault file list); returns an error otherwise. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic' or 'grep-local' (the app's own search failed, so the vault files were grepped on disk) results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, note? }; `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query (case-insensitive). Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 0, "description": "Max number of results to return. Defaults to 50." },
-                    "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." }
+                    "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
+                    "vault": { "type": "string", "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -909,7 +932,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, ops_applied }. Safe for remote/agent use — only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations — move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges, and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use — only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1006,7 +1029,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "preview_lines": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Context lines on each side of the diff hunk. Defaults to 5."
+                        "description": "Context lines on each side of the diff hunk. Defaults to 5; values above 20 are read as 20."
                     },
                     "path": {
                         "type": "string",
@@ -1073,7 +1096,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_text",
             description: "Extract the plain text of a Markdown document — all Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
-                stripped while code block contents are preserved as-is. Returns the extracted text \
+                stripped while code block contents are preserved as-is. Strikethrough keeps its \
+                text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
                 together with word and character counts. Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (an error when nothing is open).",
@@ -1098,7 +1122,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
         ToolDef {
             name: "export_metadata",
             description: "Extract structural metadata from a Markdown document without the full \
-                content: YAML front-matter (parsed to an object), a headings tree (level + text for \
+                content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
+                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
+                headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
@@ -1296,9 +1322,9 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                 ));
             }
         }
-        if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_i64()) {
-            if n < min {
-                return Err(format!("`{key}` must be at least {min}, got {n}"));
+        if let (Some(min), Some(n)) = (prop["minimum"].as_i64(), value.as_f64()) {
+            if n < min as f64 {
+                return Err(format!("`{key}` must be at least {min}, got {value}"));
             }
         }
         if let (Some(want), Some(items)) = (prop["items"]["type"].as_str(), value.as_array()) {
@@ -1322,7 +1348,15 @@ fn json_type_matches(want: &str, value: &Value) -> bool {
     match want {
         "string" => value.is_string(),
         "boolean" => value.is_boolean(),
-        "integer" => value.is_i64() || value.is_u64(),
+        // As in JSON Schema, a number with no fractional part (`2.0`) is an
+        // integer, up to 2^53 where a float still holds every whole number.
+        "integer" => {
+            value.is_i64()
+                || value.is_u64()
+                || value
+                    .as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() <= 9_007_199_254_740_992.0)
+        }
         "number" => value.is_number(),
         "array" => value.is_array(),
         "object" => value.is_object(),
@@ -1460,6 +1494,15 @@ pub fn tool_open_file_with(
         // The app is running and refused the request: say why, and do not
         // retry it through the URL scheme.
         Err(e) if app_refused(&e) => return tool_error(id, e),
+        // The app was reached but failed or did not answer in time. It may
+        // still open the file, so a URL-scheme retry could report a false
+        // success or open it twice.
+        Err(e) if app_reached_but_failed(&e) => {
+            return tool_error(
+                id,
+                format!("Ashlr MD is running but did not confirm opening {abs}: {e}"),
+            )
+        }
         Err(e) => e,
     };
 
@@ -1544,7 +1587,7 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
 }
 
 pub fn tool_list_recent(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    let limit = args["limit"].as_u64().unwrap_or(10);
+    let limit = whole_number(args, "limit").unwrap_or(10);
     match ipc.get(&format!("/recent?limit={limit}")) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
@@ -1557,6 +1600,11 @@ pub const EXPORT_FORMATS: [&str; 4] = ["pdf", "docx", "html", "epub"];
 
 /// How long `export` waits for the app to write `output_path`.
 pub const EXPORT_WRITE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How much longer than the write deadline a headless `/export` request is
+/// read for, so the app's own answer (it waits up to 30 s for its window)
+/// arrives before this server gives up on it.
+pub const EXPORT_REPLY_MARGIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn tool_export(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     tool_export_with(id, args, ipc, EXPORT_WRITE_DEADLINE)
@@ -1585,6 +1633,20 @@ fn app_refused(err: &str) -> bool {
         .is_some_and(|rest| !rest.starts_with("01"))
 }
 
+/// True when an IPC error happened after the request reached the app: a 5xx,
+/// a dropped connection, no answer within the read timeout, or a reply that is
+/// not JSON. Unlike an unreachable app, retrying elsewhere is not safe.
+fn app_reached_but_failed(err: &str) -> bool {
+    [
+        "IPC server returned HTTP 5",
+        "IPC write error",
+        "IPC read error",
+        "IPC JSON parse error",
+    ]
+    .iter()
+    .any(|p| err.starts_with(p))
+}
+
 pub fn agent_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
         .or_else(|_| std::path::absolute(raw))
@@ -1592,62 +1654,17 @@ pub fn agent_path(raw: &str) -> String {
         .unwrap_or_else(|_| raw.to_string())
 }
 
-/// File extensions `output_path` may carry for each headless export format.
-fn export_extensions(format: &str) -> &'static [&'static str] {
-    match format {
-        "html" => &["html", "htm"],
-        "docx" => &["docx"],
-        "epub" => &["epub"],
-        _ => &[],
-    }
-}
+// The `output_path` rule is shared with the app's `/export`, which applies it
+// again to whatever reaches it.
+#[path = "../../../src/export_path.rs"]
+mod export_path;
 
 /// Validate and resolve `output_path` for `format`. The app writes there
 /// without asking, so only a file with the format's own extension, not a
 /// dotfile, in an existing directory is accepted. Errors are argument errors.
 pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
-    if format == "pdf" {
-        return Err(
-            "`output_path` is not supported for pdf: pdf export goes through the \
-                    system print dialog. Use html, docx or epub with `output_path`, or omit \
-                    `output_path` to print to PDF."
-                .to_string(),
-        );
-    }
     let abs = std::path::absolute(raw).map_err(|e| format!("`output_path` '{raw}': {e}"))?;
-    let name = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let ext = std::path::Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
-    let allowed = export_extensions(format);
-    if name.starts_with('.') || !allowed.contains(&ext.as_str()) {
-        return Err(format!(
-            "`output_path` '{}' must name a {format} file ({}), not a dotfile",
-            abs.display(),
-            allowed
-                .iter()
-                .map(|e| format!(".{e}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    let dir = abs.parent().filter(|d| !d.as_os_str().is_empty());
-    let dir = dir
-        .and_then(|d| std::fs::canonicalize(d).ok())
-        .filter(|d| d.is_dir())
-        .ok_or_else(|| {
-            format!(
-                "`output_path` '{}': the directory does not exist; create it first",
-                abs.display()
-            )
-        })?;
-    let out = dir.join(name);
-    if out.is_dir() {
-        return Err(format!("`output_path` '{}' is a directory", out.display()));
-    }
-    Ok(out)
+    export_path::checked_export_path(&abs, format, "output_path")
 }
 
 /// What identifies one version of a file on disk: size and modification time
@@ -1699,14 +1716,24 @@ pub fn tool_export_with(
     };
     let before = output_path.as_deref().and_then(file_fingerprint);
 
-    if let Err(e) = ipc.post(
-        "/export",
-        json!({
-            "format": format,
-            "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
-        }),
-    ) {
-        return tool_error(id, app_not_running_msg(&e));
+    let body = json!({
+        "format": format,
+        "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
+    });
+    // A headless export is answered once the window has written the file, or
+    // with its reason for not writing it, which can take up to the deadline.
+    let sent = match output_path {
+        Some(_) => ipc.post_within("/export", body, write_deadline + EXPORT_REPLY_MARGIN),
+        None => ipc.post("/export", body),
+    };
+    match sent {
+        // The app could not hand the export to its window, or the window
+        // reported that the export failed: say why at once.
+        Ok(resp) if resp["ok"].as_bool() == Some(false) => {
+            return tool_error(id, window_refusal(&resp, "export", "the document"));
+        }
+        Ok(_) => {}
+        Err(e) => return tool_error(id, app_not_running_msg(&e)),
     }
 
     let Some(out) = output_path else {
@@ -1714,8 +1741,9 @@ pub fn tool_export_with(
         return tool_result(id, json!({ "ok": true, "format": format, "dialog": true }));
     };
 
-    // The app accepts the request before it renders, and reports nothing back,
-    // so the export only counts as done once a new version of the file exists.
+    // The app answers once the window reports the file written (an older app
+    // answers before it renders), so the export only counts as done once a
+    // new version of the file exists.
     let deadline = std::time::Instant::now() + write_deadline;
     loop {
         if let Some(now) = file_fingerprint(&out) {
@@ -1786,6 +1814,28 @@ pub fn tool_request_review(id: Value, args: &Value, ipc: &dyn IpcClient) -> Resp
     tool_request_review_with(id, args, ipc, std::time::Duration::from_millis(1_500))
 }
 
+/// The shortest and longest `request_review` windows (the app refuses the
+/// same range for `/review`'s `timeoutMs`).
+pub const REVIEW_MIN_TIMEOUT_MS: u64 = 5_000;
+pub const REVIEW_MAX_TIMEOUT_MS: u64 = 600_000;
+
+/// `timeout_ms` for `request_review`: the default 5 minutes when absent, else
+/// a whole number of milliseconds within the accepted range. Anything else is
+/// refused rather than clamped or defaulted, so the agent never waits on a
+/// window it did not ask for.
+fn review_timeout_arg(v: &Value) -> Result<u64, String> {
+    if v.is_null() {
+        return Ok(300_000);
+    }
+    match whole_number_value(v) {
+        Some(t) if (REVIEW_MIN_TIMEOUT_MS..=REVIEW_MAX_TIMEOUT_MS).contains(&t) => Ok(t),
+        _ => Err(format!(
+            "`timeout_ms` must be a whole number of milliseconds between \
+             {REVIEW_MIN_TIMEOUT_MS} and {REVIEW_MAX_TIMEOUT_MS}, got {v}"
+        )),
+    }
+}
+
 /// [`tool_request_review`] with the poll interval injected for tests.
 pub fn tool_request_review_with(
     id: Value,
@@ -1807,12 +1857,11 @@ pub fn tool_request_review_with(
     };
     let content = args["content"].as_str().map(str::to_string);
     let blocking = args["blocking"].as_bool().unwrap_or(true);
-    let timeout_ms = args["timeout_ms"]
-        .as_u64()
-        .unwrap_or(300_000)
-        .clamp(5_000, 600_000);
-    let wait_ms = args["wait_ms"]
-        .as_u64()
+    let timeout_ms = match review_timeout_arg(&args["timeout_ms"]) {
+        Ok(t) => t,
+        Err(e) => return Response::err(id, -32602, e),
+    };
+    let wait_ms = whole_number(args, "wait_ms")
         .unwrap_or(DEFAULT_REVIEW_WAIT_MS)
         .clamp(1_000, 600_000);
 
@@ -1833,8 +1882,8 @@ pub fn tool_request_review_with(
                 .as_nanos() as u64;
             // The id carries when the review window closes (unix ms), so a
             // resumed call can still end with `timeout` instead of waiting
-            // forever on a record the app never resolves (a review replaced
-            // in the panel by a newer one keeps `pending` in the app).
+            // forever on a record the app never resolves (an app that went
+            // away, or one older than the `superseded` verdict).
             let window_end_ms = unix_ms() + timeout_ms;
             let review_id = format!("rev_{nanos}_{:08x}_{window_end_ms}", std::process::id());
             let post_body = json!({
@@ -1855,7 +1904,14 @@ pub fn tool_request_review_with(
                 Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
             if !blocking {
-                return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
+                return tool_result(
+                    id,
+                    json!({
+                        "reviewId": review_id,
+                        "status": "pending",
+                        "message": "Review registered. Call request_review with this review_id to wait for the verdict."
+                    }),
+                );
             }
             review_id
         }
@@ -1917,6 +1973,19 @@ pub fn tool_request_review_with(
                         }),
                     )
                 }
+                // A newer review took the panel before the human decided, so
+                // no verdict will come for this one.
+                "superseded" => {
+                    return tool_result(
+                        id,
+                        json!({
+                            "verdict": "superseded",
+                            "reviewId": review_id,
+                            "supersededBy": resp["supersededBy"],
+                            "message": "A newer review replaced this one in the review panel before the human decided. Call request_review again if this still needs sign-off."
+                        }),
+                    )
+                }
                 "not_found" => {
                     return tool_result(
                         id,
@@ -1927,19 +1996,29 @@ pub fn tool_request_review_with(
                         }),
                     )
                 }
-                _ => {
-                    return tool_result(
-                        id,
-                        json!({
-                            "verdict": resp["verdict"],
-                            "reviewId": review_id,
-                            "comments": resp["comments"],
-                        }),
-                    )
-                }
+                _ => return tool_result(id, decided_review(&resp, &review_id)),
             },
         }
     }
+}
+
+/// The `request_review` result for a decided review. A verdict the human
+/// gave after the window closed is marked `late: true` with a note, since an
+/// earlier call may already have reported `timeout` for this review.
+fn decided_review(resp: &Value, review_id: &str) -> Value {
+    let mut out = json!({
+        "verdict": resp["verdict"],
+        "reviewId": review_id,
+        "comments": resp["comments"],
+    });
+    if resp["late"].as_bool() == Some(true) {
+        out["late"] = json!(true);
+        out["message"] = json!(
+            "The human gave this verdict after the review window closed; \
+             an earlier call may have reported `timeout` for this review."
+        );
+    }
+    out
 }
 
 pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
@@ -2000,7 +2079,11 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         Some(q) => q.to_string(),
         None => return Response::err(id, -32602, "`query` is required"),
     };
-    let limit = args["limit"].as_u64().unwrap_or(50);
+    let limit = whole_number(args, "limit").unwrap_or(50);
+    let vault = match args["vault"].as_str().map(disk_vault_dir).transpose() {
+        Ok(v) => v,
+        Err(e) => return tool_error(id, e),
+    };
 
     // Determine search mode: explicit override or auto-detect via Ollama.
     let use_semantic = match args["semantic"].as_bool() {
@@ -2008,7 +2091,14 @@ pub fn tool_search_vault(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respon
         None => ollama_available(),
     };
 
-    match search_vault(&query, limit, use_semantic, ipc) {
+    match search_vault_in(
+        &query,
+        limit,
+        use_semantic,
+        vault.as_deref(),
+        ipc,
+        &ollama_embed,
+    ) {
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, e),
     }
@@ -2038,16 +2128,47 @@ pub fn search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Value, String> {
+    search_vault_in(query, limit, use_semantic, None, ipc, embed)
+}
+
+/// [`search_vault_with`] that, when the app cannot be reached (not when it
+/// refuses), searches the Markdown files under `vault` on disk instead: a
+/// directory already checked by [`disk_vault_dir`]. Results from disk carry
+/// mode `grep-disk` (or `semantic`), the `vault` searched, and a `note`.
+pub fn search_vault_in(
+    query: &str,
+    limit: u64,
+    use_semantic: bool,
+    vault: Option<&std::path::Path>,
+    ipc: &dyn IpcClient,
+    embed: Embedder,
+) -> Result<Value, String> {
+    // The vault file list: from the app, or from `vault` on disk when the app
+    // is unreachable. Fetched once, and only when needed.
+    let mut listed: Option<Result<VaultFiles, String>> = None;
+    let mut files = || {
+        listed
+            .get_or_insert_with(|| vault_files(ipc, vault))
+            .clone()
+    };
     // Why semantic search was tried but not used, said in words so an agent
     // that asked for it does not read keyword hits as meaning matches.
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match semantic_hits(query, limit, ipc, embed) {
-            Ok(hits) => {
+        match files().and_then(|f| semantic_hits(query, limit, &f.paths, embed).map(|h| (f, h))) {
+            Ok((f, hits)) => {
                 let mut v = json!({ "results": hits.results, "mode": "semantic" });
-                if let Some(note) = hits.skipped_note() {
+                let note = [f.disk_note(), hits.skipped_note()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !note.is_empty() {
                     v["note"] = json!(note);
+                }
+                if let Some(dir) = &f.disk_vault {
+                    v["vault"] = json!(dir);
                 }
                 return Ok(v);
             }
@@ -2075,12 +2196,27 @@ pub fn search_vault_with(
         }
         Err(ipc_err) => {
             // The app's search failed: grep the vault files on disk. The file
-            // list comes from the app too, so this errors if it is not running.
-            // Keep the app's reason: a refusal is the agent's to see, not
-            // something an on-disk grep should paper over.
+            // list comes from the app too, or from `vault` when the app is
+            // unreachable. Keep the app's reason: a refusal is the agent's to
+            // see, not something an on-disk grep should paper over.
             let refused = app_refused(&ipc_err);
-            match grep_vault(query, limit, ipc) {
-                Ok(results) => {
+            match files() {
+                Ok(f) if f.disk_vault.is_some() => {
+                    let results = grep_paths(query, limit, &f.paths);
+                    let note = [semantic_note, f.disk_note()]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    Ok(json!({
+                        "results": results,
+                        "mode": "grep-disk",
+                        "vault": f.disk_vault,
+                        "note": note
+                    }))
+                }
+                Ok(f) => {
+                    let results = grep_paths(query, limit, &f.paths);
                     let verb = if refused { "refused" } else { "failed" };
                     let search_note = format!(
                         "Ashlr MD's own search {verb} ({ipc_err}), so these results \
@@ -2097,9 +2233,153 @@ pub fn search_vault_with(
                     }))
                 }
                 Err(_) if refused => Err(ipc_err),
+                Err(e) if app_unreachable(&e) => Err(format!(
+                    "{} To search without the app, pass `vault`: the directory of \
+                     Markdown files to grep on disk.",
+                    app_not_running_msg(&e)
+                )),
                 Err(e) => Err(app_not_running_msg(&e)),
             }
         }
+    }
+}
+
+/// True when an IPC error means no app could be reached at all (no port or
+/// token file, or nothing listening), as opposed to the app refusing or
+/// failing a request.
+fn app_unreachable(err: &str) -> bool {
+    err.contains("ipc-port not found")
+        || err.contains("ipc-token not found")
+        || err.contains("Cannot determine home directory")
+        || err.starts_with("Could not connect to IPC server")
+}
+
+/// Most Markdown files a `vault` walk collects, and how deep it goes.
+pub const DISK_VAULT_MAX_FILES: usize = 5_000;
+const DISK_VAULT_MAX_DEPTH: usize = 16;
+
+/// Resolve a `vault` argument (relative to the server's working directory)
+/// to the canonical directory to search on disk; anything that is not an
+/// existing directory is refused, and so is a hidden (dot) folder, which the
+/// walk would skip below a vault. Only the documents [`disk_vault_files`]
+/// finds under it are read. Errors are for `isError`.
+pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
+    let dir =
+        std::fs::canonicalize(raw).map_err(|e| format!("`vault` '{}': {e}", agent_path(raw)))?;
+    if !dir.is_dir() {
+        return Err(format!(
+            "`vault` '{}' is not a directory: name the folder of Markdown files to search.",
+            dir.display()
+        ));
+    }
+    // The walk skips hidden folders below a vault, so a hidden vault itself
+    // (`.git`, `.obsidian`) is refused rather than read.
+    if dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with('.'))
+    {
+        return Err(format!(
+            "`vault` '{}' is a hidden folder, and hidden folders are not searched: name \
+             the folder of Markdown notes that contains it instead.",
+            dir.display()
+        ));
+    }
+    Ok(dir)
+}
+
+/// The Markdown documents under `dir` that a path-taking tool could read
+/// ([`checked_document_path`]), sorted, without entering hidden directories,
+/// `node_modules` or `target`, or following directory symlinks. Returns the
+/// canonical paths and whether [`DISK_VAULT_MAX_FILES`] cut the walk short.
+pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
+    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                let skip = name == "node_modules" || name == "target";
+                if !skip && depth < DISK_VAULT_MAX_DEPTH && walk(&path, depth + 1, out) {
+                    return true;
+                }
+            } else if let Ok(p) = checked_document_path(&path.to_string_lossy(), "vault") {
+                if std::path::Path::new(&p).is_file() && !out.contains(&p) {
+                    if out.len() == DISK_VAULT_MAX_FILES {
+                        return true;
+                    }
+                    out.push(p);
+                }
+            }
+        }
+        false
+    }
+    let mut out = Vec::new();
+    let truncated = walk(dir, 0, &mut out);
+    (out, truncated)
+}
+
+/// The files a vault search reads, and where the list came from.
+#[derive(Clone)]
+struct VaultFiles {
+    paths: Vec<String>,
+    /// Set when the app was unreachable and `vault` was walked on disk.
+    disk_vault: Option<String>,
+    /// Why the app was not asked, quoted in the note.
+    app_error: String,
+    truncated: bool,
+}
+
+impl VaultFiles {
+    /// Says the results come from the disk, not the app, when they do.
+    fn disk_note(&self) -> Option<String> {
+        let dir = self.disk_vault.as_deref()?;
+        let mut note = format!(
+            "Ashlr MD could not be reached ({}), so these results come from searching \
+             the {} Markdown files under {dir} on disk.",
+            self.app_error,
+            self.paths.len()
+        );
+        if self.truncated {
+            note.push_str(&format!(
+                " Only the first {DISK_VAULT_MAX_FILES} files were searched."
+            ));
+        }
+        Some(note)
+    }
+}
+
+/// The vault file list from the app, or from walking `vault` on disk when the
+/// app cannot be reached. A refusal or other failure is still an error.
+fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
+    match (vault_file_paths(ipc), vault) {
+        (Ok(paths), _) => Ok(VaultFiles {
+            paths,
+            disk_vault: None,
+            app_error: String::new(),
+            truncated: false,
+        }),
+        (Err(e), Some(dir)) if app_unreachable(&e) => {
+            let (paths, truncated) = disk_vault_files(dir);
+            Ok(VaultFiles {
+                paths,
+                disk_vault: Some(dir.to_string_lossy().into_owned()),
+                app_error: e,
+                truncated,
+            })
+        }
+        (Err(e), _) => Err(e),
     }
 }
 
@@ -2154,8 +2434,7 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
         Err(msg) => return Response::err(id, -32602, msg),
     };
 
-    let limit = args["limit"]
-        .as_u64()
+    let limit = whole_number(args, "limit")
         .unwrap_or(20)
         .clamp(1, MAX_MESSAGES_PER_SESSION as u64) as usize;
 
@@ -2409,7 +2688,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "text://vault-search",
         "name": "Vault semantic search",
-        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
+        "description": "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: { results, mode, query, note? }, shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable.",
         "mimeType": "application/json"
     }));
 
@@ -2470,16 +2749,56 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         let qs = rest.strip_prefix('?').unwrap_or("");
         let mut query = String::new();
         let mut limit: u64 = 50;
+        let mut vault = None;
+        // `semantic=true|false` forces a mode, as `search_vault`'s `semantic`
+        // argument does; absent, Ollama is auto-detected.
+        let mut semantic = None;
+        // Query-string encoding: `+` is a space (the listed example is
+        // `?q=my+topic`), and `%2B` a literal plus.
+        let decode = |val: &str| {
+            let val = val.replace('+', " ");
+            urlencoding::decode(&val)
+                .map(|s| s.into_owned())
+                .unwrap_or(val)
+        };
         for part in qs.split('&') {
             if let Some(val) = part.strip_prefix("q=") {
-                // Query-string encoding: `+` is a space (the listed example is
-                // `?q=my+topic`), and `%2B` a literal plus.
-                let val = val.replace('+', " ");
-                query = urlencoding::decode(&val)
-                    .map(|s| s.into_owned())
-                    .unwrap_or(val);
+                query = decode(val);
+            } else if let Some(val) = part.strip_prefix("vault=") {
+                match disk_vault_dir(&decode(val)) {
+                    Ok(dir) => vault = Some(dir),
+                    Err(e) => return Response::err(id, -32602, e),
+                }
+            } else if let Some(val) = part.strip_prefix("semantic=") {
+                semantic = match decode(val).as_str() {
+                    "true" | "1" => Some(true),
+                    "false" | "0" => Some(false),
+                    other => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!(
+                                "text://vault-search: `semantic` must be true or false, got \
+                                 {other:?}. Omit it to use semantic search when Ollama is available."
+                            ),
+                        )
+                    }
+                };
             } else if let Some(val) = part.strip_prefix("limit=") {
-                limit = val.parse().unwrap_or(50);
+                limit = match val.parse() {
+                    Ok(l) => l,
+                    Err(_) => {
+                        return Response::err(
+                            id,
+                            -32602,
+                            format!(
+                                "text://vault-search: `limit` must be a whole number, got \
+                                 {:?}. Omit it for the default of 50.",
+                                decode(val)
+                            ),
+                        )
+                    }
+                };
             }
         }
         if query.is_empty() {
@@ -2490,10 +2809,19 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             );
         }
 
-        // The same search as `search_vault`, notes included. Every path needs
-        // the app (it supplies the vault file list), so failing to reach it is
-        // an error rather than an empty result set.
-        let mut payload = match search_vault(&query, limit, ollama_available(), ipc) {
+        // The same search as `search_vault`, notes included. Without `vault`
+        // every path needs the app (it supplies the vault file list), so
+        // failing to reach it is an error rather than an empty result set.
+        let semantic = semantic.unwrap_or_else(ollama_available);
+        let found = search_vault_in(
+            &query,
+            limit,
+            semantic,
+            vault.as_deref(),
+            ipc,
+            &ollama_embed,
+        );
+        let mut payload = match found {
             Ok(v) => v,
             Err(e) => return Response::err(id, -32000, e),
         };
@@ -2861,7 +3189,7 @@ pub fn semantic_search_vault_with(
     ipc: &dyn IpcClient,
     embed: Embedder,
 ) -> Result<Vec<Value>, String> {
-    semantic_hits(query, limit, ipc, embed).map(|hits| hits.results)
+    semantic_hits(query, limit, &vault_file_paths(ipc)?, embed).map(|hits| hits.results)
 }
 
 /// What [`semantic_hits`] found, and how many documents it had to leave out
@@ -2898,16 +3226,15 @@ impl SemanticHits {
 fn semantic_hits(
     query: &str,
     limit: u64,
-    ipc: &dyn IpcClient,
+    paths: &[String],
     embed: Embedder,
 ) -> Result<SemanticHits, String> {
-    let paths = vault_file_paths(ipc)?;
     let query_vec = embed(query)?;
     let mut scored: Vec<SearchResult> = Vec::new();
     let mut embed_error = None;
     let mut skipped = 0;
 
-    for path in &paths {
+    for path in paths {
         let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2955,14 +3282,15 @@ fn semantic_hits(
 /// fails).  The file list still comes from the app, so this errors when the
 /// app is not running.
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {
-    let paths = vault_file_paths(ipc)?;
-    if paths.is_empty() {
-        return Ok(vec![]);
-    }
+    Ok(grep_paths(query, limit, &vault_file_paths(ipc)?))
+}
+
+/// Grep `paths` on disk for `query` (case-insensitive), best match ratio first.
+fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
     let lower_query = query.to_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
 
-    for path in &paths {
+    for path in paths {
         let content = match read_regular_file(path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -2997,7 +3325,7 @@ pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Va
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     results.truncate(limit as usize);
-    Ok(results.iter().map(|r| r.to_json()).collect())
+    results.iter().map(|r| r.to_json()).collect()
 }
 
 /// Find the line in `content` most relevant to `query` (case-insensitive
@@ -3080,13 +3408,26 @@ pub fn http_get(url: &str, token: &str) -> Result<Value, String> {
 }
 
 pub fn http_post(url: &str, body: &Value, token: &str) -> Result<Value, String> {
+    http_post_within(url, body, token, IPC_READ_TIMEOUT)
+}
+
+/// How long an IPC request waits for the app's answer by default.
+pub const IPC_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// [`http_post`] waiting up to `read_timeout` for the answer.
+pub fn http_post_within(
+    url: &str,
+    body: &Value,
+    token: &str,
+    read_timeout: std::time::Duration,
+) -> Result<Value, String> {
     let (host, port, path) = parse_url(url)?;
     let body_str = body.to_string();
     let request = format!(
         "POST {path} HTTP/1.0\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
         body_str.len()
     );
-    let response_body = tcp_roundtrip(&host, port, request.as_bytes())?;
+    let response_body = tcp_roundtrip_within(&host, port, request.as_bytes(), read_timeout)?;
     parse_http_body(&response_body)
 }
 
@@ -3106,6 +3447,16 @@ pub fn parse_url(url: &str) -> Result<(String, u16, String), String> {
 }
 
 pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, String> {
+    tcp_roundtrip_within(host, port, request, IPC_READ_TIMEOUT)
+}
+
+/// [`tcp_roundtrip`] waiting up to `read_timeout` for the answer.
+pub fn tcp_roundtrip_within(
+    host: &str,
+    port: u16,
+    request: &[u8],
+    read_timeout: std::time::Duration,
+) -> Result<Vec<u8>, String> {
     use std::io::{Read as _, Write as _};
     use std::net::TcpStream;
     use std::time::Duration;
@@ -3113,16 +3464,26 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
     let addr = format!("{host}:{port}");
     let mut stream = TcpStream::connect(&addr)
         .map_err(|e| format!("Could not connect to IPC server at {addr}: {e}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    stream.set_read_timeout(Some(read_timeout)).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
     stream
         .write_all(request)
         .map_err(|e| format!("IPC write error: {e}"))?;
 
     let mut buf = Vec::new();
-    stream
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("IPC read error: {e}"))?;
+    stream.read_to_end(&mut buf).map_err(|e| {
+        if matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
+            format!(
+                "IPC read error: Ashlr MD did not answer within {} s",
+                read_timeout.as_secs()
+            )
+        } else {
+            format!("IPC read error: {e}")
+        }
+    })?;
     Ok(buf)
 }
 
@@ -3164,6 +3525,22 @@ pub fn parse_http_body(raw: &[u8]) -> Result<Value, String> {
 }
 
 // ── Response helpers ──────────────────────────────────────────────────────────
+
+/// An integer argument's value, `None` when absent or null. A whole number
+/// written as a float (`2.0`) is that number. [`check_tool_arguments`] has
+/// already refused any other type, a fraction and a negative, so `None` here
+/// only ever means "not given".
+pub fn whole_number(args: &Value, name: &str) -> Option<u64> {
+    whole_number_value(&args[name])
+}
+
+fn whole_number_value(v: &Value) -> Option<u64> {
+    v.as_u64().or_else(|| {
+        v.as_f64()
+            .filter(|f| *f >= 0.0 && f.fract() == 0.0 && *f <= u64::MAX as f64)
+            .map(|f| f as u64)
+    })
+}
 
 /// Wrap a value in the MCP `content` envelope.
 pub fn tool_result(id: Value, value: Value) -> Response {
@@ -3322,7 +3699,7 @@ pub fn tool_diff_documents(id: Value, args: &Value) -> Response {
         None => return Response::err(id, -32602, "`path_b` is required"),
     };
     // Clamped: a huge value would overflow the hunk arithmetic.
-    let context_lines = args["context_lines"].as_u64().unwrap_or(3).min(10_000) as usize;
+    let context_lines = whole_number(args, "context_lines").unwrap_or(3).min(10_000) as usize;
 
     let path_a = match checked_document_path(&raw_a, "path_a") {
         Ok(p) => p,
@@ -3676,6 +4053,8 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     let mut ops_applied: Vec<String> = Vec::new();
+    // Edges `delete_node` removed along with their node, reported back.
+    let mut removed_edge_ids: Vec<Value> = Vec::new();
 
     for (i, op) in ops.iter().enumerate() {
         let op_type = match op["type"].as_str() {
@@ -3974,8 +4353,12 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     );
                 }
                 edges.retain(|e| {
-                    e.get("fromNode").and_then(Value::as_str) != Some(node_id)
-                        && e.get("toNode").and_then(Value::as_str) != Some(node_id)
+                    let keep = e.get("fromNode").and_then(Value::as_str) != Some(node_id)
+                        && e.get("toNode").and_then(Value::as_str) != Some(node_id);
+                    if !keep {
+                        removed_edge_ids.push(e.get("id").cloned().unwrap_or(Value::Null));
+                    }
+                    keep
                 });
             }
             "add_edge" => {
@@ -4170,6 +4553,13 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     }
 
     // ── Serialise ────────────────────────────────────────────────────────────
+    let ids = |items: &[serde_json::Map<String, Value>]| -> Vec<Value> {
+        items
+            .iter()
+            .map(|m| m.get("id").cloned().unwrap_or(Value::Null))
+            .collect()
+    };
+    let (node_ids, edge_ids) = (ids(&nodes), ids(&edges));
     output.insert("nodes".into(), json!(nodes));
     output.insert("edges".into(), json!(edges));
     let serialised = match serde_json::to_string_pretty(&output) {
@@ -4192,6 +4582,9 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
             "path": path,
             "nodes_count": nodes.len(),
             "edges_count": edges.len(),
+            "node_ids": node_ids,
+            "edge_ids": edge_ids,
+            "removed_edge_ids": removed_edge_ids,
             "ops_applied": ops_applied,
             "saved": save,
             "content": if save { Value::Null } else { json!(serialised) },
@@ -4328,7 +4721,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         None => return Response::err(id, -32602, "`replace` is required"),
     };
     let preview = args["preview"].as_bool().unwrap_or(true);
-    let preview_lines = args["preview_lines"].as_u64().unwrap_or(5).clamp(0, 20) as u32;
+    let preview_lines = whole_number(args, "preview_lines").unwrap_or(5).min(20) as u32;
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
     let body = json!({
@@ -4371,7 +4764,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Some(r) => r.to_string(),
         None => return Response::err(id, -32602, "`replace` is required"),
     };
-    let match_index = args["match_index"].as_u64().unwrap_or(0) as u32;
+    let match_index = match u32::try_from(whole_number(args, "match_index").unwrap_or(0)) {
+        Ok(m) => m,
+        Err(_) => return Response::err(id, -32602, "`match_index` is too large"),
+    };
     let save = args["save"].as_bool().unwrap_or(false);
     let path = args["path"].as_str().map(|p| stream_edit_path(p, ipc));
 
@@ -4422,21 +4818,49 @@ pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
     let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let lines = content.lines().skip(skip);
+    let lines: Vec<&str> = content.lines().skip(skip).collect();
 
     let mut in_code_block = false;
+    let mut in_table = false;
 
-    for line in lines {
+    for (idx, &line) in lines.iter().enumerate() {
         // Detect fenced code blocks (``` or ~~~).
         let trimmed = line.trim();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             in_code_block = !in_code_block;
+            in_table = false;
             // Drop the fence line itself; preserve the code inside.
             continue;
         }
         if in_code_block {
             out.push_str(line);
             out.push('\n');
+            continue;
+        }
+
+        // GFM tables: a header row followed by a delimiter row starts one,
+        // and it runs until a blank line or a line without a pipe. Rows
+        // become tab-separated cells; the delimiter row is dropped. A table
+        // may sit in a blockquote or a list item, so rows are read without
+        // their `>` leaders and list marker.
+        let row = table_row_text(line);
+        if in_table && !row.contains('|') {
+            in_table = false;
+        }
+        if !in_table && row.contains('|') {
+            in_table = lines
+                .get(idx + 1)
+                .is_some_and(|next| is_table_delimiter(table_row_text(next)));
+        }
+        if in_table {
+            if !is_table_delimiter(row) {
+                let cells: Vec<String> = table_cells(row)
+                    .iter()
+                    .map(|c| strip_inline_markdown(c).trim().to_string())
+                    .collect();
+                out.push_str(&cells.join("\t"));
+                out.push('\n');
+            }
             continue;
         }
 
@@ -4477,6 +4901,20 @@ pub fn strip_markdown(content: &str) -> String {
             }
             s
         };
+
+        // A footnote definition `[^1]: text` reads `[1] text`.
+        if let Some((label, rest)) = line
+            .strip_prefix("[^")
+            .and_then(|r| r.split_once("]:"))
+            .filter(|(label, _)| !label.is_empty() && !label.contains(char::is_whitespace))
+        {
+            out.push_str(&format!(
+                "[{label}] {}",
+                strip_inline_markdown(rest.trim_start())
+            ));
+            out.push('\n');
+            continue;
+        }
 
         // Strip list markers (unordered and ordered).
         let line = {
@@ -4539,9 +4977,66 @@ pub fn strip_markdown(content: &str) -> String {
     collapsed.trim_end().to_string()
 }
 
+/// A line's text as a table row: without leading `>` blockquote leaders and
+/// one list marker (`- `, `* `, `+ `, `1. `, `1) `), trimmed.
+fn table_row_text(line: &str) -> &str {
+    let mut s = line.trim();
+    while let Some(rest) = s.strip_prefix('>') {
+        s = rest.trim_start();
+    }
+    if let Some(rest) = s
+        .strip_prefix("- ")
+        .or_else(|| s.strip_prefix("* "))
+        .or_else(|| s.strip_prefix("+ "))
+    {
+        return rest.trim_start();
+    }
+    let digits = s.len() - s.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    if (1..=9).contains(&digits) {
+        if let Some(rest) = s[digits..]
+            .strip_prefix(". ")
+            .or_else(|| s[digits..].strip_prefix(") "))
+        {
+            return rest.trim_start();
+        }
+    }
+    s
+}
+
+/// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.
+fn is_table_delimiter(line: &str) -> bool {
+    let t = line.trim();
+    t.contains('|')
+        && t.contains('-')
+        && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+}
+
+/// The cells of a table row, outer pipes dropped and `\|` read as a pipe.
+fn table_cells(row: &str) -> Vec<String> {
+    let row = row.strip_prefix('|').unwrap_or(row);
+    let row = match row.strip_suffix('|') {
+        Some(r) if !r.ends_with('\\') => r,
+        _ => row,
+    };
+    let mut cells = vec![String::new()];
+    let mut chars = row.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                chars.next();
+                cells.last_mut().unwrap().push('|');
+            }
+            '|' => cells.push(String::new()),
+            c => cells.last_mut().unwrap().push(c),
+        }
+    }
+    cells
+}
+
 /// Strip inline Markdown from a single (already block-processed) line.
 ///
-/// Handles: images, links, wikilinks, bold/italic, inline code, HTML tags.
+/// Handles: images, links, wikilinks, footnote references, bold/italic,
+/// strikethrough, inline code, HTML tags.
 pub fn strip_inline_markdown(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
@@ -4563,6 +5058,20 @@ pub fn strip_inline_markdown(s: &str) -> String {
         if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
             if let Some(close) = find_double_close(&chars, i + 3) {
                 i = close + 2;
+                continue;
+            }
+        }
+        // Footnote reference [^1] → [1]
+        if chars[i] == '[' && chars.get(i + 1) == Some(&'^') {
+            let label_len = chars[i + 2..]
+                .iter()
+                .take_while(|&&c| c != ']' && !c.is_whitespace())
+                .count();
+            if label_len > 0 && chars.get(i + 2 + label_len) == Some(&']') {
+                out.push('[');
+                out.extend(&chars[i + 2..i + 2 + label_len]);
+                out.push(']');
+                i += label_len + 3;
                 continue;
             }
         }
@@ -4638,6 +5147,19 @@ pub fn strip_inline_markdown(s: &str) -> String {
             let literal =
                 (space(before) && space(after)) || (marker == '_' && word(before) && word(after));
             if literal {
+                out.extend(&chars[i..i + run]);
+            }
+            i += run;
+            continue;
+        }
+        // Strikethrough `~~text~~` keeps its text; a lone `~` (`~5 min`,
+        // `~/x`) or a spaced `~~` is text.
+        if chars[i] == '~' {
+            let run = chars[i..].iter().take_while(|&&c| c == '~').count();
+            let before = i.checked_sub(1).map(|j| chars[j]);
+            let after = chars.get(i + run).copied();
+            let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
+            if run != 2 || (space(before) && space(after)) {
                 out.extend(&chars[i..i + run]);
             }
             i += run;
@@ -4799,68 +5321,24 @@ fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
 
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
-/// Returns a `serde_json::Value::Object` with the parsed top-level key/value
-/// pairs, or `Value::Null` when no front-matter is present or it holds no
-/// `key: value` lines. Scalars become strings, bools or numbers, and lists of
-/// scalars (`tags: [a, b]`, or `- item` lines under `tags:`) become arrays.
-/// A nested mapping is not parsed: its key keeps an empty string, and its
-/// indented lines are never read as top-level keys.
+/// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
+/// `Value::Null` when no front-matter is present or it holds no `key: value`
+/// lines. A subset of YAML is read (documented in docs/AGENTS.md): scalars
+/// become strings, bools, numbers or null (`~`, `null`, or nothing after the
+/// colon), lists (`tags: [a, b]`, or `- item` lines under `tags:`) become
+/// arrays whose `- key: value` items are objects, indented `key: value` lines
+/// under an empty `key:` become nested objects at any depth, and block scalars
+/// (`|`, `>`, with `-` / `+` chomping) become strings.
 pub fn extract_frontmatter(content: &str) -> Value {
     let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
     };
+    let mut parser = FrontMatter {
+        lines: fm_lines,
+        pos: 0,
+    };
     let mut map = serde_json::Map::new();
-    // The key whose value was left empty, which `- item` lines then fill.
-    let mut list_key: Option<String> = None;
-    for line in &fm_lines {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with('#') {
-            continue;
-        }
-        if let Some(item) = t.strip_prefix("- ").or((t == "-").then_some("")) {
-            if let Some(entry) = list_key.as_ref().and_then(|k| map.get_mut(k)) {
-                if *entry == json!("") {
-                    *entry = json!([]);
-                }
-                if let Some(items) = entry.as_array_mut() {
-                    items.push(frontmatter_scalar(item.trim()));
-                }
-            }
-            continue;
-        }
-        if line.starts_with([' ', '\t']) {
-            // Part of a nested value: not a top-level key. When it comes
-            // before any `- item`, the empty key holds a nested mapping, so
-            // a list deeper inside that mapping (`owner:` / `  roles:` /
-            // `    - admin`) must not fill it.
-            if list_key.as_ref().and_then(|k| map.get(k)) == Some(&json!("")) {
-                list_key = None;
-            }
-            continue;
-        }
-        list_key = None;
-        let Some(colon) = line.find(':') else {
-            continue;
-        };
-        let key = line[..colon].trim().to_string();
-        if key.is_empty() {
-            continue;
-        }
-        let val_str = line[colon + 1..].trim();
-        let val = match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
-            Some(items) => Value::Array(
-                split_flow_items(items)
-                    .into_iter()
-                    .map(frontmatter_scalar)
-                    .collect(),
-            ),
-            None => frontmatter_scalar(val_str),
-        };
-        if val_str.is_empty() {
-            list_key = Some(key.clone());
-        }
-        map.insert(key, val);
-    }
+    parser.mapping(0, &mut map);
     if map.is_empty() {
         Value::Null
     } else {
@@ -4868,10 +5346,276 @@ pub fn extract_frontmatter(content: &str) -> Value {
     }
 }
 
-/// One front-matter scalar: a bool, an integer, a float, else a string with
-/// any surrounding quotes removed.
+/// A line-by-line reader of the front-matter YAML subset, driven by
+/// indentation.
+struct FrontMatter<'a> {
+    lines: Vec<&'a str>,
+    pos: usize,
+}
+
+/// A line's indentation in bytes of leading whitespace.
+fn line_indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// The text of a `- item` line after its dash, or `None` for other lines.
+fn sequence_item(t: &str) -> Option<&str> {
+    t.strip_prefix("- ").or((t == "-").then_some(""))
+}
+
+impl<'a> FrontMatter<'a> {
+    /// The next line holding YAML (not blank, not a `#` comment), as its
+    /// indentation and trimmed text, without consuming it. Skipped lines are
+    /// consumed.
+    fn peek(&mut self) -> Option<(usize, &'a str)> {
+        while let Some(line) = self.lines.get(self.pos) {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with('#') {
+                self.pos += 1;
+                continue;
+            }
+            return Some((line_indent(line), t));
+        }
+        None
+    }
+
+    /// Read `key: value` lines at exactly `indent` into `map`, stopping at
+    /// the first line indented less. Deeper lines that no key opened (the
+    /// continuation of a plain multi-line scalar) and stray `- item` lines
+    /// are skipped.
+    fn mapping(&mut self, indent: usize, map: &mut serde_json::Map<String, Value>) {
+        while let Some((ind, t)) = self.peek() {
+            if ind < indent {
+                break;
+            }
+            self.pos += 1;
+            if ind > indent || sequence_item(t).is_some() {
+                continue;
+            }
+            if let Some((key, val_str)) = frontmatter_key_value(t) {
+                let value = self.value_after_key(indent, val_str);
+                map.insert(key, value);
+            }
+        }
+    }
+
+    /// The value of a key at `indent` whose text after the colon is
+    /// `val_str`: a block scalar, a nested block (when empty), or an inline
+    /// value.
+    fn value_after_key(&mut self, indent: usize, val_str: &str) -> Value {
+        if let Some(header) = block_scalar_header(val_str) {
+            return self.block_scalar(indent, header);
+        }
+        if !val_str.is_empty() {
+            return frontmatter_value(val_str);
+        }
+        match self.peek() {
+            // A list may sit at its key's own indentation.
+            Some((ind, t)) if ind >= indent && sequence_item(t).is_some() => self.sequence(ind),
+            Some((ind, _)) if ind > indent => {
+                let mut nested = serde_json::Map::new();
+                self.mapping(ind, &mut nested);
+                if nested.is_empty() {
+                    Value::Null
+                } else {
+                    Value::Object(nested)
+                }
+            }
+            _ => Value::Null,
+        }
+    }
+
+    /// Read `- item` lines at exactly `indent` into an array. An item that is
+    /// a `key: value` pair starts an object whose further keys are the lines
+    /// aligned with it.
+    fn sequence(&mut self, indent: usize) -> Value {
+        let mut items = Vec::new();
+        while let Some((ind, t)) = self.peek() {
+            let Some(item) = sequence_item(t).filter(|_| ind == indent) else {
+                break;
+            };
+            self.pos += 1;
+            let item_text = item.trim_start();
+            // The column of the item's text: its object's keys align there.
+            let item_indent = ind + (t.len() - item_text.len());
+            let item_text = item_text.trim_end();
+            let value = if item_text.is_empty() {
+                self.value_after_key(ind, "")
+            } else if let Some(header) = block_scalar_header(item_text) {
+                self.block_scalar(ind, header)
+            } else if let Some((key, val_str)) = mapping_item(item_text) {
+                let mut obj = serde_json::Map::new();
+                let first = self.value_after_key(item_indent, val_str);
+                obj.insert(key, first);
+                self.mapping(item_indent, &mut obj);
+                Value::Object(obj)
+            } else {
+                frontmatter_value(item_text)
+            };
+            items.push(value);
+        }
+        Value::Array(items)
+    }
+
+    /// Read the lines of a block scalar whose key sits at `indent`: every
+    /// following line indented deeper, plus blank lines among them, joined
+    /// as written (`|`) or folded (`>`), then chomped.
+    fn block_scalar(&mut self, indent: usize, header: BlockScalar) -> Value {
+        let mut body: Vec<&str> = Vec::new();
+        let mut content_indent = header.indent.map(|i| indent + i);
+        while let Some(line) = self.lines.get(self.pos) {
+            if line.trim().is_empty() {
+                body.push("");
+                self.pos += 1;
+                continue;
+            }
+            let ind = line_indent(line);
+            let ci = *content_indent.get_or_insert(ind);
+            if ind <= indent || ind < ci {
+                break;
+            }
+            body.push(&line[ci..]);
+            self.pos += 1;
+        }
+        let trailing = body.iter().rev().take_while(|l| l.is_empty()).count();
+        body.truncate(body.len() - trailing);
+        let mut text = if header.folded {
+            fold_lines(&body)
+        } else {
+            body.join("\n")
+        };
+        if !body.is_empty() {
+            match header.chomp {
+                Chomp::Strip => {}
+                Chomp::Clip => text.push('\n'),
+                Chomp::Keep => text.push_str(&"\n".repeat(trailing + 1)),
+            }
+        } else if header.chomp == Chomp::Keep {
+            text.push_str(&"\n".repeat(trailing));
+        }
+        Value::String(text)
+    }
+}
+
+/// How a block scalar treats its final line breaks.
+#[derive(Clone, Copy, PartialEq)]
+enum Chomp {
+    /// `-`: no final line break.
+    Strip,
+    /// The default: one final line break.
+    Clip,
+    /// `+`: every trailing line break.
+    Keep,
+}
+
+/// A block scalar's header (`|`, `>-`, `|+2`, optionally followed by a
+/// comment).
+#[derive(Clone, Copy)]
+struct BlockScalar {
+    folded: bool,
+    chomp: Chomp,
+    /// An explicit indentation indicator, relative to the key.
+    indent: Option<usize>,
+}
+
+/// Parse `val_str` as a block scalar header, or `None` when it is not one.
+fn block_scalar_header(val_str: &str) -> Option<BlockScalar> {
+    let head = val_str.split(" #").next()?.trim_end();
+    let mut chars = head.chars();
+    let folded = match chars.next()? {
+        '|' => false,
+        '>' => true,
+        _ => return None,
+    };
+    let mut header = BlockScalar {
+        folded,
+        chomp: Chomp::Clip,
+        indent: None,
+    };
+    for c in chars {
+        match c {
+            '-' if header.chomp == Chomp::Clip => header.chomp = Chomp::Strip,
+            '+' if header.chomp == Chomp::Clip => header.chomp = Chomp::Keep,
+            '1'..='9' if header.indent.is_none() => {
+                header.indent = c.to_digit(10).map(|d| d as usize)
+            }
+            _ => return None,
+        }
+    }
+    Some(header)
+}
+
+/// Fold a `>` block scalar's lines: a line break between two ordinary lines
+/// becomes a space, each blank line a line break, and lines indented more
+/// than the block keep their breaks.
+fn fold_lines(lines: &[&str]) -> String {
+    let mut out = String::new();
+    let mut blanks = 0;
+    let mut prev_more: Option<bool> = None;
+    for line in lines {
+        if line.is_empty() {
+            blanks += 1;
+            continue;
+        }
+        let more = line.starts_with([' ', '\t']);
+        match prev_more {
+            None => out.push_str(&"\n".repeat(blanks)),
+            Some(false) if !more && blanks == 0 => out.push(' '),
+            Some(false) if !more => out.push_str(&"\n".repeat(blanks)),
+            Some(_) => out.push_str(&"\n".repeat(blanks + 1)),
+        }
+        out.push_str(line);
+        prev_more = Some(more);
+        blanks = 0;
+    }
+    out
+}
+
+/// A `- key: value` item's key and value, or `None` when the item is a
+/// scalar (a quoted string, a flow list, or text whose colons are not
+/// followed by a space, like a URL).
+fn mapping_item(item: &str) -> Option<(String, &str)> {
+    if item.starts_with(['"', '\'', '[', '{']) {
+        return None;
+    }
+    frontmatter_key_value(item)
+}
+
+/// Split a `key: value` line into its key and its trimmed value text.
+/// The colon must be followed by a space or end the line, so `10:30` and
+/// `http://x` are not keys.
+fn frontmatter_key_value(line: &str) -> Option<(String, &str)> {
+    let colon = line
+        .match_indices(':')
+        .map(|(i, _)| i)
+        .find(|&i| line[i + 1..].is_empty() || line[i + 1..].starts_with([' ', '\t']))?;
+    let key = line[..colon].trim();
+    (!key.is_empty()).then(|| (key.to_string(), line[colon + 1..].trim()))
+}
+
+/// The value after a key's colon: null when there is none, an array for a
+/// flow list (`[a, b]`), else a scalar.
+fn frontmatter_value(val_str: &str) -> Value {
+    if val_str.is_empty() {
+        return Value::Null;
+    }
+    match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        Some(items) => Value::Array(
+            split_flow_items(items)
+                .into_iter()
+                .map(frontmatter_scalar)
+                .collect(),
+        ),
+        None => frontmatter_scalar(val_str),
+    }
+}
+
+/// One front-matter scalar: null, a bool, an integer, a float, else a string
+/// with any surrounding quotes removed.
 fn frontmatter_scalar(val_str: &str) -> Value {
-    if val_str == "true" {
+    if matches!(val_str, "~" | "null" | "Null" | "NULL") {
+        Value::Null
+    } else if val_str == "true" {
         json!(true)
     } else if val_str == "false" {
         json!(false)

@@ -6,10 +6,13 @@
  * human's Approve / Request-changes / Dismiss verdict is recorded via the
  * `set_review_verdict` command, which the agent's polling MCP tool picks up.
  * When the countdown runs out with no decision, `expire` records `timeout`.
+ * The panel shows one review at a time: a newer one replaces it, and the app
+ * records the displaced review as `superseded` for its agent.
  */
 
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import { toast } from "./toastStore";
 
 export type ReviewVerdict = "approved" | "changes_requested" | "dismissed";
 
@@ -102,7 +105,19 @@ function close(reviewId: string | undefined, verdict: "dismissed" | "timeout") {
     reviewId: pending.reviewId,
     verdict,
     comments: null,
-  }).catch(() => {});
+  }).catch((e) => {
+    // The panel is already gone. An unrecorded `timeout` changes nothing (the
+    // app reports a review past its window as timed out anyway), but an
+    // unrecorded dismissal does: the agent keeps waiting and then sees a
+    // timeout, so the human is told.
+    if (verdict === "dismissed") {
+      toast.error(
+        `Dismissing the review was not recorded (${String(e)}); the agent will see it time out instead.`,
+      );
+    } else {
+      console.warn("[review] recording the timeout failed:", e);
+    }
+  });
   useReviewStore.setState({
     pending: null,
     draftComment: "",

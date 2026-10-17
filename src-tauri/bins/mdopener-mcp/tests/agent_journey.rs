@@ -124,7 +124,8 @@ cargo build --release
 
 /// A temp vault: `plan.md`, its revision, a non-Markdown file and a dotfile.
 fn vault() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+    // Not `tempdir()`: its `.tmpXXXX` folder is hidden, and a hidden vault is refused.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
     let v = dir.path();
     std::fs::write(v.join("plan.md"), PLAN).unwrap();
     std::fs::write(
@@ -215,6 +216,11 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         meta["frontmatter"].get("name").is_none(),
         "nested key leaked: {meta}"
     );
+    assert_eq!(
+        meta["frontmatter"]["owner"],
+        json!({ "name": "Zoë" }),
+        "{meta}"
+    );
     let headings: Vec<(u64, &str)> = meta["headings"]
         .as_array()
         .unwrap()
@@ -258,11 +264,77 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         }
     }
 
-    // Search needs the app's vault list: with no app it is an error result
-    // that names the app, never an empty "nothing found".
+    // Search needs the app's vault list: with no app and no `vault` it is an
+    // error result that names the app and the way out, never an empty
+    // "nothing found".
     let (is_error, msg) = c.call("search_vault", json!({ "query": "changelog" }));
     assert!(is_error, "search_vault without the app: {msg}");
     assert!(msg.contains("Ashlr MD"), "{msg}");
+    assert!(msg.contains("`vault`"), "names the argument to pass: {msg}");
+
+    // ── Search the vault on disk ───────────────────────────────────────────
+    // Naming the vault directory greps its Markdown files instead, and the
+    // note says so. Dotfiles, non-Markdown files and hidden dirs are skipped.
+    std::fs::create_dir(v.join("notes")).unwrap();
+    std::fs::write(v.join("notes/later.md"), "Write the CHANGELOG later.\n").unwrap();
+    std::fs::create_dir(v.join(".git")).unwrap();
+    std::fs::write(v.join(".git/changelog.md"), "changelog").unwrap();
+    std::fs::write(v.join("changelog.txt"), "changelog").unwrap();
+    std::fs::write(v.join(".changelog.md"), "changelog").unwrap();
+    for vault_arg in [".", v.to_str().unwrap()] {
+        let found = c.ok(
+            "search_vault",
+            json!({ "query": "changelog", "semantic": false, "vault": vault_arg }),
+        );
+        assert_eq!(found["mode"], "grep-disk", "{found}");
+        assert_eq!(found["vault"], v.to_str().unwrap(), "{found}");
+        let note = found["note"].as_str().unwrap_or_default();
+        assert!(note.contains("on disk"), "{found}");
+        let mut paths: Vec<&str> = found["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["path"].as_str().unwrap())
+            .collect();
+        paths.sort();
+        let (v2, later) = (v.join("plan v2.md"), v.join("notes/later.md"));
+        let mut want = vec![plan, v2.to_str().unwrap(), later.to_str().unwrap()];
+        want.sort();
+        assert_eq!(paths, want, "{found}");
+        let first = &found["results"][0];
+        assert!(first["lineNumber"].as_u64().unwrap() > 0, "{found}");
+        assert!(first["snippet"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("changelog"));
+    }
+    let limited = c.ok(
+        "search_vault",
+        json!({ "query": "changelog", "semantic": false, "vault": ".", "limit": 1 }),
+    );
+    assert_eq!(limited["results"].as_array().unwrap().len(), 1, "{limited}");
+    // The resource takes the same `vault` (it is semantic when Ollama runs).
+    let read = c.request(
+        "resources/read",
+        json!({ "uri": "text://vault-search?q=CHANGELOG+later&vault=notes" }),
+    );
+    let payload: Value =
+        serde_json::from_str(read["result"]["contents"][0]["text"].as_str().unwrap()).unwrap();
+    if !mdopener_mcp::ollama_available() {
+        assert_eq!(payload["mode"], "grep-disk", "{read}");
+        assert_eq!(payload["results"].as_array().unwrap().len(), 1, "{read}");
+    }
+    assert!(
+        payload["note"].as_str().unwrap().contains("on disk"),
+        "{read}"
+    );
+    // A vault that is not a directory is refused.
+    for bad in ["plan.md", "missing-dir"] {
+        let (is_error, msg) = c.call("search_vault", json!({ "query": "x", "vault": bad }));
+        assert!(is_error, "vault {bad}: {msg}");
+        assert!(msg.contains("`vault`"), "{msg}");
+    }
     // So is reading the open document when there is no app to ask.
     let (is_error, msg) = c.call("export_text", json!({}));
     assert!(is_error, "export_text without a path or app: {msg}");

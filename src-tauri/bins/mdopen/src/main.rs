@@ -88,10 +88,12 @@ fn main() {
     match open_in_app(&resolved.to_string_lossy(), mode, CLI_DEADLINE, true) {
         Ok(Opened::Confirmed) => {}
         Ok(Opened::Unconfirmed(note)) => eprintln!("mdopen: {note}"),
-        Err(msg) => {
+        Err(NotOpened { msg, maybe_later }) => {
             // Nothing will ever read the piped content: do not leave it behind
-            // in the temp dir.
-            if from_stdin {
+            // in the temp dir. Unless the app may still open it (it was
+            // reached but did not answer in time), when removing it would
+            // turn a slow open into a failed one.
+            if from_stdin && !maybe_later {
                 let _ = std::fs::remove_file(&resolved);
             }
             eprintln!("mdopen: {msg}");
@@ -314,6 +316,23 @@ enum Opened {
     Unconfirmed(String),
 }
 
+/// Why [`open_in_app`] did not confirm an open.
+#[derive(Debug, PartialEq, Eq)]
+struct NotOpened {
+    msg: String,
+    /// The app was reached and may still open the file.
+    maybe_later: bool,
+}
+
+impl NotOpened {
+    fn no(msg: String) -> Self {
+        NotOpened {
+            msg,
+            maybe_later: false,
+        }
+    }
+}
+
 /// Open `abs_path` in Ashlr MD: through the running app's IPC server first,
 /// else by handing an `mdopener://open?…` URL to the OS launcher (see
 /// [`launch`]), which can also cold-start the app. `Err` means it definitely
@@ -323,12 +342,20 @@ fn open_in_app(
     mode: Option<&str>,
     deadline: Duration,
     inherit_stderr: bool,
-) -> Result<Opened, String> {
+) -> Result<Opened, NotOpened> {
     let ipc_error = match ipc::home_dir() {
         Some(home) => match ipc::open(&home, abs_path, mode) {
             Ok(()) => return Ok(Opened::Confirmed),
             // The running app said no; the URL scheme would only reach it again.
-            Err(ipc::Failure::Refused(reason)) => return Err(reason),
+            Err(ipc::Failure::Refused(reason)) => return Err(NotOpened::no(reason)),
+            // Reached but failed or slow: it may still open the file, so a
+            // URL-scheme retry could report a false success or open it twice.
+            Err(ipc::Failure::Failed(reason)) => {
+                return Err(NotOpened {
+                    msg: reason,
+                    maybe_later: true,
+                })
+            }
             Err(ipc::Failure::Unreachable(e)) => e,
         },
         None => "no home directory".to_string(),
@@ -345,11 +372,11 @@ fn open_in_app(
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
         // Both routes failed: say what each one hit, then what to do. Before,
         // this was `<launcher error> (<ipc error>)` with no next step.
-        _ => Err(format!(
+        _ => Err(NotOpened::no(format!(
             "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
              The mdopener:// URL: {}. Start Ashlr MD, then run mdopen again.",
             outcome.describe()
-        )),
+        ))),
     }
 }
 
@@ -358,7 +385,13 @@ fn open_in_app(
 /// the agent. The `if: "Write(*.md)|Edit(*.md)"` rule should already gate this
 /// to Markdown, but we re-check the extension defensively.
 fn run_hook() {
-    use std::io::Read;
+    use std::io::{IsTerminal as _, Read};
+    // Claude Code always pipes the payload. A terminal on stdin means a person
+    // ran `--hook` by hand, and reading it would wait for EOF in silence.
+    if let Some(hint) = hook_terminal_hint(std::io::stdin().is_terminal()) {
+        eprintln!("mdopen: {hint}");
+        return;
+    }
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         return;
@@ -369,6 +402,16 @@ fn run_hook() {
     // Silent either way: no stderr, never a non-zero exit (a headless box has
     // no launcher, which must not surface as a hook error in the agent).
     let _ = open_in_app(&abs.to_string_lossy(), Some("read"), HOOK_DEADLINE, false);
+}
+
+/// The stderr hint for `mdopen --hook` run with a terminal on stdin (no
+/// payload piped in), or `None` when stdin is a pipe or file, as it is under
+/// Claude Code.
+fn hook_terminal_hint(stdin_is_terminal: bool) -> Option<&'static str> {
+    stdin_is_terminal.then_some(
+        "--hook reads a Claude Code PostToolUse JSON payload on stdin and nothing was \
+         piped in, so there is nothing to open. To open a file, run `mdopen <file.md>`.",
+    )
 }
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
@@ -410,7 +453,7 @@ USAGE:
 
 FLAGS:
     --edit, -e                 open in edit mode
-    --read, -r                 open in read mode (default)
+    --read, -r                 open in read mode (default; not with --edit)
     --hook                     Claude Code PostToolUse hook (reads JSON on stdin)
     --help, -h                 print this help
     --version, -V              print the version
@@ -428,12 +471,16 @@ EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
-    1  bad usage, unresolvable path, not a file or not a Markdown document
+    1  bad usage (including --edit with --read), unresolvable path, not a file or not a Markdown document
        (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), or the app is not running
        and the launcher failed or is missing (no desktop session); a message
-       on stderr says which. A `-` temp file is removed in that case. With
-       no arguments at all, this help is printed on stderr.
-    --hook always exits 0 and prints nothing
+       on stderr says which. A `-` temp file is removed in that case. Also
+       1 when the running app answered with a server error or did not
+       answer within 6s: the open is not retried through the URL scheme
+       (the app may still open the file, so a `-` temp file is kept).
+       With no arguments at all, this help is printed on stderr.
+    --hook always exits 0 and prints nothing (run with a terminal on stdin,
+       it prints a hint on stderr instead of waiting for a payload)
 ";
 
 #[cfg(test)]
@@ -487,22 +534,6 @@ mod tests {
     }
 
     #[test]
-    fn edit_and_read_together_are_a_usage_error() {
-        for a in [["--edit", "--read"], ["-r", "-e"]] {
-            let err = parse_args(&args(&[a[0], a[1], "x.md"])).unwrap_err();
-            assert!(err.contains("--edit and --read conflict"), "{err}");
-        }
-        // Repeating one flag is fine.
-        assert_eq!(
-            parse_args(&args(&["-e", "--edit", "x.md"])),
-            Ok(Cli::Open {
-                mode: Some("edit"),
-                target: "x.md".into()
-            })
-        );
-    }
-
-    #[test]
     fn help_and_no_args_are_help() {
         assert_eq!(parse_args(&[]), Ok(Cli::Usage));
         assert_eq!(parse_args(&args(&["--help"])), Ok(Cli::Help));
@@ -540,6 +571,32 @@ mod tests {
         assert!(parse_args(&args(&["a.md", "b.md"]))
             .unwrap_err()
             .contains("expected one file, got 2"));
+    }
+
+    #[test]
+    fn edit_and_read_together_are_a_usage_error() {
+        for pair in [
+            ["-e", "-r"],
+            ["--edit", "--read"],
+            ["--read", "--edit"],
+            ["-r", "-e"],
+        ] {
+            let err = parse_args(&args(&[pair[0], pair[1], "a.md"])).unwrap_err();
+            assert!(
+                err.contains("--edit and --read conflict"),
+                "{pair:?}: {err}"
+            );
+        }
+        // Repeating the same mode is not a conflict.
+        assert_eq!(
+            parse_args(&args(&["-e", "--edit", "a.md"])),
+            Ok(Cli::Open {
+                mode: Some("edit"),
+                target: "a.md".into()
+            })
+        );
+        // After `--`, `-r` is a file name, not a second mode.
+        assert!(parse_args(&args(&["-e", "--", "-r"])).is_ok());
     }
 
     #[test]
@@ -602,6 +659,13 @@ mod tests {
             let err = resolve_file(link.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{err}");
         }
+    }
+
+    #[test]
+    fn hook_mode_with_a_terminal_on_stdin_gets_a_hint() {
+        let hint = hook_terminal_hint(true).expect("a terminal needs a hint");
+        assert!(hint.contains("mdopen <file.md>"), "{hint}");
+        assert_eq!(hook_terminal_hint(false), None);
     }
 
     #[test]
