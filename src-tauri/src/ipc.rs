@@ -37,7 +37,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 // ── Session persistence types ──────────────────────────────────────────────────
@@ -65,6 +65,21 @@ pub struct SessionStore(pub Mutex<HashMap<String, Vec<SessionMessage>>>);
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tiny_http::{Method, Request, Response, Server};
+
+/// Lock a mutex, recovering it if a thread panicked while holding it. Every
+/// value behind these locks (mirrors of the window's state, maps of pending
+/// round-trips and reviews) is valid after any single insert or remove, so
+/// one panicked request must not turn every later request touching the same
+/// state into a panic too (a dropped connection, with no reason given).
+trait LockRecover<T> {
+    fn lock_recover(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> LockRecover<T> for Mutex<T> {
+    fn lock_recover(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 // ── Managed state ─────────────────────────────────────────────────────────────
 
@@ -263,8 +278,8 @@ pub fn mcp_sync_state(
     mirror: tauri::State<DocMirror>,
     recent_mirror: tauri::State<RecentMirror>,
 ) {
-    *mirror.0.lock().unwrap() = DocMirrorInner { path, content };
-    *recent_mirror.0.lock().unwrap() = recents;
+    *mirror.0.lock_recover() = DocMirrorInner { path, content };
+    *recent_mirror.0.lock_recover() = recents;
 }
 
 /// The verdicts the review panel may record. `timeout` is the panel's own
@@ -284,7 +299,7 @@ pub fn set_review_verdict(
     if !REVIEW_VERDICTS.contains(&verdict.as_str()) {
         return Err(format!("Invalid verdict: {verdict}"));
     }
-    let mut map = state.0.lock().unwrap();
+    let mut map = state.0.lock_recover();
     match map.get_mut(&review_id) {
         None => Err(format!("Review {review_id} not found")),
         Some(r) => {
@@ -323,7 +338,7 @@ pub fn mcp_sync_vault(
     files: Vec<VaultFileEntry>,
     vault: tauri::State<VaultMirror>,
 ) {
-    *vault.0.lock().unwrap() = VaultInner { watched_dir, files };
+    *vault.0.lock_recover() = VaultInner { watched_dir, files };
 }
 
 /// Called by the frontend after it applies an `mcp://edit` against the LIVE
@@ -340,7 +355,7 @@ pub fn mcp_edit_result(
     error: Option<String>,
     pending: tauri::State<PendingEdits>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         // The receiver may already be gone if handle_edit timed out; ignore.
         let _ = tx.send(EditOutcome { ok, replaced, error });
@@ -362,7 +377,7 @@ pub fn mcp_stream_edit_preview(
     error: Option<String>,
     pending: tauri::State<PendingStreamEdits>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         let _ = tx.send(StreamEditPreviewOutcome { ok, diff, candidates, match_count, error });
     }
@@ -379,7 +394,7 @@ pub fn mcp_stream_edit_apply_result(
     error: Option<String>,
     pending: tauri::State<PendingStreamEditsApply>,
 ) {
-    let tx = pending.0.lock().unwrap().remove(&edit_id);
+    let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error });
     }
@@ -780,7 +795,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
             (Method::Get, "/content") => {
                 let mirror = app.state::<DocMirror>();
-                let inner = mirror.0.lock().unwrap().clone();
+                let inner = mirror.0.lock_recover().clone();
                 send_json(req, serde_json::json!({
                     "path": inner.path,
                     "content": inner.content,
@@ -799,7 +814,7 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 
                 let mirror = app.state::<RecentMirror>();
                 let recents: Vec<_> =
-                    mirror.0.lock().unwrap().iter().take(limit).cloned().collect();
+                    mirror.0.lock_recover().iter().take(limit).cloned().collect();
                 send_json(req, serde_json::json!(recents));
             }
 
@@ -890,9 +905,9 @@ fn window_round_trip(
     payload["editId"] = serde_json::Value::String(edit_id.clone());
     let (tx, rx) = mpsc::channel::<EditOutcome>();
     let pending = app.state::<PendingEdits>();
-    pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+    pending.0.lock_recover().insert(edit_id.clone(), tx);
     if let Err(e) = app.emit(event, payload) {
-        pending.0.lock().unwrap().remove(&edit_id);
+        pending.0.lock_recover().remove(&edit_id);
         return Some(Ok(EditOutcome {
             ok: false,
             replaced: 0,
@@ -901,7 +916,7 @@ fn window_round_trip(
     }
     let outcome = rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT);
     if outcome.is_err() {
-        pending.0.lock().unwrap().remove(&edit_id);
+        pending.0.lock_recover().remove(&edit_id);
     }
     Some(outcome)
 }
@@ -1000,7 +1015,7 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     let body = read_json_body::<Body>(&mut req);
     match body {
         Ok(b) => {
-            let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+            let open = app.state::<DocMirror>().0.lock_recover().path.clone();
             if let Some(e) = export_refusal(&b.format, open.as_deref()) {
                 return send_error(req, 400, &e);
             }
@@ -1075,7 +1090,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
 
     {
         let state = app.state::<ReviewState>();
-        let mut map = state.0.lock().unwrap();
+        let mut map = state.0.lock_recover();
         if map.contains_key(&body.review_id) {
             return send_error(req, 409, "reviewId already exists");
         }
@@ -1103,7 +1118,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         let outcome = window_round_trip(app, "review_open", "mcp://open", payload);
         if let Some(refusal) = review_open_refusal(outcome, p) {
             let state = app.state::<ReviewState>();
-            state.0.lock().unwrap().remove(&body.review_id);
+            state.0.lock_recover().remove(&body.review_id);
             return send_json(req, refusal);
         }
     }
@@ -1126,8 +1141,7 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
     if reply["ok"] != true {
         app.state::<ReviewState>()
             .0
-            .lock()
-            .unwrap()
+            .lock_recover()
             .remove(&body.review_id);
     }
     send_json(req, reply);
@@ -1222,7 +1236,7 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     // and every other ReviewState reader against a slow client).
     let record = {
         let state = app.state::<ReviewState>();
-        let map = state.0.lock().unwrap();
+        let map = state.0.lock_recover();
         let now = now_ms();
         map.get(id).map(|r| {
             (
@@ -1327,7 +1341,7 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
 
     let (open_path, open_content) = {
         let mirror = app.state::<DocMirror>();
-        let inner = mirror.0.lock().unwrap();
+        let inner = mirror.0.lock_recover();
         (inner.path.clone(), inner.content.clone())
     };
     let tasks = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
@@ -1337,7 +1351,7 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
     // relative or symlinked `path` still finds them.
     let (verdict, comments, late) = {
         let review_state = app.state::<ReviewState>();
-        let map = review_state.0.lock().unwrap();
+        let map = review_state.0.lock_recover();
         map.values()
             .filter(|r| r.path.as_deref().is_some_and(|p| same_path(p, &raw_path)))
             .max_by_key(|r| r.created_at)
@@ -1359,12 +1373,11 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
 /// GET /vault — enumerate the user's notes: the watched folder's files (mirrored
 /// from the frontend) unioned with recent-file paths.
 fn handle_vault(req: Request, app: &AppHandle) {
-    let vault = app.state::<VaultMirror>().0.lock().unwrap().clone();
+    let vault = app.state::<VaultMirror>().0.lock_recover().clone();
     let recents: Vec<String> = app
         .state::<RecentMirror>()
         .0
-        .lock()
-        .unwrap()
+        .lock_recover()
         .iter()
         .map(|r| r.path.clone())
         .collect();
@@ -1395,7 +1408,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     let mut seen = std::collections::HashSet::new();
     {
         let vault_state = app.state::<VaultMirror>();
-        let vault = vault_state.0.lock().unwrap();
+        let vault = vault_state.0.lock_recover();
         for f in vault.files.iter() {
             if seen.insert(f.path.clone()) {
                 paths.push(f.path.clone());
@@ -1404,7 +1417,7 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
     {
         let recent_state = app.state::<RecentMirror>();
-        let recents = recent_state.0.lock().unwrap();
+        let recents = recent_state.0.lock_recover();
         for r in recents.iter() {
             if seen.insert(r.path.clone()) {
                 paths.push(r.path.clone());
@@ -1496,8 +1509,7 @@ fn open_document_named(app: &AppHandle, want: &str) -> Option<String> {
     let have_raw = app
         .state::<DocMirror>()
         .0
-        .lock()
-        .unwrap()
+        .lock_recover()
         .path
         .clone()
         .unwrap_or_default();
@@ -1621,7 +1633,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<EditOutcome>();
     {
         let pending = app.state::<PendingEdits>();
-        pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+        pending.0.lock_recover().insert(edit_id.clone(), tx);
     }
     let emitted = app.emit("mcp://edit", serde_json::json!({
         "editId": edit_id,
@@ -1634,8 +1646,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     if let Some(reply) = emit_failure(emitted) {
         app.state::<PendingEdits>()
             .0
-            .lock()
-            .unwrap()
+            .lock_recover()
             .remove(&edit_id);
         return send_json(req, reply);
     }
@@ -1654,7 +1665,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingEdits>().0.lock().unwrap().remove(&edit_id);
+            app.state::<PendingEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for the app to apply the edit — is a document open and the window responsive?",
@@ -1711,7 +1722,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<StreamEditPreviewOutcome>();
     {
         let pending = app.state::<PendingStreamEdits>();
-        pending.0.lock().unwrap().insert(edit_id.clone(), tx);
+        pending.0.lock_recover().insert(edit_id.clone(), tx);
     }
 
     let emitted = app.emit(
@@ -1728,8 +1739,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
     if let Some(reply) = emit_failure(emitted) {
         app.state::<PendingStreamEdits>()
             .0
-            .lock()
-            .unwrap()
+            .lock_recover()
             .remove(&edit_id);
         return send_json(req, reply);
     }
@@ -1749,7 +1759,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingStreamEdits>().0.lock().unwrap().remove(&edit_id);
+            app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for stream-edit preview — is a document open?",
@@ -1801,7 +1811,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
     let (tx, rx) = mpsc::channel::<StreamEditApplyOutcome>();
     {
         let pending = app.state::<PendingStreamEditsApply>();
-        pending.0.lock().unwrap().insert(apply_id.clone(), tx);
+        pending.0.lock_recover().insert(apply_id.clone(), tx);
     }
 
     let emitted = app.emit(
@@ -1819,8 +1829,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
     if let Some(reply) = emit_failure(emitted) {
         app.state::<PendingStreamEditsApply>()
             .0
-            .lock()
-            .unwrap()
+            .lock_recover()
             .remove(&apply_id);
         return send_json(req, reply);
     }
@@ -1838,7 +1847,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingStreamEditsApply>().0.lock().unwrap().remove(&apply_id);
+            app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
             send_json(req, serde_json::json!({
                 "ok": false,
                 "error": "Timed out waiting for stream-edit-apply — is a document open?",
@@ -1859,7 +1868,7 @@ fn handle_present(mut req: Request, app: &AppHandle) {
         Ok(b) => b,
         Err((code, e)) => return send_error(req, code, &e),
     };
-    let open = app.state::<DocMirror>().0.lock().unwrap().path.clone();
+    let open = app.state::<DocMirror>().0.lock_recover().path.clone();
     let path = match present_target(body.path.as_deref(), open.as_deref()) {
         Ok(p) => p,
         Err(e) => return send_error(req, 400, &e),
@@ -1941,6 +1950,24 @@ mod tests {
         same_path, InflightEdit, INFLIGHT_EDITS, MAX_INFLIGHT_EDITS,
     };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_poisoned_lock_is_recovered_not_a_panic() {
+        use super::LockRecover;
+        use std::sync::{Arc, Mutex};
+        let m = Arc::new(Mutex::new(vec![1]));
+        let m2 = Arc::clone(&m);
+        let _ = std::thread::spawn(move || {
+            let mut g = m2.lock().unwrap();
+            g.push(2);
+            panic!("a request handler panicked holding the lock");
+        })
+        .join();
+        assert!(m.is_poisoned());
+        // The state is still usable, and later requests see it.
+        m.lock_recover().push(3);
+        assert_eq!(*m.lock_recover(), vec![1, 2, 3]);
+    }
 
     #[test]
     fn export_output_path_is_checked_by_the_app_too() {
