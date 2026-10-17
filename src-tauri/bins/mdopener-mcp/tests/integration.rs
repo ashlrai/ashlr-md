@@ -5294,6 +5294,109 @@ fn vault_search_resource_documents_every_field_it_returns() {
     }
 }
 
+/// The `search_vault` description said `{ results, mode, note?, ... }` while
+/// a reply the app answered (mode `grep`) also carried the app's `query`. The
+/// description and docs/AGENTS.md now state the same field list, and replies
+/// in every mode return only documented fields.
+#[test]
+fn search_vault_tool_documents_every_field_it_returns() {
+    use mdopener_mcp::{DISK_VAULT_MAX_DEPTH, SEARCH_VAULT_TOOL_FIELDS};
+    let shape = SEARCH_VAULT_TOOL_FIELDS;
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "search_vault")
+        .unwrap();
+    for (place, text) in [
+        ("tools/list", def.description),
+        ("docs/AGENTS.md", include_str!("../../../../docs/AGENTS.md")),
+    ] {
+        assert!(text.contains(shape), "{place} must state {shape}");
+    }
+    let fields = documented_fields(shape);
+
+    // Mode `grep`: the app answers, with a vault list cut short by depth.
+    let app = MockIpc::new().on_get(
+        "/search",
+        Ok(json!({
+            "query": "x",
+            "results": [],
+            "truncated": true,
+            "depthCut": true,
+            "note": "Some files were not searched."
+        })),
+    );
+    let grep = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "x", "semantic": false }),
+        &app,
+    ));
+    assert_eq!(grep["mode"], "grep", "{grep}");
+
+    // Mode `grep-disk`: the app is down; an on-disk vault too deep to walk.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let mut deep = dir.path().to_path_buf();
+    for level in 0..=DISK_VAULT_MAX_DEPTH {
+        deep = deep.join(format!("l{level}"));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "x marks it\n").unwrap();
+    std::fs::write(deep.join("b.md"), "x marks it\n").unwrap();
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let gone = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let vault = dir.path().to_str().unwrap();
+    let disk = content_text(&tool_search_vault(
+        id(2),
+        &json!({ "query": "x", "semantic": false, "vault": vault }),
+        &gone,
+    ));
+    assert_eq!(disk["mode"], "grep-disk", "{disk}");
+
+    // Mode `grep-local`: the app lists the vault but its search fails.
+    let listed = json!({ "files": [{ "path": doc }], "recents": [], "truncated": true });
+    let local_ipc = MockIpc::new()
+        .on_get("/vault", Ok(listed.clone()))
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let local = content_text(&tool_search_vault(
+        id(3),
+        &json!({ "query": "x", "semantic": false }),
+        &local_ipc,
+    ));
+    assert_eq!(local["mode"], "grep-local", "{local}");
+
+    // Mode `semantic`, through the search the tool runs, embedder injected.
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let sem_ipc = MockIpc::new().on_get("/vault", Ok(listed));
+    let semantic = mdopener_mcp::search_vault_in("x", 5, true, None, &sem_ipc, &embed).unwrap();
+    assert_eq!(semantic["mode"], "semantic", "{semantic}");
+
+    let mut seen = std::collections::HashSet::new();
+    for payload in [&grep, &disk, &local, &semantic] {
+        let obj = payload.as_object().unwrap();
+        for key in obj.keys() {
+            assert!(
+                fields.iter().any(|(name, _)| name == key),
+                "`{key}` is returned but not documented in {shape}: {payload}"
+            );
+            seen.insert(key.clone());
+        }
+        for (name, optional) in &fields {
+            assert!(
+                *optional || obj.contains_key(name),
+                "`{name}` missing: {payload}"
+            );
+        }
+    }
+    for (name, _) in &fields {
+        assert!(
+            seen.contains(name),
+            "`{name}` is documented but never returned"
+        );
+    }
+}
+
 // ── search_vault / text://vault-search when the app is down ─────────────────
 
 /// Every IPC route fails the way it does when the app is not running.
