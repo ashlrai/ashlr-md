@@ -9857,3 +9857,51 @@ fn agent_facing_text_has_no_em_or_en_dashes() {
     ));
     assert!(found.is_empty(), "dashes found:\n{}", found.join("\n"));
 }
+
+// ── edit_canvas refuses empty ids before reading ─────────────────────────────
+
+/// An op with `id: ""` (or an empty `ids` element, `node.id`, `edge.id`,
+/// `edge.fromNode` or `edge.toNode`) used to reach the file and come back as
+/// "node `` not found". It is now -32602 saying the field must not be empty,
+/// before the file is read: the canvas here does not exist.
+#[test]
+fn edit_canvas_refuses_empty_ids_before_reading_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing.canvas");
+    let node = json!({ "id": "", "type": "text", "text": "t", "x": 0, "y": 0,
+                       "width": 1, "height": 1 });
+    let cases = [
+        (
+            json!({ "type": "move_node", "id": "", "x": 1, "y": 2 }),
+            "op[0] move_node: `id` must not be empty",
+        ),
+        (
+            json!({ "type": "delete_edge", "id": "" }),
+            "op[0] delete_edge: `id` must not be empty",
+        ),
+        (
+            json!({ "type": "reorder_edges", "ids": ["e1", ""] }),
+            "op[0] reorder_edges: `ids[1]` must not be empty",
+        ),
+        (
+            json!({ "type": "add_node", "node": node }),
+            "op[0] add_node: node.id must not be empty",
+        ),
+        (
+            json!({ "type": "add_edge", "edge": { "id": "e", "fromNode": "", "toNode": "b" } }),
+            "op[0] add_edge: edge.fromNode must not be empty",
+        ),
+        (
+            json!({ "type": "add_edge", "edge": { "id": "e", "fromNode": "a", "toNode": "" } }),
+            "op[0] add_edge: edge.toNode must not be empty",
+        ),
+    ];
+    for (op, want) in cases {
+        let args = json!({ "path": path, "ops": [op] });
+        let direct = mdopener_mcp::tool_edit_canvas(id(1), &args);
+        assert_eq!(param_error(&direct), want);
+        let via_call = call("edit_canvas", args, &MockIpc::new());
+        assert_eq!(param_error(&via_call), want);
+    }
+    assert!(!path.exists());
+}

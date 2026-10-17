@@ -1144,7 +1144,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                     ],
                                     "description": "Operation type."
                                 },
-                                "id": { "type": "string", "description": "Node or edge id (required for most ops)." },
+                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty one is refused before the file is read." },
                                 "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
                                 "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
                                 "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
@@ -1159,12 +1159,12 @@ pub fn tool_registry() -> Vec<ToolDef> {
                                 },
                                 "edge": {
                                     "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and non-empty fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
                                 },
                                 "ids": {
                                     "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Complete ordered list of all edge ids (reorder_edges)."
+                                    "items": { "type": "string", "minLength": 1 },
+                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty id is refused."
                                 }
                             },
                             "required": ["type"]
@@ -5525,6 +5525,11 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         if let Some(msg) = canvas_op_field_problem(op) {
             return Response::err(id, -32602, format!("op[{i}] {msg}"));
         }
+        // An empty id names no node or edge: it used to be looked up in the
+        // file and come back as "node `` not found".
+        if let Some(msg) = canvas_op_empty_id(op) {
+            return Response::err(id, -32602, format!("op[{i}] {msg}"));
+        }
     }
 
     // ── Read file ────────────────────────────────────────────────────────────
@@ -6367,6 +6372,34 @@ fn canvas_op_field_problem(op: &Value) -> Option<String> {
     Some(format!(
         "{kind}: `{field}` is not used by {kind}, which takes {list}{hint}. Send one op per change."
     ))
+}
+
+/// The first id-like field of `op` that is an empty string, as
+/// "move_node: `id` must not be empty": the op's `id`, an element of
+/// `reorder_edges`' `ids`, `add_node`'s `node.id`, and `add_edge`'s
+/// `edge.id`, `edge.fromNode` and `edge.toNode`. A field of another type is
+/// refused by the type checks.
+fn canvas_op_empty_id(op: &Value) -> Option<String> {
+    let kind = op["type"].as_str().unwrap_or("op");
+    let empty = |v: &Value| v.as_str() == Some("");
+    if empty(&op["id"]) {
+        return Some(format!("{kind}: `id` must not be empty"));
+    }
+    if let Some(j) = op["ids"]
+        .as_array()
+        .and_then(|ids| ids.iter().position(empty))
+    {
+        return Some(format!("{kind}: `ids[{j}]` must not be empty"));
+    }
+    if empty(&op["node"]["id"]) {
+        return Some(format!("{kind}: node.id must not be empty"));
+    }
+    for field in ["id", "fromNode", "toNode"] {
+        if empty(&op["edge"][field]) {
+            return Some(format!("{kind}: edge.{field} must not be empty"));
+        }
+    }
+    None
 }
 
 /// A colour JSON Canvas allows: a preset `"1"`..`"6"` or a hex `#rgb` /

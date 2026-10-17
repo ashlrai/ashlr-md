@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` refuses an empty id before reading the file.** An op with
+  `id: ""` read the canvas and came back as "node `` not found". An empty
+  op `id`, `reorder_edges` `ids` element, `add_node` `node.id`, or
+  `add_edge` `edge.id`, `edge.fromNode` or `edge.toNode` is now `-32602`
+  saying it must not be empty, before the file is read.
 - **`stream_edit_apply` refuses an empty `edit_id`.** `edit_id: ""` named no
   preview and was accepted. The schema now declares `minLength: 1` and an
   empty one is `-32602`, as an empty `path` is; leaving it out still works.
