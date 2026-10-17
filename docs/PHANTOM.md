@@ -23,14 +23,18 @@ Ashlr MD; otherwise it falls back to terminal output.
 
 ### `mdopen` exit status
 
-`mdopen` hands the `mdopener://` URL to the OS launcher (`open` on macOS,
+`mdopen` opens only Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`,
+`.mdx`) that are not dotfiles, checked after symlinks are resolved; anything
+else exits `1` before the app is contacted. When Ashlr MD is running, `mdopen`
+hands it the file over its loopback IPC channel. Otherwise it hands the
+`mdopener://` URL to the OS launcher (`open` on macOS,
 `xdg-open` then `gio open` on Linux, `rundll32 url.dll,FileProtocolHandler` on Windows) and waits at
 most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 
 | Exit | Meaning |
 |---|---|
-| `0` | The launcher accepted the URL. If it is still running after 10 s, `mdopen` prints `... the open is not confirmed` on stderr and still exits `0`. |
-| `1` | Bad usage, an unresolvable path, the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
+| `0` | The running app accepted the file, or the launcher accepted the URL. If the launcher is still running after 10 s, `mdopen` prints `... the open is not confirmed` on stderr and still exits `0`. |
+| `1` | Bad usage, an unresolvable path, a file that is not a Markdown document or is a dotfile, the running app refused the file (its reason is on stderr, and the URL scheme is not tried), the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
 
 `mdopen --hook` (the Claude Code `PostToolUse` hook) always exits `0` and prints
 nothing, waiting at most 5 seconds for the launcher.
@@ -43,6 +47,10 @@ success on a headless machine, where `mdopen` exits `1`.
 
 Speaks MCP over stdio. `initialize` echoes `2024-11-05`, `2025-03-26` and
 `2025-06-18`, and answers any other requested version with `2025-06-18`.
+`open_file` accepts only a Markdown document that is not a dotfile and that
+exists (checked after symlinks are resolved); any other path is refused with
+`isError: true` before the app or the URL scheme is reached, and a running app
+that refuses the file is not retried through the URL scheme.
 When the app is not running, `open_file` falls back to the URL scheme through
 the same launchers as `mdopen` (bounded at 10 seconds). When nothing could
 open it, for example on a headless Linux box, the call returns a tool result

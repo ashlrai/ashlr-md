@@ -440,7 +440,11 @@ When the app is running, `mdopen` hands it the file over the token-authenticated
 loopback IPC channel, so it works even where the `mdopener://` scheme is not
 registered (an AppImage or dev build on Linux). Otherwise it opens the
 `mdopener://` URL, which launches the app. It exits `1` when neither works;
-for `mdopen -` the temp file holding stdin is then removed. `mdopen -` also
+for `mdopen -` the temp file holding stdin is then removed. It also exits `1`,
+before contacting the app, for a file that is not a Markdown document
+(`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) or is a dotfile, checked after
+symlinks are resolved; and when the running app refuses the file, it exits `1`
+with the app's reason on stderr without trying the URL scheme. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace. Run with a
 terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
 stderr. Run with no arguments at all, it prints its help to stderr and exits
