@@ -9,7 +9,9 @@
 // sees. The app's package descriptions (shown in app metadata) are checked
 // too, and so are the shell page (index.html: the window title before the
 // app loads), the landing page (landing/index.html: its title, meta and
-// social descriptions and body copy, HTML comments aside), every string in
+// social descriptions and body copy, HTML comments aside), the top-level
+// Markdown docs (README, CONTRIBUTING, ROADMAP, SECURITY, AGENTS; not the
+// historical CHANGELOG), every string in
 // the Tauri configs (window titles, bundle descriptions, file association
 // names) and the string literals of the Rust
 // crates (dialog, menu, tray and notification text, and the errors the
@@ -24,6 +26,14 @@ import landingHtml from "../landing/index.html?raw";
 import mdopenCargo from "../src-tauri/bins/mdopen/Cargo.toml?raw";
 import mcpCargo from "../src-tauri/bins/mdopener-mcp/Cargo.toml?raw";
 import appCargo from "../src-tauri/Cargo.toml?raw";
+
+// Top-level docs an agent or contributor reads first. CHANGELOG.md keeps its
+// historical entries as written, so it is not checked.
+const topDocs = import.meta.glob<string>(["../*.md", "!../CHANGELOG.md"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 
 const DASH = /[–—]/;
 
@@ -257,6 +267,28 @@ describe("no em or en dashes in user-facing strings", () => {
       .map((l, k) => [k + 1, l] as const)
       .filter(([, l]) => DASH.test(l) || /&(?:[mn]dash|#821[12]|#x201[34]);/i.test(l))
       .map(([k, l]) => `landing/index.html:${k}: ${l.trim().slice(0, 120)}`);
+    expect(found).toEqual([]);
+  });
+
+  it("the top-level docs have none, as characters or entities", () => {
+    const files = Object.keys(topDocs);
+    for (const f of [
+      "README.md",
+      "CONTRIBUTING.md",
+      "ROADMAP.md",
+      "SECURITY.md",
+      "AGENTS.md",
+    ]) {
+      expect(files).toContain(`../${f}`);
+    }
+    expect(files).not.toContain("../CHANGELOG.md");
+    const found = Object.entries(topDocs).flatMap(([file, src]) =>
+      src
+        .split("\n")
+        .map((l, k) => [k + 1, l] as const)
+        .filter(([, l]) => DASH.test(l) || /&(?:[mn]dash|#821[12]|#x201[34]);/i.test(l))
+        .map(([k, l]) => `${file.slice(3)}:${k}: ${l.trim().slice(0, 120)}`),
+    );
     expect(found).toEqual([]);
   });
 

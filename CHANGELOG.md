@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **README, CONTRIBUTING, ROADMAP and SECURITY have no em or en dashes.**
+  Their prose, feature lists and tables use colons, semicolons and commas
+  instead, and the dash guard test now covers every top-level Markdown file
+  except this changelog, whose historical entries are unchanged.
 - **docs/AGENTS.md has no em or en dashes in its prose.** Headings, lists,
   the tool table and the hook and security sections now use plain
   punctuation, as the repo's style asks; ranges read "5 000 to 600 000".
