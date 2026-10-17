@@ -438,6 +438,30 @@ pub fn apply_file_patch(
         .file_name()
         .ok_or("The patch target has no file name.")?;
     let resolved = canon_parent.join(file_name);
+    // The file itself is judged after resolving symlinks too: a `notes.md`
+    // link to `~/.ssh/id_rsa` was read through and its patched text written
+    // into the folder (the rename replaced the link), where agents read it.
+    let resolved = match std::fs::canonicalize(&resolved) {
+        Ok(real) if !real.starts_with(&base) => return Err(LINKED_OUT_OF_FOLDER.into()),
+        Ok(real) => real,
+        Err(_) => resolved,
+    };
+    // Hidden files and folders (`.git/config`, `.env`, `.github/…`) are never
+    // patched: a diff an agent wrote could otherwise set `core.fsmonitor` in
+    // `.git/config`, which git runs as a command.
+    let hidden = resolved
+        .strip_prefix(&base)
+        .map(|rel| {
+            rel.components()
+                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        })
+        .unwrap_or(true);
+    if hidden {
+        return Err(
+            "Refusing to patch a hidden file or a file in a hidden folder (such as .git/ or .env)."
+                .into(),
+        );
+    }
     let resolved_str = resolved.to_string_lossy().into_owned();
 
     if path_targets_obsidian_dir(&resolved_str) {
@@ -456,6 +480,10 @@ pub fn apply_file_patch(
     write_markdown_file(resolved_str.clone(), new_content)?;
     Ok(resolved_str)
 }
+
+/// Why [`apply_file_patch`] refuses a target that is a link out of the folder.
+const LINKED_OUT_OF_FOLDER: &str =
+    "Refusing to patch a file outside the document's own folder (it is a link that points out of it).";
 
 /// Image extensions accepted for a pasted-image save (lower-cased, no dot).
 const PASTE_IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
@@ -800,6 +828,58 @@ mod tests {
             std::fs::read_to_string(root.join("secret.md")).unwrap(),
             "TOPSECRET"
         );
+    }
+
+    /// A diff an agent wrote could patch `.git/config` (git runs
+    /// `core.fsmonitor` as a command) or `.env` next to the document, and a
+    /// `link.md` to a file outside the folder was read through and its
+    /// patched text written into the folder.
+    #[test]
+    fn apply_file_patch_rejects_hidden_and_linked_targets() {
+        let root = make_tree();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git").join("config"), "[core]\n").unwrap();
+        std::fs::write(root.join(".env"), "TOKEN=1").unwrap();
+        for (target, find) in [
+            (".git/config", "[core]"),
+            (".env", "TOKEN"),
+            ("./.env", "TOKEN"),
+        ] {
+            let err =
+                apply_file_patch(s(&root), target.into(), find.into(), "x".into()).unwrap_err();
+            assert!(err.contains("hidden"), "{target}: {err}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git").join("config")).unwrap(),
+            "[core]\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".env")).unwrap(),
+            "TOKEN=1"
+        );
+
+        #[cfg(unix)]
+        {
+            let outside = make_tree();
+            let key = outside.join("id_rsa");
+            std::fs::write(&key, "BEGIN KEY").unwrap();
+            let link = root.join("link.md");
+            std::os::unix::fs::symlink(&key, &link).unwrap();
+            let err = apply_file_patch(s(&root), "link.md".into(), "BEGIN".into(), "x".into())
+                .unwrap_err();
+            assert!(err.contains("outside"), "{err}");
+            assert!(std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(std::fs::read_to_string(&key).unwrap(), "BEGIN KEY");
+            let _ = std::fs::remove_dir_all(&outside);
+        }
+
+        // An ordinary file in the folder is still patched.
+        let ok = apply_file_patch(s(&root), "Alpha.md".into(), "Alpha".into(), "A".into());
+        assert!(ok.is_ok(), "{ok:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

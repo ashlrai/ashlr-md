@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **"Apply hunk" never patches hidden files or follows a link out of the
+  folder.** A diff block names its target file, and an agent writes the diff:
+  one naming `.git/config` (git runs `core.fsmonitor` as a command) or `.env`
+  next to the document was applied on a click. A target that is a link to a
+  file outside the document's folder was read through and its patched text
+  written into the folder, where agents read it. Both are now refused.
 - **`edit_canvas` never writes through a symlink.** It saved with a write
   that follows symlinks, so a `.canvas` swapped for a link to `~/.bashrc`
   after the tool checked and read it had the canvas JSON written into
