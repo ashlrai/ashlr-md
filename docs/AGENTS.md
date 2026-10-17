@@ -242,6 +242,15 @@ spec asks, so the agent sees the message and can act on it. JSON-RPC errors
 are reserved for protocol problems: an unknown tool or invalid arguments
 (`-32602`).
 
+Arguments are checked against the tool's `inputSchema` before it runs. An
+argument the schema does not declare (a typo such as `pth`), a value of the
+wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
+`cited_docs`) or `arguments` that is not an object is refused with `-32602`
+naming the argument; an undeclared one also lists the arguments the tool
+takes and the closest match. `null` counts as not given. An unknown tool name
+gets the closest tool name, if any, and a pointer to `tools/list`. A blank
+`session_id` is refused like a missing one.
+
 ### `edit_document` — exact, unique find/replace
 
 `edit_document` replaces an **exact substring** of the currently open document.
@@ -456,7 +465,7 @@ folder is on `PATH` by default, so add one of them to your user `PATH` yourself.
 ```bash
 mdopen README.md                # open a file (read mode, default)
 mdopen --edit PLAN.md           # open directly in edit mode (-e also works)
-mdopen --read NOTES.md          # force read mode (-r also works)
+mdopen --read NOTES.md          # force read mode (-r also works; with --edit it is a usage error)
 cat notes.md | mdopen -         # pipe stdin → temp file → open in app
 mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
 mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
