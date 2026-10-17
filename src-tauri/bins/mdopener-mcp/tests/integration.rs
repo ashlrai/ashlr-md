@@ -8993,6 +8993,57 @@ fn export_description_names_its_results() {
     assert_eq!(keys, ["bytes", "format", "ok", "path"], "{v}");
 }
 
+/// export_text and export_metadata listed what they extract but not the
+/// field names, so an agent learned `word_count` and `embedded_image_count`
+/// by calling them. Each named field is one the tool returns, and no other.
+#[test]
+fn export_text_and_metadata_descriptions_name_their_fields() {
+    let desc = |name: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .description
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "---\ntitle: T\n---\n# Plan\n\nSee [[B]] and [[A]].\n").unwrap();
+    let args = json!({ "path": doc.to_string_lossy() });
+    for (tool, shape, keys) in [
+        (
+            "export_text",
+            "{ text, word_count, char_count, path? }",
+            &["char_count", "path", "text", "word_count"][..],
+        ),
+        (
+            "export_metadata",
+            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? }",
+            &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
+        ),
+    ] {
+        let d = desc(tool);
+        assert!(d.contains(shape), "{tool} missing {shape:?}: {d}");
+        assert!(d.contains("absent for an unsaved open document"), "{tool}: {d}");
+        let v = content_text(&call(tool, args.clone(), &MockIpc::new()));
+        let mut got: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(got, keys, "{tool}: {v}");
+        if tool == "export_metadata" {
+            assert_eq!(v["headings"], json!([{ "level": 1, "text": "Plan" }]));
+            assert_eq!(v["wikilinks"], json!(["A", "B"]));
+        }
+    }
+    // Without `path`, an unsaved open document gives no `path`.
+    for tool in ["export_text", "export_metadata"] {
+        let ipc = MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": null, "content": "# Draft\n" })),
+        );
+        let v = content_text(&call(tool, json!({}), &ipc));
+        assert!(v.get("path").is_none(), "{tool}: {v}");
+    }
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

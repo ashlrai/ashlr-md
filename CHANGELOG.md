@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`export_text` and `export_metadata` name their result fields.** Their
+  descriptions listed what they extract but not the field names, and
+  docs/AGENTS.md ended `export_metadata`'s shape with "…". They now give
+  `{ text, word_count, char_count, path? }` and
+  `{ frontmatter, headings: [{ level, text }], wikilinks,
+  embedded_image_count, word_count, path? }`, with `path` absent for an
+  unsaved open document.
 - **`export`'s description names its results.** It said when the call
   returns but not what comes back. It now gives `{ ok, format, path, bytes }`
   for a written file and `{ ok, format, dialog: true }` for the dialog, and

@@ -1302,8 +1302,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
             description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
-                text, table rows become tab-separated cells, and footnotes read [1]. Returns the extracted text \
-                together with word and character counts. Operates directly on disk; no running app \
+                text, table rows become tab-separated cells, and footnotes read [1]. Returns \
+                { text, word_count, char_count, path? }: the extracted text with its word and character \
+                counts, and the absolute path of the file read (absent for an unsaved open document). \
+                Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (an error when nothing is open).",
             input_schema: json!({
@@ -1332,7 +1334,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
                 headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax), and the total word count. Operates directly \
+                images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
+                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
+                (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
+                `path` absent for an unsaved open document). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
                 reads the currently open document via IPC (an error when nothing is open).",
             input_schema: json!({
