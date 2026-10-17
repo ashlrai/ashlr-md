@@ -408,23 +408,36 @@ fn open_in_app(
 /// the agent. The `if: "Write(*.md)|Edit(*.md)"` rule should already gate this
 /// to Markdown, but we re-check the extension defensively.
 fn run_hook() {
-    use std::io::{IsTerminal as _, Read};
+    use std::io::IsTerminal as _;
     // Claude Code always pipes the payload. A terminal on stdin means a person
     // ran `--hook` by hand, and reading it would wait for EOF in silence.
     if let Some(hint) = hook_terminal_hint(std::io::stdin().is_terminal()) {
         eprintln!("mdopen: {hint}");
         return;
     }
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
+    let Some(input) = hook_payload(std::io::stdin().lock(), MAX_HOOK_PAYLOAD_BYTES) else {
         return;
-    }
+    };
     let Some(abs) = hook_target(&input) else {
         return;
     };
     // Silent either way: no stderr, never a non-zero exit (a headless box has
     // no launcher, which must not surface as a hook error in the agent).
     let _ = open_in_app(&abs.to_string_lossy(), Some("read"), HOOK_DEADLINE, false);
+}
+
+/// Most bytes `--hook` reads from stdin. A PostToolUse payload carries the
+/// written file's content (as JSON, so escaped, and possibly twice, in
+/// `tool_input` and `tool_response`), so this leaves room for a 16 MiB
+/// document several times over. Stdin used to be read to its end however
+/// long it was.
+const MAX_HOOK_PAYLOAD_BYTES: u64 = 4 * MAX_STDIN_BYTES;
+
+/// The hook payload read from `input`, or `None` (open nothing, silently)
+/// when it cannot be read as UTF-8 or is longer than `cap` bytes; at most
+/// `cap + 1` bytes are ever held.
+fn hook_payload(input: impl std::io::Read, cap: u64) -> Option<String> {
+    String::from_utf8(read_capped(input, cap).ok()?).ok()
 }
 
 /// The stderr hint for `mdopen --hook` run with a terminal on stdin (no
@@ -539,6 +552,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// `--hook` read stdin to its end however long it was. Past the cap it
+    /// stops reading and opens nothing (still silently, exit 0).
+    #[test]
+    fn hook_payload_is_read_up_to_its_cap() {
+        let payload = r#"{"tool_input":{"file_path":"/x.md"}}"#;
+        assert_eq!(
+            hook_payload(payload.as_bytes(), 1024).as_deref(),
+            Some(payload)
+        );
+        assert_eq!(
+            hook_payload(payload.as_bytes(), payload.len() as u64).as_deref(),
+            Some(payload)
+        );
+        // A payload past the cap is not read (an endless producer is cut
+        // off there).
+        let long = format!("{payload}{}", " ".repeat(1024));
+        assert_eq!(hook_payload(long.as_bytes(), 1024), None);
+        assert_eq!(
+            hook_payload(std::io::Read::take(std::io::repeat(b' '), 1 << 20), 1024),
+            None
+        );
+        assert_eq!(hook_payload(&b"\xff\xfe"[..], 1024), None, "not UTF-8");
     }
 
     #[test]

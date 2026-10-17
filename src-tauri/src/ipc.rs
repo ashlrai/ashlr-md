@@ -1470,20 +1470,28 @@ fn same_path(a: &str, b: &str) -> bool {
     }
 }
 
+/// Largest file `/annotations` reads its task list from: the 16 MiB a
+/// document may be (the IPC body cap, and what mdopener-mcp reads from disk).
+/// The file used to be read whole however large it was.
+const MAX_ANNOTATION_FILE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// The GFM task checkboxes of the file `requested`: from the live buffer when
 /// it is the open document, else read from disk when it is a Markdown file
 /// (not a dotfile, checked after resolving symlinks), else none. Never the
-/// open document's tasks for some other path.
+/// open document's tasks for some other path. The second value says why a
+/// Markdown file's tasks could not be read (larger than
+/// [`MAX_ANNOTATION_FILE_BYTES`], or not readable as UTF-8 text), so an empty
+/// list is not taken for a file with no tasks.
 fn annotation_tasks(
     requested: &str,
     open_path: Option<&str>,
     open_content: &str,
-) -> Vec<serde_json::Value> {
+) -> (Vec<serde_json::Value>, Option<String>) {
     if open_path.is_some_and(|o| same_path(requested, o)) {
-        return parse_tasks(open_content);
+        return (parse_tasks(open_content), None);
     }
     let Ok(canon) = std::fs::canonicalize(requested) else {
-        return vec![];
+        return (vec![], None);
     };
     let markdown = canon.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         ["md", "markdown", "mdown", "mkd", "mdx"].contains(&e.to_ascii_lowercase().as_str())
@@ -1493,11 +1501,40 @@ fn annotation_tasks(
         .and_then(|n| n.to_str())
         .is_none_or(|n| n.starts_with('.'));
     if !markdown || hidden || !canon.is_file() {
-        return vec![];
+        return (vec![], None);
     }
-    std::fs::read_to_string(&canon)
-        .map(|c| parse_tasks(&c))
-        .unwrap_or_default()
+    match read_capped_text(&canon, MAX_ANNOTATION_FILE_BYTES) {
+        Ok(c) => (parse_tasks(&c), None),
+        Err(e) => (
+            vec![],
+            Some(format!("The tasks of {} were not read: {e}.", canon.display())),
+        ),
+    }
+}
+
+/// Read `path` as UTF-8 text, refusing it (before reading, and if it grows
+/// while read) when it is larger than `max` bytes.
+fn read_capped_text(path: &std::path::Path, max: u64) -> Result<String, String> {
+    use std::io::Read as _;
+    let too_large = |len: u64| {
+        format!(
+            "it is {:.1} MiB, more than the {} MiB a document may be",
+            len as f64 / (1024.0 * 1024.0),
+            max / (1024 * 1024)
+        )
+    };
+    let len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if len > max {
+        return Err(too_large(len));
+    }
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(max + 1).read_to_string(&mut text))
+        .map_err(|e| e.to_string())?;
+    if text.len() as u64 > max {
+        return Err(too_large(text.len() as u64));
+    }
+    Ok(text)
 }
 
 fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
@@ -1546,7 +1583,7 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
         let inner = mirror.0.lock_recover();
         (inner.path.clone(), inner.content.clone())
     };
-    let tasks = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
+    let (tasks, tasks_note) = annotation_tasks(&raw_path, open_path.as_deref(), &open_content);
 
     // Resolve the latest matching verdict/comments, then drop the lock before
     // the blocking send_json response. Reviews store the canonical path, so a
@@ -1561,13 +1598,17 @@ fn handle_annotations(req: Request, query: &str, app: &AppHandle) {
             .unwrap_or((None, None, false))
     };
 
-    send_json(req, serde_json::json!({
+    let mut body = serde_json::json!({
         "path": raw_path,
         "verdict": verdict,
         "comments": comments,
         "late": late,
         "tasks": tasks,
-    }));
+    });
+    if let Some(note) = tasks_note {
+        body["tasksNote"] = serde_json::json!(note);
+    }
+    send_json(req, body);
 }
 
 // ── Vault / search / edit / present handlers ──────────────────────────────────
@@ -2215,9 +2256,53 @@ fn send_json(req: Request, value: serde_json::Value) {
 /// The reply for a route the server does not have: a 404 with the JSON
 /// `{"error": ...}` body every other error has. It used to be the plain text
 /// `Not Found`, which clients parsing the error body could not read.
+///
+/// A route the server has under another method (`GET /open`) is a 405 with
+/// an `Allow` header naming the methods it takes: it used to be the same
+/// 404 "No such endpoint" as a path that does not exist, so a caller that
+/// used the wrong method was told the endpoint was missing.
 fn send_not_found(req: Request, method: &Method, path: &str) {
-    send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+    let allowed: Vec<&str> = ROUTES
+        .iter()
+        .filter(|(_, p)| *p == path)
+        .map(|(m, _)| *m)
+        .collect();
+    if allowed.is_empty() {
+        return send_error(req, 404, &format!("No such endpoint: {method} {path}"));
+    }
+    let allow = allowed.join(", ");
+    let body = serde_json::json!({
+        "error": format!("{path} does not take {method}: use {}.", allowed.join(" or "))
+    })
+    .to_string();
+    let resp = Response::from_string(body)
+        .with_status_code(405)
+        .with_header(
+            tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap(),
+        )
+        .with_header(tiny_http::Header::from_bytes(b"Allow", allow.as_bytes()).unwrap());
+    let _ = req.respond(resp);
 }
+
+/// Every route [`handle_request`] serves, as (method, path), for the 405
+/// answer to a known path under another method.
+const ROUTES: &[(&str, &str)] = &[
+    ("GET", "/health"),
+    ("POST", "/review"),
+    ("GET", "/review/result"),
+    ("GET", "/annotations"),
+    ("GET", "/vault"),
+    ("GET", "/search"),
+    ("POST", "/edit"),
+    ("POST", "/stream-edit"),
+    ("POST", "/stream-edit-apply"),
+    ("POST", "/present"),
+    ("GET", "/content"),
+    ("POST", "/content"),
+    ("POST", "/open"),
+    ("GET", "/recent"),
+    ("POST", "/export"),
+];
 
 fn send_error(req: Request, code: u16, msg: &str) {
     let body = serde_json::json!({"error": msg}).to_string();
@@ -2542,14 +2627,16 @@ mod tests {
         // The open document: its live buffer, also via a non-canonical path.
         let via_dots = format!("{}/./open.md", dir.path().display());
         for p in [open_s, via_dots.as_str()] {
-            let t = annotation_tasks(p, Some(open_s), live);
+            let (t, note) = annotation_tasks(p, Some(open_s), live);
+            assert_eq!(note, None);
             assert_eq!(t.len(), 1);
             assert_eq!(t[0]["text"], "live task", "{p}");
         }
         assert!(same_path(&via_dots, open_s));
 
         // Another Markdown file: its own tasks from disk, not the open doc's.
-        let t = annotation_tasks(other.to_str().unwrap(), Some(open_s), live);
+        let (t, note) = annotation_tasks(other.to_str().unwrap(), Some(open_s), live);
+        assert_eq!(note, None);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0]["text"], "on disk");
         assert_eq!(t[0]["checked"], true);
@@ -2564,11 +2651,31 @@ mod tests {
             dot.as_path(),
             dir.path().join("nope.md").as_path(),
         ] {
-            assert!(
-                annotation_tasks(p.to_str().unwrap(), Some(open_s), live).is_empty(),
+            assert_eq!(
+                annotation_tasks(p.to_str().unwrap(), Some(open_s), live),
+                (vec![], None),
                 "{p:?}"
             );
         }
+    }
+
+    /// `/annotations` read a file that is not the open document whole,
+    /// however large it was. Past 16 MiB it is not read, and the reply says
+    /// why its task list is empty instead of passing it off as no tasks.
+    #[test]
+    fn annotation_tasks_skip_a_file_past_the_document_cap() {
+        let dir = std::env::temp_dir().join(format!("ipc-annot-huge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let huge = dir.join("huge.md");
+        let f = std::fs::File::create(&huge).unwrap();
+        f.set_len(super::MAX_ANNOTATION_FILE_BYTES + 1).unwrap();
+        drop(f);
+        let (tasks, note) = annotation_tasks(huge.to_str().unwrap(), None, "");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(tasks.is_empty());
+        let note = note.expect("a note saying why the tasks were not read");
+        assert!(note.contains("more than the 16 MiB"), "{note}");
     }
 
     // ── Session files shared with mdopener-mcp ───────────────────────────────
@@ -3231,6 +3338,70 @@ mod tests {
         );
         let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
         assert_eq!(v["error"], "No such endpoint: GET /nope", "{v}");
+    }
+
+    /// Send `request` to a one-shot server, answer it with `send_not_found`,
+    /// and return the raw HTTP reply.
+    fn not_found_reply(request: &'static [u8], path: &str) -> String {
+        use std::io::{Read as _, Write as _};
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let client = std::thread::spawn(move || {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(request).unwrap();
+            let mut raw = String::new();
+            s.read_to_string(&mut raw).unwrap();
+            raw
+        });
+        let req = server.recv().unwrap();
+        let method = req.method().clone();
+        super::send_not_found(req, &method, path);
+        client.join().unwrap()
+    }
+
+    /// A route the server has, asked for with the wrong method, was the same
+    /// 404 "No such endpoint" as a path that does not exist.
+    #[test]
+    fn a_known_route_under_the_wrong_method_is_a_json_405() {
+        let raw = not_found_reply(b"GET /open HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", "/open");
+        let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.0 405") || head.starts_with("HTTP/1.1 405"), "{head}");
+        assert!(head.to_ascii_lowercase().contains("allow: post"), "{head}");
+        let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
+        assert_eq!(v["error"], "/open does not take GET: use POST.", "{v}");
+
+        // A path served under two methods names both.
+        let raw = not_found_reply(
+            b"DELETE /content HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+            "/content",
+        );
+        let (head, _) = raw.split_once("\r\n\r\n").unwrap();
+        assert!(head.contains(" 405"), "{head}");
+        assert!(head.to_ascii_lowercase().contains("allow: get, post"), "{head}");
+    }
+
+    /// `ROUTES` lists exactly the routes `handle_request` matches, so the 405
+    /// answer cannot drift from the router.
+    #[test]
+    fn routes_match_the_router() {
+        let src = include_str!("ipc.rs");
+        let router = &src[src.find("fn handle_request(").unwrap()..];
+        let router = &router[..router.find("\n}\n").unwrap()];
+        let mut found = vec![("GET".to_string(), "/health".to_string())];
+        for line in router.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("(Method::") else { continue };
+            let Some((method, rest)) = rest.split_once(", \"") else { continue };
+            let Some((path, _)) = rest.split_once('"') else { continue };
+            found.push((method.to_ascii_uppercase(), path.to_string()));
+        }
+        found.sort();
+        let mut listed: Vec<(String, String)> = super::ROUTES
+            .iter()
+            .map(|(m, p)| (m.to_string(), p.to_string()))
+            .collect();
+        listed.sort();
+        assert_eq!(listed, found);
     }
 
     /// The app read a session file whole however large it was. Past 16 MiB

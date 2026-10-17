@@ -127,6 +127,9 @@ pub fn dispatch(req: Request, ipc: &dyn IpcClient) -> Option<Response> {
         }
 
         "resources/list" => handle_resources_list(id, ipc),
+        "resources/templates/list" => {
+            Response::ok(id, json!({ "resourceTemplates": resource_templates() }))
+        }
         "resources/read" => {
             let params = req.params.unwrap_or(Value::Null);
             let uri = params["uri"].as_str().unwrap_or("").to_string();
@@ -3289,6 +3292,13 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
                     }
                 }
             }
+            // The app lists only the newest files of a large watched folder
+            // (and of the part of it its walk reached). `search_vault` says
+            // so with `truncated`; this listing used to say nothing, so the
+            // entries read as the whole vault.
+            if let Some(why) = vault_files_cut_note(&v) {
+                meta = Some(json!({ VAULT_FILES_TRUNCATED_META: why }));
+            }
         }
         Err(e) => {
             let why = format!(
@@ -3305,6 +3315,55 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         result["_meta"] = meta;
     }
     Response::ok(id, result)
+}
+
+/// The `resources/templates/list` entries: `text://vault-search`, which is
+/// read with a query (`?q=…`) and so is a URI template, not a fixed resource.
+/// The method used to be unknown (`-32601`), so a client that discovers
+/// parameterised resources through it never saw the search, and the bare
+/// URI `resources/list` shows cannot be read without a query.
+pub fn resource_templates() -> Value {
+    json!([{
+        "uriTemplate": "text://vault-search?q={query}",
+        "name": "Vault semantic search",
+        "description": "Semantic + full-text search across your vault, as the search_vault tool. Replace {query} with the percent-encoded query; add &limit=N (1 to 200, default 50), &semantic=true|false to force semantic or grep search, and &vault={directory} to search that folder on disk when the app is not running. Returns JSON: { results, mode, query, note? }.",
+        "mimeType": "application/json"
+    }])
+}
+
+/// The `_meta` key a `resources/list` result carries when the app's vault
+/// list is cut short, so the `file://` entries are not all of the watched
+/// folder's Markdown files, with the reason in words.
+pub const VAULT_FILES_TRUNCATED_META: &str = "mdopener/vaultFilesTruncated";
+
+/// Why the app's `/vault` reply `v` is not every Markdown file of the watched
+/// folder, or `None` when it is: the folder has more files than the app lists
+/// (`truncated`), or its walk stopped early (`scanCut`, `depthCut`).
+fn vault_files_cut_note(v: &Value) -> Option<String> {
+    let truncated = v["truncated"].as_bool() == Some(true);
+    let depth_cut = v["depthCut"].as_bool() == Some(true);
+    let scan_cut = v["scanCut"].as_bool() == Some(true) || depth_cut;
+    if !(truncated || scan_cut) {
+        return None;
+    }
+    let n = v["limit"]
+        .as_u64()
+        .map(|n| format!("{n} "))
+        .unwrap_or_default();
+    let why = if depth_cut {
+        "the watched folder is too deeply nested for Ashlr MD to scan in full (it enters \
+         folders at most 8 levels down, and reads at most 50,000 entries)"
+    } else if scan_cut {
+        "the watched folder is too large for Ashlr MD to scan in full (it reads at most \
+         50,000 entries)"
+    } else {
+        "the watched folder has more Markdown files than Ashlr MD lists"
+    };
+    Some(format!(
+        "The vault's file:// resources are cut short: {why}, so only the {n}most recently \
+         changed of the files it scanned are listed. Call search_vault to search the \
+         folder."
+    ))
 }
 
 /// The `_meta` key a `resources/list` result carries when the vault's
