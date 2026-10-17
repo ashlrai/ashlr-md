@@ -112,6 +112,9 @@ export interface ConversationMessage {
 
 /** Maximum messages kept per session in-memory (older ones scroll off). */
 const MAX_MESSAGES_PER_SESSION = 200;
+/** Most messages kept across all sessions (the oldest go first), so the
+ *  persisted store stays bounded however many sessions there are. */
+const MAX_MESSAGES_TOTAL = 2_000;
 
 interface ConversationSessionState {
   /** Active session identifier — set when a new session starts. */
@@ -177,12 +180,23 @@ export const useConversationStore = create<ConversationSessionState>()(
 
         set((s) => {
           const updated = [...s.messages, msg];
-          // Keep only the most recent N messages to bound memory usage.
+          // Keep only the most recent N messages of THIS session. The cap used
+          // to apply to all sessions together, so a busy session pushed every
+          // other session's messages out.
+          const own = updated.filter((m) => m.sessionId === currentSessionId).length;
+          let drop = Math.max(0, own - MAX_MESSAGES_PER_SESSION);
+          const kept =
+            drop === 0
+              ? updated
+              : updated.filter((m) => {
+                  if (drop > 0 && m.sessionId === currentSessionId) {
+                    drop--;
+                    return false;
+                  }
+                  return true;
+                });
           return {
-            messages:
-              updated.length > MAX_MESSAGES_PER_SESSION
-                ? updated.slice(updated.length - MAX_MESSAGES_PER_SESSION)
-                : updated,
+            messages: kept.slice(Math.max(0, kept.length - MAX_MESSAGES_TOTAL)),
           };
         });
 
@@ -196,7 +210,12 @@ export const useConversationStore = create<ConversationSessionState>()(
         return session.slice(Math.max(0, session.length - n));
       },
 
-      clearSession: () => set({ messages: [] }),
+      // Only the current session's messages: this used to clear every
+      // session's, unlike what it is documented to do.
+      clearSession: () =>
+        set((s) => ({
+          messages: s.messages.filter((m) => m.sessionId !== s.currentSessionId),
+        })),
 
       endSession: () => set({ currentSessionId: null }),
     }),

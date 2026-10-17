@@ -199,3 +199,38 @@ describe("useConversationStore — session lifecycle", () => {
     expect(ctx[1].content).toBe("new step");
   });
 });
+
+describe("useConversationStore — sessions stay separate", () => {
+  it("clearSession clears only the current session", () => {
+    const st = useConversationStore.getState;
+    st().startSession("other");
+    st().appendMessage("agent", "keep me");
+    st().startSession("mine");
+    st().appendMessage("agent", "clear me");
+    st().clearSession();
+    expect(useConversationStore.getState().messages.map((m) => m.content)).toEqual([
+      "keep me",
+    ]);
+    st().startSession("other");
+    expect(st().getContext()).toHaveLength(1);
+  });
+
+  it("the 200-message cap applies per session, not to all of them", () => {
+    const st = useConversationStore.getState;
+    useConversationStore.setState({ messages: [] });
+    st().startSession("quiet");
+    st().appendMessage("human", "approved");
+    st().startSession("busy");
+    for (let i = 0; i < 205; i++) st().appendMessage("agent", `step ${i}`);
+    const all = useConversationStore.getState().messages;
+    expect(all.filter((m) => m.sessionId === "busy")).toHaveLength(200);
+    expect(st().getContext(1)[0].content).toBe("step 204");
+    expect(st().getContext(200)[0].content).toBe("step 5");
+    st().startSession("quiet");
+    expect(
+      st()
+        .getContext()
+        .map((m) => m.content),
+    ).toEqual(["approved"]);
+  });
+});
