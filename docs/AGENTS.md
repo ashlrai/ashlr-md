@@ -248,7 +248,8 @@ wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
 `cited_docs`) or `arguments` that is not an object is refused with `-32602`
 naming the argument; an undeclared one also lists the arguments the tool
 takes and the closest match. Every integer argument declares a `minimum` in
-its schema (`0`, or `1` for `get_conversation_context`'s `limit`), and a value
+its schema (`0`, or `1` for the `limit` of `search_vault` and
+`get_conversation_context`), and a value
 below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
 of falling back to the default. A string outside the property's `enum`
 (`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
