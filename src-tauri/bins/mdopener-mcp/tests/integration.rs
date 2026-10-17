@@ -1195,6 +1195,12 @@ fn request_review_non_blocking_registers_and_returns_pending() {
         .as_str()
         .map(|s| !s.is_empty())
         .unwrap_or(false));
+    // It says how to get the verdict: get_user_annotations cannot find a
+    // review of inline content, which has no path.
+    assert!(
+        text["message"].as_str().unwrap().contains("review_id"),
+        "{text}"
+    );
 }
 
 /// A review whose file the window could not open is refused with the

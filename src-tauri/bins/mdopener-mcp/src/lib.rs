@@ -665,7 +665,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "path": { "type": "string", "description": "Absolute path to the Markdown file to review." },
                     "content": { "type": "string", "description": "Inline Markdown to review, if no file path is given." },
-                    "blocking": { "type": "boolean", "description": "If false, register the review and return immediately. Defaults to true." },
+                    "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. Defaults to true." },
                     "timeout_ms": { "type": "integer", "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
                     "wait_ms": { "type": "integer", "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients." },
                     "review_id": { "type": "string", "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one." }
@@ -1679,7 +1679,14 @@ pub fn tool_request_review_with(
                 Err(e) => return tool_error(id, app_not_running_msg(&e)),
             }
             if !blocking {
-                return tool_result(id, json!({ "reviewId": review_id, "status": "pending" }));
+                return tool_result(
+                    id,
+                    json!({
+                        "reviewId": review_id,
+                        "status": "pending",
+                        "message": "Review registered. Call request_review with this review_id to wait for the verdict."
+                    }),
+                );
             }
             review_id
         }

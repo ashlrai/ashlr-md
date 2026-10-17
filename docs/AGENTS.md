@@ -396,8 +396,10 @@ before proceeding.
 - `path` *or* `content` — **one is required.** `path` opens that file for review;
   `content` reviews inline Markdown.
 - `blocking` (default `true`) — if `false`, the review is registered and the call
-  returns immediately with `{ "reviewId": "…", "status": "pending" }`. The agent
-  can later check the outcome via `get_user_annotations`.
+  returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
+  Call `request_review` with that `review_id` to wait for the verdict. A
+  review of a `path` can also be read later via `get_user_annotations`; one
+  of inline `content` has no path, so only `review_id` finds it.
 - `timeout_ms` (default `300000` = 5 min, must be **5 000–600 000**) — how long
   the human has to decide (the review panel's window). A value outside that
   range (or not a whole number) is refused with an invalid-params error naming
