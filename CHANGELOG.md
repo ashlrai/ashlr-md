@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Each message's `citedDocs` leaves out empty paths too.** Round 27 left
+  empty and blank paths from older session files out of
+  `get_conversation_context`'s `recentDocs`, but every message in `messages`
+  still listed them in its own `citedDocs`. They are now filtered there as
+  well.
 - **`cited_docs` refuses a blank path.** An empty path was refused, but one
   of only spaces was stored (and, resolved against the working directory,
   became a path to a file named by those spaces). It is now `-32602` too.

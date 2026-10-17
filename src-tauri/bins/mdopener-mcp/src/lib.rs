@@ -3277,7 +3277,11 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                         "sessionId": m.session_id,
                         "role": m.role,
                         "content": m.content,
-                        "citedDocs": m.cited_docs,
+                        // Filtered as `recentDocs` is: a blank path from an
+                        // older session file named no document here either.
+                        "citedDocs": m.cited_docs.iter()
+                            .filter(|d| !d.trim().is_empty())
+                            .collect::<Vec<_>>(),
                         "timestampMs": m.timestamp_ms,
                     })).collect::<Vec<_>>(),
                     "count": messages.len(),

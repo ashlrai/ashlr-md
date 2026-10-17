@@ -4576,6 +4576,26 @@ fn recent_docs_skip_empty_paths_from_old_sessions() {
     );
 }
 
+/// Each message's own `citedDocs` leaves out the same empty and blank paths:
+/// round 27 filtered only `recentDocs`, so the message list still showed them.
+#[test]
+fn message_cited_docs_skip_empty_paths_from_old_sessions() {
+    let sess = unique_session();
+    store_append_message(
+        &sess,
+        "agent",
+        "Old build.",
+        vec!["".into(), "/v/b.md".into(), "  ".into()],
+    )
+    .unwrap();
+    store_append_message(&sess, "agent", "Old build.", vec!["".into()]).unwrap();
+    let resp = tool_get_conversation_context(id(1), &json!({ "session_id": sess }));
+    let text = content_text(&resp);
+    let msgs = text["messages"].as_array().unwrap();
+    assert_eq!(msgs[0]["citedDocs"], json!(["/v/b.md"]));
+    assert_eq!(msgs[1]["citedDocs"], json!([]));
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Message shape validation
 // ════════════════════════════════════════════════════════════════════════════
