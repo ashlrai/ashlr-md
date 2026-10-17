@@ -5244,6 +5244,37 @@ fn unclosed_leading_fence_is_not_frontmatter() {
     assert_eq!(extract_frontmatter(dots), json!({ "title": "Plan" }));
 }
 
+/// Lists are the most common front-matter (tags, aliases). A flow list was
+/// returned as the string "[a, b]", a block list as "" (its `- item` lines
+/// dropped), and a nested mapping's indented keys leaked to the top level.
+#[test]
+fn frontmatter_lists_are_arrays_and_nested_keys_stay_nested() {
+    use mdopener_mcp::extract_frontmatter;
+    let doc = "---\n\
+               title: \"Q4: plan\"\n\
+               tags: [launch, \"q4, late\", 3]\n\
+               aliases:\n  - Plan\n  - 'Launch'\n\
+               authors:\n- Zoë\n\
+               owner:\n  name: Sam\n  team: core\n\
+               draft: true\n\
+               ---\nBody\n";
+    assert_eq!(
+        extract_frontmatter(doc),
+        json!({
+            "title": "Q4: plan",
+            "tags": ["launch", "q4, late", 3],
+            "aliases": ["Plan", "Launch"],
+            "authors": ["Zoë"],
+            "owner": "",
+            "draft": true,
+        })
+    );
+    assert_eq!(
+        extract_frontmatter("---\ntags: []\n---\n"),
+        json!({ "tags": [] })
+    );
+}
+
 // ── file:// resource URIs are percent-decoded ─────────────────────────────────
 
 /// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server

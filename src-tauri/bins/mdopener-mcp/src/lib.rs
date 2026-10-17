@@ -4440,48 +4440,105 @@ fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
 
 /// Extract YAML front-matter from the start of a Markdown document.
 ///
-/// Returns a `serde_json::Value::Object` with the parsed key/value pairs, or
-/// `Value::Null` when no front-matter is present or it cannot be parsed as
-/// simple key: value lines.  Only scalar string/bool/number values are parsed;
-/// multi-line and nested YAML are returned as raw strings.
+/// Returns a `serde_json::Value::Object` with the parsed top-level key/value
+/// pairs, or `Value::Null` when no front-matter is present or it holds no
+/// `key: value` lines. Scalars become strings, bools or numbers, and lists of
+/// scalars (`tags: [a, b]`, or `- item` lines under `tags:`) become arrays.
+/// A nested mapping is not parsed: its key keeps an empty string, and its
+/// indented lines are never read as top-level keys.
 pub fn extract_frontmatter(content: &str) -> Value {
     let Some(fm_lines) = frontmatter_lines(content) else {
         return Value::Null;
     };
-    if fm_lines.is_empty() {
-        return Value::Null;
-    }
-    // Simple line-by-line `key: value` parse (handles scalar YAML only).
     let mut map = serde_json::Map::new();
+    // The key whose value was left empty, which `- item` lines then fill.
+    let mut list_key: Option<String> = None;
     for line in &fm_lines {
-        if let Some(colon) = line.find(':') {
-            let key = line[..colon].trim().to_string();
-            if key.is_empty() || key.starts_with('#') {
-                continue;
-            }
-            let val_str = line[colon + 1..].trim();
-            // Try bool, then integer, then float, then string.
-            let val = if val_str == "true" {
-                json!(true)
-            } else if val_str == "false" {
-                json!(false)
-            } else if let Ok(n) = val_str.parse::<i64>() {
-                json!(n)
-            } else if let Ok(f) = val_str.parse::<f64>() {
-                json!(f)
-            } else {
-                // Strip surrounding quotes if present.
-                let s = val_str.trim_matches('"').trim_matches('\'').to_string();
-                json!(s)
-            };
-            map.insert(key, val);
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
         }
+        if let Some(item) = t.strip_prefix("- ").or((t == "-").then_some("")) {
+            if let Some(entry) = list_key.as_ref().and_then(|k| map.get_mut(k)) {
+                if *entry == json!("") {
+                    *entry = json!([]);
+                }
+                if let Some(items) = entry.as_array_mut() {
+                    items.push(frontmatter_scalar(item.trim()));
+                }
+            }
+            continue;
+        }
+        if line.starts_with([' ', '\t']) {
+            // Part of a nested value: not a top-level key.
+            continue;
+        }
+        list_key = None;
+        let Some(colon) = line.find(':') else {
+            continue;
+        };
+        let key = line[..colon].trim().to_string();
+        if key.is_empty() {
+            continue;
+        }
+        let val_str = line[colon + 1..].trim();
+        let val = match val_str.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+            Some(items) => Value::Array(
+                split_flow_items(items)
+                    .into_iter()
+                    .map(frontmatter_scalar)
+                    .collect(),
+            ),
+            None => frontmatter_scalar(val_str),
+        };
+        if val_str.is_empty() {
+            list_key = Some(key.clone());
+        }
+        map.insert(key, val);
     }
     if map.is_empty() {
         Value::Null
     } else {
         Value::Object(map)
     }
+}
+
+/// One front-matter scalar: a bool, an integer, a float, else a string with
+/// any surrounding quotes removed.
+fn frontmatter_scalar(val_str: &str) -> Value {
+    if val_str == "true" {
+        json!(true)
+    } else if val_str == "false" {
+        json!(false)
+    } else if let Ok(n) = val_str.parse::<i64>() {
+        json!(n)
+    } else if let Ok(f) = val_str.parse::<f64>() {
+        json!(f)
+    } else {
+        json!(val_str.trim_matches('"').trim_matches('\''))
+    }
+}
+
+/// The items of a flow sequence's inside (`a, "b, c", d`), split on commas
+/// outside quotes, trimmed, empty ones dropped.
+fn split_flow_items(inner: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut quote = None;
+    let mut start = 0;
+    for (i, c) in inner.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), _) if c == q => quote = None,
+            (None, ',') => {
+                items.push(inner[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(inner[start..].trim());
+    items.retain(|s| !s.is_empty());
+    items
 }
 
 /// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
