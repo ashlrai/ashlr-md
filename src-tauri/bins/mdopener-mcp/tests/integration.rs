@@ -8698,6 +8698,37 @@ fn tool_descriptions_match_the_arguments_and_path_rules() {
     assert_eq!(ipc.calls()[0].1, format!("/annotations?path={want}"));
 }
 
+/// request_review's description said it blocks "until they Approve or
+/// Request changes", but one call waits at most `wait_ms` and then returns
+/// pending; an agent that read only the description took that for a failure.
+#[test]
+fn request_review_description_says_a_call_can_return_pending() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "request_review")
+        .unwrap();
+    let d = def.description;
+    for want in [
+        "{ verdict, reviewId, comments }",
+        "at most `wait_ms`",
+        "{ status: 'pending', reviewId }",
+        "`review_id`",
+        "dismissed",
+        "timeout",
+        "superseded",
+    ] {
+        assert!(d.contains(want), "missing {want:?}: {d}");
+    }
+    // The default it names is the one the tool uses.
+    assert!(
+        d.contains(&format!(
+            "default {} ms",
+            mdopener_mcp::DEFAULT_REVIEW_WAIT_MS
+        )),
+        "{d}"
+    );
+}
+
 #[test]
 fn unknown_tool_names_the_closest_tool_and_tools_list() {
     let msg = param_error(&call_tool("Open_File", json!({})));

@@ -877,7 +877,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_review",
-            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve or Request changes, then return their verdict and comments. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve, Request changes or Dismiss, then return { verdict, reviewId, comments } (verdict approved, changes_requested, dismissed, timeout when the panel's `timeout_ms` window closes undecided, or superseded). One call blocks at most `wait_ms` (default 50000 ms, below the 60 s request timeout of common MCP clients): if the human has not decided by then it returns { status: 'pending', reviewId }, and calling again with that `review_id` keeps waiting on the same review. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

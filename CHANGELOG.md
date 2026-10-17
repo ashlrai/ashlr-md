@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`request_review`'s description says a call can return pending.** It
+  said the tool blocks "until they Approve or Request changes", though one
+  call waits at most `wait_ms` (50 s by default) and then returns
+  `{ status: 'pending', reviewId }`. It now says so, names the result
+  `{ verdict, reviewId, comments }` and lists every verdict, `dismissed`,
+  `timeout` and `superseded` among them.
 - **`mdopen --help` names a missing file under EXIT STATUS.** Exit 1 listed
   an "unresolvable path", which did not say that a file that does not exist
   (the commonest case) is one. It now reads "a missing or unresolvable
