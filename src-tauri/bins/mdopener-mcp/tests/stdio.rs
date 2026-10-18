@@ -401,7 +401,10 @@ fn empty_ipc_token_error_names_the_next_step() {
     let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
     let text = reply["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("ipc-token is empty"), "{text}");
-    assert!(text.contains("Retry once it has finished launching"), "{text}");
+    assert!(
+        text.contains("Retry once it has finished launching"),
+        "{text}"
+    );
     assert!(text.contains("restart Ashlr MD"), "{text}");
     assert!(!text.contains('?'), "{text}");
 }

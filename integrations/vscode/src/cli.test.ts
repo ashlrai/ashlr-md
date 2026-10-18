@@ -72,6 +72,6 @@ describe("cliFailureMessage", () => {
     assert.match(msg, /Preferences, Command-line tool, Install mdopen/);
     assert.match(msg, /ashlr-md\.cliPath/);
     assert.doesNotMatch(msg, /Install CLI tool/);
-    assert.doesNotMatch(msg, /[–—]/);
+    assert.doesNotMatch(msg, /[\u2013\u2014]/);
   });
 });
