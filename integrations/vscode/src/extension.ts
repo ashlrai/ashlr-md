@@ -1,60 +1,37 @@
 /**
  * Open in Ashlr MD — VS Code extension.
  *
- * Adds a command + editor title-bar button that opens the active Markdown
- * file in the Ashlr MD desktop app.
+ * Adds commands + an editor title-bar button that open the active Markdown
+ * file in the Ashlr MD desktop app, in its read view or (on request, or with
+ * `ashlr-md.openInEditMode`) its edit view.
  *
- * Primary mechanism: the `mdopener://open?path=<encoded-absolute-path>` deep
- * link, opened via `vscode.env.openExternal`. Ashlr MD registers this custom
+ * Primary mechanism: the `mdopener://open?path=<encoded-absolute-path>[&mode=edit]`
+ * deep link, opened via `vscode.env.openExternal`. Ashlr MD registers this custom
  * URL scheme and percent-decodes the `path` parameter (see
  * `src-tauri/src/deep_link.rs` + `src-tauri/bins/mdopen/src/main.rs`).
  *
- * Fallback: if the deep link cannot be opened, spawn the `mdopen -- <path>` CLI
- * (configurable via `ashlr-md.cliPath`, default `mdopen` on PATH).
+ * Fallback: if the deep link cannot be opened, spawn the `mdopen [--edit] -- <path>`
+ * CLI (configurable via `ashlr-md.cliPath`, default `mdopen` on PATH).
  */
 
 import { spawn } from "node:child_process";
 import * as vscode from "vscode";
+import { buildDeepLink, isOpenableInAshlr, type OpenMode } from "./links";
 
-/** The extensions Ashlr MD opens from a link (`MD_EXTENSIONS` in the app). */
-const MARKDOWN_EXTENSIONS = [".md", ".markdown", ".mdown", ".mkd", ".mdx"];
-
-/**
- * Builds the `mdopener://open` deep link for an absolute path.
- *
- * The path is encoded with `encodeURIComponent`, matching the Obsidian
- * integration. Ashlr MD's handler percent-decodes the `path` parameter and
- * canonicalizes it, so encoding spaces/special characters here is both safe
- * and required for paths that contain them.
- */
-export function buildDeepLink(absolutePath: string): string {
-  return `mdopener://open?path=${encodeURIComponent(absolutePath)}`;
-}
+export { buildDeepLink, isOpenableInAshlr } from "./links";
 
 /**
- * True when Ashlr MD opens the file from a link: a Markdown extension and a
- * name that is not a dotfile, the rule the app applies. The app ignores any
- * other link without a word, so a dotfile (`.notes.md`) or a file VS Code
- * merely shows in the Markdown language mode (a `.txt`) used to be handed
- * off and then nothing opened.
- */
-export function isOpenableInAshlr(fsPath: string): boolean {
-  const name = fsPath.split(/[\\/]/).pop() ?? "";
-  const lower = name.toLowerCase();
-  return (
-    !name.startsWith(".") &&
-    MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))
-  );
-}
-
-/**
- * Fallback: spawn the `mdopen -- <path>` CLI. Resolves true only when it
+ * Fallback: spawn the `mdopen [--edit] -- <path>` CLI. Resolves true only when it
  * exits 0 (it exits 1 when the file could not be opened); false when it
  * cannot be spawned, exits non-zero, or is killed by a signal (a `null`
  * exit code, which used to count as success), so the caller can surface an
  * error. `--` keeps a path that starts with `-` from being read as a flag.
  */
-function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
+function openViaCli(
+  cliPath: string,
+  absolutePath: string,
+  mode: OpenMode,
+): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (ok: boolean) => {
@@ -65,7 +42,8 @@ function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
     };
 
     try {
-      const child = spawn(cliPath, ["--", absolutePath], {
+      const flags = mode === "edit" ? ["--edit"] : [];
+      const child = spawn(cliPath, [...flags, "--", absolutePath], {
         stdio: "ignore",
       });
       child.on("error", () => done(false));
@@ -77,9 +55,10 @@ function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
 }
 
 /**
- * Core command: open the active editor's Markdown file in Ashlr MD.
+ * Core command: open the active editor's Markdown file in Ashlr MD, in edit
+ * mode when `mode` says so (else when `ashlr-md.openInEditMode` is on).
  */
-async function openInAshlr(): Promise<void> {
+async function openInAshlr(mode?: OpenMode): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     vscode.window.showInformationMessage(
@@ -109,7 +88,10 @@ async function openInAshlr(): Promise<void> {
   // Use the on-disk path. Unsaved edits stay in VS Code; Ashlr MD opens the
   // last-saved version on disk (we intentionally do not auto-save here).
   const absolutePath = document.uri.fsPath;
-  const deepLink = buildDeepLink(absolutePath);
+  const config = vscode.workspace.getConfiguration("ashlr-md");
+  const openMode: OpenMode =
+    mode ?? (config.get<boolean>("openInEditMode") ? "edit" : undefined);
+  const deepLink = buildDeepLink(absolutePath, openMode);
 
   // Primary path: the mdopener:// deep link.
   try {
@@ -122,13 +104,9 @@ async function openInAshlr(): Promise<void> {
   }
 
   // Fallback: spawn the `mdopen` CLI.
-  const cliPath =
-    vscode.workspace
-      .getConfiguration("ashlr-md")
-      .get<string>("cliPath")
-      ?.trim() || "mdopen";
+  const cliPath = config.get<string>("cliPath")?.trim() || "mdopen";
 
-  const cliOpened = await openViaCli(cliPath, absolutePath);
+  const cliOpened = await openViaCli(cliPath, absolutePath, openMode);
   if (cliOpened) {
     return;
   }
@@ -142,7 +120,14 @@ async function openInAshlr(): Promise<void> {
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("ashlr-md.openInAshlr", openInAshlr),
+    // Called from a menu, a command receives the resource URI as its first
+    // argument, so it is not passed on as the mode.
+    vscode.commands.registerCommand("ashlr-md.openInAshlr", () =>
+      openInAshlr(),
+    ),
+    vscode.commands.registerCommand("ashlr-md.openInAshlrEditMode", () =>
+      openInAshlr("edit"),
+    ),
   );
 }
 

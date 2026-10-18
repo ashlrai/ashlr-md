@@ -12,7 +12,7 @@
 //! same `on_open_url` callback registered in `setup`.
 //!
 //! For `open`:  reuses the existing PendingFiles + `file-opened` event flow
-//!              (PendingFiles only until the window has drained it).
+//!              (PendingFiles only until the window listens for the event).
 //!              A `mode` is kept in [`LinkViewModes`] until the window has
 //!              opened the file and takes it ([`take_link_view_mode`]), so it
 //!              applies on a cold start too.
@@ -203,7 +203,7 @@ fn target_or_log(command: &str, query: &str) -> Result<String, ()> {
 
 /// Queue `abs` for the window and tell it to open it.
 fn open_path(app: &AppHandle, abs: String) {
-    // Buffer the path for a window that has not drained the buffer yet (a
+    // Buffer the path for a window not yet listening for `file-opened` (a
     // cold start), as handle_opened() in file_handler.rs does.
     app.state::<PendingFiles>().queue([abs.clone()]);
 

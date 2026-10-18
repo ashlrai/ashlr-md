@@ -4,8 +4,9 @@
 //! dock icon) delivers a `RunEvent::Opened` to the running process. On first
 //! launch the webview may not be ready yet, so opened paths are buffered in
 //! [`PendingFiles`]; the frontend drains the buffer via [`take_pending_files`]
-//! once it has mounted, and also listens for the live `file-opened` event for
-//! files opened while the app is already running.
+//! once it has mounted, then listens for the live `file-opened` event for
+//! files opened while the app is already running and drains what arrived
+//! before the listener via [`pending_files_listening`].
 
 use crate::PendingFiles;
 use tauri::{AppHandle, Manager};
@@ -117,12 +118,21 @@ fn cli_arg_to_path_in(arg: &str, cwd: &std::path::Path) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// Drain and return any buffered file paths. The frontend calls this once on
+/// Drain and return any buffered file paths. The frontend calls this on
 /// mount to pick up files that were opened before the webview was ready;
-/// after that nothing more is buffered (see [`PendingFiles`]).
+/// files opened after it are still buffered until
+/// [`pending_files_listening`] (see [`PendingFiles`]).
 #[tauri::command]
 pub fn take_pending_files(state: tauri::State<PendingFiles>) -> Vec<String> {
     state.take()
+}
+
+/// The frontend's `file-opened` listener is registered: drain the files
+/// opened since [`take_pending_files`], which no listener heard, and buffer
+/// nothing more.
+#[tauri::command]
+pub fn pending_files_listening(state: tauri::State<PendingFiles>) -> Vec<String> {
+    state.listening()
 }
 
 #[cfg(test)]

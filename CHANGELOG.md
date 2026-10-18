@@ -36,6 +36,31 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code extension offers Ashlr MD for `.mdx` files and opens in
+  edit mode on request.** Its title-bar button and command appeared only for
+  files in the Markdown language mode, so an `.mdx` file (or another
+  extension the app opens that VS Code shows in some other mode) had no
+  button. They now also match on the file's extension. A new "Open in Ashlr
+  MD (Edit Mode)" command (also Alt/Option-click on the button) and an
+  `ashlr-md.openInEditMode` setting send `&mode=edit`, as the Obsidian
+  plugin does.
+- **The Obsidian plugin's README no longer says it is macOS only.** It said
+  the `mdopener://` scheme is registered only on macOS, but the Windows
+  installers and the Linux packages register it too, and an AppImage
+  registers it the first time it runs. The README, the plugin description
+  and a code comment now say so.
+- **Every file of a multi-file open opens.** When one open named several
+  files (a second launch with several paths, or several files opened from
+  Finder at once) only the last opened, and the view or export a link had
+  asked for the others stayed waiting, to apply to a later open of that
+  file. Each file now opens in turn, the last staying active, as files
+  opened at startup already did.
+- **A file opened while the window starts up is no longer lost.** The window
+  drained the buffer of files opened before it was ready and only then
+  registered its listener for live opens, and buffering stopped at that
+  drain, so a file, second launch or `mdopener://` link that arrived in
+  between was neither buffered nor heard. Files are now buffered until the
+  listener is registered, and the window drains the buffer once more then.
 - **The VS Code extension's `mdopen` fallback reports a killed CLI.** It
   counted a `mdopen` that ended without an exit status (killed by a signal)
   as having opened the file, so no error was shown. Only exit status `0`

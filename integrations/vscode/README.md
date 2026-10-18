@@ -12,11 +12,18 @@ app (a beautiful, AI-native Markdown app) directly from VS Code.
 
 | Entry point | Action |
 |---|---|
-| **Editor title-bar button** (link icon, Markdown files only) | Open the active file in Ashlr MD |
-| **Command palette** → "Ashlr MD: Open in Ashlr MD" | Open the active Markdown file |
+| **Editor title-bar button** (link icon, Markdown files only) | Open the active file in Ashlr MD; **Alt/Option-click** opens it in edit mode |
+| **Command palette** → "Ashlr MD: Open in Ashlr MD" | Open the active Markdown file (in edit mode when `ashlr-md.openInEditMode` is on) |
+| **Command palette** → "Ashlr MD: Open in Ashlr MD (Edit Mode)" | Always open the active Markdown file in edit mode |
 
-The button and command appear only when a Markdown file is active
-(`resourceLangId == markdown`).
+The button and commands appear only when a Markdown file is active: one in
+the Markdown language mode, or with any extension Ashlr MD opens (`.md`,
+`.markdown`, `.mdown`, `.mkd`, `.mdx`), which VS Code may show in another
+language mode (`.mdx` usually is):
+
+```
+resourceLangId == markdown || resourceExtname =~ /^\.(md|markdown|mdown|mkd|mdx)$/i
+```
 
 ---
 
@@ -26,17 +33,19 @@ The extension resolves the file's absolute on-disk path, URI-encodes it, and
 opens the deep link:
 
 ```
-mdopener://open?path=<encoded-absolute-path>
+mdopener://open?path=<encoded-absolute-path>[&mode=edit]
 ```
 
-via `vscode.env.openExternal`. Ashlr MD registers this custom URL scheme and
+via `vscode.env.openExternal`. `&mode=edit` (sent by the edit-mode command,
+or by every open when `ashlr-md.openInEditMode` is on) opens the file in
+Ashlr MD's edit view, as the Obsidian plugin's edit-mode command does. Ashlr MD registers this custom URL scheme and
 brings the file up instantly (cold-starting the app if needed).
 
 **CLI fallback.** If the deep link cannot be opened, the extension falls back to
 spawning the bundled `mdopen` CLI:
 
 ```
-mdopen -- <absolute-path>
+mdopen [--edit] -- <absolute-path>
 ```
 
 and reports an error unless `mdopen` exits `0` (it exits `1` when the file
@@ -73,7 +82,12 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 cd integrations/vscode
 npm install
 npm run compile     # tsc → out/extension.js
+npm test            # compile, then run the helper tests with node:test
 ```
+
+`npm test` runs `src/*.test.ts` (the pure helpers in `src/links.ts`: which
+files Ashlr MD opens and the deep link) under Node's built-in `node:test`
+runner, with no test dependencies; the tests are left out of the `.vsix`.
 
 Or with Bun:
 
@@ -107,6 +121,7 @@ npm run package               # → ashlr-md-vscode.vsix
 | Setting | Default | Description |
 |---|---|---|
 | `ashlr-md.cliPath` | `mdopen` | Path to the `mdopen` CLI used as a fallback if the deep link cannot be opened. |
+| `ashlr-md.openInEditMode` | `false` | Open files in edit mode by default (`&mode=edit`). The edit-mode command always does. |
 
 ---
 
