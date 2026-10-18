@@ -955,6 +955,15 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
                 }));
             }
 
+            // The open document's path alone: the MCP server's stream-edit
+            // tools only compare paths, and fetching `/content` for that
+            // copied the whole document (up to 16 MiB) to read one field.
+            (Method::Get, "/content/path") => {
+                let mirror = app.state::<DocMirror>();
+                let path = mirror.0.lock_recover().path.clone();
+                send_json(req, content_path_body(path));
+            }
+
             (Method::Post, "/content") => handle_set_content(req, app),
 
             (Method::Post, "/open") => handle_open(req, app),
@@ -978,6 +987,12 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
 }
 
 // ── Individual handlers ───────────────────────────────────────────────────────
+
+/// The `GET /content/path` answer: `{ "path": <open path or null> }`, with
+/// none of the document's content.
+fn content_path_body(path: Option<String>) -> serde_json::Value {
+    serde_json::json!({ "path": path })
+}
 
 /// Resolve a path an agent asked the app to open (`/open`, `/present`, or
 /// `/review` with a path), refusing anything but a Markdown document. Without
@@ -2381,6 +2396,7 @@ const ROUTES: &[(&str, &str)] = &[
     ("POST", "/stream-edit-apply"),
     ("POST", "/present"),
     ("GET", "/content"),
+    ("GET", "/content/path"),
     ("POST", "/content"),
     ("POST", "/open"),
     ("GET", "/recent"),
@@ -3694,6 +3710,16 @@ mod tests {
         let (head, _) = raw.split_once("\r\n\r\n").unwrap();
         assert!(head.contains(" 405"), "{head}");
         assert!(head.to_ascii_lowercase().contains("allow: get, post"), "{head}");
+    }
+
+    /// `GET /content/path` answers the open path and nothing else, so the
+    /// MCP server's path check does not copy the document.
+    #[test]
+    fn the_content_path_answer_has_only_the_path() {
+        let v = super::content_path_body(Some("/n/plan.md".into()));
+        assert_eq!(v, serde_json::json!({ "path": "/n/plan.md" }));
+        let v = super::content_path_body(None);
+        assert_eq!(v, serde_json::json!({ "path": null }));
     }
 
     /// `ROUTES` lists exactly the routes `handle_request` matches, so the 405

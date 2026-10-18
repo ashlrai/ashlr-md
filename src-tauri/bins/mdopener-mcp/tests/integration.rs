@@ -7640,6 +7640,57 @@ fn stream_edit_tools_assert_the_open_documents_own_path() {
     assert_eq!(stream_edit_path(&other, &ipc), other);
 }
 
+/// The stream-edit tools fetched the app's `/content`, the whole document,
+/// only to compare its path with `path`. They now ask `/content/path`, which
+/// answers the path alone, so a large document's content is not fetched. An
+/// app from before that route (HTTP 404) is still asked `/content`.
+#[cfg(unix)]
+#[test]
+fn stream_edit_path_check_does_not_fetch_the_documents_content() {
+    use mdopener_mcp::stream_edit_path;
+    let dir = tempfile::tempdir().unwrap();
+    let doc = std::fs::canonicalize(dir.path()).unwrap().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let large = "x".repeat(8 * 1024 * 1024);
+    let ipc = MockIpc::new()
+        .on_get("/content/path", Ok(json!({ "path": doc })))
+        .on_get("/content", Ok(json!({ "path": doc, "content": large })))
+        .on_post("/stream-edit", Ok(json!({ "ok": true })));
+    tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "path": doc }),
+        &ipc,
+    );
+    tool_stream_edit_apply(
+        id(2),
+        &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": doc }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let gets: Vec<&str> = calls
+        .iter()
+        .filter(|(m, _, _)| m == "GET")
+        .map(|(_, p, _)| p.as_str())
+        .collect();
+    assert_eq!(gets, ["/content/path", "/content/path"], "{gets:?}");
+    for (_, p, body) in calls.iter().filter(|(m, _, _)| m == "POST") {
+        assert_eq!(body.as_ref().unwrap()["path"], json!(doc), "{p}");
+    }
+
+    // An older app answers 404 for the route: `/content` gives the path.
+    let opened_as = format!("{}/./plan.md", doc.rsplit_once('/').unwrap().0);
+    let older = MockIpc::new()
+        .on_get(
+            "/content/path",
+            Err("IPC server returned HTTP 404: No such endpoint: GET /content/path".into()),
+        )
+        .on_get("/content", Ok(json!({ "path": opened_as, "content": "" })));
+    assert_eq!(stream_edit_path(&doc, &older), opened_as);
+    // With the app closed the path is sent resolved, as before.
+    assert_eq!(stream_edit_path(&doc, &MockIpc::new()), doc);
+}
+
 // ── Agent-workflow regressions ────────────────────────────────────────────────
 
 /// `text://vault-search?q=my+topic` (the form resources/list documents) must
@@ -10649,8 +10700,9 @@ fn stream_edit_is_not_preferred_for_large_files() {
         let body = calls[0].2.as_ref().unwrap().to_string();
         assert!(body.len() < 200, "{tool} sent {} bytes", body.len());
     }
-    // With `path`, stream_edit fetches the whole document; edit_document
-    // sends the path for the app to check.
+    // With `path`, stream_edit asks the app for the open path alone (it
+    // used to fetch the whole document); edit_document sends the path for
+    // the app to check.
     let ipc = MockIpc::new()
         .on_get("/content", Ok(doc.clone()))
         .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
@@ -10671,12 +10723,18 @@ fn stream_edit_is_not_preferred_for_large_files() {
         json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
         &ipc,
     );
-    assert!(
-        ipc.calls()
-            .iter()
-            .any(|c| c.0 == "GET" && c.1 == "/content"),
-        "stream_edit with path reads /content"
+    let gets: Vec<String> = ipc
+        .calls()
+        .into_iter()
+        .filter(|c| c.0 == "GET")
+        .map(|c| c.1)
+        .collect();
+    assert_eq!(
+        gets,
+        ["/content/path"],
+        "stream_edit with path reads only the path"
     );
+    assert!(d.contains("not its content"), "{d}");
 }
 
 /// A refusal from the window carries its `matchCount`, which the app's

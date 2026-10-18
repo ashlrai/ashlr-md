@@ -1218,7 +1218,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
                 before committing it (edit_document applies at once), not for large files: both send the \
                 app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
-                this tool also fetches the whole document to compare paths. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                this tool also asks the app for the open document's path (not its content) to compare. Returns { ok, editId, diff, candidates, matchCount, applied }: \
                 `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
@@ -7351,14 +7351,27 @@ fn default_preview_lines() -> u32 {
 /// reports as a mismatch, as it should).
 pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
     let want = agent_path(raw);
-    let open = ipc
-        .get("/content")
-        .ok()
-        .and_then(|v| v["path"].as_str().map(str::to_string));
-    match open {
+    match open_document_path(ipc) {
         Some(open) if open == want || agent_path(&open) == want => open,
         _ => want,
     }
+}
+
+/// The app route that answers the open document's path alone.
+pub const OPEN_PATH_ROUTE: &str = "/content/path";
+
+/// The open document's path, `None` when none is open or the app cannot be
+/// asked. It is read from [`OPEN_PATH_ROUTE`]: `/content`, which it used to
+/// be read from, sends the whole document (up to 16 MiB) to compare one
+/// path. An app from before that route answers 404, and is asked `/content`.
+fn open_document_path(ipc: &dyn IpcClient) -> Option<String> {
+    let answer = match ipc.get(OPEN_PATH_ROUTE) {
+        Err(e) if e.starts_with("IPC server returned HTTP 404") => ipc.get("/content"),
+        answer => answer,
+    };
+    answer
+        .ok()
+        .and_then(|v| v["path"].as_str().map(str::to_string))
 }
 
 /// Preview a find/replace edit as a unified diff before committing.

@@ -47,6 +47,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the stream-edit tools no longer fetch the document to check
+  `path`.** `stream_edit` and `stream_edit_apply` with `path` asked the
+  app's `/content` for the open document's path, which sent its whole
+  content (up to 16 MiB) to compare one field. The app has a new
+  `GET /content/path`, with the same token check, that answers the path
+  alone, and the tools ask it instead (an app without it is asked
+  `/content`, as before). What the tools send and the errors they give are
+  unchanged.
 - **MCP: the vault-search resource entry names `limit`.** The
   `resources/list` entry for `text://vault-search` named `&vault=` and
   `&semantic=` but not `&limit=`, which a read takes and the template
