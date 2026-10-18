@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer dismisses a review.** Pressing Escape to end
+  an input-method composition (or close its candidate list) while typing
+  a comment in the review panel bubbled up to the panel, which recorded
+  `dismissed` for the agent and dropped the comment. The panel now
+  ignores an Escape that belongs to a composition; a plain Escape still
+  dismisses.
 - **Obsidian: a missing Ashlr MD gets the "could not launch" notice.** When
   Electron's `shell.openExternal` rejected (no app registered for
   `mdopener://`), the plugin caught it and fell back to `window.open`,

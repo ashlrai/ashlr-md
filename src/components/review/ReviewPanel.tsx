@@ -47,7 +47,10 @@ export function ReviewPanel() {
       role="alertdialog"
       aria-label={`An agent is requesting your review of ${fileNameOf(pending.path)}`}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        // Escape that ends an IME composition (or cancels a candidate) in the
+        // comment box is the input method's, not a dismissal: it used to
+        // record `dismissed` for the agent and drop the comment being typed.
+        if (e.key === "Escape" && !e.nativeEvent.isComposing) {
           e.stopPropagation();
           dismiss();
         }
