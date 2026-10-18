@@ -4336,9 +4336,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     Err(e) => return Response::err(id, -32602, e),
                 }
             } else if let Some(val) = part.strip_prefix("semantic=") {
+                // Only `true` or `false`, as the descriptions and
+                // docs/AGENTS.md say and as the tool's boolean `semantic`
+                // takes: `1` and `0` used to be accepted too.
                 semantic = match decode(val).as_str() {
-                    "true" | "1" => Some(true),
-                    "false" | "0" => Some(false),
+                    "true" => Some(true),
+                    "false" => Some(false),
                     other => {
                         return Response::err(
                             id,

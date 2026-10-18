@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `text://vault-search` takes only `semantic=true` or `false`.** The
+  resource descriptions, docs/AGENTS.md and the error all say `true` or
+  `false`, and docs/AGENTS.md that any other value is `-32602`, but `1`
+  and `0` were taken as true and false. They are now refused like any
+  other value, as the `search_vault` tool's boolean `semantic` refuses a
+  number.
 - **MCP: `text://vault-search` decodes an encoded `limit`.** `q`, `vault`
   and `semantic` were percent-decoded but `limit` was not, so
   `limit=%35` was refused as not a whole number from 1 to 200, got "5".

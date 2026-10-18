@@ -4841,6 +4841,22 @@ fn resource_read_vault_search_honours_semantic_option() {
     let err = resp.error.expect("an invalid semantic value is an error");
     assert_eq!(err.code, -32602);
     assert!(err.message.contains("semantic"), "{}", err.message);
+    // `1` and `0` were taken as true and false, although the descriptions,
+    // docs/AGENTS.md and the error say only `true` or `false`, and the
+    // tool's boolean `semantic` refuses a number.
+    for v in ["1", "0"] {
+        let uri = format!("text://vault-search?q=x&semantic={v}");
+        let ipc = mock();
+        let resp = handle_resource_read(id(313), &uri, &ipc);
+        let err = resp.error.expect("semantic takes only true or false");
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message.contains("`semantic` must be true or false"),
+            "{}",
+            err.message
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
 }
 
 /// `limit=ten` on the resource was read as the default of 50.
