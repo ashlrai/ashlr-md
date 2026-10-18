@@ -18,8 +18,10 @@ import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
+import agentSetup from "../src-tauri/src/agent_setup.rs?raw";
 import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
+import linuxConf from "../src-tauri/tauri.linux.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
 import mcpEditHandlers from "./mcp/handlers/edit.ts?raw";
@@ -475,6 +477,49 @@ describe("doc facts: download links", () => {
       }
     }
     expect(seen).toBeGreaterThanOrEqual(4);
+  });
+});
+
+// ── AppImage MCP server path ──────────────────────────────────────────────────
+// An AppImage mounts itself at a new /tmp/.mount_* directory each launch.
+// The app's Connect and Copy resolve the server through Tauri's resource_dir,
+// which for an AppImage is $APPDIR/usr/lib/<productName>, inside that mount.
+// docs/AGENTS.md said to "use the resource dir inside the mount", a path that
+// stops working when the app quits; it now copies the server out once.
+
+describe("doc facts: AppImage MCP server path", () => {
+  const { productName } = JSON.parse(tauriConf) as { productName: string };
+  const inAppImage = `usr/lib/${productName}/mdopener-mcp`;
+  const manual = agentsDoc.split("### Manual")[1]?.split("```")[1] ?? "";
+
+  it("Connect resolves the server through the resource dir", () => {
+    expect(linuxConf).toContain('"target/release/mdopener-mcp": "./"');
+    expect(agentSetup).toContain("app.path().resource_dir()");
+  });
+
+  it("never tells the reader to use a path inside the mount", () => {
+    expect(agentsDoc, where(AGENTS, agentsDoc, /resource dir/)).not.toMatch(
+      /resource dir(ectory)? inside the mount|AppImage resource directory/,
+    );
+  });
+
+  it("the manual steps copy the server out of the AppImage and register the copy", () => {
+    const lines = manual.split("\n");
+    const extract = lines.find((l) => l.includes("--appimage-extract")) ?? "";
+    expect(extract, `${AGENTS}: no --appimage-extract step`).toContain(`"${inAppImage}"`);
+    const copy = lines.find((l) => l.startsWith("install -D")) ?? "";
+    expect(copy).toContain(`"squashfs-root/${inAppImage}"`);
+    const dest = copy.split(" ").at(-1) ?? "";
+    expect(dest).toBe("~/.local/bin/mdopener-mcp");
+    const add = lines.filter((l) => l.startsWith("claude mcp add")).at(-1) ?? "";
+    expect(add).toBe(`claude mcp add --scope user ashlr-md ${dest}`);
+  });
+
+  it("says Connect, Copy and the hook button use the in-mount path", () => {
+    const at = where(AGENTS, agentsDoc, "/tmp/.mount_");
+    expect(agentsDoc, at).toContain(`\`/tmp/.mount_*/${inAppImage}\``);
+    const hook = agentsDoc.split("### One-click install")[1]?.split("\n---")[0] ?? "";
+    expect(hook, `${AGENTS} One-click install`).toContain("/tmp/.mount_*");
   });
 });
 

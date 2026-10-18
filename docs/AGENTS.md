@@ -99,9 +99,22 @@ claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resour
 # Windows (PowerShell): verify path; shown here for a typical per-user install
 claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.exe"
 
-# Linux (.deb install default; AppImage: use the resource dir inside the mount)
+# Linux (.deb install default)
 claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
+
+# Linux AppImage: copy the server out of the AppImage once, then register the copy
+./AshlrMD.AppImage --appimage-extract "usr/lib/Ashlr MD/mdopener-mcp"
+install -D "squashfs-root/usr/lib/Ashlr MD/mdopener-mcp" ~/.local/bin/mdopener-mcp
+rm -rf squashfs-root
+claude mcp add --scope user ashlr-md ~/.local/bin/mdopener-mcp
 ```
+
+An AppImage mounts itself at a new `/tmp/.mount_*` directory on every launch
+and unmounts when it quits, so a path inside the mount stops working once the
+app closes. From an AppImage, the **Connect** buttons and the **Copy** command
+register that in-mount path (`/tmp/.mount_*/usr/lib/Ashlr MD/mdopener-mcp`);
+use the commands above instead, and copy the server out again after you
+update the AppImage.
 
 After running it, **restart Claude Code** (quit and start a new session) once.
 
@@ -213,8 +226,10 @@ Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
 
 On **Windows**, replace `command` with the path to `mdopener-mcp.exe` in your
 install directory (e.g. `C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe`).
-On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`) or the binary inside
-the AppImage resource directory; verify the exact path after install.
+On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`), or for an
+AppImage the absolute path of the copy made in the manual Claude Code steps
+above (`/home/<you>/.local/bin/mdopener-mcp`; a path inside the AppImage's
+mount changes every launch).
 
 If the file already has other servers, merge only the `"ashlr-md"` key into the
 existing `"mcpServers"` object; don't replace the whole file.
@@ -623,6 +638,12 @@ not split it; re-running the installer repairs an unquoted entry that earlier
 versions wrote for the same path. After installing, **restart Claude Code** to
 pick it up. The quoting targets the POSIX shell Claude Code runs hooks with; it
 has not been verified on an installed Windows build.
+
+From an AppImage the button writes the `mdopen` inside the AppImage's
+temporary mount (`/tmp/.mount_*`), which is gone once the app quits. Run
+**Install mdopen** first, then replace `<mdopen>` in the entry above with the
+absolute path it copied `mdopen` to (for example
+`/home/<you>/.local/bin/mdopen`).
 
 > If `~/.claude/settings.json` already has a non-object `hooks` value or a
 > non-array `hooks.PostToolUse`, the installer **bails with an error** rather than

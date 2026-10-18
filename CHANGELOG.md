@@ -36,6 +36,17 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The agent guide gives an AppImage a server path that lasts.** For an
+  AppImage, docs/AGENTS.md said to register the MCP server from "the resource
+  dir inside the mount", but the AppImage mounts at a new `/tmp/.mount_*`
+  directory on every launch and unmounts when it quits, so that registration
+  breaks as soon as the app closes. The in-app Connect, Copy and Install
+  auto-open hook buttons register that same in-mount path. The guide now
+  copies `mdopener-mcp` out of the AppImage once (`--appimage-extract`) into
+  `~/.local/bin` and registers the copy, says the buttons use the in-mount
+  path, and tells hook users to point the hook at the `mdopen` that
+  **Install mdopen** copies out. A doc facts test checks the steps against
+  `productName` and the Linux resource map.
 - **The release runbook names what the bundler writes and what to publish.**
   docs/RELEASING.md said the workflow produces `Ashlr_MD_X.Y.Z_amd64.deb` and
   the like, but the Tauri bundler writes `Ashlr MD_X.Y.Z_amd64.deb` and
