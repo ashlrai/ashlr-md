@@ -1781,7 +1781,10 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
         return Err("`find` must not be empty.".into());
     }
     match content.matches(find).count() {
-        0 => Err("`find` string not found in the current document.".into()),
+        0 => Err("`find` string not found in the current document. It must match the document \
+                  exactly, whitespace and line breaks included: read the live text with \
+                  get_current_content and copy `find` from it."
+            .into()),
         1 => Ok(content.replacen(find, replace, 1)),
         n => Err(format!(
             "`find` string is not unique ({n} matches). Include more surrounding context to disambiguate."

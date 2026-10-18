@@ -10,7 +10,12 @@ vi.mock("../store/recentStore", () => ({
 }));
 
 import { useDocumentStore } from "../store/documentStore";
-import { applyUniqueEdit } from "./applyEdit";
+import {
+  applyEditAtOccurrence,
+  applyUniqueEdit,
+  computeStreamEditDiff,
+  FIND_NOT_FOUND,
+} from "./applyEdit";
 
 describe("applyUniqueEdit — exact, unique find/replace contract", () => {
   // These mirror the Rust `apply_unique_edit` unit tests one-for-one so the two
@@ -31,6 +36,20 @@ describe("applyUniqueEdit — exact, unique find/replace contract", () => {
     expect(r.ok).toBe(false);
     expect(r.replaced).toBe(0);
     expect(r.error).toMatch(/not found/);
+  });
+
+  // "not found" used to be the whole answer, so an agent retried the same
+  // text. Every edit that can miss now says to copy `find` from the live
+  // document, and an out-of-range matchIndex names the range to use.
+  it("a missed find says how to get it right, in every edit", () => {
+    expect(FIND_NOT_FOUND).toContain("get_current_content");
+    expect(applyUniqueEdit("abc", "xyz", "q").error).toBe(FIND_NOT_FOUND);
+    expect(computeStreamEditDiff("abc", "xyz", "q").error).toBe(FIND_NOT_FOUND);
+    expect(applyEditAtOccurrence("abc", "xyz", "q", 0).error).toBe(FIND_NOT_FOUND);
+    expect(applyEditAtOccurrence("a b a", "a", "q", 3).error).toBe(
+      "matchIndex 3 out of bounds: document has 2 occurrence(s). Use a match_index " +
+        "from 0 to 1, or call stream_edit again to see the candidates.",
+    );
   });
 
   it("errors when find is not unique and reports the count", () => {

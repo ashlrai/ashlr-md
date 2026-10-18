@@ -92,6 +92,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   them as `unread` with the reason, and **Reindex library** in Settings says
   how many files were not indexed, names the first three with the reason,
   and says to convert a file that is not UTF-8.
+- **MCP: a `find` that is not found says what to do.** `edit_document`,
+  `stream_edit` and `stream_edit_apply` answered "`find` string not found
+  in the document." and stopped, so an agent retried the same text. The
+  error now says `find` must match the document exactly, whitespace and line
+  breaks included, and to copy it from `get_current_content`. A
+  `match_index` past the last occurrence names the range to use (`Use a
+  match_index from 0 to 1`) or says to call `stream_edit` again.
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed
