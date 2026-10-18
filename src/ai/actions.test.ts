@@ -277,6 +277,20 @@ describe("DOC_ACTIONS catalogue", () => {
       ).toContain(sampleDoc);
     }
   });
+
+  // The sidebar sends this action the document, never a selection, but its
+  // label said "Explain selection" and its prompt told the model the user
+  // would provide selected text.
+  it("doc-explain-selection says it explains the document it is given", () => {
+    const action = DOC_ACTIONS.find((a) => a.id === "doc-explain-selection");
+    expect(action).toBeDefined();
+    const [system, user] = action?.buildMessages("doc body") ?? [];
+    const text = `${action?.label} ${system?.content} ${user?.content}`;
+    expect(text).not.toMatch(/select/i);
+    expect(action?.label).toBe("Explain doc");
+    expect(system?.content).toContain("The user will provide a Markdown document.");
+    expect(user?.content).toBe("Explain this document:\n\ndoc body");
+  });
 });
 
 // ---------------------------------------------------------------------------

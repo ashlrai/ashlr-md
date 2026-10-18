@@ -2435,6 +2435,48 @@ fn list_ai_actions_contains_expected_document_actions() {
     }
 }
 
+/// doc-explain-selection has scope "document", and the app's AI sidebar
+/// sends it the document (its first 8,000 characters), never a selection.
+/// Its label said "Explain selection" and its prompt that the user would
+/// provide selected text. The scope stays (list_ai_actions' description and
+/// the scope filter above read it); the label and prompts now say document,
+/// as src/ai/actions.ts does.
+#[test]
+fn doc_explain_selection_describes_the_document_it_is_sent() {
+    let text = content_text(&tool_list_ai_actions(id(1), &json!({})));
+    let action = text["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "doc-explain-selection")
+        .unwrap()
+        .clone();
+    assert_eq!(action["scope"], "document");
+    assert_eq!(action["label"], "Explain doc");
+    assert_eq!(action["shortLabel"], "Explain doc");
+    for field in ["label", "shortLabel", "systemPrompt", "userPromptTemplate"] {
+        let v = action[field].as_str().unwrap().to_lowercase();
+        assert!(!v.contains("select"), "{field}: {v}");
+    }
+    assert!(action["systemPrompt"]
+        .as_str()
+        .unwrap()
+        .contains("The user will provide a Markdown document."));
+    assert_eq!(
+        action["userPromptTemplate"],
+        "Explain this document:\n\n{text}"
+    );
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "list_ai_actions")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains("for scope 'document', the document, of which the app sends at most the first 8,000 characters"),
+        "{d}"
+    );
+}
+
 #[test]
 fn list_ai_actions_prompt_templates_contain_text_placeholder() {
     let resp = tool_list_ai_actions(id(1), &json!({}));

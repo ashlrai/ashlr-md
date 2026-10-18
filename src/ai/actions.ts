@@ -305,16 +305,18 @@ export const DOC_ACTIONS: DocAction[] = [
       );
     },
   },
+  // The id is kept for the list_ai_actions contract. The action has no
+  // selection: the sidebar sends the document (its first 8,000 characters).
   {
     id: "doc-explain-selection",
-    label: "Explain selection",
+    label: "Explain doc",
     icon: "💡",
     buildMessages(docContent) {
       return msg(
-        "You are a clear, concise technical explainer grounded in the document context. " +
-          "The user will provide selected text. Explain it in plain language, " +
-          "referencing the surrounding document for context as needed.",
-        `The document context:\n\n${docContent}`,
+        "You are a clear, concise technical explainer. " +
+          "The user will provide a Markdown document. Explain what it says in plain language, " +
+          "defining the terms and ideas it relies on.",
+        `Explain this document:\n\n${docContent}`,
       );
     },
   },

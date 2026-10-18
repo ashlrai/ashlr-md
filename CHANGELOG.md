@@ -47,6 +47,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **AI: "Explain selection" said it explained a selection.** The
+  `doc-explain-selection` action has scope `document`, and the AI sidebar
+  sends it the document (its first 8,000 characters), never a selection, but
+  its label was "Explain selection" and its prompt told the model the user
+  would provide selected text. The label is now "Explain doc" and the prompt
+  asks for an explanation of the document, in the app and in
+  `list_ai_actions`. The id and scope are kept: `list_ai_actions` clients and
+  its description read them. That description now also says the app sends at
+  most the first 8,000 characters of a document.
 - **MCP: `stream_edit` no longer says to prefer it for large files.** Its
   description said "Prefer this over edit_document for large files", but
   neither tool sends the document: both post the app only `find` and
