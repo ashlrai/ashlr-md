@@ -36,6 +36,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The Linux install guide's default-app commands name the real desktop
+  entry.** `docs/INSTALL.md` told you to run `xdg-mime default
+  app.mdopener.desktop.desktop text/markdown`, a file the `.deb` and `.rpm`
+  do not install, so Markdown files never opened in Ashlr MD. It now names
+  `"Ashlr MD.desktop"` (quoted, for the space) and points at **Preferences →
+  Default Markdown app**. It also said `--appimage-extract-and-run` creates
+  a desktop entry and icons; that flag only runs the AppImage. The guide now
+  says what the AppImage does register on its first run (the `mdopener://`
+  scheme) and what it does not.
 - **`mdopen --hook` opens only what a write tool wrote.** It opened the
   `tool_input.file_path` of any payload, so a hand-written hook wired as
   `PreToolUse` opened the file before the tool changed it, and a broad

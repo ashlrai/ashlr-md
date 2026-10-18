@@ -109,26 +109,31 @@ chmod +x AshlrMD.AppImage
 ./AshlrMD.AppImage
 ```
 
-To integrate with your desktop environment (optional):
-```bash
-# Extract and install (creates .desktop entry + icons)
-./AshlrMD.AppImage --appimage-extract-and-run
-# or use appimaged: https://github.com/probonopd/go-appimage
-```
+The first time it runs, the AppImage registers the `mdopener://` scheme for
+your user (a hidden `md-opener-handler.desktop` entry under
+`~/.local/share/applications/` that points at the AppImage), so `mdopen` and
+agent deep links reach it. If you move the AppImage, run it once from its new
+place to update that entry. It does not add a launcher, icons or an **Open
+With** entry for `.md` files; for that, use a desktop integration tool such
+as [appimaged](https://github.com/probonopd/go-appimage) or AppImageLauncher.
 
 > The AppImage bundles all dependencies and runs on any x86_64 Linux distro
 > with glibc ≥ 2.35 (Ubuntu 22.04+, Fedora 36+, etc.).
 
 ### Set Ashlr MD as the default Markdown app (Linux)
 
+With the `.deb` or `.rpm` installed, use **Preferences → Default Markdown app →
+Make Default**, or run `xdg-mime` yourself. The desktop entry is named after
+the product, with a space, so quote it:
+
 ```bash
 # Register the MIME type association
-xdg-mime default app.mdopener.desktop.desktop text/markdown
-xdg-mime default app.mdopener.desktop.desktop text/x-markdown
+xdg-mime default "Ashlr MD.desktop" text/markdown
+xdg-mime default "Ashlr MD.desktop" text/x-markdown
 
 # Verify
 xdg-mime query default text/markdown
-# → app.mdopener.desktop.desktop
+# → Ashlr MD.desktop
 ```
 
 ---
