@@ -1321,8 +1321,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
-                { text, word_count, char_count, path? }: the extracted text with its word and character \
-                counts, and the absolute path of the file read (absent for an unsaved open document). \
+                { text, word_count, char_count, path? }: the extracted text, its word count, its length \
+                in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
+                path of the file read (absent for an unsaved open document). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (with nothing open, an error saying to pass `path`).",

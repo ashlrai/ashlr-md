@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`export_text` says `char_count` counts characters.** Its description
+  called the field a "character count" without saying whether that meant
+  bytes, and a non-ASCII document has more bytes than characters. It now
+  says `char_count` is the text's length in Unicode characters, not bytes,
+  which is what the tool counts.
 - **Every path argument says what a relative path resolves against.**
   `open_file`'s `path` said only "Absolute or relative path", and the
   optional `path` checks of `edit_document`, `stream_edit` and
