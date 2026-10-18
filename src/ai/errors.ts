@@ -16,6 +16,12 @@ export interface AIErrorInfo {
   detail: string;
 }
 
+/**
+ * What every AI surface says when no provider is found: the editors' inline
+ * AI and the selection popover alike.
+ */
+export const NO_PROVIDER_MESSAGE = "No AI provider. Set one up in the AI sidebar.";
+
 const NETWORK =
   /error sending request|failed to fetch|networkerror|network error|connection (refused|reset|closed)|dns error|could not resolve|stream read error|load failed/i;
 const TIMEOUT = /timed out|timeout/i;

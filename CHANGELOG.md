@@ -47,6 +47,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The selection popover says when no AI provider is found.** If the
+  provider went away after the AI sidebar opened (say Ollama stopped), an
+  action from the selection popover opened the sidebar and stopped without a
+  word. The sidebar now shows your request and the message the editors'
+  inline AI gives, "No AI provider. Set one up in the AI sidebar."
 - **Preferences no longer shows part of the hosted AI token.** The Hosted AI
   section showed the first 6 characters of the saved token followed by dots.
   It now says only "A token is saved.", as the Anthropic key section does.

@@ -6,7 +6,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionId } from "../../ai/actions";
-import { aiErrorLine, describeAIError } from "../../ai/errors";
+import { aiErrorLine, describeAIError, NO_PROVIDER_MESSAGE } from "../../ai/errors";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import { isDismissEscape } from "../../lib/keymap";
 import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
@@ -170,7 +170,7 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
         } else if (e instanceof NoProviderError) {
           setPhase({
             kind: "error",
-            message: "No AI provider. Set one up in the AI sidebar.",
+            message: NO_PROVIDER_MESSAGE,
             retryFn: null,
           });
         } else {
