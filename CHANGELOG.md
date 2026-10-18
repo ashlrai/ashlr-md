@@ -78,6 +78,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   first three with the reason (`/v/latin.md (not UTF-8 text (byte 4 is not
   valid UTF-8, on line 1))`), counts the rest, and says to convert a file
   that is not UTF-8.
+- **The app's own search says which vault files it could not read.** The
+  app's `/search` (`search_vault` in mode `grep`) left a vault or recent
+  file it could not read (not UTF-8 text, larger than 16 MiB, or refused)
+  out in silence, as the on-disk modes did. Its reply now lists them as
+  `unread: [{ path, reason }]` (the first 20) with `unreadCount`, and
+  `search_vault` turns them into the same `note` as the on-disk modes. An
+  app that predates the fields gives no note, as before.
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed
