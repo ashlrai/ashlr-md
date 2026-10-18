@@ -5,6 +5,8 @@
 //! headings, wikilinks and image count of `export_metadata`, the plain text
 //! of `export_text`, the task checkboxes of `/annotations` and
 //! `get_user_annotations`) uses one rule for front matter and one for fences.
+//! [`atx_heading`] is the one ATX heading rule of a document's title and of
+//! `export_metadata`'s headings.
 //! Those scanners used to flip an "in code" flag on any line starting with
 //! ```` ``` ```` or `~~~`, so a ```` ```` ```` block holding ```` ``` ````
 //! ended early and a `~~~` line closed a backtick block.
@@ -87,4 +89,37 @@ fn code_fence(line: &str) -> Option<(char, usize, &str)> {
     let n = body.chars().take_while(|&x| x == c).count();
     let rest = &body[n..];
     (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+}
+
+/// The level and text of `line` when it is an ATX heading, as CommonMark
+/// reads one: at most three spaces of indentation, 1 to 6 `#`s, then a
+/// space, a tab or the end of the line. The text is trimmed and loses an
+/// optional closing run of `#`s that follows a space or a tab (`Title ##`
+/// is `Title`, `C#` keeps its `#`, and `#` alone or `## ##` is an empty
+/// heading). A line indented four spaces or a tab is indented code, not a
+/// heading, and `#tag` or `#!/bin/sh` is text.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
+pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let level = body.bytes().take_while(|&b| b == b'#').count();
+    let rest = &body[level..];
+    if !(1..=6).contains(&level) || !(rest.is_empty() || rest.starts_with([' ', '\t'])) {
+        return None;
+    }
+    let text = rest.trim_matches([' ', '\t']);
+    let open = text.trim_end_matches('#');
+    let text = if open.len() == text.len() {
+        text
+    } else if open.is_empty() {
+        ""
+    } else if open.ends_with([' ', '\t']) {
+        open.trim_end_matches([' ', '\t'])
+    } else {
+        text
+    };
+    Some((level, text))
 }

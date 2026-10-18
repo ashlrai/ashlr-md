@@ -4113,7 +4113,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the text of the first level 1 ATX heading outside YAML front matter and fenced code blocks, with at most three spaces before the `#` and a space or a tab after it, closing `#`s dropped, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -6087,17 +6087,22 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 
 // ── list_recent_documents resource handler ────────────────────────────────────
 
-/// A document's title: the text of its first `# ` heading line, `None` when
-/// it has none. Lines of a leading YAML front matter block and of fenced
-/// code blocks (```` ``` ```` or `~~~`, closed by a fence of the same
-/// character at least as long) are not headings: the first such line used
-/// to be the title, so a front matter `# comment` or a shell comment in a
-/// code block named the document. A fence left open runs to the end, as in
-/// CommonMark.
+/// A document's title: the text of its first level 1 ATX heading that has
+/// text, `None` when it has none. Lines of a leading YAML front matter block
+/// and of fenced code blocks (```` ``` ```` or `~~~`, closed by a fence of
+/// the same character at least as long) are not headings: the first such
+/// line used to be the title, so a front matter `# comment` or a shell
+/// comment in a code block named the document. A fence left open runs to
+/// the end, as in CommonMark. A heading is read by
+/// [`markdown_lines::atx_heading`], the rule of `export_metadata`'s
+/// headings: only `# ` at the start of a line used to count, so `  # Title`
+/// and `#\tTitle` were not titles, `# Title #` kept its closing `#`, and an
+/// empty `# ` named the document with an empty title.
 pub fn document_title(content: &str) -> Option<String> {
     markdown_lines::text_lines(content)
-        .find_map(|line| line.strip_prefix("# "))
-        .map(|title| title.trim().to_string())
+        .filter_map(markdown_lines::atx_heading)
+        .find(|&(level, text)| level == 1 && !text.is_empty())
+        .map(|(_, text)| text.to_string())
 }
 
 /// Build the `mdopener://recent-documents` resource response.
@@ -6109,7 +6114,7 @@ pub fn document_title(content: &str) -> Option<String> {
 /// { "path": "...", "title": "...", "mtimeMs": 1234567890, "preview": "..." }
 /// ```
 ///
-/// `title` is [`document_title`] (the first `# Heading` line outside front
+/// `title` is [`document_title`] (the first `# Heading` outside front
 /// matter and fenced code) if present, otherwise the file's base name
 /// without extension.  `preview` is the first 200 chars
 /// of raw content (including front-matter).  Recents that cannot be listed
@@ -8780,32 +8785,23 @@ fn without_closing_hashes(text: &str) -> &str {
     }
 }
 
-/// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
+/// Extract ATX headings into a tree.
 ///
 /// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
 /// Lines of a leading YAML front matter block and of fenced code are not
 /// headings, by the rule [`document_title`] uses ([`markdown_lines`]). Any
 /// line starting with ```` ``` ```` or `~~~` used to flip an "in code" flag,
 /// so a `~~~` line ended a backtick block, and a front matter `# comment`
-/// was a heading.
+/// was a heading. A heading is read by [`markdown_lines::atx_heading`], as
+/// [`document_title`] reads one: the whole line used to be trimmed, so a
+/// `# comment` indented four spaces (indented code) was a heading. An empty
+/// heading is left out.
 pub fn extract_headings(content: &str) -> Vec<Value> {
-    let mut headings = Vec::new();
-    for line in markdown_lines::text_lines(content) {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            let level = trimmed.chars().take_while(|&c| c == '#').count();
-            let rest = &trimmed[level..];
-            // ATX headings need whitespace after the `#`s: `#tag` and
-            // `#!/bin/sh` are text, not headings.
-            if level <= 6 && rest.starts_with([' ', '\t']) {
-                let after = without_closing_hashes(rest.trim());
-                if !after.is_empty() {
-                    headings.push(json!({ "level": level, "text": after }));
-                }
-            }
-        }
-    }
-    headings
+    markdown_lines::text_lines(content)
+        .filter_map(markdown_lines::atx_heading)
+        .filter(|(_, text)| !text.is_empty())
+        .map(|(level, text)| json!({ "level": level, "text": text }))
+        .collect()
 }
 
 /// Extract all `[[wikilinks]]` from the content (not inside code blocks).

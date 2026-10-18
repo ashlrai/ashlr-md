@@ -8126,6 +8126,53 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     }
 }
 
+/// `extract_headings` trimmed the whole line, so a `# comment` indented four
+/// spaces (indented code) was a heading, while `document_title` took only
+/// `# ` at column 0, so `  # Title` and `#\tTitle` were not titles. Both
+/// now read a heading by one CommonMark rule: at most three spaces, 1 to 6
+/// `#`s, then a space, a tab or the end of the line, closing `#`s dropped.
+#[test]
+fn title_and_headings_share_the_atx_heading_rule() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let headings = |doc: &str| -> Vec<(u64, String)> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| {
+                let text = h["text"].as_str().unwrap().to_string();
+                (h["level"].as_u64().unwrap(), text)
+            })
+            .collect()
+    };
+    // A document, its headings as (level, text), and its title.
+    type Case<'a> = (&'a str, &'a [(u64, &'a str)], Option<&'a str>);
+    let cases: [Case; 11] = [
+        ("    # not\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("\t# not\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("   # Three\n", &[(1, "Three")], Some("Three")),
+        ("  # Title\n", &[(1, "Title")], Some("Title")),
+        ("#\tTitle\n", &[(1, "Title")], Some("Title")),
+        ("# Title #\n", &[(1, "Title")], Some("Title")),
+        ("# Learn C#\n", &[(1, "Learn C#")], Some("Learn C#")),
+        // An empty heading is not listed and is not a title.
+        ("#\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("# ##\n## Two\n", &[(2, "Two")], None),
+        ("####### seven\n#tag\n", &[], None),
+        (
+            "## Two\n   ### Three ###\n",
+            &[(2, "Two"), (3, "Three")],
+            None,
+        ),
+    ];
+    for (doc, want, title) in cases {
+        let want: Vec<(u64, String)> = want.iter().map(|&(l, t)| (l, t.to_string())).collect();
+        assert_eq!(headings(doc), want, "{doc:?}");
+        assert_eq!(document_title(doc).as_deref(), title, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("so `  # Title` and `#<tab>Title` were not titles"));
+    assert!(docs.contains("so a `# comment` indented four spaces is indented code"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

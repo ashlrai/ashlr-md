@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a title and the headings read a heading the same way.**
+  `export_metadata`'s headings trimmed the whole line, so a `# comment`
+  indented four spaces (indented code) was a heading, while a recent
+  document's `title` took only `# ` at the start of a line, so
+  `  # Title` and `#<tab>Title` were not titles and `# Title #` kept its
+  closing `#`. Both now use one CommonMark rule from the shared helper: at
+  most three spaces, 1 to 6 `#`s, then a space, a tab or the end of the
+  line, with closing `#`s dropped. An empty `# ` is no longer a title.
 - **MCP: plain text, image counts and tasks use the same fence rule.**
   `export_text`, `export_metadata`'s `embedded_image_count` and the
   `tasks` of `get_user_annotations` (and of the app's `/annotations`)
