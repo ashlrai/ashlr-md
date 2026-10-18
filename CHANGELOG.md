@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `resources/list` percent-encodes its `file://` URIs.** A vault
+  file was listed as `file://` followed by its path as is, so a path with a
+  space, `%`, `#` or `?` was not a valid URI. The path is now
+  percent-encoded as RFC 3986 and RFC 8089 require (`My Notes.md` is
+  `My%20Notes.md`, and a Windows path `C:\notes\a.md` is
+  `file:///C:/notes/a.md`). `resources/read` takes both the encoded URI
+  and the old unencoded form, so existing clients keep working.
 - **MCP: a recent document's `title` skips front matter and code.** The
   `mdopener://recent-documents` `title` was the first line starting with
   `# `, even inside YAML front matter or a fenced code block, so a front

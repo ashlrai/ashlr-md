@@ -469,6 +469,14 @@ names the same parameters, `&limit=` included (it used to leave `limit` out).
   list too).
 - **`file://<path>` (vault files)**: every file the app lists in the
   **vault** (watched folder) is listed as an individually readable resource.
+  The path in the URI is percent-encoded as RFC 3986 and RFC 8089 require:
+  every byte but a letter, a digit, `-._~`, `!$&'()*+,;=`, `:`, `@` and the
+  `/` separator is written `%XX`, so `/notes/My Notes 100%.md` is listed as
+  `file:///notes/My%20Notes%20100%25.md` and `café.md` as `caf%C3%A9.md`. A
+  Windows path `C:\notes\a.md` is `file:///C:/notes/a.md`, and a share
+  `\\srv\share\a.md` is `file:////srv/share/a.md`. The URIs used to be
+  `file://` followed by the path as is, which is not a valid URI when the
+  path has a space; `resources/read` still takes that form.
   Recently opened files are not listed as `file://` entries (read
   `mdopener://recent-documents` for them), but a recent's `file://<path>` is
   still readable through `resources/read`. When the app cannot be asked for them (it is not
@@ -488,10 +496,13 @@ is rejected (`-32002`, saying to open it with `open_file` first), so the resourc
 arbitrary-filesystem read primitive. When the app cannot be reached it lists
 no path, and the read is `-32000` saying the app is not running, or with
 the refused-token message when the app answers HTTP 401, as for
-`mdopener://current` (it used to be `-32002` "not in vault"). Percent-encoded URIs
-(`file:///notes/My%20Notes.md`) and `file://localhost/...` are accepted; the
-check runs on the decoded path, so encoding cannot reach a file outside the
-vault. A malformed escape (`%ZZ`, a lone `%`; write a literal `%` as `%25`) or
+`mdopener://current` (it used to be `-32002` "not in vault"). The
+percent-encoded URIs `resources/list` gives (`file:///notes/My%20Notes.md`),
+the same path written unencoded (`file:///notes/My Notes.md`, the form it
+used to give, tried first) and `file://localhost/...` are accepted, and a
+`file:///C:/...` or `file:////srv/share/...` URI names the Windows path the
+app lists; the check runs on the decoded path, so encoding cannot reach a
+file outside the vault. A malformed escape (`%ZZ`, a lone `%`; write a literal `%` as `%25`) or
 escapes that do not decode to UTF-8 (`%FF`) are refused with `-32602` naming
 the problem, unless the URI is an advertised path exactly as written. An advertised path is then read only if it is a Markdown document that
 is not a dotfile, checked after resolving symlinks (like the tools that read a

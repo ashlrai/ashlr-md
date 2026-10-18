@@ -9633,6 +9633,101 @@ fn frontmatter_reads_lists_of_mappings_block_scalars_and_deep_nesting() {
     );
 }
 
+// ── file:// resource URIs are percent-encoded in resources/list ──────────────
+
+/// resources/list gave `file://` and the path as is, so a path with a space
+/// (or `%`, `#`, `?`, or a character that is not ASCII) was not a valid URI.
+/// The path is now percent-encoded as RFC 3986 and RFC 8089 require.
+#[test]
+fn file_uri_percent_encodes_the_path() {
+    use mdopener_mcp::file_uri;
+    let cases = [
+        ("/v/a.md", "file:///v/a.md"),
+        ("/v/My Notes.md", "file:///v/My%20Notes.md"),
+        ("/v/100% #1?.md", "file:///v/100%25%20%231%3F.md"),
+        ("/v/caf\u{e9}.md", "file:///v/caf%C3%A9.md"),
+        (
+            "/v/a-b_c~d(1)+x@y:z,w;q=r!$&'*.md",
+            "file:///v/a-b_c~d(1)+x@y:z,w;q=r!$&'*.md",
+        ),
+        (
+            "/v/[x]{y}`z^|\"<>.md",
+            "file:///v/%5Bx%5D%7By%7D%60z%5E%7C%22%3C%3E.md",
+        ),
+        ("C:\\notes\\a b.md", "file:///C:/notes/a%20b.md"),
+        ("\\\\srv\\share\\a.md", "file:////srv/share/a.md"),
+    ];
+    for (path, want) in cases {
+        assert_eq!(file_uri(path), want, "{path}");
+    }
+}
+
+/// A vault file whose path has a space and a `%` is listed by its encoded
+/// URI, and resources/read takes both that URI and the unencoded form
+/// resources/list used to give, so existing clients keep working.
+#[test]
+fn listed_file_uris_are_encoded_and_both_forms_read() {
+    use mdopener_mcp::handle_resource_read;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("My Notes 100%.md");
+    std::fs::write(&doc, "# Notes\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "My Notes 100%.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let listed = handle_resources_list(id(1), &ipc).result.unwrap();
+    let uris: Vec<String> = listed["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .filter(|u| u.starts_with("file://"))
+        .map(str::to_string)
+        .collect();
+    let encoded = format!("file://{}", doc.replace('%', "%25").replace(' ', "%20"));
+    assert_eq!(uris, std::slice::from_ref(&encoded));
+    assert!(!encoded.contains(' '), "{encoded}");
+    for uri in [encoded, format!("file://{doc}")] {
+        let resp = handle_resource_read(id(2), &uri, &ipc);
+        assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
+        assert_eq!(
+            resp.result.unwrap()["contents"][0]["text"],
+            "# Notes\n",
+            "{uri}"
+        );
+    }
+}
+
+/// A Windows path is listed as `file:///C:/...`; reading that URI names the
+/// advertised `C:\...` path (it is then checked on disk like any other), not
+/// "not in vault". A path the app does not list is still refused.
+#[test]
+fn an_encoded_windows_file_uri_names_the_advertised_path() {
+    use mdopener_mcp::{file_uri, handle_resource_read};
+    let win = "C:\\notes\\My Notes.md";
+    let share = "\\\\srv\\share\\a.md";
+    let vault = json!({ "files": [{ "path": win, "name": "My Notes.md" }], "recents": [share] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let uri = file_uri(win);
+    assert_eq!(uri, "file:///C:/notes/My%20Notes.md");
+    for uri in [uri, format!("file://{win}"), file_uri(share)] {
+        let err = handle_resource_read(id(1), &uri, &ipc).error.unwrap();
+        assert!(
+            !err.message.starts_with("Resource not in vault"),
+            "{uri}: {}",
+            err.message
+        );
+    }
+    let err = handle_resource_read(id(2), "file:///C:/notes/other.md", &ipc)
+        .error
+        .unwrap();
+    assert!(
+        err.message.starts_with("Resource not in vault"),
+        "{}",
+        err.message
+    );
+}
+
 // ── file:// resource URIs are percent-decoded ─────────────────────────────────
 
 /// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server

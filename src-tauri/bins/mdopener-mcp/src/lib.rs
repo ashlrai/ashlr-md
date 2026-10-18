@@ -4122,7 +4122,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
                 for f in files {
                     if let Some(p) = f["path"].as_str() {
                         resources.push(json!({
-                            "uri": format!("file://{p}"),
+                            "uri": file_uri(p),
                             "name": f["name"].as_str().unwrap_or(p),
                             "mimeType": "text/markdown"
                         }));
@@ -4448,9 +4448,10 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Some(_) => &raw["localhost".len()..],
             None => raw,
         };
-        // resources/list advertises `file://<path>` unencoded, but clients
-        // percent-encode URIs (`My%20Notes.md`). The decoded path is what
-        // must be advertised: the scope check runs after decoding, so
+        // resources/list advertises `file://` URIs percent-encoded
+        // ([`file_uri`]); it used to list them unencoded, and clients may
+        // still send that form, which is tried first. The decoded path is
+        // what must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
         // The vault listing is fetched once. When the app cannot be reached
         // nothing is advertised, and that used to be answered "not in vault",
@@ -4463,12 +4464,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             // A malformed escape (`%ZZ`, a lone `%`) or one that decodes to
             // invalid UTF-8 (`%FF`) used to be answered "not in vault", as if
             // the file were the problem.
-            match percent_decode_path(raw) {
+            let found = percent_decode_path(raw)
+                .map(|d| uri_path_candidates(&d).find(|c| c != raw && advertised(c)));
+            match found {
                 Err(e) => {
                     return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
                 }
-                Ok(d) if d != raw && advertised(&d) => d,
-                Ok(_) => {
+                Ok(Some(c)) => c,
+                Ok(None) => {
                     return match &listing {
                         Err(e) => Response::err(
                             id,
@@ -4513,6 +4516,55 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
     }
     Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// The `file://` URI resources/list gives a path the app lists, with the
+/// path percent-encoded as RFC 3986 and RFC 8089 require: every byte but an
+/// unreserved character, a sub-delimiter, `:`, `@` and the `/` separator is
+/// `%XX`, so a space is `%20`, a `%` is `%25` and `é` is `%C3%A9`. A Windows
+/// path (`C:\notes\a.md`) is `file:///C:/notes/a.md`, and a share
+/// (`\\srv\share\a.md`) `file:////srv/share/a.md`. The URI used to be
+/// `file://` and the path as is, which is not a valid URI when the path has
+/// a space; [`handle_resource_read`] still takes that form.
+pub fn file_uri(path: &str) -> String {
+    let (lead, path) = if path.starts_with('/') {
+        ("", std::borrow::Cow::Borrowed(path))
+    } else {
+        let path = path.replace('\\', "/");
+        // A share (`\\srv\share`) is `file:////srv/share` (RFC 8089 E.3.2).
+        let lead = if path.starts_with("//") { "" } else { "/" };
+        (lead, std::borrow::Cow::Owned(path))
+    };
+    let mut uri = format!("file://{lead}");
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&b) {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri
+}
+
+/// The paths a decoded `file://` URI path `d` may name: `d` itself; for
+/// `/C:/notes/a.md` (the form [`file_uri`] gives a Windows path) the drive
+/// path with forward slashes and with backslashes; and for
+/// `//server/share/a.md` (a Windows share) `\\server\share\a.md`. Only a
+/// candidate the app advertises is read.
+fn uri_path_candidates(d: &str) -> impl Iterator<Item = String> {
+    let b = d.as_bytes();
+    let drive = (b.len() >= 4
+        && b[0] == b'/'
+        && b[1].is_ascii_alphabetic()
+        && b[2] == b':'
+        && b[3] == b'/')
+        .then(|| d[1..].to_string());
+    let backslashed = drive.as_ref().map(|p| p.replace('/', "\\"));
+    let share = d.starts_with("//").then(|| d.replace('/', "\\"));
+    std::iter::once(d.to_string())
+        .chain(drive)
+        .chain(backslashed)
+        .chain(share)
 }
 
 /// Percent-decode the path of a `file://` URI, refusing a `%` that is not
