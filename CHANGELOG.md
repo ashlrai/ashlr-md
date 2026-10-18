@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`tools/list` names the destructive tools last.** `set_content`, which
+  replaces the whole document, was listed third, ahead of `edit_document`,
+  so an agent reading the list top down met it first. `replace_document`
+  and `set_content` now come after every other tool, the docs/AGENTS.md
+  tool table follows the same order, and tests fail when a tool is listed
+  after a destructive one or the table drifts from `tools/list`.
 - **The uninstall guide lists what an uninstall leaves behind.** It named
   only the preferences folder. `~/.mdopener/` (the IPC token and the
   conversation memory agents save) stays on every platform, and a deleted

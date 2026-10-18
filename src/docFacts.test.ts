@@ -134,6 +134,31 @@ describe(`doc facts: ${AGENTS}`, () => {
     }
   });
 
+  it("tool table rows are in tools/list order", () => {
+    const section = agentsDoc.slice(agentsDoc.indexOf("## MCP tool reference"));
+    const table = section.slice(
+      0,
+      section.indexOf("\n\n", section.indexOf("| Tool |")),
+    );
+    expect(
+      all(/^\| `([a-z_]+)` \|/gm, table),
+      `put the tool table near ${where(AGENTS, agentsDoc, "| Tool |")} in tool_registry() order`,
+    ).toEqual(tools);
+  });
+
+  it("lists the destructive tools last in tools/list", () => {
+    const registry = rustBody(mcpLib, "pub fn tool_registry()");
+    const tiers = all(/tier: ToolTier::([A-Za-z]+)/g, registry);
+    expect(tiers.length).toBe(tools.length);
+    const first = tiers.indexOf("Destructive");
+    expect(first).toBeGreaterThan(0);
+    expect(
+      tiers.slice(first).every((t) => t === "Destructive"),
+      `tool_registry() lists ${tools[tiers.findIndex((t, i) => i > first && t !== "Destructive")]} after a destructive tool`,
+    ).toBe(true);
+    expect(tools.indexOf("edit_document")).toBeLessThan(tools.indexOf("set_content"));
+  });
+
   it("export row lists the real formats", () => {
     const row = agentsDoc.split("\n").find((l) => l.startsWith("| `export` |")) ?? "";
     const listed = all(/"([a-z]+)"/g, row.match(/`format: ([^`]*)`/)?.[1] ?? "");

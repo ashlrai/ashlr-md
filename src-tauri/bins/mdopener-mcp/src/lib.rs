@@ -791,6 +791,11 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 /// The canonical, data-driven tool registry.  Adding a new tool here
 /// automatically includes it in `tools/list` responses and in the
 /// `list_ai_actions` discovery tool — no other wiring needed.
+///
+/// Order is the `tools/list` order, which clients show and agents read top
+/// down: the destructive tools (`ToolTier::Destructive`, which replace the
+/// whole document) come last, after every read-only and targeted tool, so an
+/// agent meets `edit_document` before `replace_document` and `set_content`.
 pub fn tool_registry() -> Vec<ToolDef> {
     vec![
         ToolDef {
@@ -836,32 +841,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "openWorldHint": false
             })),
             tier: ToolTier::ReadOnly,
-        },
-        ToolDef {
-            name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "The new Markdown content."
-                    },
-                    "save": {
-                        "type": "boolean",
-                        "description": "Whether to save the file to disk immediately. Defaults to false."
-                    }
-                },
-                "required": ["content"]
-            }),
-            annotations: Some(json!({
-                "title": "Set Content",
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Destructive,
         },
         ToolDef {
             name: "list_recent",
@@ -978,26 +957,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "openWorldHint": false
             })),
             tier: ToolTier::Modifier,
-        },
-        ToolDef {
-            name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "content": { "type": "string", "description": "The new full Markdown content." },
-                    "save": { "type": "boolean", "description": "Save to disk after replacing. Defaults to false." }
-                },
-                "required": ["content"]
-            }),
-            annotations: Some(json!({
-                "title": "Replace Document",
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Destructive,
         },
         ToolDef {
             name: "search_vault",
@@ -1399,6 +1358,52 @@ pub fn tool_registry() -> Vec<ToolDef> {
             })),
             tier: ToolTier::ReadOnly,
         },
+        ToolDef {
+            name: "replace_document",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string", "description": "The new full Markdown content." },
+                    "save": { "type": "boolean", "description": "Save to disk after replacing. Defaults to false." }
+                },
+                "required": ["content"]
+            }),
+            annotations: Some(json!({
+                "title": "Replace Document",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Destructive,
+        },
+        ToolDef {
+            name: "set_content",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The new Markdown content."
+                    },
+                    "save": {
+                        "type": "boolean",
+                        "description": "Whether to save the file to disk immediately. Defaults to false."
+                    }
+                },
+                "required": ["content"]
+            }),
+            annotations: Some(json!({
+                "title": "Set Content",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Destructive,
+        },
     ]
 }
 
@@ -1406,13 +1411,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
 pub const ALL_TOOL_NAMES: &[&str] = &[
     "open_file",
     "get_current_content",
-    "set_content",
     "list_recent",
     "export",
     "request_review",
     "get_user_annotations",
     "edit_document",
-    "replace_document",
     "search_vault",
     "present_document",
     "list_ai_actions",
@@ -1424,6 +1427,8 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "stream_edit_apply",
     "export_text",
     "export_metadata",
+    "replace_document",
+    "set_content",
 ];
 
 /// Tools that earlier builds advertised but the app never implemented: the

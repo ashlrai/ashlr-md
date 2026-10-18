@@ -24,11 +24,12 @@
 //!
 //! ## Tools
 //! The authoritative catalog is `tool_registry()` in `lib.rs` (20 tools):
-//! open_file, get_current_content, set_content, list_recent, export,
-//! request_review, get_user_annotations, edit_document, replace_document,
-//! search_vault, present_document, list_ai_actions, get_conversation_context,
-//! save_conversation_message, diff_documents, edit_canvas, stream_edit,
-//! stream_edit_apply, export_text, export_metadata.
+//! open_file, get_current_content, list_recent, export, request_review,
+//! get_user_annotations, edit_document, search_vault, present_document,
+//! list_ai_actions, get_conversation_context, save_conversation_message,
+//! diff_documents, edit_canvas, stream_edit, stream_edit_apply, export_text,
+//! export_metadata, and last the two destructive ones, replace_document and
+//! set_content.
 //!
 //! `export_markdown_archive`, `export_canvas_graph` and `batch_export_format`
 //! are no longer listed: the app never implemented them. Calling one returns
