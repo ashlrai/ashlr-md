@@ -18,6 +18,7 @@ import {
 import { SectionHeader } from "./SectionHeader";
 import { AiMetricsSection } from "./sections/AiMetricsSection";
 import { AiProviderSection } from "./sections/AiProviderSection";
+import { AnthropicKeySection } from "./sections/AnthropicKeySection";
 import {
   ContentWidthStepper,
   FontSizeStepper,
@@ -175,6 +176,14 @@ export function SettingsPanel() {
           <section className="settings-section">
             <SectionHeader icon={<AgentIcon />} title="AI agents (MCP)" />
             <McpSection />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* Anthropic API key (Tier 2): replace or remove a saved key */}
+          <section className="settings-section">
+            <SectionHeader icon={<AgentIcon />} title="Anthropic API key" />
+            <AnthropicKeySection />
           </section>
 
           <div className="settings-divider" />

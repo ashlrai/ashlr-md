@@ -6,6 +6,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionId } from "../../ai/actions";
+import { aiErrorLine, describeAIError } from "../../ai/errors";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import { isDismissEscape } from "../../lib/keymap";
 import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
@@ -47,7 +48,13 @@ interface InlineAnchor {
 type InlinePhase =
   | { kind: "menu" }
   | { kind: "running"; label: string; inputTokens: number; outputTokens: number }
-  | { kind: "error"; message: string; retryFn: (() => void) | null };
+  | {
+      kind: "error";
+      message: string;
+      /** The provider's raw error text, shown as the message's tooltip. */
+      detail?: string;
+      retryFn: (() => void) | null;
+    };
 
 export function SourceEditor({ initialContent }: { initialContent: string }) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -167,7 +174,7 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
             retryFn: null,
           });
         } else {
-          const m = e instanceof Error ? e.message : String(e);
+          const { detail } = describeAIError(e);
           // Allow one automatic retry with exponential back-off (500 ms → 1 s).
           const retryFn =
             retryCount < 1
@@ -179,7 +186,7 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
                   );
                 }
               : null;
-          setPhase({ kind: "error", message: m, retryFn });
+          setPhase({ kind: "error", message: aiErrorLine(e), detail, retryFn });
         }
       } finally {
         runningRef.current = false;
@@ -379,7 +386,9 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
           )}
           {phase.kind === "error" && (
             <div className="inline-ai-error" role="alert">
-              <span className="inline-ai-error-msg">{phase.message}</span>
+              <span className="inline-ai-error-msg" title={phase.detail}>
+                {phase.message}
+              </span>
               {phase.retryFn && (
                 <button
                   type="button"

@@ -36,6 +36,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Stop and Retry in the AI sidebar leave a clean chat.** Stopping before
+  any text arrived left an empty "Assistant" bubble with no word that it was
+  stopped; a stopped answer now shows a "Stopped" note instead (also for a
+  selection popover action). Each **Retry** after a failure added your
+  message to the chat again; a retry now keeps it once and replaces the
+  failed answer.
+- **AI errors say what to do next.** A failed request showed the provider's
+  raw text in the answer, such as "Anthropic error 401 Unauthorized: {json}",
+  "Ollama request failed: error sending request..." or "Hosted provider:
+  invalid or expired token (401)", and that text was sent back to the model
+  with the next message. The AI sidebar, the selection popover and the
+  editors' inline AI now show a plain message with the next step: replace a
+  wrong or expired key or token in Preferences, start Ollama with
+  `ollama serve` (or pull a model), check the internet connection, or wait out
+  a rate limit. The raw text stays one click away under **Details** (a tooltip
+  in the editors) and is no longer part of the chat history.
+- **A saved Anthropic key can be replaced or removed.** The key could only be
+  entered in the AI sidebar's setup nudge, which shows only when no provider
+  is found, so once saved it could not be changed. Preferences now has an
+  **Anthropic API key** section to add, replace or remove it, stored in the
+  OS keychain as before; it says only whether a key is saved and never shows
+  any of it. The next request uses the new key, and removing it moves the
+  sidebar off the Anthropic tier.
 - **An IME Escape no longer cancels an inline AI rewrite in the source
   editor.** Pressing Escape to end an input-method composition (or close its
   candidate list) while a ⌘I rewrite was streaming cancelled the rewrite and

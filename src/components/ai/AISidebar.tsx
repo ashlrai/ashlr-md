@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
+import { type AIErrorInfo, describeAIError } from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -105,12 +106,32 @@ function PrivacyBadge({ tier, isNoop }: { tier: number; isNoop: boolean }) {
 // Individual message bubble
 // ---------------------------------------------------------------------------
 
+/** A failed generation: the plain next step first, the raw text collapsed. */
+function MessageError({ error }: { error: AIErrorInfo }) {
+  return (
+    <div className="ai-msg__error" role="alert">
+      <p className="ai-msg__error-msg">{error.message}</p>
+      {error.command && <code className="ai-msg__error-cmd">{error.command}</code>}
+      {error.detail && (
+        <details className="ai-msg__error-detail">
+          <summary>Details</summary>
+          <code>{error.detail}</code>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "system") return null;
+  // A failed or stopped turn with no text shows only its note, not an empty
+  // "Assistant" bubble.
+  const failedEmpty =
+    msg.role === "assistant" && (msg.error || msg.stopped) && !msg.content.trim();
   return (
     <div className={`ai-msg ai-msg--${msg.role}`}>
       <span className="ai-msg__label">{msg.role === "user" ? "You" : "Assistant"}</span>
-      {msg.role === "assistant" ? (
+      {failedEmpty ? null : msg.role === "assistant" ? (
         // Assistant markdown is rendered as HTML; content is model-generated,
         // not user-supplied. (noDangerouslySetInnerHtml is disabled in biome.json.)
         <div
@@ -121,6 +142,12 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         />
       ) : (
         <div className="ai-msg__bubble">{msg.content}</div>
+      )}
+      {msg.error && <MessageError error={msg.error} />}
+      {msg.stopped && !msg.error && (
+        <p className="ai-msg__stopped">
+          {msg.content.trim() ? "Stopped." : "Stopped before any answer arrived."}
+        </p>
       )}
     </div>
   );
@@ -288,9 +315,15 @@ export function AISidebar() {
   const pushMessage = useAIStore((s) => s.pushMessage);
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
+  const failLast = useAIStore((s) => s.failLastAssistantMessage);
+  const stopLast = useAIStore((s) => s.stopLastAssistantMessage);
+  const dropFailed = useAIStore((s) => s.dropFailedAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const libraryScope = useAIStore((s) => s.libraryScope);
   const setLibraryScope = useAIStore((s) => s.setLibraryScope);
+  // Re-detect when a key is added or removed (the setup nudge or Preferences),
+  // so a removed key does not leave the sidebar on the Anthropic tier.
+  const hasApiKey = useAIStore((s) => !!s.apiKey);
 
   const docContent = useDocumentStore((s) => s.content);
   const currentDocType = useUiStore((s) => s.currentDocType);
@@ -314,6 +347,7 @@ export function AISidebar() {
   // Detect provider when sidebar opens. Use the startup-warmed cache for an
   // instant render (no "Detecting…" wall), then refresh silently in the
   // background so a newly-installed Ollama still gets picked up.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasApiKey is a trigger, a key change re-runs detection
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -334,7 +368,7 @@ export function AISidebar() {
     return () => {
       cancelled = true;
     };
-  }, [open, setProvider]);
+  }, [open, setProvider, hasApiKey]);
 
   // Scroll to bottom when messages change.
   useEffect(() => {
@@ -409,14 +443,15 @@ export function AISidebar() {
           (e instanceof DOMException && e.name === "AbortError");
         if (isAbort) {
           recordAbort(resolvedProvider.id, resolvedProvider.capabilities.tier);
+          stopLast();
         } else {
           recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
-          updateLast(`\n\n*Error: ${errMsg}*`);
+          failLast(describeAIError(e));
         }
         return false;
       }
     },
-    [resolvedProvider, updateLast],
+    [resolvedProvider, updateLast, failLast, stopLast],
   );
 
   // Send a chat message.
@@ -427,7 +462,10 @@ export function AISidebar() {
       // Clear any previous retry state when starting a fresh send.
       if (retryCount === 0) setRetryState(null);
 
-      pushMessage({ role: "user", content: text.trim() });
+      // A retry re-runs the same turn: replace the failed answer and keep the
+      // user's message once (it used to be added again on every retry).
+      if (retryCount === 0) pushMessage({ role: "user", content: text.trim() });
+      else dropFailed();
       // Placeholder streaming message.
       pushMessage({ role: "assistant", content: "", streaming: true });
       setBusy(true);
@@ -457,6 +495,7 @@ export function AISidebar() {
         }
         // The user may have hit Stop during retrieval — bail before generating.
         if (controller.signal.aborted) {
+          stopLast();
           finalizeLast();
           setBusy(false);
           abortRef.current = null;
@@ -510,6 +549,8 @@ export function AISidebar() {
       pushMessage,
       updateLast,
       finalizeLast,
+      stopLast,
+      dropFailed,
       setBusy,
       docContent,
       libraryScope,
@@ -538,7 +579,8 @@ export function AISidebar() {
             ...action.buildMessages(truncated),
           ]
         : action.buildMessages(truncated);
-      pushMessage({ role: "user", content: action.label });
+      if (retryCount === 0) pushMessage({ role: "user", content: action.label });
+      else dropFailed();
       pushMessage({ role: "assistant", content: "", streaming: true });
       setBusy(true);
       const controller = new AbortController();
@@ -573,6 +615,7 @@ export function AISidebar() {
       pushMessage,
       updateLast,
       finalizeLast,
+      dropFailed,
       setBusy,
       runGeneration,
     ],
