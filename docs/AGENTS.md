@@ -525,12 +525,14 @@ The server implements `prompts/list` and `prompts/get`. Each prompt embeds the
 
 `prompts/get` returns a single `user` message whose text is the instruction
 followed by the current document content. With no document open it is
-`-32002` ("No document is open"), and `-32000` when the app is not running,
-the same errors `mdopener://current` gives. No prompt takes arguments:
-`arguments` may be left out, `null` or `{}`, and any argument given (such
-as a `path`, which used to be dropped while the prompt ran on the open
-document) is refused with `-32602`; open the document you mean with
-`open_file` first. Each prompt's `prompts/list` description says so too.
+`-32002` ("No document is open"), and `-32000` when the app is not running
+or answers HTTP 401 (it refuses this server's token, and the message says
+how to fix it), the same errors `mdopener://current` gives. No prompt takes
+arguments: `arguments` may be left out, `null` or `{}`, and any argument
+given (such as a `path`, which used to be dropped while the prompt ran on
+the open document) is refused with `-32602`; open the document you mean
+with `open_file` first. Each prompt's `prompts/list` description says so
+too, `-32000` included (it used to name only a closed app).
 
 ---
 

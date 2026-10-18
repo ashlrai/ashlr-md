@@ -4645,8 +4645,11 @@ fn lists_path(v: &Value, path: &str) -> bool {
 
 /// What every prompt's `prompts/list` description says after its own line:
 /// no prompt takes arguments, and each needs an open document (as
-/// docs/AGENTS.md says). Agents used to learn both from an error.
-pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running.";
+/// docs/AGENTS.md says). Agents used to learn both from an error. `-32000`
+/// is also the code when the app refuses this server's token (HTTP 401), as
+/// the `mdopener://current` entry says; the note used to name only a closed
+/// app.
+pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).";
 
 pub fn prompts_list() -> Value {
     let described = |what: &str| format!("{what} {PROMPT_USAGE_NOTE}");

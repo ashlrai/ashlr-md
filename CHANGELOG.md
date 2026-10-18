@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the prompts say what `-32000` means.** Each prompt's
+  `prompts/list` description, and docs/AGENTS.md's prompts reference, said
+  `-32000` means the app is not running. It is also the code, with the
+  refused-token message, when the app answers HTTP 401. They now say both,
+  as the `mdopener://current` entry does.
 - **MCP: `resources/list` percent-encodes its `file://` URIs.** A vault
   file was listed as `file://` followed by its path as is, so a path with a
   space, `%`, `#` or `?` was not a valid URI. The path is now

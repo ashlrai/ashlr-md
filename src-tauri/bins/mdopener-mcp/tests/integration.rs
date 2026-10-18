@@ -11989,7 +11989,12 @@ fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
             d.contains("With no document open it fails with -32002"),
             "{d}"
         );
-        assert!(d.contains("-32000 when the app is not running"), "{d}");
+        assert!(
+            d.contains(
+                "-32000 when the app is not running or refuses this server's token (HTTP 401"
+            ),
+            "{d}"
+        );
     }
     let none_open = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
     let no_app = MockIpc::new();
@@ -12013,6 +12018,36 @@ fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
         .unwrap();
         assert_eq!(resp.error.as_ref().unwrap().code, -32000, "{name}");
     }
+}
+
+/// The prompts said -32000 means only that the app is not running. It is
+/// also the code, with the refused-token message, when the app answers HTTP
+/// 401, as the mdopener://current entry says. prompts/list and
+/// docs/AGENTS.md now say both.
+#[test]
+fn prompts_say_minus_32000_also_means_a_refused_token() {
+    let denied = MockIpc::new().on_get(
+        "/content",
+        Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+    );
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &denied,
+        )
+        .unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000, "{name}");
+        assert_eq!(err.message, mdopener_mcp::APP_AUTH_FAILED_MSG, "{name}");
+    }
+    assert!(mdopener_mcp::PROMPT_USAGE_NOTE.contains(
+        "-32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it)"
+    ));
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("`-32000` when the app is not running\nor answers HTTP 401 (it refuses this server's token"),
+        "docs/AGENTS.md must say a prompt's -32000 also means a refused token"
+    );
 }
 
 #[test]
