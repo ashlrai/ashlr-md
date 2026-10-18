@@ -142,6 +142,8 @@ The AI sidebar, semantic search and the MCP sidecar read these environment varia
 
 Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar speaks plain HTTP only, so it treats an `https://` `OLLAMA_HOST` as Ollama being unavailable and falls back to keyword search. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
 
+**Phantom `phm:` key references.** In the AI settings, the Anthropic API key field may hold `phm:NAME` instead of a key. When the `phantom` CLI is on your PATH, the app resolves it at request time with `phantom reveal --yes NAME` (5 second limit). If phantom is missing, the secret is absent or the call fails, the request stops with an error that names no secret, and the literal `phm:` text is never sent to Anthropic. Plain keys behave as before and start no process. The resolver is unit tested with an injected runner; the app has not been tested end to end against a live Phantom vault, and the CLI must be reachable from the app's PATH (Dock launches may not inherit your shell PATH).
+
 ## Platform support
 
 | Capability | macOS | Windows | Linux |

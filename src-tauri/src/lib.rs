@@ -15,6 +15,7 @@ mod export;
 mod export_path;
 mod file_handler;
 mod ipc;
+mod phantom_refs;
 mod run;
 mod search;
 mod secrets;

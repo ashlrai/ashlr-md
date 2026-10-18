@@ -175,8 +175,21 @@ pub async fn ai_generate(
         let result = match provider.as_str() {
             "ollama" => stream_ollama(app.clone(), model, messages, request_id.clone()).await,
             "anthropic" => {
-                let key = api_key.unwrap_or_default();
-                stream_anthropic(app.clone(), model, key, messages, request_id.clone()).await
+                let raw = api_key.unwrap_or_default();
+                // A `phm:NAME` key resolves through the phantom CLI (blocking, so off the async threads).
+                let key = tauri::async_runtime::spawn_blocking(move || {
+                    crate::phantom_refs::resolve(&raw)
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
+                match key {
+                    Ok(key) => {
+                        stream_anthropic(app.clone(), model, key, messages, request_id.clone())
+                            .await
+                    }
+                    Err(e) => Err(e),
+                }
             }
             other => Err(format!("Unknown provider: {other}")),
         };

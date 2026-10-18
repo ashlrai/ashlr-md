@@ -6,6 +6,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **Phantom key references.** The Anthropic API key field accepts `phm:NAME`,
+  resolved with `phantom reveal --yes NAME` when the phantom CLI is present.
+  Without phantom or on failure the request errors without sending the
+  reference. Plain keys are unchanged.
 - **Custom AI endpoints.** `ANTHROPIC_BASE_URL` and `OLLAMA_HOST` override the
   Anthropic and Ollama hosts used by the AI sidebar, semantic search and the MCP
   sidecar, so a LiteLLM gateway or Phantom proxy can sit in front. Defaults are
