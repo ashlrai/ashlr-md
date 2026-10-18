@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import type { ActionId } from "../../ai/actions";
+import { aiErrorLine, describeAIError } from "../../ai/errors";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import {
   buildLinkMarkdown,
@@ -56,7 +57,13 @@ interface InlineAnchor {
 type InlinePhase =
   | { kind: "menu" }
   | { kind: "running"; label: string; inputTokens: number; outputTokens: number }
-  | { kind: "error"; message: string; retryFn: (() => void) | null };
+  | {
+      kind: "error";
+      message: string;
+      /** The provider's raw error text, shown as the message's tooltip. */
+      detail?: string;
+      retryFn: (() => void) | null;
+    };
 
 // ── Table wizard types ──────────────────────────────────────────────────────────
 
@@ -225,7 +232,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
             retryFn: null,
           });
         } else {
-          const m = e instanceof Error ? e.message : String(e);
+          const { detail } = describeAIError(e);
           const retryFn =
             retryCount < 1
               ? () => {
@@ -236,7 +243,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                   );
                 }
               : null;
-          setPhase({ kind: "error", message: m, retryFn });
+          setPhase({ kind: "error", message: aiErrorLine(e), detail, retryFn });
         }
       } finally {
         runningRef.current = false;
@@ -1072,7 +1079,9 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           )}
           {phase.kind === "error" && (
             <div className="inline-ai-error" role="alert">
-              <span className="inline-ai-error-msg">{phase.message}</span>
+              <span className="inline-ai-error-msg" title={phase.detail}>
+                {phase.message}
+              </span>
               {phase.retryFn && (
                 <button
                   type="button"

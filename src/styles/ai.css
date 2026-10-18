@@ -326,6 +326,53 @@
   align-self: flex-start;
 }
 
+/* A failed generation: plain next step, then the raw provider text collapsed. */
+.ai-msg__error {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #dc2626;
+  background: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+:root[data-theme="midnight"] .ai-msg__error {
+  border-left-color: #f87171;
+}
+.ai-msg__error-msg {
+  margin: 0;
+}
+.ai-msg__error-cmd {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  background: var(--inline-code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  user-select: all;
+}
+.ai-msg__error-detail {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.ai-msg__error-detail summary {
+  cursor: pointer;
+}
+.ai-msg__error-detail code {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono-font);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
 /* Markdown rendered inside assistant bubbles */
 .ai-msg__bubble p {
   margin: 0 0 0.5em;

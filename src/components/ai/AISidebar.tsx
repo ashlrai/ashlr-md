@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
+import { type AIErrorInfo, describeAIError } from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -105,12 +106,29 @@ function PrivacyBadge({ tier, isNoop }: { tier: number; isNoop: boolean }) {
 // Individual message bubble
 // ---------------------------------------------------------------------------
 
+/** A failed generation: the plain next step first, the raw text collapsed. */
+function MessageError({ error }: { error: AIErrorInfo }) {
+  return (
+    <div className="ai-msg__error" role="alert">
+      <p className="ai-msg__error-msg">{error.message}</p>
+      {error.command && <code className="ai-msg__error-cmd">{error.command}</code>}
+      {error.detail && (
+        <details className="ai-msg__error-detail">
+          <summary>Details</summary>
+          <code>{error.detail}</code>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "system") return null;
+  const failedEmpty = msg.role === "assistant" && msg.error && !msg.content.trim();
   return (
     <div className={`ai-msg ai-msg--${msg.role}`}>
       <span className="ai-msg__label">{msg.role === "user" ? "You" : "Assistant"}</span>
-      {msg.role === "assistant" ? (
+      {failedEmpty ? null : msg.role === "assistant" ? (
         // Assistant markdown is rendered as HTML; content is model-generated,
         // not user-supplied. (noDangerouslySetInnerHtml is disabled in biome.json.)
         <div
@@ -122,6 +140,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       ) : (
         <div className="ai-msg__bubble">{msg.content}</div>
       )}
+      {msg.error && <MessageError error={msg.error} />}
     </div>
   );
 }
@@ -288,6 +307,7 @@ export function AISidebar() {
   const pushMessage = useAIStore((s) => s.pushMessage);
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
+  const failLast = useAIStore((s) => s.failLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const libraryScope = useAIStore((s) => s.libraryScope);
   const setLibraryScope = useAIStore((s) => s.setLibraryScope);
@@ -415,12 +435,12 @@ export function AISidebar() {
           recordAbort(resolvedProvider.id, resolvedProvider.capabilities.tier);
         } else {
           recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
-          updateLast(`\n\n*Error: ${errMsg}*`);
+          failLast(describeAIError(e));
         }
         return false;
       }
     },
-    [resolvedProvider, updateLast],
+    [resolvedProvider, updateLast, failLast],
   );
 
   // Send a chat message.

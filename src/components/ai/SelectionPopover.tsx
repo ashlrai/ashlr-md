@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ActionId, AI_ACTIONS } from "../../ai/actions";
+import { describeAIError } from "../../ai/errors";
 import {
   detectProvider,
   NOOP_PROVIDER_ID,
@@ -38,6 +39,7 @@ export function SelectionPopover() {
   const pushMessage = useAIStore((s) => s.pushMessage);
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
+  const failLast = useAIStore((s) => s.failLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const setAbortController = useAIStore((s) => s.setAbortController);
 
@@ -161,7 +163,9 @@ export function SelectionPopover() {
       );
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      if (m !== "Aborted") updateLast(`\n\n*Error: ${m}*`);
+      const aborted =
+        m === "Aborted" || (e instanceof DOMException && e.name === "AbortError");
+      if (!aborted) failLast(describeAIError(e));
     } finally {
       finalizeLast();
       setBusy(false);

@@ -9,6 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { AIErrorInfo } from "../ai/errors";
 import type { AICapabilities } from "../ai/types";
 
 /** Keychain account label for the Anthropic key (see secrets.rs `SERVICE`). */
@@ -69,6 +70,9 @@ export interface ChatMessage {
   timestamp: number;
   /** true while the assistant is still streaming this message */
   streaming?: boolean;
+  /** Set when the generation failed: a plain message plus the raw detail.
+   *  Kept out of `content` so it is never sent back to the model. */
+  error?: AIErrorInfo;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +115,8 @@ interface AIState {
   pushMessage(msg: Omit<ChatMessage, "id" | "timestamp">): ChatMessage;
   updateLastAssistantMessage(delta: string): void;
   finalizeLastAssistantMessage(): void;
+  /** Attach a mapped provider error to the last streaming assistant message. */
+  failLastAssistantMessage(error: AIErrorInfo): void;
   clearMessages(): void;
   setBusy(busy: boolean): void;
   setAbortController(controller: AbortController | null): void;
@@ -205,6 +211,19 @@ export const useAIStore = create<AIState>()(
           for (let i = msgs.length - 1; i >= 0; i--) {
             if (msgs[i].role === "assistant" && msgs[i].streaming) {
               msgs[i] = { ...msgs[i], streaming: false };
+              return { messages: msgs };
+            }
+          }
+          return {};
+        });
+      },
+
+      failLastAssistantMessage(error) {
+        set((s) => {
+          const msgs = [...s.messages];
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === "assistant" && msgs[i].streaming) {
+              msgs[i] = { ...msgs[i], error };
               return { messages: msgs };
             }
           }
