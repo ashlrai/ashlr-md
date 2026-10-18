@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **"Explain changes" ends like a sidebar chat turn.** The change banner's
+  answer streams into the AI sidebar, but the sidebar's Stop button could not
+  stop it (the banner kept no controller the sidebar could reach), a stop was
+  not marked as stopped, and a failure was appended to the answer as
+  `*Error: ...*` text. Stop now aborts it and marks the turn stopped, and a
+  failure is a failed turn with the same mapped message the sidebar shows
+  for its own requests.
 - **MCP: `get_user_annotations` reads the file on disk when the app refuses
   the token.** An app that answered HTTP 401 (a stale
   `~/.mdopener/ipc-token`, or another Ashlr MD instance on the port) gave the
