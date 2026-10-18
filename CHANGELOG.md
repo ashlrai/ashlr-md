@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --hook` opens nothing when the tool failed.** A PostToolUse
+  payload whose `tool_response` reported a failed `Write`, `Edit` or
+  `MultiEdit` still opened the file, showing an unchanged file as if the
+  agent's edit had landed. A `tool_response` with `success: false`,
+  `is_error: true`, a non-empty `error`, or a `<tool_use_error>` string now
+  opens nothing, silently, and the hook still exits `0`.
 - **`mdopen` names the flag a misspelled one was meant to be.** An
   unknown flag was refused with only "unknown flag", so a hook command
   with `--hok` failed on every tool call with nothing to go on. A near

@@ -570,8 +570,11 @@ on a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit`: a payload whose
 `hook_event_name` is another event (a hook wired as `PreToolUse` would open the
 file before the tool changed it) or whose `tool_name` is another tool (`Read`
 carries a `file_path` too) opens nothing, so a broad hand-written matcher does
-not open every Markdown file the agent reads. A payload without those fields
-is judged by its `tool_input.file_path` alone.
+not open every Markdown file the agent reads. A payload whose `tool_response`
+reports the tool failed (`success: false`, `is_error: true`, a non-empty
+`error`, or a `<tool_use_error>` string) opens nothing either, since a failed
+`Edit` leaves the file unchanged. A payload without those fields is judged by
+its `tool_input.file_path` alone.
 
 ### One-click install
 

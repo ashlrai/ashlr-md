@@ -591,8 +591,8 @@ fn hook_terminal_hint(stdin_is_terminal: bool) -> Option<&'static str> {
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
 /// `None` when there is nothing to open: unparseable JSON, another hook event,
-/// a tool that does not write files, no `file_path`, not Markdown, or no such
-/// file (e.g. the write failed).
+/// a tool that does not write files, a `tool_response` that reports the
+/// tool failed, no `file_path`, not Markdown, or no such file.
 ///
 /// The installed hook is gated to `PostToolUse` on `Edit|Write`, but a hand-
 /// written one may not be: wired as a `PreToolUse` hook it opened the file
@@ -617,6 +617,9 @@ fn hook_target(input: &str) -> Option<PathBuf> {
             return None;
         }
     }
+    if tool_failed(&v["tool_response"]) {
+        return None;
+    }
     let path = v["tool_input"]["file_path"].as_str().unwrap_or("");
     if path.is_empty() {
         return None;
@@ -639,6 +642,32 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     // file, used to be handed to the app, which refuses it.
     let abs = std::fs::canonicalize(&p).ok()?;
     (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
+}
+
+/// Whether a payload's `tool_response` says the tool failed: an object with
+/// `success: false`, `is_error`/`isError: true` or a non-empty `error`, or
+/// a Claude Code `<tool_use_error>` string. A failed `Edit` leaves the file
+/// as it was (and a failed `Write` may leave an older one), so opening it
+/// would show the agent's change as made when it was not. A missing or
+/// unrecognized `tool_response` is not a failure.
+fn tool_failed(response: &serde_json::Value) -> bool {
+    match response {
+        serde_json::Value::Object(o) => {
+            let set = |k: &str| match o.get(k) {
+                None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {
+                    false
+                }
+                Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
+                Some(_) => true,
+            };
+            o.get("success") == Some(&serde_json::Value::Bool(false))
+                || o.get("is_error") == Some(&serde_json::Value::Bool(true))
+                || o.get("isError") == Some(&serde_json::Value::Bool(true))
+                || set("error")
+        }
+        serde_json::Value::String(s) => s.trim_start().starts_with("<tool_use_error>"),
+        _ => false,
+    }
 }
 
 /// The Claude Code tools whose PostToolUse payload names a file they wrote.
@@ -686,7 +715,8 @@ EXIT STATUS:
     --hook always exits 0 and prints nothing (run with a terminal on stdin,
        it prints a hint on stderr instead of waiting for a payload). It
        opens only the Markdown file a PostToolUse payload of Write, Edit or
-       MultiEdit names; another hook event or tool opens nothing.
+       MultiEdit names; another hook event or tool, or a tool_response
+       that reports the tool failed, opens nothing.
 ";
 
 #[cfg(test)]
@@ -1158,6 +1188,42 @@ mod tests {
             with(serde_json::Value::Null, serde_json::Value::Null),
             Some(canon)
         );
+    }
+
+    /// A payload whose `tool_response` reports the write failed used to
+    /// open the file anyway, showing an unchanged file as the agent's edit.
+    #[test]
+    fn hook_target_opens_nothing_when_the_tool_failed() {
+        let s = Scratch::new("hook-failed");
+        let f = s.file("PLAN.md");
+        let with = |response: serde_json::Value| {
+            let mut v: serde_json::Value = serde_json::from_str(&payload(&s.0, "PLAN.md")).unwrap();
+            v["tool_response"] = response;
+            hook_target(&v.to_string())
+        };
+        use serde_json::json;
+        for failed in [
+            json!({ "success": false }),
+            json!({ "is_error": true }),
+            json!({ "isError": true }),
+            json!({ "error": "String to replace not found in file." }),
+            json!({ "error": { "message": "denied" } }),
+            json!({ "success": true, "error": "partial" }),
+            json!("<tool_use_error>File has not been read yet.</tool_use_error>"),
+        ] {
+            assert_eq!(with(failed.clone()), None, "{failed}");
+        }
+        let canon = std::fs::canonicalize(&f).unwrap();
+        for ok in [
+            json!({ "success": true }),
+            json!({ "type": "create", "filePath": f, "content": "# hi" }),
+            json!({ "error": null, "is_error": false }),
+            json!({ "error": "" }),
+            json!("File created successfully"),
+            serde_json::Value::Null,
+        ] {
+            assert_eq!(with(ok.clone()), Some(canon.clone()), "{ok}");
+        }
     }
 
     #[test]

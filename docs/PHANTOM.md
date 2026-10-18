@@ -39,7 +39,8 @@ most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 `mdopen --hook` (the Claude Code `PostToolUse` hook) always exits `0` and prints
 nothing, waiting at most 5 seconds for the launcher. It opens only the Markdown
 file a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit` names; a
-payload naming another `hook_event_name` or `tool_name` opens nothing. Run by hand with a
+payload naming another `hook_event_name` or `tool_name`, or whose
+`tool_response` reports the tool failed, opens nothing. Run by hand with a
 terminal on stdin (nothing piped in), it prints a hint on stderr and exits `0`
 at once instead of waiting for a payload.
 
