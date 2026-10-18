@@ -6,6 +6,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **Custom AI endpoints.** `ANTHROPIC_BASE_URL` and `OLLAMA_HOST` override the
+  Anthropic and Ollama hosts used by the AI sidebar, semantic search and the MCP
+  sidecar, so a LiteLLM gateway or Phantom proxy can sit in front. Defaults are
+  unchanged.
 - **Copy as rich text.** A new command (⌘⇧C / palette: "Copy as rich text")
   copies the current document to the clipboard as formatted rich text. The
   clipboard entry carries both `text/html` (the rendered document) and

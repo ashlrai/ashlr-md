@@ -4764,16 +4764,36 @@ impl SearchResult {
     }
 }
 
-/// Probe whether Ollama is reachable on the default port (11434).
-/// Returns true only if a TCP connection succeeds within 200 ms.
+// `OLLAMA_HOST` parsing is shared with the app's AI and embedding calls.
+#[allow(dead_code)]
+#[path = "../../../src/base_urls.rs"]
+mod base_urls;
+
+/// Ollama base URL the sidecar talks to when `OLLAMA_HOST` is `raw`:
+/// 127.0.0.1:11434 (as before) when unset or blank. The sidecar speaks plain
+/// HTTP only, so an `https://` value makes Ollama count as unavailable.
+pub fn ollama_base_from(raw: Option<&str>) -> String {
+    base_urls::ollama_override(raw).unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+}
+
+fn ollama_base() -> String {
+    ollama_base_from(std::env::var("OLLAMA_HOST").ok().as_deref())
+}
+
+/// Probe whether Ollama is reachable (127.0.0.1:11434 unless `OLLAMA_HOST`
+/// is set). Returns true only if a TCP connection succeeds within 200 ms.
 pub fn ollama_available() -> bool {
-    use std::net::TcpStream;
+    use std::net::{TcpStream, ToSocketAddrs};
     use std::time::Duration;
-    TcpStream::connect_timeout(
-        &"127.0.0.1:11434".parse().unwrap(),
-        Duration::from_millis(200),
-    )
-    .is_ok()
+    let Ok((host, port, _)) = parse_url(&ollama_base()) else {
+        return false;
+    };
+    let Ok(addrs) = (host.as_str(), port).to_socket_addrs() else {
+        return false;
+    };
+    addrs
+        .into_iter()
+        .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok())
 }
 
 /// Fetch an embedding vector for `text` from the Ollama REST API using
@@ -4781,7 +4801,7 @@ pub fn ollama_available() -> bool {
 /// or the response cannot be parsed.
 pub fn ollama_embed(text: &str) -> Result<Vec<f64>, String> {
     let body = json!({ "model": "nomic-embed-text", "prompt": text });
-    match http_post("http://127.0.0.1:11434/api/embeddings", &body, "") {
+    match http_post(&format!("{}/api/embeddings", ollama_base()), &body, "") {
         Ok(v) => {
             let emb = v["embedding"]
                 .as_array()

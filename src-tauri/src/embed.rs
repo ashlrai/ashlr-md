@@ -8,7 +8,8 @@
 //!
 //! Everything degrades gracefully: when Ollama or an embed model is absent,
 //! `embed_available` returns `None` and the frontend falls back to keyword
-//! search. No data ever leaves the machine.
+//! search. No data ever leaves the machine unless `OLLAMA_HOST` points the
+//! app at another Ollama server.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,11 +18,12 @@ use std::sync::Mutex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::base_urls;
+
 // ---------------------------------------------------------------------------
 // Tuning constants
 // ---------------------------------------------------------------------------
 
-const OLLAMA_URL: &str = "http://localhost:11434";
 /// Embed-model name fragments we recognise, in preference order.
 const EMBED_MODELS: &[&str] = &[
     "nomic-embed-text",
@@ -238,7 +240,7 @@ struct TagsResponse {
 
 async fn detect_embed_model(client: &Client) -> Option<String> {
     let resp = client
-        .get(format!("{OLLAMA_URL}/api/tags"))
+        .get(format!("{}/api/tags", base_urls::ollama_base_url()))
         .timeout(std::time::Duration::from_millis(800))
         .send()
         .await
@@ -272,7 +274,7 @@ async fn fetch_embeddings(
     inputs: &[String],
 ) -> Result<Vec<Vec<f32>>, String> {
     let resp = client
-        .post(format!("{OLLAMA_URL}/api/embed"))
+        .post(format!("{}/api/embed", base_urls::ollama_base_url()))
         .json(&serde_json::json!({ "model": model, "input": inputs }))
         .send()
         .await
@@ -283,7 +285,7 @@ async fn fetch_embeddings(
         let mut out = Vec::with_capacity(inputs.len());
         for input in inputs {
             let r = client
-                .post(format!("{OLLAMA_URL}/api/embeddings"))
+                .post(format!("{}/api/embeddings", base_urls::ollama_base_url()))
                 .json(&serde_json::json!({ "model": model, "prompt": input }))
                 .send()
                 .await
