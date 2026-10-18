@@ -117,6 +117,47 @@ fn version_and_help_flags_exit_without_serving() {
     }
 }
 
+/// `--help` and `--version` printed with `print!`, which panics when stdout
+/// cannot be written: exit 101 and a backtrace for `mdopener-mcp --help |
+/// head -c1` once the reader had closed, or for a full disk. A closed reader
+/// now exits 0 in silence, and a failed write says so on stderr with exit 1.
+#[cfg(target_os = "linux")]
+#[test]
+fn help_and_version_to_an_unwritable_stdout_do_not_panic() {
+    for flag in ["--help", "-h", "--version", "-V"] {
+        let full = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .arg(flag)
+            .stdin(Stdio::null())
+            .stdout(full)
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{flag}: {stderr}");
+        assert!(
+            stderr.starts_with("mdopener-mcp: cannot write to stdout:"),
+            "{flag}: {stderr}"
+        );
+        assert_eq!(stderr.lines().count(), 1, "{flag}: {stderr}");
+
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .arg(flag)
+            .stdin(Stdio::null())
+            .stdout(writer)
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{flag}: {out:?}");
+        assert!(out.stderr.is_empty(), "{flag}: {out:?}");
+    }
+}
+
 /// Feed raw lines to the binary and return each stdout line parsed as JSON.
 fn raw_session(lines: &[&str]) -> Vec<Value> {
     let home = tempfile::tempdir().unwrap();

@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener-mcp --help` and `--version` no longer panic on an
+  unwritable stdout.** Piped into a reader that had already closed
+  (`mdopener-mcp --help | head -c1`), or written to a full disk, they
+  panicked with exit `101` and a backtrace. A closed reader now exits `0`
+  in silence, and any other write failure says so in one stderr line with
+  exit `1`, as `mdopen` does.
 - **`mdopen --help` and `--version` no longer panic on an unwritable
   stdout.** Piped into a reader that had already closed
   (`mdopen --help | head -1`), or written to a full disk, they panicked
