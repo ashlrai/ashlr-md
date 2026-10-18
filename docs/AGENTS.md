@@ -649,8 +649,8 @@ the temp file is kept. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace, or longer
 than the 16 MiB a document may be (it stops reading there and writes no temp
 file). Run with a
-terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D) to
-stderr. Run with no arguments at all, it prints its help to stderr and exits
+terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D, or
+Ctrl+Z and Enter on Windows) to stderr. Run with no arguments at all, it prints its help to stderr and exits
 `1`; `mdopen --help` prints it to stdout and exits `0`. An empty or blank
 path (`mdopen "$FILE"` with an empty variable) is a usage error saying the
 path is empty, and a directory is refused as a directory (exit `1` for
@@ -683,8 +683,8 @@ cat notes.md | mdopen -         # pipe stdin → temp file → open in app
 mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
 mdopen -- -                     # after `--`, `-` is a file named `-`, not stdin
 mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
-mdopen --help                   # print usage; wins over every other flag, --hook included
-mdopen --version               # print the version (-V also works)
+mdopen --help                   # print usage (-h also works); wins over every other flag, --hook included
+mdopen --version                # print the version (-V also works)
 ```
 
 ### From an agent

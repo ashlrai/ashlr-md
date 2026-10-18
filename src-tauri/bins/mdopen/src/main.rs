@@ -778,25 +778,25 @@ EXIT STATUS:
        launcher (if the launcher is still running after 10s, a note is
        printed and the open is not confirmed)
     1  bad usage (including --edit with --read or an empty path), a missing
-       or unresolvable path, a directory, not a file or not a Markdown document
-       (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an argument that is
-       not valid UTF-8, `-` with empty stdin or
-       more than 16 MiB of it, or the app is not running
-       and the launcher failed or is missing (no desktop session); a message
-       on stderr says which. A `-` temp file is removed in that case. Also
-       1 when the running app answered with a server error or did not
-       answer within 6s: the open is not retried through the URL scheme
-       (the app may still open the file, so a `-` temp file is kept).
-       With no arguments at all, this help is printed on stderr. Also 1
-       when --help or --version cannot write to stdout (a reader that
-       closed early, as with `| head -1`, is not an error).
+       or unresolvable path, a directory, not a file or not a Markdown
+       document (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an
+       argument that is not valid UTF-8, `-` with empty stdin or more than
+       16 MiB of it, or the app is not running and the launcher failed or is
+       missing (no desktop session); a message on stderr says which. A `-`
+       temp file is removed in that case. Also 1, without trying the URL
+       scheme, when the running app refused the file (its reason on stderr)
+       or was reached but failed: it answered with a server error, the
+       connection broke, or it did not answer within 6s (the app may still
+       open the file, so a `-` temp file is kept). With no arguments at all,
+       this help is printed on stderr. Also 1 when --help or --version
+       cannot write to stdout (a reader that closed early, as with
+       `| head -1`, is not an error).
     --hook exits 0 and prints nothing (run with a terminal on stdin, it
        prints a hint on stderr instead of waiting for a payload); any other
        argument with it is bad usage (exit 1), as the payload comes on
-       stdin. It
-       opens only the Markdown file a PostToolUse payload of Write, Edit or
-       MultiEdit names; another hook event or tool, or a tool_response
-       that reports the tool failed, opens nothing.
+       stdin. It opens only the Markdown file a PostToolUse payload of
+       Write, Edit or MultiEdit names; another hook event or tool, or a
+       tool_response that reports the tool failed, opens nothing.
 ";
 
 #[cfg(test)]
@@ -907,6 +907,20 @@ mod tests {
 
     /// The exit-status text names a missing file, the commonest exit 1,
     /// which "unresolvable path" alone did not say.
+    /// A file the running app refuses, and a connection that breaks, end in
+    /// exit 1 with no URL-scheme retry; the help used to name only a server
+    /// error and a timeout, while docs/AGENTS.md named all four.
+    #[test]
+    fn help_exit_status_names_a_refused_file_and_a_broken_connection() {
+        let status = HELP.split("EXIT STATUS:").nth(1).unwrap();
+        let flat = status.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("without trying the URL scheme, when the running app refused the file"),
+            "{flat}"
+        );
+        assert!(flat.contains("the connection broke"), "{flat}");
+    }
+
     #[test]
     fn help_exit_status_names_a_missing_path() {
         let status = HELP.split("EXIT STATUS:").nth(1).unwrap();

@@ -74,6 +74,8 @@ const defaultProtocol = mcpLib.match(
 )?.[1];
 const mdopenCode = mdopenMain.split("#[cfg(test)]")[0];
 const mdopenLongFlags = [...new Set(all(/"(--[a-z]+)"/g, mdopenCode))];
+const mdopenShortFlags = [...new Set(all(/"(-[a-zA-Z])"/g, mdopenCode))];
+const mdopenHelp = mdopenCode.match(/const HELP: &str = "([^"]*)";/)?.[1] ?? "";
 
 const NUMBER_WORDS = [
   "zero",
@@ -185,6 +187,45 @@ describe(`doc facts: ${AGENTS}`, () => {
         `add \`mdopen ${f}\` to the mdopen usage block at ${at}`,
       ).toMatch(new RegExp(`^mdopen (?:.* )?${f}(?: |$)`, "m"));
     }
+  });
+});
+
+describe("doc facts: mdopen --help and docs/AGENTS.md", () => {
+  const helpFlags = mdopenHelp.split("FLAGS:\n")[1]?.split("\n\n")[0] ?? "";
+  const usage = agentsDoc.split("### Usage")[1]?.split("```")[1] ?? "";
+
+  it("parses the help and the usage block", () => {
+    expect(helpFlags, "mdopen's HELP has no FLAGS section").toContain("--edit");
+    expect(usage, `${AGENTS} has no mdopen usage block`).toContain("mdopen");
+    expect(mdopenShortFlags).toEqual(expect.arrayContaining(["-e", "-r", "-h", "-V"]));
+  });
+
+  it("help FLAGS lists every flag the CLI accepts, and only those", () => {
+    // The flag column only: "--read, -r" before the description.
+    const listed = helpFlags
+      .split("\n")
+      .flatMap((l) => (l.trim().split(/\s{2,}/)[0] ?? "").split(", "))
+      .filter(Boolean);
+    expect(sorted(listed)).toEqual(sorted([...mdopenLongFlags, ...mdopenShortFlags]));
+  });
+
+  it("the usage block names every short flag", () => {
+    const at = where(AGENTS, agentsDoc, "### Usage");
+    for (const f of mdopenShortFlags) {
+      expect(usage, `name \`${f}\` in the mdopen usage block at ${at}`).toMatch(
+        new RegExp(`\\(${f} also works`),
+      );
+    }
+  });
+
+  it("the usage block's comments line up", () => {
+    const cols = usage
+      .split("\n")
+      .filter((l) => l.startsWith("mdopen") || l.startsWith("cat"))
+      .map((l) => l.indexOf("#"));
+    expect(new Set(cols).size, `align the comments in ${AGENTS}'s mdopen usage`).toBe(
+      1,
+    );
   });
 });
 

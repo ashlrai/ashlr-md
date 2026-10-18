@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --help` and docs/AGENTS.md agree.** The help's exit status
+  left out two ways `mdopen` exits 1 without trying the URL scheme, a file
+  the running app refuses and a connection that breaks, which the guide
+  named; the guide's usage block left out `-h`, and its stdin hint gave
+  only Ctrl+D, which is Ctrl+Z and Enter on Windows. A test now fails when
+  the help's flags differ from the ones `mdopen` accepts or the usage
+  block leaves out a short flag.
 - **MCP: the app-not-running error covers an app that is not installed.**
   "Ashlr MD does not appear to be running" told the agent to launch it or
   call `open_file`, which a user without the app cannot follow. It now
