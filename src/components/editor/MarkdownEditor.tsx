@@ -15,7 +15,7 @@ import {
   isUrl,
 } from "../../lib/editorShortcuts";
 import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
-import { isActionEnter, isDismissEscape } from "../../lib/keymap";
+import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
@@ -815,7 +815,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           {/* Bold / Italic / Code — dispatch ProseMirror marks via keyboard */}
           <button
             type="button"
-            title="Bold (⌘B)"
+            title={`Bold (${formatShortcut("mod+b")})`}
             aria-label="Bold"
             className="table-cell-toolbar-btn"
             onClick={() => {
@@ -832,7 +832,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           </button>
           <button
             type="button"
-            title="Italic (⌘I)"
+            title={`Italic (${formatShortcut("mod+i")})`}
             aria-label="Italic"
             className="table-cell-toolbar-btn"
             onClick={() => {

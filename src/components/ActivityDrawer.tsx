@@ -13,6 +13,7 @@ import {
   unwatchDirectory,
   watchDirectory,
 } from "../lib/activity";
+import { formatShortcut } from "../lib/keymap";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -202,7 +203,7 @@ export function ActivityDrawer() {
           className="activity-drawer__close"
           type="button"
           onClick={closeActivity}
-          title="Close Agent Activity (⌘B)"
+          title={`Close Agent Activity (${formatShortcut("mod+b")})`}
           aria-label="Close Agent Activity"
         >
           <CloseIcon />

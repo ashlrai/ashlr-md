@@ -13,7 +13,7 @@ import {
 } from "../../ai/registry";
 import type { AIProvider } from "../../ai/types";
 import type { DocType } from "../../lib/docClassifier";
-import { isActionEnter } from "../../lib/keymap";
+import { formatShortcut, isActionEnter } from "../../lib/keymap";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
 import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
 import type { ChatMessage } from "../../store/aiStore";
@@ -595,7 +595,7 @@ export function AISidebar() {
           className="ai-sidebar__close"
           type="button"
           onClick={toggle}
-          title="Close AI sidebar (⌘K)"
+          title={`Close AI sidebar (${formatShortcut("mod+l")})`}
           aria-label="Close AI sidebar"
         >
           <CloseIcon />

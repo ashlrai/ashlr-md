@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Shortcut hints show Ctrl on Windows and Linux, and the right key.**
+  Tooltips and hints (the title bar buttons, "Unsaved (⌘S to save)", the
+  welcome screen, the drawer, outline and table toolbar close and format
+  buttons, the AI metrics hint) hard-coded the macOS glyphs, so Windows
+  and Linux saw ⌘. The AI sidebar's close button also said ⌘K, the
+  command palette's shortcut, instead of ⌘L. They now come from the
+  keymap's own formatter, and a test fails on a hard-coded glyph.
 - **The sample documents have no em or en dashes.** `samples/showcase.md`
   and `samples/agent-plan.md`, the documents a new user opens to try the
   app, still used them. They now use commas and colons, and the dash

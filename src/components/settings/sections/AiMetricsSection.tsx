@@ -6,6 +6,7 @@
 // no network calls, no PII.
 
 import { useCallback, useEffect, useState } from "react";
+import { formatShortcut } from "../../../lib/keymap";
 import {
   averageLatencyMs,
   clearMetrics,
@@ -194,8 +195,8 @@ export function AiMetricsSection() {
     <div className="ai-metrics-section">
       {!hasData && (
         <p className="settings-description ai-metrics-empty">
-          No AI usage recorded yet. Run an inline action (⌘I) or use the AI sidebar to
-          generate some data.
+          No AI usage recorded yet. Run an inline action ({formatShortcut("mod+i")}) or
+          use the AI sidebar to generate some data.
         </p>
       )}
 

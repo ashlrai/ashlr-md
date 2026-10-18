@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/outline.css";
+import { formatShortcut } from "../lib/keymap";
 import { type HeadingItem, parseHeadings } from "../lib/outline";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -154,7 +155,7 @@ export function Outline() {
           className="outline-panel__close"
           type="button"
           onClick={closeOutline}
-          title="Close Outline (⌘⇧O)"
+          title={`Close Outline (${formatShortcut("mod+shift+o")})`}
           aria-label="Close Outline"
         >
           <CloseIcon />
