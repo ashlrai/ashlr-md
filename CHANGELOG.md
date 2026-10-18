@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the vault-search resource entry names `limit`.** The
+  `resources/list` entry for `text://vault-search` named `&vault=` and
+  `&semantic=` but not `&limit=`, which a read takes and the template
+  names. It now names it with its range and default, and docs/AGENTS.md
+  says that listing the template needs no app but reading it does unless
+  `&vault=` is given (it said only "it needs no app").
 - **MCP: `text://vault-search` takes only `semantic=true` or `false`.** The
   resource descriptions, docs/AGENTS.md and the error all say `true` or
   `false`, and docs/AGENTS.md that any other value is `-32602`, but `1`

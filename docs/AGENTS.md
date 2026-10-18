@@ -428,7 +428,9 @@ See the dedicated [Human review loop](#human-review-loop) section.
 The server implements `resources/list`, `resources/templates/list` and
 `resources/read`. `resources/templates/list` offers one template,
 `text://vault-search?q={query}` (`mimeType: application/json`), the search
-below; it needs no app.
+below. Listing it needs no app; reading it needs the app unless `&vault=` is
+given (this used to say only "it needs no app"). The `resources/list` entry
+names the same parameters, `&limit=` included (it used to leave `limit` out).
 
 - **`mdopener://current`**: the document currently open in Ashlr MD
   (`mimeType: text/markdown`). Reading it returns the live content; an open

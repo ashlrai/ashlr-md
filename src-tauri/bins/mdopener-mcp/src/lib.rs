@@ -4094,7 +4094,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         "uri": "text://vault-search",
         "name": "Vault semantic search",
         "description": ([
-            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
+            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &limit=N (1 to 200, default 50) for the most results, &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
             VAULT_SEARCH_RESOURCE_FIELDS,
             ", shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable, `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
         ].concat()),

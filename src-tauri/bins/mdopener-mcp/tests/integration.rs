@@ -4555,6 +4555,40 @@ fn resources_list_includes_vault_search_resource() {
     );
 }
 
+/// The resources/list entry for text://vault-search named `vault` and
+/// `semantic` but not `limit`, which a read takes and the template names.
+/// Each parameter a read takes is now named in both, and docs/AGENTS.md says
+/// a read needs the app unless `vault` is given.
+#[test]
+fn vault_search_listing_and_template_name_every_parameter() {
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let entry = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .cloned()
+        .unwrap();
+    let template = mdopener_mcp::resource_templates()[0].clone();
+    for (place, text) in [
+        ("resources/list", entry["description"].as_str().unwrap()),
+        (
+            "resources/templates/list",
+            template["description"].as_str().unwrap(),
+        ),
+    ] {
+        for param in ["&limit=", "&vault=", "&semantic="] {
+            assert!(text.contains(param), "{place} must name {param}: {text}");
+        }
+        assert!(text.contains("1 to 200, default 50"), "{place}: {text}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("reading it needs the app unless `&vault=` is\ngiven"),
+        "docs/AGENTS.md must say a read needs the app without vault"
+    );
+}
+
 /// When `/vault` failed, resources/list dropped the vault's `file://`
 /// entries without a word, so a client read it as a vault with no files.
 /// The result is still a valid `ListResourcesResult`, with the reason in
