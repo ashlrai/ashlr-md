@@ -39,3 +39,31 @@ export const EDIT_MODE_SETTING_DESC =
 	"When enabled, notes are opened in Ashlr MD's WYSIWYG editor instead of " +
 	`read view. You can still use the "${OPEN_EDIT_COMMAND_NAME}" command to ` +
 	"force edit mode on a per-note basis.";
+
+/** What opens a URL outside Obsidian: Electron's `shell` in the app. */
+export interface ExternalOpener {
+	openExternal(url: string): Promise<void>;
+}
+
+/**
+ * Opens `url` with `loadShell()`'s `openExternal`, or with `fallback` when
+ * no shell can be loaded (outside Electron). A rejected `openExternal` (no
+ * app registered for `mdopener://`) rejects, so the caller's "could not
+ * launch the app" notice shows. It used to be caught and handed to
+ * `window.open`, which resolved, so that notice never appeared and a click
+ * with Ashlr MD missing did nothing.
+ */
+export async function openUrl(
+	url: string,
+	loadShell: () => ExternalOpener,
+	fallback: (url: string) => void
+): Promise<void> {
+	let shell: ExternalOpener;
+	try {
+		shell = loadShell();
+	} catch {
+		fallback(url);
+		return;
+	}
+	await shell.openExternal(url);
+}

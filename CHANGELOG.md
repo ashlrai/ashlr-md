@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Obsidian: a missing Ashlr MD gets the "could not launch" notice.** When
+  Electron's `shell.openExternal` rejected (no app registered for
+  `mdopener://`), the plugin caught it and fell back to `window.open`,
+  which resolved, so its "could not launch the app" notice never showed
+  and the click did nothing. The fallback is now only for when Electron
+  cannot be loaded; a rejected open shows the notice. `npm run typecheck`
+  also passes now (it failed on the missing `electron` types).
 - **Obsidian: the edit-mode setting names the real command.** Its
   description said to use the "Open in edit mode" command, a name the
   command palette does not list; the command is "Open current note in

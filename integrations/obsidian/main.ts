@@ -23,9 +23,11 @@ import {
 import {
 	buildUrl,
 	EDIT_MODE_SETTING_DESC,
+	type ExternalOpener,
 	isOpenableInAshlr,
 	OPEN_COMMAND_NAME,
 	OPEN_EDIT_COMMAND_NAME,
+	openUrl,
 } from "./links.ts";
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -59,21 +61,11 @@ function getAbsolutePath(app: App, file: TFile): string | null {
 	return `${adapter.getBasePath()}/${file.path}`;
 }
 
-/**
- * Opens `url` using Electron's shell.openExternal, which correctly handles
- * custom URL schemes on macOS, Windows and Linux.  Falls back to window.open if Electron is
- * somehow unavailable (shouldn't happen in the desktop app).
- */
-async function openUrl(url: string): Promise<void> {
-	try {
-		// Electron is always present in the Obsidian desktop app.
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const { shell } = require("electron") as typeof import("electron");
-		await shell.openExternal(url);
-	} catch {
-		// Graceful fallback — e.g. running tests outside Electron.
-		window.open(url);
-	}
+/** Electron's `shell`, which opens custom URL schemes on every desktop OS. */
+function electronShell(): ExternalOpener {
+	// Electron is always present in the Obsidian desktop app.
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	return (require("electron") as { shell: ExternalOpener }).shell;
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
@@ -195,7 +187,7 @@ export default class AshlrMdPlugin extends Plugin {
 			mode ?? (this.settings.openInEditMode ? "edit" : undefined);
 
 		const url = buildUrl(absolutePath, resolvedMode);
-		openUrl(url).catch((err: unknown) => {
+		openUrl(url, electronShell, (u) => window.open(u)).catch((err: unknown) => {
 			console.error("Ashlr MD plugin: failed to open URL", url, err);
 			new Notice(
 				"Open in Ashlr MD: could not launch the app.\n" +
