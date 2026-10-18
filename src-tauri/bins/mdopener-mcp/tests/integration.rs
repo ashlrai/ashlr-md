@@ -11372,3 +11372,30 @@ fn nested_item_fields_honour_min_length_and_bounds() {
     );
     assert!(!path.exists());
 }
+
+// ── No home directory ─────────────────────────────────────────────────────────
+// Without a home directory the server said "Cannot determine home directory"
+// and nothing more. The error now names the setting to fix and keeps its
+// first sentence, which app_unreachable matches.
+
+#[test]
+fn no_home_directory_error_names_a_next_step() {
+    let err = mdopener_mcp::mdopener_file_in(None, "ipc-port").unwrap_err();
+    assert!(
+        err.starts_with("Cannot determine home directory. "),
+        "{err}"
+    );
+    #[cfg(not(windows))]
+    assert!(err.contains("Set HOME to your home folder"), "{err}");
+    #[cfg(windows)]
+    assert!(err.contains("Windows user profile folder"), "{err}");
+    assert!(err.contains("restart"), "{err}");
+    // Not taken for "the app is not running": the reason reaches the agent as is.
+    assert_eq!(mdopener_mcp::app_not_running_msg(&err), err);
+
+    let home = std::path::PathBuf::from("/h");
+    assert_eq!(
+        mdopener_mcp::mdopener_file_in(Some(home.clone()), "ipc-token").unwrap(),
+        home.join(".mdopener").join("ipc-token")
+    );
+}

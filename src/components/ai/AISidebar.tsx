@@ -167,6 +167,11 @@ function escHtml(s: string): string {
 // API key entry form (shown when no provider is found)
 // ---------------------------------------------------------------------------
 
+/** Whether the app runs on macOS, read when the nudge renders. */
+function onMac(): boolean {
+  return /Mac/.test(navigator.platform || navigator.userAgent || "");
+}
+
 function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
   const setApiKey = useAIStore((s) => s.setApiKey);
   const [draft, setDraft] = useState("");
@@ -185,6 +190,18 @@ function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
       <div className="ai-setup-nudge__icon">🤖</div>
       <p className="ai-setup-nudge__title">No AI provider found</p>
       <p className="ai-setup-nudge__body">
+        {/* The README promises a zero-install on-device model on macOS 26+;
+            the nudge used to offer only Ollama and a key, with no word on why
+            that model was not found. Ashlr MD checks for it once per launch. */}
+        {onMac() && (
+          <>
+            On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device
+            model needs Apple Intelligence: turn it on in System Settings → Apple
+            Intelligence &amp; Siri, then restart Ashlr MD.
+            <br />
+            <br />
+          </>
+        )}
         For free local AI, install{" "}
         <a
           href="https://ollama.ai"
@@ -573,6 +590,8 @@ export function AISidebar() {
 
   function handleStop() {
     abortRef.current?.abort();
+    // A selection popover action registers its controller in the store.
+    useAIStore.getState().abortController?.abort();
     // Clear any pending retry when the user manually stops.
     setRetryState(null);
   }

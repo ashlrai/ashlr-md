@@ -36,6 +36,33 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer cancels an inline AI rewrite in the source
+  editor.** Pressing Escape to end an input-method composition (or close its
+  candidate list) while a ⌘I rewrite was streaming cancelled the rewrite and
+  restored the original text. The source editor now uses the same
+  composition check as the WYSIWYG editor; a plain Escape still cancels.
+- **On a Mac, the AI sidebar says why the on-device model is missing.** With
+  no AI provider, the sidebar offered only Ollama and an Anthropic key, though
+  the README promises a zero-install on-device model on macOS 26+. On a Mac
+  it now says that model needs Apple Silicon, macOS 26 or later and Apple
+  Intelligence turned on in System Settings, then a restart of Ashlr MD.
+- **Stop in the AI sidebar stops a selection action.** When an action from
+  the selection popover (Explain, Rewrite, Summarize, Translate) was
+  streaming its answer into the AI sidebar, the sidebar showed **Stop**, but
+  clicking it did nothing: the popover kept the request's abort handle to
+  itself. Stop now ends that request too.
+- **A missing home directory says what to set.** When the home directory
+  could not be found, **Connect to Cursor**, **Auto-open agent Markdown** and
+  `mdopener-mcp` (reaching the app or saving a conversation) said "Cannot
+  determine home directory" and nothing more. They now say to set `HOME` to
+  your home folder (on Windows, to check the user profile folder) and to
+  restart Ashlr MD or the agent that runs `mdopener-mcp`.
+- **docs/AGENTS.md says what re-running Connect to Claude Code does.** It
+  said re-running Connect when the server already exists "is treated as
+  success". The Claude Code section now says Connect asks `claude mcp get`
+  which program the registration runs, repoints one whose program no longer
+  exists, and keeps one that runs another program with a message naming the
+  remove command. A doc-facts test checks it against agent_setup.rs.
 - **An unreadable client config says what to check.** When **Connect to
   Cursor** or **Auto-open agent Markdown** could not read or write
   `~/.cursor/mcp.json` or `~/.claude/settings.json`, the message was the OS

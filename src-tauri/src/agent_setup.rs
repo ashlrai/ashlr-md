@@ -445,6 +445,23 @@ fn write_config(path: &std::path::Path, text: &str) -> Result<(), String> {
     })
 }
 
+/// The error when the home directory (which holds `~/.cursor` and
+/// `~/.claude`) cannot be found. It used to be "Cannot determine home
+/// directory" and nothing more; it now names the setting to fix.
+#[cfg(not(windows))]
+const NO_HOME_DIR: &str = "Cannot determine home directory. Set HOME to your home folder \
+    in the environment Ashlr MD starts from, then restart Ashlr MD and try again.";
+#[cfg(windows)]
+const NO_HOME_DIR: &str = "Cannot determine home directory. Check that your Windows user \
+    profile folder exists and that you are signed in to it, then restart Ashlr MD and try \
+    again.";
+
+/// `<home>/<dir>/<file>`, or [`NO_HOME_DIR`] when there is no home.
+fn home_file(home: Option<PathBuf>, dir: &str, file: &str) -> Result<PathBuf, String> {
+    home.map(|h| h.join(dir).join(file))
+        .ok_or_else(|| NO_HOME_DIR.to_string())
+}
+
 // ── Cursor ────────────────────────────────────────────────────────────────────
 
 /// Cursor's global MCP configuration file.
@@ -454,9 +471,7 @@ fn write_config(path: &std::path::Path, text: &str) -> Result<(), String> {
 /// also supported by Cursor, but we write to the global file so the server is
 /// available in every project.
 fn cursor_mcp_json_path() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|h| h.join(".cursor").join("mcp.json"))
-        .ok_or_else(|| "Cannot determine home directory".to_string())
+    home_file(dirs::home_dir(), ".cursor", "mcp.json")
 }
 
 /// Merge an `ashlr-md` MCP server entry into `~/.cursor/mcp.json`.
@@ -591,9 +606,7 @@ pub fn connect_codex(app: tauri::AppHandle) -> Result<String, String> {
 pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
     let mdopen = resolve_sidecar_binary(&app, "mdopen")?;
 
-    let settings_path = dirs::home_dir()
-        .map(|h| h.join(".claude").join("settings.json"))
-        .ok_or("Cannot determine home directory")?;
+    let settings_path = home_file(dirs::home_dir(), ".claude", "settings.json")?;
     if let Some(parent) = settings_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
@@ -835,6 +848,26 @@ mod tests {
     use super::*;
 
     const MDOPEN: &str = "/Applications/Ashlr MD.app/Contents/Resources/mdopen";
+
+    /// Without a home directory Connect to Cursor and Auto-open agent Markdown
+    /// said "Cannot determine home directory" and nothing more.
+    #[test]
+    fn no_home_directory_error_names_a_next_step() {
+        let err = home_file(None, ".cursor", "mcp.json").unwrap_err();
+        assert!(
+            err.starts_with("Cannot determine home directory. "),
+            "{err}"
+        );
+        #[cfg(not(windows))]
+        assert!(err.contains("Set HOME to your home folder"), "{err}");
+        #[cfg(windows)]
+        assert!(err.contains("Windows user profile folder"), "{err}");
+        assert!(err.contains("restart Ashlr MD and try"), "{err}");
+        assert_eq!(
+            home_file(Some(PathBuf::from("/h")), ".claude", "settings.json").unwrap(),
+            PathBuf::from("/h").join(".claude").join("settings.json")
+        );
+    }
 
     fn commands(root: &Value) -> Vec<String> {
         root["hooks"]["PostToolUse"]

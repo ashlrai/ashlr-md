@@ -89,8 +89,13 @@ claude mcp add --scope user ashlr-md <mcp-binary>
 ```
 
 The `--scope user` flag registers the server globally (all projects), not just
-the current directory. The command is idempotent: re-running it when the server
-already exists is treated as success.
+the current directory. Re-running Connect when `ashlr-md` is already registered
+is safe: Ashlr MD asks Claude Code (`claude mcp get ashlr-md`) which program it
+runs. A registration that already runs this app's server is left alone; one
+whose program no longer exists (the app was moved or reinstalled) is removed and
+added again with the current path; one that runs another program that still
+exists is kept, and the message names that program and the
+`claude mcp remove --scope user ashlr-md` command that removes it.
 
 ### Manual
 
