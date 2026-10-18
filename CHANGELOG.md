@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` on an unparseable canvas names the file.** It answered
+  `Canvas parse error: Invalid JSON: ...` with no path and no word on
+  whether the file had been touched. It now names the absolute path, says
+  the file was left unchanged because `edit_canvas` does not overwrite a
+  canvas it cannot parse, and says to fix the file (a JSON object whose
+  `nodes` and `edges` are arrays of objects) and call it again.
 - **`mdopener-mcp --help` and `--version` no longer panic on an
   unwritable stdout.** Piped into a reader that had already closed
   (`mdopener-mcp --help | head -c1`), or written to a full disk, they

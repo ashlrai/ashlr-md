@@ -5731,7 +5731,20 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Parse ────────────────────────────────────────────────────────────────
     let parsed = match parse_canvas_json(&raw_content) {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Canvas parse error: {e}")),
+        // "Canvas parse error: Invalid JSON: ..." named neither the file nor
+        // whether it had been touched.
+        Err(e) => {
+            return tool_error(
+                id,
+                format!(
+                    "Canvas parse error in '{}': {e}. The file was left unchanged: \
+                     edit_canvas does not overwrite a canvas it cannot parse. Fix the file \
+                     (a JSON object whose `nodes` and `edges` are arrays of objects), then \
+                     call edit_canvas again.",
+                    agent_path(&path)
+                ),
+            )
+        }
     };
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;

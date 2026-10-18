@@ -7817,6 +7817,38 @@ fn edit_canvas_refuses_non_object_nodes_instead_of_dropping_them() {
     }
 }
 
+/// An unparseable canvas answered "Canvas parse error: Invalid JSON: ...",
+/// naming neither the file nor whether it had been touched. It now names the
+/// absolute path, says the file was left unchanged, and what to fix.
+#[test]
+fn edit_canvas_on_invalid_json_names_the_file_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("broken.canvas");
+    std::fs::write(&path, "{ not json").unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "delete_node", "id": "n1" }] }),
+    );
+    let err = tool_error_text(&resp);
+    let abs = std::fs::canonicalize(&path).unwrap();
+    assert!(
+        err.starts_with(&format!(
+            "Canvas parse error in '{}': Invalid JSON: ",
+            abs.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.ends_with(
+            "The file was left unchanged: edit_canvas does not overwrite a canvas it \
+             cannot parse. Fix the file (a JSON object whose `nodes` and `edges` are \
+             arrays of objects), then call edit_canvas again."
+        ),
+        "{err}"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it
