@@ -7,6 +7,9 @@
 //!   - "ollama"     — local Ollama server at http://localhost:11434
 //!   - "anthropic"  — Anthropic Messages API (SSE streaming)
 //!
+//! `OLLAMA_HOST` and `ANTHROPIC_BASE_URL` override those hosts (see
+//! `base_urls.rs`), so a LiteLLM gateway or Phantom proxy can sit in front.
+//!
 //! Event protocol (JS listens on these channels):
 //!   "ai://delta"  { requestId: String, delta: String }   — token chunk
 //!   "ai://done"   { requestId: String }                  — stream complete
@@ -16,6 +19,8 @@ use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+use crate::base_urls;
 
 // ---------------------------------------------------------------------------
 // Shared message type (mirrors TypeScript AIMessage)
@@ -100,7 +105,8 @@ struct AnthropicStreamEvent {
 
 const OLLAMA_PREFERRED: &[&str] = &["llama3.2", "llama3.1", "qwen2.5", "mistral", "phi3"];
 
-/// Probe Ollama at localhost:11434.  Returns the best available model name
+/// Probe Ollama (localhost:11434 unless `OLLAMA_HOST` is set).  Returns the
+/// best available model name
 /// (by OLLAMA_PREFERRED order, then first installed), or None.
 #[tauri::command]
 pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
@@ -110,7 +116,7 @@ pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .get("http://localhost:11434/api/tags")
+        .get(format!("{}/api/tags", base_urls::ollama_base_url()))
         .send()
         .await
         .map_err(|_| "Ollama not reachable".to_string())?;
@@ -230,7 +236,7 @@ async fn stream_ollama(
     };
 
     let resp = client
-        .post("http://localhost:11434/api/chat")
+        .post(format!("{}/api/chat", base_urls::ollama_base_url()))
         .json(&body)
         .send()
         .await
@@ -292,8 +298,6 @@ async fn stream_ollama(
 // The Anthropic model is chosen on the frontend and passed in per request.
 /// API version header required by Anthropic.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-/// Endpoint.
-const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 /// Max tokens for responses.
 const ANTHROPIC_MAX_TOKENS: u32 = 4096;
 
@@ -334,7 +338,7 @@ async fn stream_anthropic(
     };
 
     let resp = client
-        .post(ANTHROPIC_URL)
+        .post(format!("{}/v1/messages", base_urls::anthropic_base_url()))
         .header("x-api-key", &api_key)
         .header("anthropic-version", ANTHROPIC_VERSION)
         .header("content-type", "application/json")

@@ -129,6 +129,17 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
   on every OS, no Electron bloat. MIT, local-first, no telemetry.
 
 
+## Custom AI endpoints
+
+The AI sidebar, semantic search and the MCP sidecar read these environment variables at call time. Unset or blank means the defaults below, which are what the app always used.
+
+| Variable | Default | Accepts |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | a base URL; the app appends `/v1/messages` |
+| `OLLAMA_HOST` | `http://localhost:11434` (MCP sidecar: `http://127.0.0.1:11434`) | `host`, `host:port`, `:port` or a full URL |
+
+Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar speaks plain HTTP only, so it treats an `https://` `OLLAMA_HOST` as Ollama being unavailable and falls back to keyword search. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
+
 ## Platform support
 
 | Capability | macOS | Windows | Linux |

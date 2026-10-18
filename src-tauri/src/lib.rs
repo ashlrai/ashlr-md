@@ -4,6 +4,7 @@ mod activity;
 mod afm;
 mod agent_setup;
 mod ai;
+mod base_urls;
 mod cli_install;
 mod deep_link;
 mod default_handler;
