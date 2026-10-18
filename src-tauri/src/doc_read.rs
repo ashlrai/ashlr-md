@@ -135,14 +135,36 @@ pub(crate) fn read_open_file(
     if meta.len() > max {
         return Err(too_large(meta.len(), max));
     }
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     file.take(max + 1)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if text.len() as u64 > max {
-        return Err(too_large(text.len() as u64, max));
+    if bytes.len() as u64 > max {
+        return Err(too_large(bytes.len() as u64, max));
     }
-    Ok(text)
+    String::from_utf8(bytes).map_err(|e| not_utf8(e.as_bytes(), e.utf8_error().valid_up_to()))
+}
+
+/// Why a document that is not UTF-8 text was not read. `read_to_string` said
+/// only "stream did not contain valid UTF-8", which named neither where the
+/// problem was nor what to do, so a Latin-1 or UTF-16 file (as some Windows
+/// editors save) looked like a fault in the app. Mirrors mdopener-mcp's
+/// `not_utf8` word for word, so the window and an agent read the same reason.
+pub(crate) fn not_utf8(bytes: &[u8], valid_up_to: usize) -> String {
+    let what = if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        "it is UTF-16 text, not UTF-8".to_string()
+    } else {
+        let line = bytes[..valid_up_to].iter().filter(|&&b| b == b'\n').count() + 1;
+        format!(
+            "it is not UTF-8 text (byte {} is not valid UTF-8, on line {line})",
+            valid_up_to + 1
+        )
+    };
+    format!(
+        "{what}. Ashlr MD reads documents as UTF-8: convert the file to UTF-8 (for \
+         example `iconv -f WINDOWS-1252 -t UTF-8`, or save it as UTF-8 in its \
+         editor), then try again."
+    )
 }
 
 /// Read the document the human named (`read_markdown_file`, the search
