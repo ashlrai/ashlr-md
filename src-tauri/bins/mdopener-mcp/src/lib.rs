@@ -866,7 +866,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_recent",
-            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch).",
+            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch). Needs Ashlr MD running (the app keeps the list): this tool does not start it, so with the app closed it is an error, and open_file starts the app.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2680,7 +2680,7 @@ pub fn tool_request_review_with(
                     return tool_error(id, window_refusal(&resp, "open", what));
                 }
                 Ok(_) => {}
-                Err(e) => return tool_error(id, app_not_running_msg(&e)),
+                Err(e) => return tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
             }
             remember_review(
                 &review_id,
@@ -2977,9 +2977,10 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         Err(e) => return Response::err(id, -32602, e),
     };
 
+    let path = path.map(agent_path);
     let mut body = json!({ "find": find, "replace": replace, "save": save });
-    if let Some(p) = path {
-        body["path"] = json!(agent_path(p));
+    if let Some(p) = &path {
+        body["path"] = json!(p);
     }
 
     match ipc.post("/edit", body) {
@@ -2990,7 +2991,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -3530,7 +3531,7 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
             tool_error(id, window_refusal(&v, "present", what))
         }
         Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -5370,6 +5371,18 @@ pub fn tool_error(id: Value, message: String) -> Response {
 /// found`): they used to ask "Is Ashlr MD running?" themselves, so the
 /// message said it twice.
 pub fn app_not_running_msg(err: &str) -> String {
+    not_running_msg(err, None)
+}
+
+/// [`app_not_running_msg`] for a tool that was given `path`: the next step
+/// is the `open_file` call with that path, written out so the agent can copy
+/// it. The generic "use open_file which can start it" left the agent to work
+/// out the arguments.
+pub fn app_not_running_msg_for(err: &str, path: Option<&str>) -> String {
+    not_running_msg(err, path)
+}
+
+fn not_running_msg(err: &str, path: Option<&str>) -> String {
     // The app refused this server's token: say why and what fixes it.
     if app_auth_failed(err) {
         return APP_AUTH_FAILED_MSG.to_string();
@@ -5380,12 +5393,20 @@ pub fn app_not_running_msg(err: &str) -> String {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
+        let next = match path {
+            Some(p) => format!(
+                "Call open_file with {}, which starts it with this document, then call \
+                 this tool again.",
+                json!({ "path": p })
+            ),
+            None => {
+                "Launch it first, or use open_file which can start it automatically.".to_string()
+            }
+        };
         format!(
-            "Ashlr MD does not appear to be running ({}). \
-             Launch it first, or use open_file which can start it automatically. If it \
+            "Ashlr MD does not appear to be running ({err}). {next} If it \
              is not installed, ask the user to install it from \
-             https://github.com/ashlrai/ashlr-md/releases.",
-            err
+             https://github.com/ashlrai/ashlr-md/releases."
         )
     } else {
         err.to_string()
@@ -7029,7 +7050,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
             v["applied"] = json!(!preview);
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -7092,7 +7113,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
