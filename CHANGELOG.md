@@ -54,6 +54,28 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `*Error: ...*` text. Stop now aborts it and marks the turn stopped, and a
   failure is a failed turn with the same mapped message the sidebar shows
   for its own requests.
+- **MCP: `get_user_annotations`' `tasksNote` says the file does not exist.**
+  Read from disk (the app closed, or refusing the token), a missing file's
+  `tasksNote` quoted the raw OS error ("No such file or directory (os error
+  2)"). It now reads "Cannot read '<path>': the file does not exist. Its
+  tasks were not read.", as the other disk tools say it.
+- **MCP: a closed app names the `open_file` call for a tool given `path`.**
+  With Ashlr MD not running, `request_review`, `present_document`,
+  `edit_document`, `stream_edit` and `stream_edit_apply` said to "use
+  open_file which can start it", leaving the agent to work out the call.
+  Given a `path`, they now say `Call open_file with {"path":"..."}` with that
+  exact (absolute) path, then call the tool again. `list_recent`'s
+  description now says it needs the app.
+- **MCP: a refused token says why and what to do, in every app tool.** An
+  app that answered HTTP 401 (a stale `~/.mdopener/ipc-token`, or another
+  Ashlr MD instance on the port) gave every app tool but
+  `get_user_annotations` the bare "IPC auth failed: token mismatch or missing
+  ~/.mdopener/ipc-token", with no next step. They now share one message that
+  names both causes and says to ask the user to quit every Ashlr MD window
+  and start the app again, then retry, in the words of
+  `get_user_annotations`' `appAuthFailed` note. A `request_review` that hits
+  it while waiting adds that restarting ends the review, so request a new
+  one.
 - **MCP: `get_user_annotations` reads the file on disk when the app refuses
   the token.** An app that answered HTTP 401 (a stale
   `~/.mdopener/ipc-token`, or another Ashlr MD instance on the port) gave the
