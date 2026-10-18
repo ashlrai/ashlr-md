@@ -169,6 +169,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   up. The Rust-side `/stream-edit` refusals (an empty `find`, a `path`
   mismatch, a busy app, a timeout) are not searched either, so they still
   carry none.
+- **App IPC: a test comment no longer describes an unsaved document.** A
+  comment in `src-tauri/src/ipc.rs` said "Unsaved buffers have no path to
+  resolve" and its check compared `Untitled` with itself, although the app
+  opens only files. It now describes the real case, a file deleted or moved
+  since it was opened, and checks that path; a doc-facts test keeps
+  `ipc.rs` and the edit handlers from naming an unsaved document again.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

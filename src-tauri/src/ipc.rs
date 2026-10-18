@@ -3390,8 +3390,13 @@ mod tests {
         std::fs::write(&other, "y").unwrap();
         assert!(!names_open_document(other.to_str().unwrap(), open_s));
         assert!(!names_open_document(open_s, ""));
-        // Unsaved buffers have no path to resolve; only an exact match counts.
-        assert!(names_open_document("Untitled", "Untitled"));
+        // A path that does not resolve (the open file was deleted or moved
+        // since it was opened) is compared as given: only an exact match
+        // counts. The app opens only files, so every open document has one.
+        let gone = d.0.join("gone.md");
+        let gone_s = gone.to_str().unwrap();
+        assert!(names_open_document(gone_s, gone_s));
+        assert!(!names_open_document(&format!("{}/./gone.md", d.0.display()), gone_s));
     }
 
     #[test]
