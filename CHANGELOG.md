@@ -47,6 +47,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`stream_edit_apply` checks the preview's `editId`.** The app forwarded
+  the `editId` to the window without looking at it, so a stale preview
+  re-found `find` in whatever document was open now, perhaps another one.
+  The window now remembers its pending previews: an `editId` it has no
+  pending preview for (already applied, made before the app last started,
+  or never made), a preview of another document, or a `find`/`replace` that
+  is not the preview's is refused with the reason and "Call stream_edit
+  again for a fresh preview, then stream_edit_apply with its editId.", and
+  the document is unchanged. A preview applies once. An apply without
+  `edit_id` re-finds `find` as before.
 - **MCP: `search_vault` without `vault` after a refused token names `vault`.**
   On an HTTP 401 with no `vault` argument, `search_vault` returned only the
   shared refused-token message, so the agent could do nothing but wait for

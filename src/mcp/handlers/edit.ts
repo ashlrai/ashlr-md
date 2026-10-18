@@ -64,6 +64,74 @@ function noDocumentOpen(): boolean {
   return !path && content === "";
 }
 
+// ── stream_edit previews ──────────────────────────────────────────────────────
+
+/** What a `stream_edit` preview was made from, keyed by its `editId`. */
+interface StreamEditPreview {
+  path: string | null;
+  find: string;
+  replace: string;
+}
+
+/**
+ * The previews this window made and has not applied yet. `stream_edit_apply`
+ * used to forward its `editId` without looking at it, so an apply of a
+ * preview made for another document (or by an app that has since restarted)
+ * re-found `find` in whatever document was open. Bounded: the oldest preview
+ * goes first.
+ */
+const streamEditPreviews = new Map<string, StreamEditPreview>();
+const MAX_STREAM_EDIT_PREVIEWS = 64;
+
+function rememberPreview(editId: string, preview: StreamEditPreview): void {
+  streamEditPreviews.set(editId, preview);
+  while (streamEditPreviews.size > MAX_STREAM_EDIT_PREVIEWS) {
+    const oldest = streamEditPreviews.keys().next().value;
+    if (oldest === undefined) break;
+    streamEditPreviews.delete(oldest);
+  }
+}
+
+const FRESH_PREVIEW =
+  "Call stream_edit again for a fresh preview, then stream_edit_apply with its editId.";
+
+/**
+ * Why the preview `originalEditId` names cannot be applied to the open
+ * document, or `null` when it can. An omitted editId is not checked: the
+ * apply then re-finds `find` in the open document, as it always did.
+ */
+function stalePreview(
+  originalEditId: string | undefined,
+  find: string,
+  replace: string,
+): string | null {
+  if (!originalEditId) return null;
+  const preview = streamEditPreviews.get(originalEditId);
+  if (!preview) {
+    return (
+      `Unknown or stale editId '${originalEditId}': this Ashlr MD window has no pending ` +
+      "stream_edit preview with that id (it was already applied, was made before the app " +
+      `last started, or was never made). ${FRESH_PREVIEW}`
+    );
+  }
+  const openPath = useDocumentStore.getState().path;
+  if (preview.path !== openPath) {
+    const was = preview.path ?? "an unsaved document";
+    const now = openPath ?? "an unsaved document";
+    return (
+      `Stale editId '${originalEditId}': it previews '${was}', but the open document is ` +
+      `now '${now}'. ${FRESH_PREVIEW}`
+    );
+  }
+  if (preview.find !== find || preview.replace !== replace) {
+    return (
+      `editId '${originalEditId}' previewed a different find or replace. Send the find ` +
+      `and replace of that preview, or call stream_edit again for a fresh preview.`
+    );
+  }
+  return null;
+}
+
 // ── mcp://set-content ─────────────────────────────────────────────────────────
 
 /**
@@ -222,6 +290,14 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         label,
       );
 
+      if (result.ok) {
+        rememberPreview(editId, {
+          path: useDocumentStore.getState().path,
+          find,
+          replace,
+        });
+      }
+
       const candidates: StreamEditCandidateResult[] | null = result.candidates
         ? result.candidates.map((c) => ({
             matchIndex: c.matchIndex,
@@ -313,10 +389,28 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
       return;
     }
 
+    const stale = stalePreview(applyPayload.originalEditId, find, replace);
+    if (stale !== null) {
+      await invoke("mcp_stream_edit_apply_result", {
+        editId,
+        ok: false,
+        replaced: 0,
+        matchIndex,
+        error: stale,
+      }).catch(() => {
+        /* non-fatal */
+      });
+      return;
+    }
+
     const liveContent = useDocumentStore.getState().content;
 
     try {
       const outcome = applyEditAtOccurrence(liveContent, find, replace, matchIndex);
+      // A preview applies once: a second apply would edit the document again.
+      if (outcome.ok && applyPayload.originalEditId) {
+        streamEditPreviews.delete(applyPayload.originalEditId);
+      }
       let saveError: string | null = null;
       if (outcome.ok && outcome.content !== undefined) {
         useDocumentStore.getState().setContent(outcome.content);

@@ -1273,7 +1273,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 is open (\"No document is open in Ashlr MD; open one first (open_file).\", as \
                 edit_document says), when `find` is no longer in the live document, when `match_index` is past its last occurrence (the error \
                 says how many there are), when `path` is not the open document, when the window does not \
-                answer within 4 s, or when two edits are already waiting on the app (retry in a moment); \
+                answer within 4 s, when two edits are already waiting on the app (retry in a moment), or when \
+                `edit_id` names no pending preview of the open document with this find/replace (one \
+                already applied, made before the app started, or of another document: call stream_edit \
+                again for a fresh preview); \
                 with `save: true`, a failed save, or a document with no file yet, is an error saying the \
                 edit was applied but not saved.",
             input_schema: json!({
@@ -1282,7 +1285,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "edit_id": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: the editId of the stream_edit preview, for correlation only; an empty or blank one is refused. The app re-finds `find` in the live document and applies occurrence `match_index`."
+                        "description": "Optional: the editId of the stream_edit preview; an empty or blank one is refused. When given, it must name a preview this app made of the open document with the same find/replace that has not been applied yet; otherwise the call is refused and says to call stream_edit again. The app re-finds `find` in the live document and applies occurrence `match_index`."
                     },
                     "find": {
                         "type": "string",
@@ -7148,8 +7151,9 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// The agent sends this after reviewing the diff returned by `stream_edit`.
 /// `match_index` selects which candidate to apply when there are multiple matches.
 pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
-    // Only correlates with a preview: the app re-finds `find` in the live
-    // document, so the apply does not depend on it. An empty one named no
+    // Names the preview: the app refuses one it has no pending preview for
+    // (already applied, from before it started, or of another document),
+    // then re-finds `find` in the live document. An empty one named no
     // preview and used to be accepted; it is refused as an empty `path` is.
     // Only whitespace names no preview either.
     let edit_id = match args["edit_id"].as_str() {
