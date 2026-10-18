@@ -142,6 +142,8 @@ The AI sidebar, semantic search and the MCP sidecar read these environment varia
 
 Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar speaks plain HTTP only, so it treats an `https://` `OLLAMA_HOST` as Ollama being unavailable and falls back to keyword search. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
 
+The installer also reports whether the optional Phantom CLI is installed and which version. It runs only `phantom --version` and never reads or reveals secret values. To run tools with Phantom placeholder keys and base URLs, start them with `phantom exec -- <cmd>`.
+
 ## Platform support
 
 | Capability | macOS | Windows | Linux |

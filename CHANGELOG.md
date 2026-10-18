@@ -6,6 +6,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **Phantom installed check in setup output.** `scripts/install.sh` now prints whether
+  the optional Phantom CLI is installed and its version. The check
+  (`scripts/phantom-check.sh`) only runs `phantom --version`. It never runs
+  `phantom reveal`, never reads the vault or `.env` files, and never captures
+  secret values.
 - **Custom AI endpoints.** `ANTHROPIC_BASE_URL` and `OLLAMA_HOST` override the
   Anthropic and Ollama hosts used by the AI sidebar, semantic search and the MCP
   sidecar, so a LiteLLM gateway or Phantom proxy can sit in front. Defaults are
