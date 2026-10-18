@@ -35,6 +35,17 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   muted text (notably in Sepia); and motion is calmed under
   `prefers-reduced-motion`.
 
+### Security
+- **HTML in an AI answer is shown as text.** The AI sidebar's markdown
+  renderer escaped only code spans, so HTML a model wrote in plain text
+  (an `<img src=x onerror=...>`, a `<script>`, an `<a href="javascript:...">`)
+  went into the app window as-is, where it could run script. The renderer now
+  escapes all of an answer before applying its bold, italics, code, list and
+  link formatting, and it builds a link only for an `http`, `https` or
+  `mailto` URL; any other link keeps its text and drops the URL. Links open
+  outside the app. Provider errors, the selection popover and the editors'
+  inline AI already showed their text as text.
+
 ### Fixed
 - **Stop and Retry in the AI sidebar leave a clean chat.** Stopping before
   any text arrived left an empty "Assistant" bubble with no word that it was

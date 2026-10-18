@@ -22,6 +22,7 @@ import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { memoryBlock } from "../../store/memoryStore";
 import { useUiStore } from "../../store/uiStore";
+import { renderChatMarkdown } from "./chatMarkdown";
 import { RelatedNotes } from "./RelatedNotes";
 
 // ---------------------------------------------------------------------------
@@ -132,12 +133,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
     <div className={`ai-msg ai-msg--${msg.role}`}>
       <span className="ai-msg__label">{msg.role === "user" ? "You" : "Assistant"}</span>
       {failedEmpty ? null : msg.role === "assistant" ? (
-        // Assistant markdown is rendered as HTML; content is model-generated,
-        // not user-supplied. (noDangerouslySetInnerHtml is disabled in biome.json.)
+        // Assistant markdown is rendered as HTML. The text is model output and
+        // untrusted: renderChatMarkdown escapes all of it before formatting and
+        // links only http, https and mailto URLs.
+        // (noDangerouslySetInnerHtml is disabled in biome.json.)
         <div
           className="ai-msg__bubble"
           dangerouslySetInnerHTML={{
-            __html: renderMarkdown(msg.content, msg.streaming ?? false),
+            __html: renderChatMarkdown(msg.content, msg.streaming ?? false),
           }}
         />
       ) : (
@@ -151,43 +154,6 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       )}
     </div>
   );
-}
-
-/** Minimal markdown renderer for assistant bubbles.
- *  We do NOT pull in a full markdown library for the chat — keep it light.
- *  Handles: fenced code blocks, inline code, bold, bullet lists, line breaks.
- */
-function renderMarkdown(text: string, streaming: boolean): string {
-  let html = text
-    // Fenced code blocks
-    .replace(/```[\w]*\n([\s\S]*?)```/g, (_m, code: string) => {
-      return `<pre><code>${escHtml(code.trimEnd())}</code></pre>`;
-    })
-    // Inline code
-    .replace(/`([^`\n]+)`/g, (_m, code: string) => `<code>${escHtml(code)}</code>`)
-    // Bold
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    // Unordered list items. Wrap only CONSECUTIVE <li> runs in one <ul> — the
-    // old greedy `(<li>.*<\/li>)/gs` spanned from the first to the last item and
-    // swallowed any prose/blank lines between two separate lists.
-    .replace(/^[ \t]*[-*+] (.+)$/gm, "<li>$1</li>")
-    .replace(/(?:<li>.*?<\/li>\n?)+/g, (m) => `<ul>${m.replace(/\n/g, "")}</ul>`)
-    // Double newline → paragraph break
-    .replace(/\n{2,}/g, "</p><p>")
-    // Single newline inside paragraphs
-    .replace(/\n/g, "<br>");
-
-  // Wrap in a paragraph unless already structured
-  if (!html.startsWith("<")) html = `<p>${html}</p>`;
-
-  // Append blinking cursor while streaming
-  if (streaming) html += '<span class="ai-cursor" aria-hidden="true"></span>';
-
-  return html;
-}
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ---------------------------------------------------------------------------
