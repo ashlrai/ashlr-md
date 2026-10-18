@@ -216,5 +216,9 @@ echo "    set_content       replace the active document's content"
 echo "    list_recent       list recently opened files"
 echo "    export            export to PDF / DOCX / HTML"
 echo ""
+if [ -f "$REPO_ROOT/scripts/phantom-check.sh" ]; then
+  bash "$REPO_ROOT/scripts/phantom-check.sh" | sed 's/^/  /'
+  echo ""
+fi
 echo "  Docs: https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
 echo ""
