@@ -8300,9 +8300,15 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
     start
 }
 
-// Helper: find `]]` starting from `start`, returns index of first `]`.
+/// The index of the first `]` of the `]]` that closes a wikilink or embed
+/// opened before `start`, on the same line. A wikilink is one line, as
+/// Obsidian reads it: the search used to cross newlines, so an unclosed `[[`
+/// took the text up to a `]]` many lines later as its target, hiding the
+/// links in between, and an unclosed `![[` counted as an image.
 fn find_double_close(chars: &[char], start: usize) -> Option<usize> {
-    (start..chars.len().saturating_sub(1)).find(|&i| chars[i] == ']' && chars[i + 1] == ']')
+    (start..chars.len().saturating_sub(1))
+        .take_while(|&i| chars[i] != '\n')
+        .find(|&i| chars[i] == ']' && chars[i + 1] == ']')
 }
 
 /// Count words (whitespace-separated tokens) in plain text.

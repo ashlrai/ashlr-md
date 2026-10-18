@@ -8224,6 +8224,25 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     assert!(docs.contains("indented code is kept as code without its indent"));
 }
 
+/// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
+/// took the text up to a `]]` lines later as its target and hid the links
+/// in between, and an unclosed `![[` counted as an image. A wikilink or an
+/// embed is now one line, as Obsidian reads it.
+#[test]
+fn a_wikilink_or_an_embed_is_one_line() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "See [[open\nmore text\n[[Real]] and [[Other|alias]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Other", "Real"]);
+    let doc = "![[broken\ntext\n[[Note]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Note"]);
+    assert_eq!(count_embedded_images(doc), 0);
+    assert_eq!(count_embedded_images("![[a.png]]\n![[b\n![[c.png]]\n"), 2);
+    // A `]` ending one line and a `]` starting the next do not close it.
+    assert!(extract_wikilinks("[[a]\n]] x\n").is_empty());
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a link is one line, as in Obsidian"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

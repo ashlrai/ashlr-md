@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a wikilink or an embed is one line.** `export_metadata` looked
+  for the `]]` that closes a `[[` across newlines, so an unclosed `[[`
+  took the text up to a `]]` many lines later as its target and hid the
+  links in between, and an unclosed `![[` was counted as an image. A
+  wikilink or an embed now ends on its own line, as in Obsidian, in the
+  `wikilinks` and the `embedded_image_count`.
 - **MCP: `export_text` keeps indented code as code.** A line was trimmed
   before its `#`s were taken off, so a `# comment` indented four spaces
   lost its `#` and the `*` and `_` of indented code were stripped as
