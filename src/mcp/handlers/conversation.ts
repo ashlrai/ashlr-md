@@ -13,15 +13,12 @@ import type { OpenPayload, PresentPayload } from "./types";
 
 /**
  * Open `path` for an agent. Returns `null` once it is open, or the reason it
- * is not. `openPath()` never rejects: it clears `error` before reading and
- * reports a failed read only by setting it (leaving the previous document
- * open), so the outcome is read back from the store.
+ * is not, as `openPath()` resolves it. The outcome used to be read back from
+ * the store (`error` set and another document open), so a failed read of the
+ * path that was already open counted as opened.
  */
 async function openForAgent(path: string): Promise<string | null> {
-  await useDocumentStore.getState().openPath(path);
-  const after = useDocumentStore.getState();
-  if (after.error !== null && after.path !== path) return after.error;
-  return null;
+  return useDocumentStore.getState().openPath(path);
 }
 
 /**

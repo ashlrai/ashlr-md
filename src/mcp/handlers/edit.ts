@@ -13,6 +13,7 @@ import {
   applyEditAtOccurrence,
   applyUniqueEdit,
   computeStreamEditDiff,
+  findAllOccurrences,
 } from "../applyEdit";
 import type {
   EditPayload,
@@ -272,7 +273,9 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
           ok: outcome.ok,
           diff: "",
           candidates: null,
-          matchCount: outcome.ok ? 1 : 0,
+          // The occurrences, as a preview counts them: a `find` that is not
+          // unique used to answer 0.
+          matchCount: outcome.ok ? 1 : findAllOccurrences(liveContent, find).length,
           previewLines,
           error: outcome.error ?? null,
         }).catch(() => {

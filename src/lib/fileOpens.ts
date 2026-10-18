@@ -15,7 +15,7 @@ import { listen } from "@tauri-apps/api/event";
 import { applyLinkExport } from "./linkExport";
 import { applyLinkViewMode } from "./linkViewMode";
 
-type OpenPath = (path: string) => Promise<void>;
+type OpenPath = (path: string) => Promise<unknown>;
 
 /**
  * Open the files of one `file-opened` event (or of the startup buffer) in

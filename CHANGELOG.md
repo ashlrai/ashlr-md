@@ -99,6 +99,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   breaks included, and to copy it from `get_current_content`. A
   `match_index` past the last occurrence names the range to use (`Use a
   match_index from 0 to 1`) or says to call `stream_edit` again.
+- **MCP: `open_file` reports a failed read of the open document, and
+  `stream_edit` counts a `find` that is not unique.** The window decided
+  whether `open_file` worked by looking at which document was open
+  afterwards, so a read of the path that was already open that failed was
+  reported as opened. It now takes the outcome of its own read. And
+  `stream_edit` with `preview: false` and a `find` that matches more than
+  once answered the server with `matchCount: 0`; it now sends the number of
+  occurrences, as a preview does (the error already says "not unique (3
+  matches)").
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed

@@ -105,7 +105,12 @@ interface DocumentState {
    */
   opLog: OtLogEntry[];
 
-  openPath: (path: string) => Promise<void>;
+  /**
+   * Open `path` in a tab (or switch to its tab). Never rejects: resolves to
+   * `null` once it is open, or to the reason a read failed (also set as
+   * `error`, with the previous document left open).
+   */
+  openPath: (path: string) => Promise<string | null>;
   setContent: (content: string) => void;
   /**
    * Apply a remote OT operation atomically.
@@ -252,7 +257,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const existing = get().tabs.find((t) => t.path === path);
     if (existing) {
       get().switchTab(existing.id);
-      return;
+      return null;
     }
 
     set({ isLoading: true, error: null });
@@ -285,10 +290,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       useRecentStore.getState().add(file.path, file.file_name, Date.now());
       // Begin watching for external changes; failure is non-fatal.
       invoke("watch_file", { path: file.path }).catch(() => {});
+      return null;
     } catch (e) {
-      set({ isLoading: false, error: String(e) });
+      const error = String(e);
+      set({ isLoading: false, error });
       // A recent that is gone stays gone: drop it rather than keep offering it.
       if (isMissingFileError(e)) useRecentStore.getState().remove(path);
+      return error;
     }
   },
 
