@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Lint: `biome check src` reports no errors again.** CI's Check (Linux)
+  job runs it, and it failed on formatting in `src/mcp/handlers.test.ts`,
+  `src/mcp/bridge.test.ts` and `src/mcp/handlers/edit.ts` and on the import
+  order of `src/docFacts.test.ts`. Those are formatted, and the `src/mcp`
+  warnings and infos (a `void` in a union type, string concatenation where
+  a template literal reads better) are fixed too. No behaviour changes.
 - **MCP: every path parameter says it takes `~/`.** Every path argument
   expands a leading `~` for the home directory, but the descriptions of
   `path`, `path_a`, `path_b`, `vault` and `cited_docs` said only "absolute,

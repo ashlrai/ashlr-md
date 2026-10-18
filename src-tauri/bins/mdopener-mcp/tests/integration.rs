@@ -9083,7 +9083,10 @@ fn every_path_description_names_all_accepted_forms() {
         "stream_edit.path",
         "stream_edit_apply.path",
     ] {
-        assert!(checked.iter().any(|c| c == want), "{want} not checked: {checked:?}");
+        assert!(
+            checked.iter().any(|c| c == want),
+            "{want} not checked: {checked:?}"
+        );
     }
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }

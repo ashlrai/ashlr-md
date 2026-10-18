@@ -34,9 +34,9 @@ vi.mock("react", async (importOriginal) => {
   let effectCleanup: (() => void) | undefined;
   return {
     ...real,
-    useEffect: (fn: () => (() => void) | void, _deps?: unknown[]) => {
+    useEffect: (fn: () => unknown, _deps?: unknown[]) => {
       const cleanup = fn();
-      if (typeof cleanup === "function") effectCleanup = cleanup;
+      if (typeof cleanup === "function") effectCleanup = cleanup as () => void;
     },
     useRef: (init: unknown) => ({ current: init }),
     // Expose the cleanup so tests can call it via getLastCleanup().
@@ -947,7 +947,7 @@ describe("mcp://stream-edit event — preview phase", () => {
 
   it("previewLines controls context in the diff (larger value = more context lines)", async () => {
     const doc = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n");
-    resetDocumentStore({ content: doc + "\ntarget line\n" + doc });
+    resetDocumentStore({ content: `${doc}\ntarget line\n${doc}` });
     mountBridge();
     invokeMock.mockClear();
 
@@ -1326,7 +1326,11 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
     expect(reply().ok).toBe(false);
     expect(reply()).not.toHaveProperty("matchCount");
     invokeMock.mockClear();
-    await fireEvent("mcp://stream-edit-apply", { editId: "sa-017", find: "foo", replace: "x" });
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sa-017",
+      find: "foo",
+      replace: "x",
+    });
     expect(reply()).toMatchObject({ ok: true, replaced: 1 });
     expect(reply()).not.toHaveProperty("matchCount");
     expect(useDocumentStore.getState().content).toBe("x bar foo");

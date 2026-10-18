@@ -215,7 +215,7 @@ export function buildUnifiedDiff(
   for (let i = s; i < s + addedLineCount; i++) diffLines.push(`+${afterLines[i]}`);
   for (let i = removeEnd; i < ctxEnd; i++) diffLines.push(` ${lines[i]}`);
 
-  return diffLines.join("\n") + "\n";
+  return `${diffLines.join("\n")}\n`;
 }
 
 /**

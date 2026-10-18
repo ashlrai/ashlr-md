@@ -441,7 +441,9 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         // its last occurrence) says how many occurrences there are, as a
         // stream_edit refusal does. The refusals above did not search, so
         // they send none.
-        ...(outcome.ok ? {} : { matchCount: findAllOccurrences(liveContent, find).length }),
+        ...(outcome.ok
+          ? {}
+          : { matchCount: findAllOccurrences(liveContent, find).length }),
       }).catch(() => {
         /* non-fatal */
       });

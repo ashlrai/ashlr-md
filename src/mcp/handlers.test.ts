@@ -19,7 +19,7 @@ vi.mock("react", async (importOriginal) => {
   const real = await importOriginal<typeof import("react")>();
   return {
     ...real,
-    useEffect: (fn: () => (() => void) | void, _deps?: unknown[]) => {
+    useEffect: (fn: () => unknown, _deps?: unknown[]) => {
       fn();
     },
     useRef: (init: unknown) => ({ current: init }),
