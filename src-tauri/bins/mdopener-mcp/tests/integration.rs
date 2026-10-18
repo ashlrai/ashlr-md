@@ -5408,6 +5408,30 @@ fn export_text_missing_path_and_no_ipc_returns_error() {
     );
 }
 
+/// With the app closed and no `path`, the error said only to launch the
+/// app, although both tools read a file on disk without it. It now names
+/// `path`; an app that answers with an error is left as it was.
+#[test]
+fn export_text_and_metadata_without_the_app_say_to_pass_path() {
+    for err in [
+        "~/.mdopener/ipc-port not found",
+        "Could not connect to IPC server at 127.0.0.1:9: refused",
+    ] {
+        let ipc = MockIpc::new().on_get("/content", Err(err.into()));
+        for resp in [
+            tool_export_text(json!(1), &json!({}), &ipc),
+            tool_export_metadata(json!(2), &json!({}), &ipc),
+        ] {
+            let text = tool_error_text(&resp);
+            assert!(text.contains("does not appear to be running"), "{text}");
+            assert!(text.ends_with(mdopener_mcp::NO_APP_PASS_PATH), "{text}");
+        }
+    }
+    let ipc = MockIpc::new().on_get("/content", Err("IPC server returned HTTP 500: boom".into()));
+    let text = tool_error_text(&tool_export_text(json!(1), &json!({}), &ipc));
+    assert!(!text.contains("pass `path`"), "{text}");
+}
+
 #[test]
 fn export_text_and_metadata_with_nothing_open_are_errors() {
     // No path and no document open: there is nothing to extract, so an empty

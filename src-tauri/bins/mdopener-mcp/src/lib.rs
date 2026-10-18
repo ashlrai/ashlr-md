@@ -1331,7 +1331,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 path of the file read (absent for an unsaved open document). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC (with nothing open, an error saying to pass `path`).",
+                document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1363,7 +1363,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
                 `path` absent for an unsaved open document). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC (with nothing open, an error saying to pass `path`).",
+                reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -7496,7 +7496,15 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
             Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
-    let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
+    // With the app closed the error said only to launch it, although these
+    // tools read any Markdown file on disk without it.
+    let v = ipc.get("/content").map_err(|e| {
+        if app_unreachable(&e) {
+            format!("{} {NO_APP_PASS_PATH}", app_not_running_msg(&e))
+        } else {
+            app_not_running_msg(&e)
+        }
+    })?;
     let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     let path = v["path"].as_str().map(str::to_string);
     if path.is_none() && content.is_empty() {
@@ -7509,6 +7517,12 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
 /// document is open. Unlike [`NO_DOCUMENT_OPEN`] it names `path`, which these
 /// tools take; `get_current_content`'s description quotes both.
 const NO_DOCUMENT_TO_READ: &str = "No document is open in Ashlr MD; pass `path` to read a file.";
+
+/// What `export_text` and `export_metadata` add, without `path`, to the
+/// error for an app that cannot be reached: they need the app only to read
+/// the open document.
+pub const NO_APP_PASS_PATH: &str = "To read a file without the app, pass `path`: the \
+Markdown file to read from disk.";
 
 /// `content` without a leading UTF-8 byte order mark. Editors on Windows
 /// (Notepad among them) save one; it hid a document's front-matter from

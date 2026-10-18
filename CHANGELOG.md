@@ -47,6 +47,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` and `export_metadata` without `path` say to pass it
+  when the app is closed.** Both read any Markdown file on disk without the
+  app, but called without `path` while Ashlr MD was not running they said
+  only to launch it. The error now ends "To read a file without the app,
+  pass `path`: the Markdown file to read from disk."
 - **Provider detection that fails shows the setup panel.** When finding an
   AI provider threw an error, rather than finding none, a selection popover
   action left its "Set one up here" message in the AI sidebar's chat, which
