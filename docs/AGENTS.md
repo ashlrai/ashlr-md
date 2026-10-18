@@ -935,12 +935,16 @@ The app must be open for everything except `open_file`. Launch Ashlr MD (or call
 app that is not installed comes from
 [the releases page](https://github.com/ashlrai/ashlr-md/releases).
 
-**"IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token"**
-The app is starting up or wrote a stale/empty token. Make sure Ashlr MD has
-finished launching; if it persists, fully quit and relaunch the app so it
-regenerates `~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`. `get_user_annotations`
-does not fail on it: it reads the tasks from disk and says so with
-`appAuthFailed: true`.
+**Tools return "Ashlr MD answered on the port in ~/.mdopener/ipc-port but refused the token"**
+The app answered HTTP 401: `~/.mdopener/ipc-token` is stale, or the port
+belongs to another Ashlr MD instance. Every app tool returns this one message
+(it used to be the bare "IPC auth failed: token mismatch or missing
+~/.mdopener/ipc-token"), and it says the next step: ask the user to quit every
+Ashlr MD window fully and start the app again, which writes a new
+`~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`, then retry the call. A
+`request_review` that hits it while waiting adds that restarting ends the
+review, so request a new one. `get_user_annotations` does not fail on it: it
+reads the tasks from disk and says so with `appAuthFailed: true`.
 
 **Claude Code shows "ashlr-md: failed to start"**
 Run `claude mcp list` to see the registered path, then verify the binary exists

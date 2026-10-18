@@ -2420,9 +2420,127 @@ fn app_not_running_msg_connect_error_includes_hint() {
 
 #[test]
 fn app_not_running_msg_other_error_passthrough() {
-    let msg = mdopener_mcp::app_not_running_msg("IPC auth failed: token mismatch");
+    let msg = mdopener_mcp::app_not_running_msg("IPC server returned HTTP 500");
     // Should pass through unchanged for non-connectivity errors
-    assert_eq!(msg, "IPC auth failed: token mismatch");
+    assert_eq!(msg, "IPC server returned HTTP 500");
+}
+
+/// An HTTP 401 (a stale ~/.mdopener/ipc-token, or another instance on the
+/// port) came back from every app tool but get_user_annotations as the bare
+/// "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token", with
+/// no cause and no next step. It is now one message that says both, in the
+/// words of get_user_annotations' `appAuthFailed` note.
+#[test]
+fn every_app_tool_explains_a_refused_token_and_how_to_fix_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let doc = doc.to_str().unwrap();
+    let out = dir.path().join("plan.html");
+    let out = out.to_str().unwrap();
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new()
+        .on_get("/", Err(auth.clone()))
+        .on_post("/", Err(auth));
+    let calls: Vec<(&str, mdopener_mcp::Response)> = vec![
+        ("get_current_content", tool_get_content(id(1), &ipc)),
+        (
+            "set_content",
+            tool_set_content(id(1), &json!({ "content": "x" }), &ipc),
+        ),
+        ("list_recent", tool_list_recent(id(1), &json!({}), &ipc)),
+        (
+            "export",
+            tool_export_with(
+                id(1),
+                &json!({ "format": "html", "output_path": out }),
+                &ipc,
+                std::time::Duration::from_millis(10),
+            ),
+        ),
+        (
+            "request_review",
+            tool_request_review(id(1), &json!({ "path": doc, "blocking": false }), &ipc),
+        ),
+        (
+            "edit_document",
+            tool_edit_document(id(1), &json!({ "find": "a", "replace": "b" }), &ipc),
+        ),
+        (
+            "replace_document",
+            tool_replace_document(id(1), &json!({ "content": "x" }), &ipc),
+        ),
+        (
+            "search_vault",
+            tool_search_vault(id(1), &json!({ "query": "plan", "semantic": false }), &ipc),
+        ),
+        (
+            "present_document",
+            tool_present_document(id(1), &json!({ "path": doc }), &ipc),
+        ),
+        (
+            "stream_edit",
+            tool_stream_edit(id(1), &json!({ "find": "a", "replace": "b" }), &ipc),
+        ),
+        (
+            "stream_edit_apply",
+            tool_stream_edit_apply(
+                id(1),
+                &json!({ "edit_id": "e1", "find": "a", "replace": "b" }),
+                &ipc,
+            ),
+        ),
+        (
+            "export_text",
+            mdopener_mcp::tool_export_text(id(1), &json!({}), &ipc),
+        ),
+    ];
+    for (tool, resp) in calls {
+        let err = tool_error_text(&resp);
+        assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG, "{tool}");
+    }
+    let msg = mdopener_mcp::APP_AUTH_FAILED_MSG;
+    for part in [
+        "HTTP 401",
+        "~/.mdopener/ipc-token",
+        "stale",
+        "another Ashlr MD instance",
+        "quit every Ashlr MD window",
+        "start the app again",
+        "retry",
+    ] {
+        assert!(msg.contains(part), "{part}: {msg}");
+    }
+    // The same cause as get_user_annotations' note, word for word.
+    let cause = msg.split(" Ask the user").next().unwrap();
+    assert!(
+        mdopener_mcp::ANNOTATIONS_APP_AUTH_FAILED_NOTE.starts_with(cause),
+        "{cause}"
+    );
+}
+
+/// A 401 while waiting on a review says what to do, and that restarting the
+/// app ends the review, instead of "Lost contact ...: IPC auth failed".
+#[test]
+fn request_review_that_hits_a_refused_token_says_to_restart_and_request_again() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "wait_ms": 1000 }),
+        &ipc,
+        Duration::from_millis(10),
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains(mdopener_mcp::APP_AUTH_FAILED_MSG), "{err}");
+    assert!(err.contains("request a new one"), "{err}");
+    assert!(!err.contains("IPC auth failed"), "{err}");
 }
 
 #[test]

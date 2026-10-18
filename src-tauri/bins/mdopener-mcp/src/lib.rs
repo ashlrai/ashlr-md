@@ -2758,6 +2758,18 @@ pub fn tool_request_review_with(
             // The review is registered: the reply has to carry its id, or an
             // agent whose app answered late, or was briefly unreachable, can
             // neither keep waiting nor tell this from a review never made.
+            // A refused token is fixed only by restarting the app, which
+            // drops the review, so it says to request a new one.
+            Err(e) if app_auth_failed(&e) => {
+                return tool_error(
+                    id,
+                    format!(
+                        "Lost contact with Ashlr MD while waiting on review `{review_id}`. \
+                         {APP_AUTH_FAILED_MSG} Restarting the app ends this review, so call \
+                         request_review again without review_id to request a new one."
+                    ),
+                )
+            }
             Err(e) => {
                 return tool_error(
                     id,
@@ -2878,16 +2890,36 @@ in memory only while it runs: a review given before it quit cannot be read, so n
 does not mean that no review was given. To ask for one, call request_review (open_file \
 starts the app). `tasks` are the checkboxes saved in the file.";
 
+/// Why the app answered HTTP 401, shared by [`APP_AUTH_FAILED_MSG`] and
+/// [`ANNOTATIONS_APP_AUTH_FAILED_NOTE`] so the two say it the same way.
+macro_rules! app_auth_failed_cause {
+    () => {
+        "Ashlr MD answered on the port in ~/.mdopener/ipc-port but refused the token in \
+         ~/.mdopener/ipc-token (HTTP 401): the token file is stale, or the port belongs to \
+         another Ashlr MD instance."
+    };
+}
 /// The `note` of a `get_user_annotations` result read from disk because the
 /// app answered HTTP 401 (`appAuthFailed: true`).
-pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = "Ashlr MD answered on the port in \
-~/.mdopener/ipc-port but refused the token in ~/.mdopener/ipc-token (HTTP 401): the token \
-file is stale, or the port belongs to another Ashlr MD instance. So this was read from the \
+pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = concat!(
+    app_auth_failed_cause!(),
+    " So this was read from the \
 file on disk, and `verdict` and `comments` are null because the review, if there is one, is \
 held by the app this server could not read: null here does not mean that no review was \
 given. To fix it, ask the user to quit every Ashlr MD window fully and start the app again, \
 which writes a new ipc-port and ipc-token, then call get_user_annotations again. `tasks` \
-are the checkboxes saved in the file.";
+are the checkboxes saved in the file."
+);
+
+/// The error of every app tool (other than `get_user_annotations`, which
+/// reads the disk instead) when the app answered HTTP 401. It used to be the
+/// bare "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token",
+/// which named neither the cause nor a next step.
+pub const APP_AUTH_FAILED_MSG: &str = concat!(
+    app_auth_failed_cause!(),
+    " Ask the user to quit every Ashlr MD window fully and start the app again, which \
+     writes a new ipc-port and ipc-token, then retry this call."
+);
 
 /// True when the app's port answered HTTP 401: the token this server read
 /// from `~/.mdopener/ipc-token` is not the one the listener expects.
@@ -5338,6 +5370,10 @@ pub fn tool_error(id: Value, message: String) -> Response {
 /// found`): they used to ask "Is Ashlr MD running?" themselves, so the
 /// message said it twice.
 pub fn app_not_running_msg(err: &str) -> String {
+    // The app refused this server's token: say why and what fixes it.
+    if app_auth_failed(err) {
+        return APP_AUTH_FAILED_MSG.to_string();
+    }
     // The running app refused the request: its reason (which may quote a
     // path containing "connect" or "not found") is the agent's to see as is.
     if app_refused(err) {

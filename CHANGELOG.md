@@ -54,6 +54,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `*Error: ...*` text. Stop now aborts it and marks the turn stopped, and a
   failure is a failed turn with the same mapped message the sidebar shows
   for its own requests.
+- **MCP: a refused token says why and what to do, in every app tool.** An
+  app that answered HTTP 401 (a stale `~/.mdopener/ipc-token`, or another
+  Ashlr MD instance on the port) gave every app tool but
+  `get_user_annotations` the bare "IPC auth failed: token mismatch or missing
+  ~/.mdopener/ipc-token", with no next step. They now share one message that
+  names both causes and says to ask the user to quit every Ashlr MD window
+  and start the app again, then retry, in the words of
+  `get_user_annotations`' `appAuthFailed` note. A `request_review` that hits
+  it while waiting adds that restarting ends the review, so request a new
+  one.
 - **MCP: `get_user_annotations` reads the file on disk when the app refuses
   the token.** An app that answered HTTP 401 (a stale
   `~/.mdopener/ipc-token`, or another Ashlr MD instance on the port) gave the
