@@ -6816,6 +6816,69 @@ fn edit_canvas_on_a_missing_file_names_it_and_the_next_step() {
     assert!(!missing.exists());
 }
 
+/// `edit_canvas` took only an exact lowercase `.canvas`, so `Board.CANVAS`
+/// was refused while Markdown extensions match in any case, and the refusal
+/// did not say which path it judged. Any case is a canvas now, and the
+/// `-32602` names the path.
+#[test]
+fn edit_canvas_takes_canvas_in_any_case_and_names_a_refused_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let board = dir.path().join("Board.CANVAS");
+    std::fs::write(&board, "{\"nodes\":[{\"id\":\"a\",\"type\":\"text\",\"text\":\"x\",\"x\":0,\"y\":0,\"width\":10,\"height\":10}],\"edges\":[]}").unwrap();
+    let resp = call(
+        "edit_canvas",
+        json!({
+            "path": board.to_string_lossy(),
+            "ops": [{ "type": "move_node", "id": "a", "x": 5, "y": 6 }],
+        }),
+        &MockIpc::new(),
+    );
+    let v = content_text(&resp);
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["saved"], true, "{v}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&board).unwrap()).unwrap();
+    assert_eq!(saved["nodes"][0]["x"], 5, "{saved}");
+
+    let notes = dir.path().join("notes.md");
+    let resp = call(
+        "edit_canvas",
+        json!({ "path": notes.to_string_lossy(), "ops": [{ "type": "delete_node", "id": "a" }] }),
+        &MockIpc::new(),
+    );
+    let err = resp.error.expect("a .md path was taken as a canvas");
+    assert_eq!(err.code, -32602);
+    assert_eq!(
+        err.message,
+        format!(
+            "`path` must point to a .canvas file, got `{}`",
+            notes.display()
+        )
+    );
+}
+
+/// The `vault` walk skips directory symlinks but follows a file symlink: a
+/// Markdown link is searched under the path it resolves to, even outside
+/// the vault, as long as that is a Markdown file that is not a dotfile.
+#[cfg(unix)]
+#[test]
+fn the_disk_vault_walk_follows_file_symlinks_but_not_directory_symlinks() {
+    let outside = tempfile::Builder::new().prefix("out-").tempdir().unwrap();
+    std::fs::write(outside.path().join("plan.md"), "x").unwrap();
+    std::fs::write(outside.path().join(".env.md"), "x").unwrap();
+    std::fs::create_dir(outside.path().join("sub")).unwrap();
+    std::fs::write(outside.path().join("sub").join("deep.md"), "x").unwrap();
+    let vault = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let link = |to: &str, name: &str| {
+        std::os::unix::fs::symlink(outside.path().join(to), vault.path().join(name)).unwrap()
+    };
+    link("plan.md", "linked.md");
+    link(".env.md", "secret.md");
+    link("sub", "folder");
+    let scan = mdopener_mcp::disk_vault_scan(vault.path());
+    let plan = std::fs::canonicalize(outside.path().join("plan.md")).unwrap();
+    assert_eq!(scan.paths, vec![plan.to_string_lossy().into_owned()]);
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {

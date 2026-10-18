@@ -84,6 +84,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   with the bare "stream did not contain valid UTF-8". The app now gives the
   reason mdopener-mcp gives: the first byte that is not valid UTF-8 and its
   line (or that the file is UTF-16), and to convert the file to UTF-8.
+- **MCP: `edit_canvas` takes `.canvas` in any case.** Only an exact
+  lowercase `.canvas` was accepted, so `Board.CANVAS` was refused while
+  Markdown extensions match in any case. Any case is taken now, and a `path`
+  that is not a canvas is refused with `-32602` naming the path. The docs of
+  `search_vault`'s `vault` walk now also say that a file symlink is followed
+  (the file it resolves to is searched under that path); only directory
+  symlinks are skipped, as before.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale

@@ -1136,7 +1136,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas (in any case, as `Board.CANVAS`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3464,7 +3464,9 @@ pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
 /// The Markdown documents under `dir` that a path-taking tool could read
 /// ([`checked_document_path`]), sorted, without entering hidden directories,
 /// `node_modules` or `target`, or following directory symlinks, and whether
-/// the file cap or the depth limit cut the walk.
+/// the file cap or the depth limit cut the walk. A file symlink is followed:
+/// the file it resolves to is listed by that canonical path (even when it is
+/// outside `dir`) if it is a Markdown file that is not a dotfile.
 pub fn disk_vault_scan(dir: &std::path::Path) -> DiskVaultScan {
     fn walk(
         dir: &std::path::Path,
@@ -6190,6 +6192,14 @@ fn canvas_number(v: f64) -> Value {
     }
 }
 
+/// Whether `path` names a JSON Canvas file: it ends in `.canvas` in any case
+/// (`Board.CANVAS`), as Markdown extensions match. Only an exact lowercase
+/// `.canvas` used to be accepted.
+fn is_canvas_path(path: &str) -> bool {
+    let ext = b".canvas";
+    path.len() >= ext.len() && path.as_bytes()[path.len() - ext.len()..].eq_ignore_ascii_case(ext)
+}
+
 /// Apply a list of typed edit operations to a `.canvas` file and optionally
 /// write the mutated JSON back to disk.
 ///
@@ -6203,8 +6213,12 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         Ok(None) => return Response::err(id, -32602, "`path` is required"),
         Err(e) => return Response::err(id, -32602, e),
     };
-    if !raw_path.ends_with(".canvas") {
-        return Response::err(id, -32602, "`path` must point to a .canvas file");
+    if !is_canvas_path(raw_path) {
+        return Response::err(
+            id,
+            -32602,
+            format!("`path` must point to a .canvas file, got `{raw_path}`"),
+        );
     }
     let raw_path = &*expand_home(raw_path);
     let path = std::fs::canonicalize(raw_path)
@@ -6212,7 +6226,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
         .unwrap_or_else(|_| raw_path.to_string());
     // Re-check after resolving symlinks: `x.canvas -> ~/.env` must not be read
     // or overwritten.
-    if !path.ends_with(".canvas") {
+    if !is_canvas_path(&path) {
         return tool_error(
             id,
             format!("Refusing {path}: `path` must resolve to a .canvas file"),
