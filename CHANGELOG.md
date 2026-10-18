@@ -36,6 +36,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A window that does not answer says what to do next.** When the window
+  gave no answer within 4 s, `edit_document`, `stream_edit`,
+  `stream_edit_apply`, `set_content`, `replace_document`, `open_file`,
+  `present_document` and `request_review` (opening its file) ended on a
+  question ("Is a document open?", "Is the window responsive?"), and none
+  said that the change might still land. They now say the window did not
+  answer within 4 s and, for a change, that the window may still apply it,
+  so call `get_current_content` to see whether it did before retrying
+  (retrying blindly could apply an edit twice); for an open or a preview, to
+  retry once the window responds.
 - **`stream_edit` and `stream_edit_apply` with no document open say so.**
   With the welcome screen showing, both answered "`find` string not found in
   the document.", so an agent went looking for its text instead of opening a
