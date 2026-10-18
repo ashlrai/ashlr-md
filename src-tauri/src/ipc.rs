@@ -1671,8 +1671,28 @@ fn handle_search(req: Request, query: &str, app: &AppHandle) {
     }
     let paths = searchable_documents(listed);
 
-    let results = crate::search::search_checked(paths, q.clone(), Some(limit));
-    send_json(req, search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut));
+    let (results, unread) = crate::search::search_checked(paths, q.clone(), Some(limit));
+    let mut body = search_body(&q, results, truncated, vault_limit, scan_cut, depth_cut);
+    add_unread(&mut body, unread);
+    send_json(req, body);
+}
+
+/// Most unread files `/search` lists by path; `unreadCount` counts them all.
+const SEARCH_UNREAD_LISTED: usize = 20;
+
+/// Says in the `/search` reply which listed documents could not be read (not
+/// UTF-8, over 16 MiB, refused): `unread` names the first
+/// [`SEARCH_UNREAD_LISTED`] with the reason and `unreadCount` counts them
+/// all. Both are left out when every document was read, so a consumer that
+/// predates them sees the reply it always did. These files used to be
+/// dropped in silence, and their words came back as no hits.
+fn add_unread(body: &mut serde_json::Value, unread: Vec<crate::search::UnreadFile>) {
+    if unread.is_empty() {
+        return;
+    }
+    body["unreadCount"] = serde_json::json!(unread.len());
+    let listed: Vec<_> = unread.into_iter().take(SEARCH_UNREAD_LISTED).collect();
+    body["unread"] = serde_json::json!(listed);
 }
 
 /// The files `/search` may read for an agent, deduped: only Markdown
@@ -1761,7 +1781,10 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
         return Err("`find` must not be empty.".into());
     }
     match content.matches(find).count() {
-        0 => Err("`find` string not found in the current document.".into()),
+        0 => Err("`find` string not found in the current document. It must match the document \
+                  exactly, whitespace and line breaks included: read the live text with \
+                  get_current_content and copy `find` from it."
+            .into()),
         1 => Ok(content.replacen(find, replace, 1)),
         n => Err(format!(
             "`find` string is not unique ({n} matches). Include more surrounding context to disambiguate."
@@ -2359,8 +2382,9 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_tasks, app_export_path, apply_unique_edit, parse_tasks, review_timeout,
-        same_path, search_body, searchable_documents, InflightEdit, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
+        add_unread, annotation_tasks, app_export_path, apply_unique_edit, parse_tasks,
+        review_timeout, same_path, search_body, searchable_documents, InflightEdit, EDIT_SLOTS,
+        EXPORT_SLOTS, MAX_INFLIGHT_EDITS, SEARCH_UNREAD_LISTED,
     };
     use std::sync::atomic::Ordering;
 
@@ -3378,8 +3402,76 @@ mod tests {
         assert_eq!(docs.len(), 1);
         std::fs::remove_file(&md).unwrap();
         std::os::unix::fs::symlink(&key, &md).unwrap();
-        let hits = crate::search::search_checked(docs, "token".into(), None);
+        let (hits, _) = crate::search::search_checked(docs, "token".into(), None);
         assert!(hits.is_empty(), "the secret was searched");
+    }
+
+    /// `/search` dropped a listed document it could not read (not UTF-8,
+    /// over 16 MiB) in silence, so an agent read "no hits" as "not in the
+    /// vault". The reply now names each with the reason (`unread`, the first
+    /// 20) and counts them all (`unreadCount`); a reply with every document
+    /// read has neither field, as before.
+    #[test]
+    fn search_says_which_documents_it_could_not_read() {
+        let d = Scratch::new("search-unread");
+        let ok = d.0.join("a.md");
+        std::fs::write(&ok, "the target").unwrap();
+        let latin = d.0.join("latin.md");
+        std::fs::write(&latin, b"caf\xe9 target\n").unwrap();
+        let big = d.0.join("big.md");
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(crate::doc_read::MAX_DOCUMENT_BYTES + 1)
+            .unwrap();
+        let mut listed = vec![ok.clone(), latin.clone(), big.clone()];
+        for i in 0..SEARCH_UNREAD_LISTED {
+            let p = d.0.join(format!("w{i:02}.md"));
+            std::fs::write(&p, [0xFF, 0xFE, b't', 0]).unwrap();
+            listed.push(p);
+        }
+        let listed = listed
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let docs = searchable_documents(listed);
+        let (hits, unread) = crate::search::search_checked(docs, "target".into(), None);
+        assert_eq!(hits.len(), 1);
+        let mut body = search_body("target", hits, false, None, false, false);
+        add_unread(&mut body, unread);
+        assert_eq!(body["unreadCount"], SEARCH_UNREAD_LISTED + 2, "{body}");
+        let listed = body["unread"].as_array().unwrap();
+        assert_eq!(listed.len(), SEARCH_UNREAD_LISTED, "{body}");
+        let canon = |p: &std::path::Path| {
+            std::fs::canonicalize(p)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(listed[0]["path"], canon(&latin));
+        assert!(
+            listed[0]["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("it is not UTF-8 text (byte 4 is not valid UTF-8, on line 1)."),
+            "{body}"
+        );
+        assert_eq!(listed[1]["path"], canon(&big));
+        assert_eq!(
+            listed[1]["reason"],
+            "it is 16.0 MiB, more than the 16 MiB a document may be"
+        );
+        let utf16 = listed[2]["reason"].as_str().unwrap();
+        assert!(utf16.starts_with("it is UTF-16 text, not UTF-8."), "{body}");
+
+        // Every document read: neither field, as an older app replied.
+        let docs = searchable_documents(vec![ok.to_string_lossy().into_owned()]);
+        let (hits, unread) = crate::search::search_checked(docs, "target".into(), None);
+        let mut body = search_body("target", hits, false, None, false, false);
+        add_unread(&mut body, unread);
+        assert!(
+            body.get("unread").is_none() && body.get("unreadCount").is_none(),
+            "{body}"
+        );
     }
 
     /// A scratch directory removed on drop (the app crate has no tempfile).

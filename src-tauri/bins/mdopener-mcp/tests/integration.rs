@@ -4058,6 +4058,53 @@ fn search_vault_says_which_vault_files_it_could_not_read() {
     );
 }
 
+/// The app's own search (mode `grep`) dropped a file it could not read in
+/// silence too. The app now lists them in `/search` (`unread`, with
+/// `unreadCount` for all), and `search_vault` says so in the same words as
+/// the on-disk modes. An older app without the fields gives no note.
+#[test]
+fn search_vault_grep_says_which_files_the_app_could_not_read() {
+    let not_utf8 = "it is not UTF-8 text (byte 4 is not valid UTF-8, on line 1). Ashlr MD \
+                    reads documents as UTF-8: convert the file to UTF-8, then try again.";
+    let reply = json!({
+        "query": "target",
+        "results": [{ "path": "/v/a.md", "fileName": "a.md", "matches": [] }],
+        "note": "The vault list was cut short.",
+        "unread": [
+            { "path": "/v/latin.md", "reason": not_utf8 },
+            { "path": "/v/big.md", "reason": "it is 16.0 MiB, more than the 16 MiB a document may be" },
+            { "path": "/v/swap.md", "reason": "it changed after it was checked (a link or another file took its place), so it was not read" },
+            { "path": "/v/w1.md", "reason": "it is UTF-16 text, not UTF-8. Ashlr MD reads documents as UTF-8." },
+        ],
+        "unreadCount": 25,
+    });
+    let ipc = MockIpc::new().on_get("/search", Ok(reply));
+    let args = json!({ "query": "target", "semantic": false });
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc));
+    assert_eq!(v["mode"], "grep", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    assert!(
+        v.get("unread").is_none() && v.get("unreadCount").is_none(),
+        "{v}"
+    );
+    let note = v["note"].as_str().unwrap();
+    assert_eq!(
+        note,
+        "The vault list was cut short. 25 files were not searched because they could not \
+         be read: /v/latin.md (not UTF-8 text (byte 4 is not valid UTF-8, on line 1)); \
+         /v/big.md (16.0 MiB, more than the 16 MiB a document may be); /v/swap.md \
+         (it changed after it was checked (a link or another file took its place), so it \
+         was not read); and 22 more. Convert a file that is not UTF-8 to UTF-8 to make it \
+         searchable."
+    );
+
+    // An app that predates `unread` (or read every file): no note added.
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "query": "target", "results": [] })));
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc));
+    assert_eq!(v["mode"], "grep", "{v}");
+    assert!(v.get("note").is_none(), "{v}");
+}
+
 /// `vault` is searched on disk only when the app cannot be reached: a refusal
 /// stays the error, and an unreachable app falls back with a note.
 #[test]

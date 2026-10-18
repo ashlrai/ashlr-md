@@ -982,7 +982,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached or refuses this server's token (HTTP 401), pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, query?, note?, vault?, truncated?, depthCut? }; `query` (mode 'grep' only) is the query as the app searched it, `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached or refuses this server's token (HTTP 401), pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, query?, note?, vault?, truncated?, depthCut? }; `query` (mode 'grep' only) is the query as the app searched it, `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), when vault files could not be read and so were not searched (how many, the first three by path with the reason), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3294,7 +3294,8 @@ pub fn search_vault_in(
             // Keep the app's own note (it says when the vault list was cut
             // short, and `truncated` stays set): the fallback note goes first.
             let app_note = v["note"].as_str().map(str::to_string);
-            let note = [semantic_note, app_note]
+            let unread = UnreadDocuments::from_app_search(&mut v);
+            let note = [semantic_note, app_note, unread.note()]
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>()
@@ -5268,22 +5269,52 @@ fn with_unread_documents<T>(search: impl FnOnce() -> T) -> (T, UnreadDocuments) 
     let unread = UNREAD_DOCUMENTS
         .with(|u| u.replace(outer))
         .unwrap_or_default();
-    (out, UnreadDocuments(unread))
+    (out, UnreadDocuments(unread, 0))
 }
 
 /// The vault documents a search could not read: see [`searchable_document`].
-struct UnreadDocuments(Vec<(String, String)>);
+/// The first field holds those named (each path with the reason); the second
+/// counts more that were not named (the app's `/search` lists only the first
+/// few).
+struct UnreadDocuments(Vec<(String, String)>, usize);
 
 /// How many unread documents [`UnreadDocuments::note`] names; the rest are
 /// counted.
 const UNREAD_NAMED: usize = 3;
 
 impl UnreadDocuments {
+    /// The documents the app's own search (`/search`) could not read, taken
+    /// out of its reply: `unread` names the first few (`path`, `reason`) and
+    /// `unreadCount` counts them all. An app that predates the fields sends
+    /// neither, and gets no note.
+    fn from_app_search(reply: &mut Value) -> Self {
+        let Some(obj) = reply.as_object_mut() else {
+            return UnreadDocuments(Vec::new(), 0);
+        };
+        let listed: Vec<(String, String)> = obj
+            .remove("unread")
+            .and_then(|u| u.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|u| {
+                let path = u["path"].as_str()?;
+                let why = u["reason"].as_str().unwrap_or("it could not be read");
+                Some((path.to_string(), why.to_string()))
+            })
+            .collect();
+        let count = obj
+            .remove("unreadCount")
+            .and_then(|c| c.as_u64())
+            .map_or(listed.len(), |c| c as usize);
+        let more = count.saturating_sub(listed.len());
+        UnreadDocuments(listed, more)
+    }
+
     /// Says how many documents were not searched, names the first few with
     /// the reason, and says what to do, so an agent does not read the
     /// absence of hits as "not in the vault".
     fn note(&self) -> Option<String> {
-        let n = self.0.len();
+        let n = self.0.len() + self.1;
         if n == 0 {
             return None;
         }
@@ -5300,7 +5331,7 @@ impl UnreadDocuments {
             })
             .collect::<Vec<_>>()
             .join("; ");
-        let more = match n.saturating_sub(UNREAD_NAMED) {
+        let more = match n.saturating_sub(self.0.len().min(UNREAD_NAMED)) {
             0 => String::new(),
             m => format!("; and {m} more"),
         };
@@ -5309,6 +5340,13 @@ impl UnreadDocuments {
         } else {
             (format!("{n} files"), "were")
         };
+        if self.0.is_empty() {
+            // Counted but none named (an app reply with only `unreadCount`).
+            return Some(format!(
+                "{count} {verb} not searched because {} could not be read.",
+                if n == 1 { "it" } else { "they" }
+            ));
+        }
         let not_utf8 = self.0.iter().any(|(_, why)| why.contains("UTF-8"));
         let fix = if not_utf8 {
             " Convert a file that is not UTF-8 to UTF-8 to make it searchable."

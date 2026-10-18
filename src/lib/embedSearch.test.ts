@@ -26,6 +26,7 @@ import {
   embedSearch,
   embedStatus,
   type IndexResult,
+  indexUnreadNotice,
   invalidateEmbedAvailable,
   type SemanticMatch,
 } from "./embedSearch";
@@ -406,5 +407,43 @@ describe("embedStatus — status reporting", () => {
     invokeMock.mockResolvedValue(makeEmbedStatus({ lastIndexedMs: 1_700_000_000_000 }));
     const out = await embedStatus();
     expect(out!.lastIndexedMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// indexUnreadNotice — files a reindex could not read
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("indexUnreadNotice", () => {
+  it("is null when every file was read, or the app predates `unread`", () => {
+    expect(indexUnreadNotice(null)).toBeNull();
+    expect(indexUnreadNotice(makeIndexResult())).toBeNull();
+    expect(indexUnreadNotice(makeIndexResult({ unread: [] }))).toBeNull();
+  });
+
+  it("counts the unread files, names the first three and says what to do", () => {
+    const unread = [
+      {
+        path: "/v/latin.md",
+        reason:
+          "it is not UTF-8 text (byte 4 is not valid UTF-8, on line 1). Ashlr MD reads documents as UTF-8.",
+      },
+      {
+        path: "/v/big.md",
+        reason: "it is 16.0 MiB, more than the 16 MiB a document may be",
+      },
+      { path: "/v/pipe.md", reason: "it is not a regular file" },
+      { path: "/v/w1.md", reason: "it is UTF-16 text, not UTF-8. Convert it." },
+      { path: "/v/w2.md", reason: "it is UTF-16 text, not UTF-8. Convert it." },
+    ];
+    expect(indexUnreadNotice(makeIndexResult({ unread }))).toBe(
+      "5 files were not indexed because they could not be read: /v/latin.md (not UTF-8 text " +
+        "(byte 4 is not valid UTF-8, on line 1)); /v/big.md (16.0 MiB, more than the 16 MiB a " +
+        "document may be); /v/pipe.md (not a regular file); and 2 more. Convert a file that " +
+        "is not UTF-8 to UTF-8 to index it.",
+    );
+    expect(indexUnreadNotice(makeIndexResult({ unread: [unread[2]] }))).toBe(
+      "1 file was not indexed because it could not be read: /v/pipe.md (not a regular file).",
+    );
   });
 });

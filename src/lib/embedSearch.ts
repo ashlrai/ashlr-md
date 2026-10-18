@@ -20,6 +20,9 @@ export interface IndexResult {
   removed: number;
   total: number;
   busy: boolean;
+  /** Library files that could not be read, so are not in the index. Absent
+   *  from an older app. */
+  unread?: { path: string; reason: string }[];
 }
 
 export interface EmbedStatus {
@@ -85,4 +88,33 @@ export async function embedStatus(): Promise<EmbedStatus | null> {
   } catch {
     return null;
   }
+}
+
+/** How many unread files {@link indexUnreadNotice} names; the rest are counted. */
+const UNREAD_NAMED = 3;
+
+/**
+ * Says which library files a reindex could not read (not UTF-8, larger than
+ * 16 MiB, not a regular file), so the "My library" chat is not trusted to
+ * know them: they used to be left out of the index in silence. Null when
+ * every file was read, or the result predates `unread`.
+ */
+export function indexUnreadNotice(result: IndexResult | null): string | null {
+  const unread = result?.unread ?? [];
+  if (unread.length === 0) return null;
+  const named = unread
+    .slice(0, UNREAD_NAMED)
+    .map(({ path, reason }) => {
+      // The reason's first sentence, without its leading "it is".
+      const why = (reason.split(". ")[0] ?? reason).replace(/^it is /, "");
+      return `${path} (${why})`;
+    })
+    .join("; ");
+  const rest = unread.length - Math.min(unread.length, UNREAD_NAMED);
+  const more = rest > 0 ? `; and ${rest} more` : "";
+  const count = unread.length === 1 ? "1 file was" : `${unread.length} files were`;
+  const fix = unread.some((u) => u.reason.includes("UTF-8"))
+    ? " Convert a file that is not UTF-8 to UTF-8 to index it."
+    : "";
+  return `${count} not indexed because ${unread.length === 1 ? "it" : "they"} could not be read: ${named}${more}.${fix}`;
 }
