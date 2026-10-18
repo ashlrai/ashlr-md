@@ -2756,6 +2756,15 @@ mod tests {
         assert!(parse_tasks("").is_empty());
     }
 
+    /// A `- [ ]` line in fenced code or in front matter was a task. Those
+    /// lines are skipped by the shared fence rule, which a `~~~` line in a
+    /// backtick block does not end.
+    #[test]
+    fn tasks_skip_fenced_code_and_front_matter() {
+        let md = "---\nchecklist: |\n  - [ ] yaml\n---\n```md\n~~~\n- [ ] sample\n```\n- [x] real\n~~~\n- [ ] open fence\n";
+        assert_eq!(pairs(md), vec![("real".to_string(), true)]);
+    }
+
     #[test]
     fn annotation_tasks_belong_to_the_requested_file() {
         struct Dir(std::path::PathBuf);

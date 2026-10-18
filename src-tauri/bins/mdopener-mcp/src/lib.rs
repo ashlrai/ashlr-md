@@ -7856,7 +7856,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   removed entirely. A leading `---` that is never closed is not
 ///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
-///   code content is preserved as-is.
+///   code content is preserved as-is. Fences follow [`markdown_lines`]: a
+///   block is closed only by the same character at least as long. Any line
+///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
+///   backtick block ended it and the code after it lost its `#`s and `*`s.
 /// - ATX headings: leading `#` characters and a space are removed.
 /// - Setext heading underlines (`===` / `---` only lines) are removed.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
@@ -7872,26 +7875,27 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
-    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let lines: Vec<&str> = content.lines().skip(skip).collect();
+    let lines: Vec<(LineKind, &str)> = markdown_lines::markdown_lines(content)
+        .filter(|(kind, _)| *kind != LineKind::FrontMatter)
+        .collect();
 
-    let mut in_code_block = false;
     let mut in_table = false;
 
-    for (idx, &line) in lines.iter().enumerate() {
-        // Detect fenced code blocks (``` or ~~~).
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_code_block = !in_code_block;
-            in_table = false;
+    for (idx, &(kind, line)) in lines.iter().enumerate() {
+        match kind {
             // Drop the fence line itself; preserve the code inside.
-            continue;
+            LineKind::Fence => {
+                in_table = false;
+                continue;
+            }
+            LineKind::Code => {
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            LineKind::FrontMatter | LineKind::Text => {}
         }
-        if in_code_block {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
+        let trimmed = line.trim();
 
         // GFM tables: a header row followed by a delimiter row starts one,
         // and it runs until a blank line or a line without a pipe. Rows
@@ -7905,7 +7909,7 @@ pub fn strip_markdown(content: &str) -> String {
         if !in_table && row.contains('|') {
             in_table = lines
                 .get(idx + 1)
-                .is_some_and(|next| is_table_delimiter(table_row_text(next)));
+                .is_some_and(|&(_, next)| is_table_delimiter(table_row_text(next)));
         }
         if in_table {
             if !is_table_delimiter(row) {
@@ -8844,22 +8848,21 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
+///
+/// Fenced code and a leading front matter block are skipped by
+/// [`markdown_lines`]: any line starting with ``` or ~~~ used to flip "in
+/// code", so a `~~~` line in a backtick block made the images in the code
+/// after it count. Front matter is not rendered, so an image written in a
+/// property (`cover: "![](c.png)"`) embeds nothing and is not counted
+/// (wikilinks there still are links, see [`extract_wikilinks`]).
 pub fn count_embedded_images(content: &str) -> usize {
     let mut count = 0usize;
-    let mut in_code_block = false;
-    let chars: Vec<char> = content.chars().collect();
+    let text: Vec<&str> = markdown_lines::text_lines(content).collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
     let n = chars.len();
     let mut i = 0;
     while i < n {
-        // Detect code fences at line start.
-        if i == 0 || chars[i - 1] == '\n' {
-            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
-            let t = rest.trim();
-            if t.starts_with("```") || t.starts_with("~~~") {
-                in_code_block = !in_code_block;
-            }
-        }
-        if !in_code_block && chars[i] == '!' {
+        if chars[i] == '!' {
             // Standard image: ![alt](url)
             if i + 1 < n && chars[i + 1] == '[' {
                 // Check it's not a wikilink embed ![[…]]

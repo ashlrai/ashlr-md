@@ -16,6 +16,7 @@ mod export;
 mod export_path;
 mod file_handler;
 mod ipc;
+mod markdown_lines;
 mod run;
 mod search;
 mod secrets;

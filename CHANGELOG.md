@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: plain text, image counts and tasks use the same fence rule.**
+  `export_text`, `export_metadata`'s `embedded_image_count` and the
+  `tasks` of `get_user_annotations` (and of the app's `/annotations`)
+  flipped "in code" on any line starting with ```` ``` ```` or `~~~`, or
+  did not skip code at all. A `~~~` line inside a backtick block ended it,
+  so `export_text` stripped the `#` and `*` of the code after it and the
+  images there were counted, and a `- [ ]` line in a code sample was
+  listed as a task. All three now read their lines through the shared
+  helper; the image count and the tasks also skip front matter.
 - **MCP: `export_metadata` wikilinks use the same fence rule.** Any line
   starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line
   inside a backtick block made the `[[links]]` in the code after it count

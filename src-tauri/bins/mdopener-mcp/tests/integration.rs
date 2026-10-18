@@ -8079,6 +8079,53 @@ fn export_metadata_wikilinks_use_the_fence_rule_and_keep_front_matter() {
     assert!(docs.contains("targets sorted, outside fenced code by the same fence rule"));
 }
 
+/// The other line scanners of the server flipped "in code" on any line
+/// starting with ``` or ~~~ too: export_text, export_metadata's image count
+/// and get_user_annotations' tasks. They now use the shared fence rule; the
+/// image count and the tasks skip front matter as well.
+#[test]
+fn export_text_images_and_tasks_use_the_fence_rule() {
+    use mdopener_mcp::{count_embedded_images, strip_markdown};
+    // A `~~~` line does not end a backtick block: the code keeps its marks.
+    assert_eq!(
+        strip_markdown("```\n~~~\n# keep **this**\n```\nafter **b**\n"),
+        "~~~\n# keep **this**\nafter b"
+    );
+    // Four spaces is not a fence.
+    assert_eq!(strip_markdown("    ```\n**b**\n"), "```\nb");
+    let images = [
+        ("````\n```\n![a](x.png)\n````\n![b](y.png)\n![[c.png]]\n", 2),
+        ("---\ncover: \"![](c.png)\"\n---\n![b](y.png)\n", 1),
+        ("![b](y.png)\n~~~\n![a](x.png)\n", 1),
+    ];
+    for (doc, want) in images {
+        assert_eq!(count_embedded_images(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("plan.md");
+    std::fs::write(
+        &file,
+        "---\nchecklist: |\n  - [ ] yaml\n---\n```md\n~~~\n- [ ] sample\n```\n- [x] real\n",
+    )
+    .unwrap();
+    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+    let resp = tool_get_annotations(id(1), &json!({ "path": file.to_str().unwrap() }), &ipc);
+    let v = content_text(&resp);
+    assert_eq!(
+        v["tasks"],
+        json!([{ "text": "real", "checked": true }]),
+        "{v}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    for said in [
+        "(a `- [ ]` line in fenced code or front matter is not a task;",
+        "(code blocks kept as written, by the fence rule of `export_metadata`;",
+        "images outside fenced code and front matter",
+    ] {
+        assert!(docs.contains(said), "docs/AGENTS.md must say {said}");
+    }
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

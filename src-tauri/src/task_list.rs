@@ -4,10 +4,12 @@
 //! file on disk when the app is not running) report as `tasks`. Shared so
 //! the two cannot disagree on what a task is.
 
-/// Each task line of `content`, in order, as `{ text, checked }`.
+/// Each task line of `content`, in order, as `{ text, checked }`. A line
+/// of a leading YAML front matter block or of fenced code is not a task
+/// ([`crate::markdown_lines`]): a `- [ ] step` in a code sample used to be
+/// reported as one of the document's tasks.
 pub fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
-    content
-        .lines()
+    crate::markdown_lines::text_lines(content)
         .filter_map(|line| {
             let t = line.trim_start();
             let rest = t
