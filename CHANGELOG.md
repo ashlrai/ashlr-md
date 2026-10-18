@@ -54,6 +54,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `*Error: ...*` text. Stop now aborts it and marks the turn stopped, and a
   failure is a failed turn with the same mapped message the sidebar shows
   for its own requests.
+- **MCP: `get_user_annotations`' `tasksNote` says the file does not exist.**
+  Read from disk (the app closed, or refusing the token), a missing file's
+  `tasksNote` quoted the raw OS error ("No such file or directory (os error
+  2)"). It now reads "Cannot read '<path>': the file does not exist. Its
+  tasks were not read.", as the other disk tools say it.
 - **MCP: a closed app names the `open_file` call for a tool given `path`.**
   With Ashlr MD not running, `request_review`, `present_document`,
   `edit_document`, `stream_edit` and `stream_edit_apply` said to "use

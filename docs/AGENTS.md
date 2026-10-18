@@ -589,7 +589,9 @@ file on disk: `tasks` are the checkboxes saved in the file, `verdict` and
 before it quit cannot be read then, and `null` does not mean that none was
 given; call `request_review` (`open_file` starts the app) to ask again. A file
 that cannot be read (missing, not a Markdown document, or larger than 16 MiB)
-has empty `tasks` and a `tasksNote` saying why. An app that answers HTTP 401
+has empty `tasks` and a `tasksNote` saying why, in the words the other disk
+tools use (for a missing file, "Cannot read '/abs/plan.md': the file does not
+exist. Its tasks were not read."). An app that answers HTTP 401
 (it refused the token in `~/.mdopener/ipc-token`: the file is stale, or the
 port belongs to another Ashlr MD instance) is read from disk the same way, but
 the result has `appAuthFailed: true` instead of `appRunning`, and its `note`

@@ -1910,6 +1910,32 @@ fn get_user_annotations_without_the_app_says_why_a_file_was_not_read() {
     }
 }
 
+/// `tasksNote` for a missing file quoted the raw OS error ("No such file or
+/// directory (os error 2)"); it now says what the other disk tools say.
+#[test]
+fn get_user_annotations_tasks_note_says_the_file_does_not_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.md");
+    let abs = mdopener_mcp::agent_path(missing.to_str().unwrap());
+    for err in [
+        "~/.mdopener/ipc-port not found",
+        "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token",
+    ] {
+        let ipc = MockIpc::new().on_get("/annotations", Err(err.into()));
+        let resp = tool_get_annotations(id(1), &json!({ "path": missing.to_str().unwrap() }), &ipc);
+        let v = content_text(&resp);
+        assert_eq!(
+            v["tasksNote"],
+            format!("Cannot read '{abs}': the file does not exist. Its tasks were not read."),
+            "{err}: {v}"
+        );
+        assert!(
+            !v["tasksNote"].as_str().unwrap().contains("os error"),
+            "{v}"
+        );
+    }
+}
+
 /// The description and the initialize instructions say it works without the
 /// app, and how.
 #[test]

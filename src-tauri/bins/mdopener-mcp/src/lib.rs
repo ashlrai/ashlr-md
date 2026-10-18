@@ -2932,9 +2932,15 @@ fn app_auth_failed(err: &str) -> bool {
 /// on disk, read with the same checks as the other disk tools. A file that
 /// cannot be read has no tasks and a `tasksNote` saying why.
 fn disk_annotations(path: &str) -> Value {
+    // The raw OS text ("No such file or directory (os error 2)") read like a
+    // fault: it is worded as the other disk tools word it.
     let read = checked_document(path, "path").and_then(|doc| {
-        doc.read()
-            .map_err(|e| format!("The tasks of {} were not read: {e}.", doc.path))
+        doc.read().map_err(|e| {
+            format!(
+                "{} Its tasks were not read.",
+                cannot_read("", &doc.path, &e)
+            )
+        })
     });
     let mut body = json!({
         "path": path,
