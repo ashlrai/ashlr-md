@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A stream edit for another document names the next step.** When the
+  window answered a `stream_edit` or `stream_edit_apply` whose `path` was not
+  the open document, it said "Path mismatch: '...' is not the currently open
+  document." and stopped. It now ends "Open it first with open_file.", as
+  the app's own path check already did.
 - **Connecting an agent from the AppImage registers a path that lasts.**
   An AppImage mounts itself at a new `/tmp/.mount_*` directory on every
   launch, and the **Connect** buttons, the **Copy** command, **Install

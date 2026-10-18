@@ -42,6 +42,15 @@ function notSaved(reason: string, what = "Edit applied to"): string {
   return `${what} the open document but not saved: ${reason}`;
 }
 
+/**
+ * What the stream edits answer when `path` names another document. It used
+ * to stop at "is not the currently open document." with no next step; the
+ * Rust check for `edit_document` names `open_file`, and so does this.
+ */
+function pathMismatch(path: string): string {
+  return `Path mismatch: '${path}' is not the currently open document. Open it first with open_file.`;
+}
+
 /** What set-content and the edits answer when no document is open. */
 const NO_DOCUMENT_OPEN = "No document is open in Ashlr MD; open one first (open_file).";
 
@@ -156,7 +165,7 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
           candidates: null,
           matchCount: 0,
           previewLines,
-          error: `Path mismatch: '${assertPath}' is not the currently open document.`,
+          error: pathMismatch(assertPath),
         }).catch(() => {
           /* non-fatal */
         });
@@ -263,7 +272,7 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
           ok: false,
           replaced: 0,
           matchIndex,
-          error: `Path mismatch: '${assertPath}' is not the currently open document.`,
+          error: pathMismatch(assertPath),
         }).catch(() => {
           /* non-fatal */
         });
