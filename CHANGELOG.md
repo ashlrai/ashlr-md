@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The sample documents have no em or en dashes.** `samples/showcase.md`
+  and `samples/agent-plan.md`, the documents a new user opens to try the
+  app, still used them. They now use commas and colons, and the dash
+  check covers `samples/` too.
 - **An IME Enter no longer sends a half typed AI message.** Pressing
   Enter to commit an input-method composition in the AI chat sent the
   message as typed so far, in Preferences' AI memory field it saved the

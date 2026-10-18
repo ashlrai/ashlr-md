@@ -9,14 +9,14 @@
 > [!TIP]
 > Run the tests after each phase.
 
-## Phase 1 — Core
+## Phase 1: Core
 
 - [x] Scaffold project
 - [x] Build renderer
 - [ ] Wire the editor
 - [ ] Add export
 
-## Phase 2 — Polish
+## Phase 2: Polish
 
 - [ ] Verify all themes
 - [ ] Sign the build

@@ -13,7 +13,8 @@
 // Markdown docs (README, CONTRIBUTING, ROADMAP, SECURITY, AGENTS; not the
 // historical CHANGELOG), the Markdown under docs/ and integrations/ (the
 // install, Obsidian, release, vision and agent guides and the plugin and
-// extension READMEs; again not a CHANGELOG), every string in
+// extension READMEs; again not a CHANGELOG), the sample documents under
+// samples/ (what a new user opens first), every string in
 // the Tauri configs (window titles, bundle descriptions, file association
 // names) and the string literals of the Rust
 // crates (dialog, menu, tray and notification text, and the errors the
@@ -37,12 +38,13 @@ const topDocs = import.meta.glob<string>(["../*.md", "!../CHANGELOG.md"], {
   eager: true,
 });
 
-// The guides under docs/ and the editor integrations' READMEs. A changelog
-// there keeps its history as written too.
+// The guides under docs/, the editor integrations' READMEs and the sample
+// documents. A changelog there keeps its history as written too.
 const nestedDocs = import.meta.glob<string>(
   [
     "../docs/**/*.md",
     "../integrations/**/*.md",
+    "../samples/*.md",
     "!../**/CHANGELOG.md",
     "!../**/node_modules/**",
   ],
@@ -311,7 +313,7 @@ describe("no em or en dashes in user-facing strings", () => {
     expect(dashedDocLines(topDocs)).toEqual([]);
   });
 
-  it("the docs/ guides and integration READMEs have none, as characters or entities", () => {
+  it("the docs/ guides, integration READMEs and samples have none, as characters or entities", () => {
     const files = Object.keys(nestedDocs);
     for (const f of [
       "docs/AGENTS.md",
@@ -321,6 +323,8 @@ describe("no em or en dashes in user-facing strings", () => {
       "docs/VISION.md",
       "integrations/obsidian/README.md",
       "integrations/vscode/README.md",
+      "samples/agent-plan.md",
+      "samples/showcase.md",
     ]) {
       expect(files).toContain(`../${f}`);
     }

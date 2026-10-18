@@ -7,7 +7,7 @@ author: Claude Code
 
 A single document that exercises every renderer feature. If this all looks
 great, the app is working. Try **⌘K** for the command palette, **⌘⇧L** to cycle
-themes, **⌘B** for the Agent Activity drawer, and — while editing — **⌘I** for an
+themes, **⌘B** for the Agent Activity drawer, and, while editing, **⌘I** for an
 inline AI rewrite. (Use **Ctrl** instead of ⌘ on Windows & Linux.)
 
 ## Text & inline formatting
@@ -101,7 +101,7 @@ flowchart LR
 
 ---
 
-That's everything. Switch themes with the toolbar button — code, diagrams, and
+That's everything. Switch themes with the toolbar button: code, diagrams, and
 chrome should all follow along.
 
 [^1]: Footnotes are part of GitHub-Flavored Markdown.
