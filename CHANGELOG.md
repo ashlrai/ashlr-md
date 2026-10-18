@@ -47,6 +47,49 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the vault-search resource entry names `limit`.** The
+  `resources/list` entry for `text://vault-search` named `&vault=` and
+  `&semantic=` but not `&limit=`, which a read takes and the template
+  names. It now names it with its range and default, and docs/AGENTS.md
+  says that listing the template needs no app but reading it does unless
+  `&vault=` is given (it said only "it needs no app").
+- **MCP: `text://vault-search` takes only `semantic=true` or `false`.** The
+  resource descriptions, docs/AGENTS.md and the error all say `true` or
+  `false`, and docs/AGENTS.md that any other value is `-32602`, but `1`
+  and `0` were taken as true and false. They are now refused like any
+  other value, as the `search_vault` tool's boolean `semantic` refuses a
+  number.
+- **MCP: `text://vault-search` decodes an encoded `limit`.** `q`, `vault`
+  and `semantic` were percent-decoded but `limit` was not, so
+  `limit=%35` was refused as not a whole number from 1 to 200, got "5".
+  It is now decoded like the other values.
+- **MCP: the server instructions name the no-app tools correctly.** They
+  said the tools that work without the app all work "on files on disk",
+  but `list_ai_actions` and the conversation tools read no file you name,
+  and to pass `path` to `diff_documents`, which takes `path_a` and
+  `path_b`. They now say `path` for `export_text` and `export_metadata`,
+  that `diff_documents` and `edit_canvas` work on the files they are given,
+  and list the rest as tools that work without the app.
+- **AI: "Explain selection" said it explained a selection.** The
+  `doc-explain-selection` action has scope `document`, and the AI sidebar
+  sends it the document (its first 8,000 characters), never a selection, but
+  its label was "Explain selection" and its prompt told the model the user
+  would provide selected text. The label is now "Explain doc" and the prompt
+  asks for an explanation of the document, in the app and in
+  `list_ai_actions`. The id and scope are kept: `list_ai_actions` clients and
+  its description read them. That description now also says the app sends at
+  most the first 8,000 characters of a document.
+- **MCP: `stream_edit` no longer says to prefer it for large files.** Its
+  description said "Prefer this over edit_document for large files", but
+  neither tool sends the document: both post the app only `find` and
+  `replace`, a preview adds a diff and a second call, and `stream_edit`
+  with `path` even fetches the whole document to compare paths. It now
+  says to prefer it only to see the change before committing it, since
+  `edit_document` applies at once, and why size is no reason.
+- **MCP: `edit_canvas` spells "color" as its schema does.** Its description
+  said "set node colour" and a refused color said "a hex colour", while the
+  op is `set_node_color` and the `color` field says "Color preset". Both now
+  say "color", as docs/AGENTS.md does.
 - **MCP: `export_text` and `export_metadata` say what they read without
   `path`.** Their descriptions said they operate on disk and return the
   path of "the file read", but without `path` they read the open document

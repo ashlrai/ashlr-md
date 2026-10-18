@@ -2095,6 +2095,62 @@ fn get_user_annotations_is_described_as_working_without_the_app() {
     assert!(mdopener_mcp::SERVER_INSTRUCTIONS.contains("get_user_annotations"));
 }
 
+/// The instructions said the tools that work without the app all work "on
+/// files on disk" (list_ai_actions reads none) and to pass `path` to
+/// diff_documents, which takes `path_a` and `path_b`. Every tool the
+/// sentence names now answers with no app to reach, given the argument it
+/// says to pass.
+#[test]
+fn instructions_name_the_tools_that_work_without_the_app() {
+    let text = mdopener_mcp::SERVER_INSTRUCTIONS;
+    assert!(!text.contains("diff_documents (pass `path`)"), "{text}");
+    assert!(!text.contains("files on disk"), "{text}");
+    let tail = text
+        .split("Without the app these still work: ")
+        .nth(1)
+        .expect("instructions list the tools that work without the app");
+    let listed: Vec<&str> = tail
+        .split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+        .filter(|w| w.contains('_'))
+        .collect();
+    // Not a dot-named folder: search_vault does not search hidden ones.
+    let dir = tempfile::Builder::new().prefix("notes").tempdir().unwrap();
+    let md = dir.path().join("a.md");
+    std::fs::write(&md, "# A\n\n- [ ] task\n").unwrap();
+    let canvas = dir.path().join("b.canvas");
+    std::fs::write(&canvas, r#"{"nodes":[],"edges":[]}"#).unwrap();
+    let sess = unique_session();
+    let node =
+        json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 });
+    let mut checked = Vec::new();
+    for tool in listed {
+        let args = match tool {
+            "export_text" | "export_metadata" | "get_user_annotations" => json!({ "path": md }),
+            "diff_documents" => json!({ "path_a": md, "path_b": md }),
+            "edit_canvas" => {
+                json!({ "path": canvas, "ops": [{ "type": "add_node", "node": node }], "save": false })
+            }
+            "search_vault" => json!({ "query": "task", "vault": dir.path(), "semantic": false }),
+            "list_ai_actions" => json!({}),
+            "get_conversation_context" => json!({ "session_id": sess }),
+            "save_conversation_message" => {
+                json!({ "session_id": sess, "role": "agent", "content": "hi" })
+            }
+            other => panic!("instructions say {other} works without the app; add it here"),
+        };
+        // Every request to the app fails as it does with the app closed.
+        let down = "Could not connect to IPC server at 127.0.0.1:1: Connection refused";
+        let ipc = MockIpc::new()
+            .on_get("/", Err(down.into()))
+            .on_post("/", Err(down.into()));
+        let resp = call(tool, args, &ipc);
+        assert!(resp.error.is_none(), "{tool}: {:?}", resp.error);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        checked.push(tool);
+    }
+    assert_eq!(checked.len(), 9, "{checked:?}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // dispatch() — top-level JSON-RPC routing
 // ════════════════════════════════════════════════════════════════════════════
@@ -2433,6 +2489,48 @@ fn list_ai_actions_contains_expected_document_actions() {
             expected
         );
     }
+}
+
+/// doc-explain-selection has scope "document", and the app's AI sidebar
+/// sends it the document (its first 8,000 characters), never a selection.
+/// Its label said "Explain selection" and its prompt that the user would
+/// provide selected text. The scope stays (list_ai_actions' description and
+/// the scope filter above read it); the label and prompts now say document,
+/// as src/ai/actions.ts does.
+#[test]
+fn doc_explain_selection_describes_the_document_it_is_sent() {
+    let text = content_text(&tool_list_ai_actions(id(1), &json!({})));
+    let action = text["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == "doc-explain-selection")
+        .unwrap()
+        .clone();
+    assert_eq!(action["scope"], "document");
+    assert_eq!(action["label"], "Explain doc");
+    assert_eq!(action["shortLabel"], "Explain doc");
+    for field in ["label", "shortLabel", "systemPrompt", "userPromptTemplate"] {
+        let v = action[field].as_str().unwrap().to_lowercase();
+        assert!(!v.contains("select"), "{field}: {v}");
+    }
+    assert!(action["systemPrompt"]
+        .as_str()
+        .unwrap()
+        .contains("The user will provide a Markdown document."));
+    assert_eq!(
+        action["userPromptTemplate"],
+        "Explain this document:\n\n{text}"
+    );
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "list_ai_actions")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains("for scope 'document', the document, of which the app sends at most the first 8,000 characters"),
+        "{d}"
+    );
 }
 
 #[test]
@@ -4457,6 +4555,40 @@ fn resources_list_includes_vault_search_resource() {
     );
 }
 
+/// The resources/list entry for text://vault-search named `vault` and
+/// `semantic` but not `limit`, which a read takes and the template names.
+/// Each parameter a read takes is now named in both, and docs/AGENTS.md says
+/// a read needs the app unless `vault` is given.
+#[test]
+fn vault_search_listing_and_template_name_every_parameter() {
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let entry = listed.result.as_ref().unwrap()["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .cloned()
+        .unwrap();
+    let template = mdopener_mcp::resource_templates()[0].clone();
+    for (place, text) in [
+        ("resources/list", entry["description"].as_str().unwrap()),
+        (
+            "resources/templates/list",
+            template["description"].as_str().unwrap(),
+        ),
+    ] {
+        for param in ["&limit=", "&vault=", "&semantic="] {
+            assert!(text.contains(param), "{place} must name {param}: {text}");
+        }
+        assert!(text.contains("1 to 200, default 50"), "{place}: {text}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("reading it needs the app unless `&vault=` is\ngiven"),
+        "docs/AGENTS.md must say a read needs the app without vault"
+    );
+}
+
 /// When `/vault` failed, resources/list dropped the vault's `file://`
 /// entries without a word, so a client read it as a vault with no files.
 /// The result is still a valid `ListResourcesResult`, with the reason in
@@ -4743,6 +4875,22 @@ fn resource_read_vault_search_honours_semantic_option() {
     let err = resp.error.expect("an invalid semantic value is an error");
     assert_eq!(err.code, -32602);
     assert!(err.message.contains("semantic"), "{}", err.message);
+    // `1` and `0` were taken as true and false, although the descriptions,
+    // docs/AGENTS.md and the error say only `true` or `false`, and the
+    // tool's boolean `semantic` refuses a number.
+    for v in ["1", "0"] {
+        let uri = format!("text://vault-search?q=x&semantic={v}");
+        let ipc = mock();
+        let resp = handle_resource_read(id(313), &uri, &ipc);
+        let err = resp.error.expect("semantic takes only true or false");
+        assert_eq!(err.code, -32602);
+        assert!(
+            err.message.contains("`semantic` must be true or false"),
+            "{}",
+            err.message
+        );
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
 }
 
 /// `limit=ten` on the resource was read as the default of 50.
@@ -4760,6 +4908,28 @@ fn resource_read_vault_search_rejects_a_non_numeric_limit() {
     assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
     let ok = handle_resource_read(id(315), "text://vault-search?q=x&limit=3", &ipc);
     assert!(ok.error.is_none(), "{:?}", ok.error);
+}
+
+/// `limit` was the one value read without percent-decoding, so `limit=%35`
+/// was refused as not a whole number from 1 to 200, got "5".
+#[test]
+fn resource_read_vault_search_decodes_an_encoded_limit() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(
+        id(316),
+        "text://vault-search?q=x&limit=%35&semantic=false",
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let calls = ipc.calls();
+    assert!(
+        calls.iter().any(|(_, path, _)| path.ends_with("&limit=5")),
+        "{calls:?}"
+    );
+    let resp = handle_resource_read(id(317), "text://vault-search?q=x&limit=%32%30%31", &ipc);
+    let err = resp.error.expect("201 is past the cap");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("got \"201\""), "{}", err.message);
 }
 
 /// A misspelt query parameter (`lmit=5`) was dropped, so the search ran with
@@ -8854,6 +9024,36 @@ fn edit_canvas_refuses_a_colour_json_canvas_does_not_allow() {
     }
 }
 
+/// edit_canvas's description said "set node colour" and its refusal "a hex
+/// colour", while the op is `set_node_color` and the schema's field
+/// `color` says "Color preset". Both now spell it "color".
+#[test]
+fn edit_canvas_spells_color_as_its_schema_does() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "edit_canvas")
+        .unwrap();
+    let schema = def.input_schema.to_string();
+    assert!(!def.description.contains("colour"), "{}", def.description);
+    assert!(!schema.contains("colour"), "{schema}");
+    assert!(
+        def.description.contains("set node color"),
+        "{}",
+        def.description
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": "red" }] }),
+    );
+    let msg = param_error(&resp);
+    assert!(msg.contains("a hex color #rgb or #rrggbb"), "{msg}");
+    assert!(!msg.contains("colour"), "{msg}");
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]
@@ -10413,6 +10613,70 @@ fn stream_edit_description_names_its_result_and_refusals() {
     let ipc = MockIpc::new().on_post("/stream-edit", Ok(json!({ "ok": false, "error": refusal })));
     let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
     assert_eq!(tool_error_text(&resp), refusal);
+}
+
+/// stream_edit's description said "Prefer this over edit_document for large
+/// files", but neither tool sends the document: both post only `find` and
+/// `replace`, and stream_edit with `path` even fetches the whole document
+/// to compare paths. The advice now gives the real reason, the preview.
+#[test]
+fn stream_edit_is_not_preferred_for_large_files() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(!d.contains("for large files or"), "{d}");
+    assert!(
+        d.contains("only to see the change before committing it (edit_document applies at once)"),
+        "{d}"
+    );
+    assert!(d.contains("not for large files"), "{d}");
+    let big = "x".repeat(1 << 20);
+    let doc = json!({ "path": "/notes/big.md", "content": big });
+    let reply =
+        json!({ "ok": true, "editId": "s", "diff": "@@", "candidates": null, "matchCount": 1 });
+    // Without `path`, each tool posts `find` and `replace` and reads nothing.
+    for tool in ["edit_document", "stream_edit"] {
+        let ipc = MockIpc::new()
+            .on_get("/content", Ok(doc.clone()))
+            .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })))
+            .on_post("/stream-edit", Ok(reply.clone()));
+        let resp = call(tool, json!({ "find": "x", "replace": "y" }), &ipc);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        let calls = ipc.calls();
+        assert_eq!(calls.len(), 1, "{tool}: {calls:?}");
+        let body = calls[0].2.as_ref().unwrap().to_string();
+        assert!(body.len() < 200, "{tool} sent {} bytes", body.len());
+    }
+    // With `path`, stream_edit fetches the whole document; edit_document
+    // sends the path for the app to check.
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(doc.clone()))
+        .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
+    call(
+        "edit_document",
+        json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
+        &ipc,
+    );
+    assert!(
+        ipc.calls().iter().all(|c| c.0 == "POST"),
+        "edit_document with path reads nothing"
+    );
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(doc))
+        .on_post("/stream-edit", Ok(reply));
+    call(
+        "stream_edit",
+        json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
+        &ipc,
+    );
+    assert!(
+        ipc.calls()
+            .iter()
+            .any(|c| c.0 == "GET" && c.1 == "/content"),
+        "stream_edit with path reads /content"
+    );
 }
 
 /// A refusal from the window carries its `matchCount`, which the app's

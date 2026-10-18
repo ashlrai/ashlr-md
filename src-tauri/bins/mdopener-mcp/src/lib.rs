@@ -232,10 +232,10 @@ find and replace in it (prefer it to replace_document and set_content, which rep
 whole document). The other tools that use the window need Ashlr MD running: when one says \
 the app is not running, call open_file. If open_file says the app could not be launched, \
 Ashlr MD is probably not installed: ask the user to install it from \
-https://github.com/ashlrai/ashlr-md/releases. Without the app these still work on files on \
-disk: export_text, export_metadata and diff_documents (pass `path`), search_vault (pass \
-`vault`), get_user_annotations (task checkboxes only), edit_canvas, list_ai_actions, get_conversation_context and \
-save_conversation_message.";
+https://github.com/ashlrai/ashlr-md/releases. Without the app these still work: export_text \
+and export_metadata (pass `path`), diff_documents and edit_canvas (on the files they are \
+given), search_vault (pass `vault`), get_user_annotations (task checkboxes only), \
+list_ai_actions, get_conversation_context and save_conversation_message.";
 
 pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
     // Negotiate: honor the client's requested protocolVersion if we support it,
@@ -1022,7 +1022,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_ai_actions",
-            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, scope, and the system+user prompt templates it uses. Templates read the selection (or, for scope 'document', the whole document) as {text}; an action whose templates also take {arg} has an `argument` field saying what {arg} is (the target language for translate). Returns { actions: [{ id, label, shortLabel, icon, scope, systemPrompt, userPromptTemplate, argument? }], count }; with include_prompts false, each action leaves out systemPrompt and userPromptTemplate. Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
+            description: "Return the AI transform actions available in Ashlr MD (explain, summarize, rewrite, etc.). Each entry includes the action id, label, icon, scope, and the system+user prompt templates it uses. Templates read the selection (or, for scope 'document', the document, of which the app sends at most the first 8,000 characters) as {text}; an action whose templates also take {arg} has an `argument` field saying what {arg} is (the target language for translate). Returns { actions: [{ id, label, shortLabel, icon, scope, systemPrompt, userPromptTemplate, argument? }], count }; with include_prompts false, each action leaves out systemPrompt and userPromptTemplate. Agents can call this to discover what AI operations the editor supports before composing a workflow. Tip: combine with search_vault (semantic search) to find relevant documents before applying an AI action.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1136,7 +1136,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas (in any case, as `Board.CANVAS`).",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node color, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas (in any case, as `Board.CANVAS`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1215,8 +1215,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
                 the find string must match exactly once) and the result has applied: true, so do not \
-                call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
-                confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
+                before committing it (edit_document applies at once), not for large files: both send the \
+                app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
+                this tool also fetches the whole document to compare paths. Returns { ok, editId, diff, candidates, matchCount, applied }: \
                 `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
@@ -4028,12 +4030,12 @@ pub fn ai_actions_registry() -> Value {
         },
         {
             "id": "doc-explain-selection",
-            "label": "Explain selection",
-            "shortLabel": "Explain selection",
+            "label": "Explain doc",
+            "shortLabel": "Explain doc",
             "icon": "💡",
             "scope": "document",
-            "systemPrompt": "You are a clear, concise technical explainer grounded in the document context. The user will provide selected text. Explain it in plain language, referencing the surrounding document for context as needed.",
-            "userPromptTemplate": "The document context:\n\n{text}"
+            "systemPrompt": "You are a clear, concise technical explainer. The user will provide a Markdown document. Explain what it says in plain language, defining the terms and ideas it relies on.",
+            "userPromptTemplate": "Explain this document:\n\n{text}"
         }
     ])
 }
@@ -4092,7 +4094,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         "uri": "text://vault-search",
         "name": "Vault semantic search",
         "description": ([
-            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
+            "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &limit=N (1 to 200, default 50) for the most results, &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
             VAULT_SEARCH_RESOURCE_FIELDS,
             ", shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable, `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
         ].concat()),
@@ -4334,9 +4336,12 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     Err(e) => return Response::err(id, -32602, e),
                 }
             } else if let Some(val) = part.strip_prefix("semantic=") {
+                // Only `true` or `false`, as the descriptions and
+                // docs/AGENTS.md say and as the tool's boolean `semantic`
+                // takes: `1` and `0` used to be accepted too.
                 semantic = match decode(val).as_str() {
-                    "true" | "1" => Some(true),
-                    "false" | "0" => Some(false),
+                    "true" => Some(true),
+                    "false" => Some(false),
                     other => {
                         return Response::err(
                             id,
@@ -4349,7 +4354,9 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     }
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
-                limit = match val.parse() {
+                // Decoded like the other values: `limit=%35` used to be
+                // refused as not a whole number, got "5".
+                limit = match decode(val).parse() {
                     Ok(l) if (1..=SEARCH_MAX_RESULTS).contains(&l) => l,
                     _ => {
                         return Response::err(
@@ -7255,7 +7262,7 @@ fn is_canvas_color(c: &str) -> bool {
 }
 
 fn canvas_color_problem(field: &str, c: &str) -> String {
-    format!("{field} must be a preset \"1\"..\"6\" or a hex colour #rgb or #rrggbb, got {c:?}")
+    format!("{field} must be a preset \"1\"..\"6\" or a hex color #rgb or #rrggbb, got {c:?}")
 }
 
 /// The next step a canvas "not found" error gives: the ids that exist at that
