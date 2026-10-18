@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the resource entries say what `-32000` means.** The
+  `mdopener://current` and `mdopener://recent-documents` entries of
+  `resources/list`, and docs/AGENTS.md's resources reference, said
+  `-32000` means the app is not running. It is also the code, with the
+  refused-token message, when the app answers HTTP 401. They now say both,
+  and so does docs/AGENTS.md for a `file://` read.
 - **MCP: the stream-edit tools no longer fetch the document to check
   `path`.** `stream_edit` and `stream_edit_apply` with `path` asked the
   app's `/content` for the open document's path, which sent its whole

@@ -4589,6 +4589,51 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// `mdopener://current` and `mdopener://recent-documents` are -32000 with
+/// the refused-token message when the app answers HTTP 401, not only when it
+/// is not running, but their resources/list entries and docs/AGENTS.md said
+/// -32000 meant only that the app is not running. They now say both.
+#[test]
+fn resource_entries_say_minus_32000_also_means_a_refused_token() {
+    use mdopener_mcp::handle_resource_read;
+    let denied = MockIpc::new()
+        .on_get(
+            "/content",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        )
+        .on_get(
+            "/vault",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        );
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    for uri in ["mdopener://current", "mdopener://recent-documents"] {
+        let err = handle_resource_read(id(2), uri, &denied).error.unwrap();
+        assert_eq!(err.code, -32000, "{uri}");
+        assert_eq!(err.message, mdopener_mcp::APP_AUTH_FAILED_MSG, "{uri}");
+        let entry = resources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["uri"] == uri)
+            .unwrap();
+        let d = entry["description"].as_str().unwrap();
+        assert!(
+            d.contains(
+                "-32000) when the app is not running or refuses this server's token (HTTP 401"
+            ) || d.contains(
+                "-32000 when the app is not running or refuses this server's token (HTTP 401"
+            ),
+            "{uri}: {d}"
+        );
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("and also when the app answers HTTP 401 (it refuses this server's token),\n  with the refused-token message"),
+        "docs/AGENTS.md must say -32000 also means a refused token"
+    );
+}
+
 /// When `/vault` failed, resources/list dropped the vault's `file://`
 /// entries without a word, so a client read it as a vault with no files.
 /// The result is still a valid `ListResourcesResult`, with the reason in

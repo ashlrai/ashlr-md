@@ -4084,7 +4084,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running.",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).",
         "mimeType": "text/markdown"
     })];
 
@@ -4107,7 +4107,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4230,7 +4230,8 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// The live document's text for `mdopener://current` and the prompts, or the
 /// JSON-RPC error: `-32002` when no document is open (the app answers
 /// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
-/// `-32000` when the app cannot be reached. An open document that is empty
+/// `-32000` when the app cannot be reached or refuses this server's token
+/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]). An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
 /// prompts already refused it. The app opens only files, so `path: null` is
