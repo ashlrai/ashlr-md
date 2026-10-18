@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`get_conversation_context` says which session failed and what to do.**
+  A session it could not load answered `Failed to read conversation
+  context: ...`, with no session named and, for an unreadable or
+  unparseable session file, no next step. It now names the session and the
+  file, and says to use a new `session_id` or move the file aside and call
+  again; `save_conversation_message` refusing the same file says so too.
 - **`edit_canvas` on an unparseable canvas names the file.** It answered
   `Canvas parse error: Invalid JSON: ...` with no path and no word on
   whether the file had been touched. It now names the absolute path, says

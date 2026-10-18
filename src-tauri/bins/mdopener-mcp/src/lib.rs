@@ -405,7 +405,7 @@ fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
             std::io::ErrorKind::InvalidData,
             format!(
                 "it is {:.1} MiB, more than the {} MiB a session file may be, so it was \
-                 not read; use a new `session_id`, or move the file aside",
+                 not read",
                 len as f64 / (1024.0 * 1024.0),
                 MAX_SESSION_FILE_BYTES / (1024 * 1024)
             ),
@@ -474,6 +474,10 @@ fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
+/// What to do about a session file that cannot be read or parsed.
+const SESSION_FILE_NEXT_STEP: &str =
+    "use a new `session_id`, or move the file aside and call again";
+
 /// Load `session_id`'s log from disk, keeping only its own messages. On a
 /// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
 /// still share a file; their messages are told apart by `session_id`.
@@ -497,11 +501,22 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
         return Ok(None);
     };
     if path.exists() {
-        let text =
-            read_session_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+        // Each failure names the file and the way out: an unreadable or
+        // unparseable file used to end at the OS or serde text.
+        let text = read_session_file(&path).map_err(|e| {
+            format!(
+                "Cannot read {}: {e}; {SESSION_FILE_NEXT_STEP}",
+                path.display()
+            )
+        })?;
         return parse_session_log(&text)
             .map(|log| Some(own(log)))
-            .map_err(|e| format!("{} is not a session file: {e}", path.display()));
+            .map_err(|e| {
+                format!(
+                    "{} is not a session file: {e}; {SESSION_FILE_NEXT_STEP}",
+                    path.display()
+                )
+            });
     }
     let Some(legacy) = legacy_session_file_path(session_id) else {
         return Ok(None);
@@ -720,9 +735,12 @@ fn append_message(
 /// If the in-process store is empty for this session, attempt to load from disk
 /// (handles cold-start / process-restart scenarios).
 pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationMessage>, String> {
-    let mut store = conversation_store()
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store().lock().map_err(|e| {
+        format!(
+            "the in-process conversation store is unusable after an earlier failure \
+             ({e}); restart mdopener-mcp (reconnect it in your MCP client)"
+        )
+    })?;
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read. With no copy, an
@@ -3443,7 +3461,12 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                 }),
             )
         }
-        Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
+        // "Failed to read conversation context: {e}" named neither the
+        // session nor, for a lock error, what to do.
+        Err(e) => tool_error(
+            id,
+            format!("Cannot get the conversation context of session `{session_id}`: {e}"),
+        ),
     }
 }
 

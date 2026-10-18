@@ -7390,6 +7390,34 @@ fn save_message_reports_a_failed_session_write() {
     std::fs::remove_dir(&path).unwrap();
 }
 
+/// An unparseable session file answered "Failed to read conversation
+/// context: ... is not a session file: ...", with no session named and no
+/// next step. It now names the session, the file, and what to do.
+#[test]
+fn get_conversation_context_on_a_corrupt_session_file_names_it_and_the_next_step() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{ not json").unwrap();
+    let err = tool_error_text(&tool_get_conversation_context(
+        id(1),
+        &json!({ "session_id": sid }),
+    ));
+    assert!(
+        err.starts_with(&format!(
+            "Cannot get the conversation context of session `{sid}`: {} is not a session file: ",
+            path.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.ends_with("; use a new `session_id`, or move the file aside and call again"),
+        "{err}"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    std::fs::remove_file(&path).unwrap();
+}
+
 /// A session file was read whole however large it was. Past 16 MiB it is
 /// now not read at all: getting the context is an error saying how large it
 /// is (not an empty session), and saving refuses without touching the file.
