@@ -25,6 +25,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::Manager;
 
+#[path = "appimage_sidecar.rs"]
+mod appimage_sidecar;
 #[path = "mcp_command.rs"]
 mod mcp_command;
 #[path = "path_search.rs"]
@@ -46,6 +48,11 @@ fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
 /// `mdopener-mcp`, `mdopen`), using the host's executable suffix so the
 /// lookup matches the platform resource map. Search order is documented on
 /// [`sidecar_path::resolve`].
+///
+/// From an AppImage the bundled binary is inside the per-launch
+/// `/tmp/.mount_*` mount, so the path returned is a stable copy in the app's
+/// local data dir, refreshed when the app changes (see [`appimage_sidecar`]).
+/// It used to be the in-mount path, which broke once the app quit.
 pub(crate) fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Cannot determine app executable path: {e}"))?;
@@ -53,7 +60,37 @@ pub(crate) fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Resul
         .parent()
         .ok_or("App executable has no parent directory")?;
     let resource_dir = app.path().resource_dir().ok();
-    sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())
+    let bundled = PathBuf::from(sidecar_path::resolve(
+        bin,
+        exe_dir,
+        resource_dir.as_deref(),
+    )?);
+
+    let stable_dir = app.path().app_local_data_dir().ok().map(|d| d.join("bin"));
+    let version = app.package_info().version.to_string();
+    let len = fs::metadata(&bundled).map(|m| m.len()).unwrap_or(0);
+    let stamp = appimage_sidecar::stamp_for(&version, len);
+    let (recorded, dest_exists) = match (&stable_dir, bundled.file_name()) {
+        (Some(dir), Some(name)) => {
+            let (dest, stamp_path) = appimage_sidecar::stable_paths(dir, name);
+            (appimage_sidecar::read_stamp(&stamp_path), dest.is_file())
+        }
+        _ => (None, false),
+    };
+    let appimage = std::env::var_os("APPIMAGE");
+    let plan = appimage_sidecar::plan(
+        std::env::consts::OS,
+        appimage.as_deref(),
+        &bundled,
+        stable_dir.as_deref(),
+        &stamp,
+        recorded.as_deref(),
+        dest_exists,
+    );
+    appimage_sidecar::apply(&bundled, plan)?
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{bin} path contains non-UTF-8 characters"))
 }
 
 // ── Agent detection ───────────────────────────────────────────────────────────
@@ -377,6 +414,37 @@ pub fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
     )
 }
 
+// ── Client config files ───────────────────────────────────────────────────────
+
+/// The text of a client's config file, `None` when there is none yet.
+///
+/// A file that cannot be read used to be reported as "Cannot read <path>:
+/// <error>" and nothing more; the message now says it was left unchanged
+/// and what to check.
+fn read_config(path: &std::path::Path) -> Result<Option<String>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(path).map(Some).map_err(|e| {
+        format!(
+            "Cannot read {}: {e}. It was not changed. Check that it is a text file you \
+             can read, then try again.",
+            path.display()
+        )
+    })
+}
+
+/// Write a client's config file, with a next step when that fails.
+fn write_config(path: &std::path::Path, text: &str) -> Result<(), String> {
+    fs::write(path, text).map_err(|e| {
+        format!(
+            "Cannot write {}: {e}. Check that you can write to it and to its folder, \
+             then try again.",
+            path.display()
+        )
+    })
+}
+
 // ── Cursor ────────────────────────────────────────────────────────────────────
 
 /// Cursor's global MCP configuration file.
@@ -423,19 +491,11 @@ pub fn connect_cursor(app: tauri::AppHandle) -> Result<String, String> {
     }
 
     // Read the existing config (if any) and merge our entry into it.
-    let existing = if config_path.exists() {
-        Some(
-            fs::read_to_string(&config_path)
-                .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?,
-        )
-    } else {
-        None
-    };
+    let existing = read_config(&config_path)?;
     let serialised = merge_cursor_config(existing.as_deref(), &mcp_path)
         .map_err(|why| format!("{} {why}", config_path.display()))?;
 
-    fs::write(&config_path, serialised)
-        .map_err(|e| format!("Cannot write {}: {e}", config_path.display()))?;
+    write_config(&config_path, &serialised)?;
 
     Ok(format!(
         "ashlr-md added to {}.\n\
@@ -539,14 +599,14 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
             .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
     }
 
-    let mut root: Value = if settings_path.exists() {
-        let raw = fs::read_to_string(&settings_path)
-            .map_err(|e| format!("Cannot read {}: {e}", settings_path.display()))?;
-        serde_json::from_str(&raw).map_err(|e| {
-            format!("{} is not valid JSON ({e}). Fix it and retry.", settings_path.display())
-        })?
-    } else {
-        json!({})
+    let mut root: Value = match read_config(&settings_path)? {
+        Some(raw) => serde_json::from_str(&raw).map_err(|e| {
+            format!(
+                "{} is not valid JSON ({e}). Fix it and retry.",
+                settings_path.display()
+            )
+        })?,
+        None => json!({}),
     };
 
     let outcome = merge_hook(&mut root, &mdopen)
@@ -557,8 +617,7 @@ pub fn install_claude_hook(app: tauri::AppHandle) -> Result<String, String> {
 
     let serialised = serde_json::to_string_pretty(&root)
         .map_err(|e| format!("JSON serialisation error: {e}"))?;
-    fs::write(&settings_path, serialised)
-        .map_err(|e| format!("Cannot write {}: {e}", settings_path.display()))?;
+    write_config(&settings_path, &serialised)?;
 
     Ok(match outcome {
         HookMerge::Repaired => format!(
@@ -1304,6 +1363,34 @@ mod tests {
             header.contains(&format!("Exposes {count} Tauri commands")),
             "{header}"
         );
+    }
+
+    /// An unreadable or unwritable config file used to be reported with the
+    /// OS error alone, and no next step.
+    #[test]
+    fn unreadable_or_unwritable_config_says_what_to_check() {
+        let dir = std::env::temp_dir().join(format!("ashlr-md-config-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_config(&dir.join("missing.json")), Ok(None));
+
+        // A folder where the file should be cannot be read or written.
+        let not_a_file = dir.join("mcp.json");
+        fs::create_dir_all(&not_a_file).unwrap();
+        let err = read_config(&not_a_file).unwrap_err();
+        assert!(err.starts_with("Cannot read "), "{err}");
+        assert!(
+            err.contains("It was not changed.") && err.ends_with("then try again."),
+            "{err}"
+        );
+        let err = write_config(&not_a_file, "{}").unwrap_err();
+        assert!(err.starts_with("Cannot write "), "{err}");
+        assert!(err.ends_with("then try again."), "{err}");
+
+        let file = dir.join("settings.json");
+        write_config(&file, "{}").unwrap();
+        assert_eq!(read_config(&file), Ok(Some("{}".to_string())));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

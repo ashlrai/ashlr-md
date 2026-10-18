@@ -11,6 +11,22 @@ type ConnectStatus =
   | { kind: "ok"; message: string }
   | { kind: "error"; message: string };
 
+/**
+ * Why a Connect button is disabled, and what to do about it. Shown as the
+ * button's tooltip and, since a disabled button's tooltip is easy to miss,
+ * as a note under the buttons. They used to say only "Claude Code CLI not
+ * found" or "Cursor not detected", with no next step. Detection runs when
+ * Preferences opens, so reopening it picks up a new install.
+ */
+export const NOT_DETECTED = {
+  claude:
+    "Claude Code CLI not found on PATH. Install it from https://claude.ai/download, then close and reopen Preferences.",
+  cursor:
+    "Cursor not detected (no ~/.cursor folder). Install Cursor and open it once, then close and reopen Preferences.",
+  codex:
+    "Codex CLI not found on PATH. Install it (npm i -g @openai/codex), then close and reopen Preferences.",
+} as const;
+
 /** One-click "connect to your agent" setup + manual MCP command. */
 export function McpSection() {
   const [agentClis, setAgentClis] = useState<{
@@ -97,7 +113,7 @@ export function McpSection() {
           aria-busy={claudeBusy}
           title={
             agentClis?.claude === false
-              ? "Claude Code CLI not found"
+              ? NOT_DETECTED.claude
               : "Register ashlr-md in Claude Code"
           }
         >
@@ -112,7 +128,7 @@ export function McpSection() {
           aria-busy={cursorBusy}
           title={
             agentClis?.cursor === false
-              ? "Cursor not detected"
+              ? NOT_DETECTED.cursor
               : "Write ashlr-md to ~/.cursor/mcp.json"
           }
         >
@@ -127,7 +143,7 @@ export function McpSection() {
           aria-busy={codexBusy}
           title={
             agentClis?.codex === false
-              ? "Codex CLI not found"
+              ? NOT_DETECTED.codex
               : "Register ashlr-md in Codex (~/.codex/config.toml)"
           }
         >
@@ -135,6 +151,14 @@ export function McpSection() {
           Connect to Codex
         </button>
       </div>
+      {agentClis &&
+        (["claude", "cursor", "codex"] as const)
+          .filter((tool) => !agentClis[tool])
+          .map((tool) => (
+            <p key={tool} className="settings-mcp-note">
+              {NOT_DETECTED[tool]}
+            </p>
+          ))}
       <Result status={claudeStatus} />
       <Result status={cursorStatus} />
       <Result status={codexStatus} />
@@ -190,7 +214,7 @@ export function McpSection() {
         >
           docs/AGENTS.md
         </a>{" "}
-        for Codex setup.
+        for manual setup with any agent.
       </p>
     </div>
   );

@@ -36,6 +36,36 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An unreadable client config says what to check.** When **Connect to
+  Cursor** or **Auto-open agent Markdown** could not read or write
+  `~/.cursor/mcp.json` or `~/.claude/settings.json`, the message was the OS
+  error alone ("Cannot read <path>: Is a directory"). It now says an
+  unreadable file was not changed and to check that it is a text file you
+  can read (or that you can write to it and its folder), then try again.
+- **A disabled Connect button says how to enable it.** When Claude Code,
+  Cursor or Codex was not detected, its button was disabled with only a
+  tooltip, "Claude Code CLI not found", "Cursor not detected" or "Codex CLI
+  not found". The tooltip and a note under the buttons now say how to
+  install the tool and to reopen Preferences, which detects it again.
+- **docs/AGENTS.md names the hook button the app shows.** It told readers
+  to click **Install auto-open hook**, a button Preferences does not have;
+  the button is **Auto-open agent Markdown**. A doc-facts test now checks
+  every one-click button docs/AGENTS.md names against the Settings section.
+- **A stream edit for another document names the next step.** When the
+  window answered a `stream_edit` or `stream_edit_apply` whose `path` was not
+  the open document, it said "Path mismatch: '...' is not the currently open
+  document." and stopped. It now ends "Open it first with open_file.", as
+  the app's own path check already did.
+- **Connecting an agent from the AppImage registers a path that lasts.**
+  An AppImage mounts itself at a new `/tmp/.mount_*` directory on every
+  launch, and the **Connect** buttons, the **Copy** command, **Auto-open
+  agent Markdown** and **Install mdopen** all registered the `mdopener-mcp`
+  or `mdopen` inside that mount, which was gone once the app quit. When
+  `$APPIMAGE` is set on Linux they now copy the binary to
+  `~/.local/share/app.mdopener.desktop/bin/` and register the copy,
+  rewriting it when the app's version or the bundled binary changes.
+  docs/AGENTS.md says so and keeps the manual extract steps only for
+  registering the server without the app.
 - **A headless `export` from Edit view tells the agent how to fix it.** An
   `export` with `output_path` while the document was in Edit or Source view
   failed with "Switch to Read view before exporting.", the app's message for

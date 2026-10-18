@@ -480,6 +480,36 @@ describe("handlers integration — edits with save: true", () => {
     );
   });
 
+  it("stream-edit and stream-edit-apply: another path names open_file", async () => {
+    // The mismatch message used to stop at "is not the currently open
+    // document." with no next step.
+    const want =
+      "Path mismatch: '/other.md' is not the currently open document. Open it first with open_file.";
+    const before = useDocumentStore.getState().content;
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit", {
+      editId: "p1",
+      path: "/other.md",
+      find: "Hello",
+      replace: "Hi",
+      preview: true,
+      previewLines: 5,
+    });
+    expect(reply("mcp_stream_edit_preview")).toMatchObject({ ok: false, error: want });
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "p2",
+      path: "/other.md",
+      find: "Hello",
+      replace: "Hi",
+    });
+    expect(reply("mcp_stream_edit_apply_result")).toMatchObject({
+      ok: false,
+      error: want,
+    });
+    expect(useDocumentStore.getState().content).toBe(before);
+  });
+
   it("set-content: reports the replaced content as ok", async () => {
     await fireEvent("mcp://set-content", { editId: "c1", content: "new body" });
     expect(useDocumentStore.getState().content).toBe("new body");

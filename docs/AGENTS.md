@@ -59,12 +59,14 @@ Open **Ashlr MD → Preferences → AI agents (MCP)** and click:
 - **Connect to Claude Code**: runs `claude mcp add` for you, no terminal needed.
 - **Connect to Cursor**: writes/merges `~/.cursor/mcp.json` automatically.
 - **Connect to Codex**: runs `codex mcp add` for you.
-- **Install auto-open hook**: adds a Claude Code `PostToolUse` hook so written
+- **Auto-open agent Markdown**: installs a Claude Code `PostToolUse` hook so written
   `.md` files open in Ashlr MD automatically (see [Auto-open hook](#auto-open-hook)).
 
-The in-app buttons are only enabled for tools detected on your machine
-(`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For any
-other agent, copy the command with the **Copy** button and paste it in a terminal.
+The **Connect** buttons are only enabled for tools detected on your machine
+(`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For a
+tool that is not detected, a note under the buttons says how to install it;
+detection runs again when you reopen Preferences. For any other agent, copy
+the command with the **Copy** button and paste it in a terminal.
 
 When Claude Code or Codex already has an `ashlr-md` server, the Connect button
 asks it (`mcp get`) which program it runs. A registration for a program that no
@@ -102,7 +104,7 @@ claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.ex
 # Linux (.deb install default)
 claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
 
-# Linux AppImage: copy the server out of the AppImage once, then register the copy
+# Linux AppImage, without the app: copy the server out once, then register the copy
 ./AshlrMD.AppImage --appimage-extract "usr/lib/Ashlr MD/mdopener-mcp"
 install -D "squashfs-root/usr/lib/Ashlr MD/mdopener-mcp" ~/.local/bin/mdopener-mcp
 rm -rf squashfs-root
@@ -111,10 +113,13 @@ claude mcp add --scope user ashlr-md ~/.local/bin/mdopener-mcp
 
 An AppImage mounts itself at a new `/tmp/.mount_*` directory on every launch
 and unmounts when it quits, so a path inside the mount stops working once the
-app closes. From an AppImage, the **Connect** buttons and the **Copy** command
-register that in-mount path (`/tmp/.mount_*/usr/lib/Ashlr MD/mdopener-mcp`);
-use the commands above instead, and copy the server out again after you
-update the AppImage.
+app closes. From an AppImage, the **Connect** buttons, the **Copy** command and
+**Auto-open agent Markdown** therefore copy `mdopener-mcp` (and `mdopen`) to
+`~/.local/share/app.mdopener.desktop/bin/` and register that copy, which stays
+put after the app quits. The copy is refreshed whenever you click one of them
+after updating the AppImage. The AppImage commands above are only needed when
+you register the server without opening the app; copy the server out again
+after you update the AppImage.
 
 After running it, **restart Claude Code** (quit and start a new session) once.
 
@@ -227,8 +232,9 @@ Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
 On **Windows**, replace `command` with the path to `mdopener-mcp.exe` in your
 install directory (e.g. `C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe`).
 On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`), or for an
-AppImage the absolute path of the copy made in the manual Claude Code steps
-above (`/home/<you>/.local/bin/mdopener-mcp`; a path inside the AppImage's
+AppImage the copy **Connect to Cursor** makes,
+`/home/<you>/.local/share/app.mdopener.desktop/bin/mdopener-mcp`, or the one
+made in the manual Claude Code steps above (a path inside the AppImage's
 mount changes every launch).
 
 If the file already has other servers, merge only the `"ashlr-md"` key into the
@@ -606,7 +612,7 @@ tool call), since the payload arrives on stdin.
 
 ### One-click install
 
-**Preferences → AI agents (MCP) → Install auto-open hook**. Ashlr MD merges this
+**Preferences → AI agents (MCP) → Auto-open agent Markdown**. Ashlr MD merges this
 into **`~/.claude/settings.json`** (idempotently: it won't add a duplicate).
 If the hook it installed earlier runs an `mdopen` that no longer exists (the app
 was moved, for example from Downloads to Applications), clicking it again points
@@ -639,11 +645,11 @@ versions wrote for the same path. After installing, **restart Claude Code** to
 pick it up. The quoting targets the POSIX shell Claude Code runs hooks with; it
 has not been verified on an installed Windows build.
 
-From an AppImage the button writes the `mdopen` inside the AppImage's
-temporary mount (`/tmp/.mount_*`), which is gone once the app quits. Run
-**Install mdopen** first, then replace `<mdopen>` in the entry above with the
-absolute path it copied `mdopen` to (for example
-`/home/<you>/.local/bin/mdopen`).
+From an AppImage the button does not write the `mdopen` inside the
+AppImage's temporary mount (`/tmp/.mount_*`), which is gone once the app
+quits: it copies `mdopen` to `~/.local/share/app.mdopener.desktop/bin/mdopen`
+and writes that path, refreshing the copy when you click it again after
+updating the AppImage.
 
 > If `~/.claude/settings.json` already has a non-object `hooks` value or a
 > non-array `hooks.PostToolUse`, the installer **bails with an error** rather than
@@ -686,6 +692,8 @@ exit `101`, `--hook` included.
 ### Install
 
 In Ashlr MD: **Preferences → Command-line tool → Install mdopen** (all platforms).
+From an AppImage, the link it makes points at the copy of `mdopen` in
+`~/.local/share/app.mdopener.desktop/bin/`, not inside the AppImage's mount.
 
 Or via the build-from-source installer (macOS/Linux):
 
