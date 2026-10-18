@@ -4,6 +4,7 @@
   "version": "0.4.0",
   "type": "module",
   "scripts": {
+    "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
