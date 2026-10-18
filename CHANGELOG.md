@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `open_file` does not launch past a refused token.** An app that
+  answered HTTP 401 (a stale `~/.mdopener/ipc-token`, or another Ashlr MD
+  instance on the port) was not read as a refusal, so `open_file` fell
+  through to the `mdopener://` URL launch, and a launch that failed said "the
+  app is not running (IPC auth failed...)" though an app had answered. It now
+  returns the shared refused-token message (quit every Ashlr MD window, start
+  the app again, then retry) and launches nothing.
 - **"Explain changes" ends like a sidebar chat turn.** The change banner's
   answer streams into the AI sidebar, but the sidebar's Stop button could not
   stop it (the banner kept no controller the sidebar could reach), a stop was

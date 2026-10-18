@@ -2027,6 +2027,10 @@ pub fn tool_open_file_with(
             return tool_error(id, window_refusal(&resp, "open", &abs))
         }
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
+        // The app answered but refused this server's token (HTTP 401). The
+        // URL scheme would reach the same app, and a launch that failed used
+        // to report it as "not running", so say why and what fixes it.
+        Err(e) if app_auth_failed(&e) => return tool_error(id, APP_AUTH_FAILED_MSG.to_string()),
         // The app is running and refused the request: say why, and do not
         // retry it through the URL scheme.
         Err(e) if app_refused(&e) => return tool_error(id, e),

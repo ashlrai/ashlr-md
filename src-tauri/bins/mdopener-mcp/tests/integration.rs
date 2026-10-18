@@ -662,6 +662,24 @@ fn open_file_reports_the_windows_failure() {
     assert!(text.contains("Permission denied"), "{text}");
 }
 
+/// An HTTP 401 (a stale ~/.mdopener/ipc-token, or another instance on the
+/// port) was not read as a refusal, so open_file fell through to the URL
+/// scheme, and a launch that failed said "the app is not running (IPC auth
+/// failed...)" though an app had answered. It is now the shared message, and
+/// nothing is launched.
+#[test]
+fn open_file_on_a_refused_token_says_how_to_fix_it_and_does_not_launch() {
+    let (_dir, notes) = existing_notes();
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new().on_post("/open", Err(auth));
+    let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|url: &str| {
+        panic!("must not fall back to the URL scheme: {url}")
+    });
+    let err = tool_error_text(&resp);
+    assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG);
+    assert!(!err.contains("not running"), "{err}");
+}
+
 #[test]
 fn open_file_mode_read_forwarded_in_post_body() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
