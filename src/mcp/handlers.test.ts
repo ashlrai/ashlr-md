@@ -229,6 +229,26 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("export handler: with no document open names open_file as the next step", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_0",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_0",
+      ok: false,
+      replaced: 0,
+      error:
+        'No document is open to export. Call open_file with the document\'s `path` and mode "read", then retry.',
+    });
+  });
+
   it("export handler: reports a headless export's outcome to the waiting request", async () => {
     const { exportHtml } = await import("../lib/export");
     useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
@@ -626,6 +646,30 @@ describe("handlers integration — open and present report the outcome", () => {
     expect(String(r.error)).toContain("No such file or directory");
   });
 
+  it("open: a failed read of the document already open is reported", async () => {
+    // The open document is not in a tab of that path, so openPath reads it;
+    // the outcome used to be inferred from `path`, which still named it.
+    failReads();
+    await fireEvent("mcp://open", { editId: "o1", path: "/test.md" });
+    const r = reply();
+    expect(r).toMatchObject({ editId: "o1", ok: false });
+    expect(String(r.error)).toContain("No such file or directory");
+  });
+
+  it("open: switching to a tab is ok even after an earlier failure", async () => {
+    // A failed save leaves `error` set; re-opening the open tab does not
+    // read the file, so that old error is not this open's outcome.
+    useDocumentStore.setState({
+      path: "/a.md",
+      error: "Could not write /a.md",
+      tabs: [{ id: "t1", path: "/a.md" }],
+      activeId: "t1",
+    } as unknown as Parameters<typeof useDocumentStore.setState>[0]);
+    failReads();
+    await fireEvent("mcp://open", { editId: "o1", path: "/a.md" });
+    expect(reply()).toMatchObject({ editId: "o1", ok: true, error: null });
+  });
+
   it("open: a throwing openPath is still answered", async () => {
     const openPath = vi
       .spyOn(useDocumentStore.getState(), "openPath")
@@ -676,7 +720,12 @@ describe("handlers integration — open and present report the outcome", () => {
     >[0]);
     await fireEvent("mcp://present", { editId: "p1", path: null });
     expect(useUiStore.getState().zenMode).toBe(false);
-    expect(reply()).toMatchObject({ editId: "p1", ok: false });
+    expect(reply()).toMatchObject({
+      editId: "p1",
+      ok: false,
+      error:
+        "No document is open to present. Pass `path` to present_document, or call open_file with the document's `path` first.",
+    });
   });
 });
 
@@ -685,6 +734,26 @@ describe("handlers integration — open and present report the outcome", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("handlers integration — stream-edit failures are replied", () => {
+  it("preview: false with a find that is not unique counts its occurrences", async () => {
+    useDocumentStore.setState({ path: "/doc.md", content: "a b a b a" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit", {
+      editId: "s2",
+      find: "a",
+      replace: "c",
+      preview: false,
+    });
+    const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
+    expect(call).toBeDefined();
+    const r = call![1] as Record<string, unknown>;
+    expect(r).toMatchObject({ editId: "s2", ok: false, matchCount: 3 });
+    expect(String(r.error)).toContain("not unique (3 matches)");
+    expect(useDocumentStore.getState().content).toBe("a b a b a");
+  });
+
   it("preview: false replies with the error when applying throws", async () => {
     useDocumentStore.setState({ path: "/doc.md", content: "hello world" } as Parameters<
       typeof useDocumentStore.setState

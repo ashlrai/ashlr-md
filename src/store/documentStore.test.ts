@@ -752,6 +752,15 @@ describe("openPath of a file that is gone", () => {
     expect(recentRemove).toHaveBeenCalledWith("/gone.md");
   });
 
+  it("resolves to the reason, so a caller need not infer it from `path`", async () => {
+    invokeMock.mockRejectedValueOnce(
+      "Could not read /gone.md: No such file or directory",
+    );
+    await expect(useDocumentStore.getState().openPath("/gone.md")).resolves.toBe(
+      "Could not read /gone.md: No such file or directory",
+    );
+  });
+
   it("keeps it when the read failed for another reason", async () => {
     invokeMock.mockRejectedValueOnce(
       "Could not read /locked.md: Permission denied (os error 13)",

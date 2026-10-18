@@ -10201,6 +10201,30 @@ fn edit_tool_descriptions_name_their_results_and_refusals() {
     }
 }
 
+/// set_content and replace_document promised that "a document with no file
+/// yet" would come back "replaced but not saved". The window refuses any
+/// document without a file as "No document is open" before it applies
+/// anything (the app opens only files: with none, it shows its welcome
+/// screen), so that result never came. The descriptions now say what does.
+#[test]
+fn whole_document_tools_do_not_promise_an_unsaved_document() {
+    for tool in ["set_content", "replace_document"] {
+        let d = tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description;
+        assert!(!d.contains("no file yet"), "{tool}: {d}");
+        for want in [
+            "No document is open in Ashlr MD; open one first (open_file).",
+            "every document it shows has one",
+            "a failed save is an error saying the content was replaced but not saved",
+        ] {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+    }
+}
+
 /// stream_edit's description said it returns diffs but not the fields, and
 /// docs/AGENTS.md said "the app's diff preview". The named shape is the
 /// reply the app's `/stream-edit` sends, with the tool's own `applied`.
