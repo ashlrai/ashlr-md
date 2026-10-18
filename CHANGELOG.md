@@ -36,6 +36,49 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Every path argument says what a relative path resolves against.**
+  `open_file`'s `path` said only "Absolute or relative path", and the
+  optional `path` checks of `edit_document`, `stream_edit` and
+  `stream_edit_apply` said nothing, though the server resolves each
+  against its own working directory (the app has another). They now say
+  so, as the other path arguments did, and `open_file` adds that `opened`
+  is the absolute path.
+- **`diff_documents` says what its counts are.** Its description listed
+  `hunks`, `added` and `removed` without saying they count change hunks
+  and added and removed lines, or that identical documents return an
+  empty `diff` with all three at `0`. It now says so, and that `path_a`
+  and `path_b` come back absolute.
+- **`edit_canvas` says what `saved` and `content` hold.** Its description
+  listed them without a word on their meaning, and called each op atomic
+  when the whole call is. It now says the ops apply all or nothing, that
+  `content` is `null` once the file is written, and that `save: false` is
+  a dry run that writes nothing and returns the would-be canvas JSON as
+  `content`.
+- **The app-not-running error says it once.** It read `Ashlr MD does not
+  appear to be running (~/.mdopener/ipc-port not found. Is Ashlr MD
+  running?). Launch it first, ...`, asking the same thing twice, and
+  `open_file` repeated the question inside its own not-running message.
+  The reason is now a bare fact (`~/.mdopener/ipc-port not found`), and
+  the one sentence that wraps it says the app is not running and what to
+  do.
+- **`get_conversation_context` says which session failed and what to do.**
+  A session it could not load answered `Failed to read conversation
+  context: ...`, with no session named and, for an unreadable or
+  unparseable session file, no next step. It now names the session and the
+  file, and says to use a new `session_id` or move the file aside and call
+  again; `save_conversation_message` refusing the same file says so too.
+- **`edit_canvas` on an unparseable canvas names the file.** It answered
+  `Canvas parse error: Invalid JSON: ...` with no path and no word on
+  whether the file had been touched. It now names the absolute path, says
+  the file was left unchanged because `edit_canvas` does not overwrite a
+  canvas it cannot parse, and says to fix the file (a JSON object whose
+  `nodes` and `edges` are arrays of objects) and call it again.
+- **`mdopener-mcp --help` and `--version` no longer panic on an
+  unwritable stdout.** Piped into a reader that had already closed
+  (`mdopener-mcp --help | head -c1`), or written to a full disk, they
+  panicked with exit `101` and a backtrace. A closed reader now exits `0`
+  in silence, and any other write failure says so in one stderr line with
+  exit `1`, as `mdopen` does.
 - **`mdopen --help` and `--version` no longer panic on an unwritable
   stdout.** Piped into a reader that had already closed
   (`mdopen --help | head -1`), or written to a full disk, they panicked

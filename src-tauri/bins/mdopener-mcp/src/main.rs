@@ -70,13 +70,12 @@ fn main() {
     {
         match arg.as_str() {
             "--version" | "-V" => {
-                println!("mdopener-mcp {}", env!("CARGO_PKG_VERSION"));
-                return;
+                std::process::exit(print_stdout(&format!(
+                    "mdopener-mcp {}\n",
+                    env!("CARGO_PKG_VERSION")
+                )));
             }
-            "--help" | "-h" => {
-                print!("{HELP}");
-                return;
-            }
+            "--help" | "-h" => std::process::exit(print_stdout(HELP)),
             _ => ignored.push(arg),
         }
     }
@@ -86,6 +85,23 @@ fn main() {
     }
 
     serve(io::stdin().lock(), io::stdout().lock(), &RealIpcClient);
+}
+
+/// Write `text` to stdout and return the exit status. `print!` panicked
+/// when stdout could not be written (exit 101 and a backtrace): a reader
+/// that closed early (`mdopener-mcp --help | head -c1`) is not an error, so
+/// that exits 0 in silence, and any other failure (a full disk) is reported
+/// on stderr with exit 1.
+fn print_stdout(text: &str) -> i32 {
+    let mut out = io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => 0,
+        Err(e) => {
+            eprintln!("mdopener-mcp: cannot write to stdout: {e}");
+            1
+        }
+    }
 }
 
 /// Answer each newline-delimited JSON-RPC message read from `input` on

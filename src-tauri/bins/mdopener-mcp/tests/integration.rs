@@ -906,10 +906,7 @@ fn get_current_content_ipc_unavailable_returns_tool_error() {
 
 #[test]
 fn get_current_content_stale_ipc_returns_error_with_hint() {
-    let ipc = MockIpc::new().on_get(
-        "/content",
-        Err("ipc-port not found. Is Ashlr MD running?".into()),
-    );
+    let ipc = MockIpc::new().on_get("/content", Err("~/.mdopener/ipc-port not found".into()));
     let resp = tool_get_content(id(1), &ipc);
     let err = tool_error_text(&resp);
     assert!(err.contains("Ashlr MD"), "error should mention app name");
@@ -2133,11 +2130,11 @@ fn ai_actions_registry_count_matches_tool_response() {
 
 #[test]
 fn app_not_running_msg_ipc_port_error_includes_hint() {
-    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found. Is Ashlr MD running?");
-    assert!(msg.contains("Ashlr MD"), "hint should mention app name");
-    assert!(
-        msg.contains("open_file"),
-        "hint should mention open_file tool"
+    let msg = mdopener_mcp::app_not_running_msg("~/.mdopener/ipc-port not found");
+    assert_eq!(
+        msg,
+        "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
+         Launch it first, or use open_file which can start it automatically."
     );
 }
 
@@ -2360,10 +2357,7 @@ fn export_tool_disk_full_error_propagated() {
 
 #[test]
 fn export_tool_app_not_running_returns_descriptive_error() {
-    let ipc = MockIpc::new().on_post(
-        "/export",
-        Err("ipc-port not found. Is Ashlr MD running?".into()),
-    );
+    let ipc = MockIpc::new().on_post("/export", Err("~/.mdopener/ipc-port not found".into()));
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
     let err = tool_error_text(&resp);
     // app_not_running_msg should enrich the message.
@@ -7390,6 +7384,34 @@ fn save_message_reports_a_failed_session_write() {
     std::fs::remove_dir(&path).unwrap();
 }
 
+/// An unparseable session file answered "Failed to read conversation
+/// context: ... is not a session file: ...", with no session named and no
+/// next step. It now names the session, the file, and what to do.
+#[test]
+fn get_conversation_context_on_a_corrupt_session_file_names_it_and_the_next_step() {
+    let sid = unique_session();
+    let path = session_file_path(&sid).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{ not json").unwrap();
+    let err = tool_error_text(&tool_get_conversation_context(
+        id(1),
+        &json!({ "session_id": sid }),
+    ));
+    assert!(
+        err.starts_with(&format!(
+            "Cannot get the conversation context of session `{sid}`: {} is not a session file: ",
+            path.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.ends_with("; use a new `session_id`, or move the file aside and call again"),
+        "{err}"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    std::fs::remove_file(&path).unwrap();
+}
+
 /// A session file was read whole however large it was. Past 16 MiB it is
 /// now not read at all: getting the context is an error saying how large it
 /// is (not an empty session), and saving refuses without touching the file.
@@ -7815,6 +7837,173 @@ fn edit_canvas_refuses_non_object_nodes_instead_of_dropping_them() {
         let on_disk = std::fs::read_to_string(&path).unwrap();
         assert_eq!(on_disk, raw, "file must be untouched");
     }
+}
+
+/// An unparseable canvas answered "Canvas parse error: Invalid JSON: ...",
+/// naming neither the file nor whether it had been touched. It now names the
+/// absolute path, says the file was left unchanged, and what to fix.
+#[test]
+fn edit_canvas_on_invalid_json_names_the_file_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("broken.canvas");
+    std::fs::write(&path, "{ not json").unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "delete_node", "id": "n1" }] }),
+    );
+    let err = tool_error_text(&resp);
+    let abs = std::fs::canonicalize(&path).unwrap();
+    assert!(
+        err.starts_with(&format!(
+            "Canvas parse error in '{}': Invalid JSON: ",
+            abs.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.ends_with(
+            "The file was left unchanged: edit_canvas does not overwrite a canvas it \
+             cannot parse. Fix the file (a JSON object whose `nodes` and `edges` are \
+             arrays of objects), then call edit_canvas again."
+        ),
+        "{err}"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+}
+
+/// The edit_canvas description listed `saved` and `content` without saying
+/// what they hold, and called each op atomic when the whole call is: an
+/// agent could not tell that `save: false` is a dry run whose result is in
+/// `content`, or that `content` is null once the file is written.
+#[test]
+fn edit_canvas_description_says_what_saved_and_content_hold() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "edit_canvas")
+        .unwrap();
+    assert!(
+        def.description.contains(
+            "`saved` whether the file was written, and `content` null once it was; with \
+             `save: false` nothing is written and `content` is the canvas JSON (a string) \
+             that would have been."
+        ),
+        "{}",
+        def.description
+    );
+    assert!(def.description.contains("The ops apply all or nothing"));
+    let save = def.input_schema["properties"]["save"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(
+        save.contains("false is a dry run that writes nothing"),
+        "{save}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"x","x":0,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let op = json!([{ "type": "move_node", "id": "a", "x": 5, "y": 6 }]);
+    let dry = content_text(&mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": op, "save": false }),
+    ));
+    assert_eq!(dry["saved"], false);
+    let would_be: Value = serde_json::from_str(dry["content"].as_str().unwrap()).unwrap();
+    assert_eq!(would_be["nodes"][0]["x"], 5);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
+    let saved = content_text(&mdopener_mcp::tool_edit_canvas(
+        id(2),
+        &json!({ "path": path, "ops": op }),
+    ));
+    assert_eq!(saved["saved"], true);
+    assert_eq!(saved["content"], Value::Null);
+    assert_ne!(std::fs::read_to_string(&path).unwrap(), raw);
+}
+
+/// diff_documents listed `hunks`, `added` and `removed` without saying they
+/// are counts (of hunks, and of lines), or what identical documents return.
+#[test]
+fn diff_documents_description_says_what_its_counts_are() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "diff_documents")
+        .unwrap();
+    assert!(
+        def.description.contains(
+            "`hunks` is the number of change hunks, `added` and `removed` the number of \
+             lines added and removed, `path_a` and `path_b` the absolute paths read, and \
+             `diff` an empty string (with all three counts 0) when the documents are identical."
+        ),
+        "{}",
+        def.description
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b, c) = (
+        dir.path().join("a.md"),
+        dir.path().join("b.md"),
+        dir.path().join("c.md"),
+    );
+    std::fs::write(&a, "one\ntwo\nthree\n").unwrap();
+    std::fs::write(&b, "one\ntwo\nthree\n").unwrap();
+    std::fs::write(&c, "one\n2\nthree\nfour\n").unwrap();
+    let ipc = MockIpc::new();
+    let same = content_text(&call(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": b }),
+        &ipc,
+    ));
+    assert_eq!(same["diff"], "");
+    assert_eq!(
+        (
+            same["hunks"].as_u64(),
+            same["added"].as_u64(),
+            same["removed"].as_u64()
+        ),
+        (Some(0), Some(0), Some(0))
+    );
+    let changed = content_text(&call(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": c, "context_lines": 0 }),
+        &ipc,
+    ));
+    assert_eq!(changed["added"], 2, "{changed}");
+    assert_eq!(changed["removed"], 1, "{changed}");
+    assert_eq!(changed["hunks"], 2, "{changed}");
+    assert_eq!(
+        changed["path_a"],
+        std::fs::canonicalize(&a)
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+}
+
+/// open_file's `path` said "Absolute or relative path" without saying
+/// relative to what, while the server resolves it against its own working
+/// directory and the app has another. Every path argument now says which.
+#[test]
+fn every_path_argument_says_what_a_relative_path_resolves_against() {
+    let mut missing = Vec::new();
+    for def in tool_registry() {
+        let Some(props) = def.input_schema["properties"].as_object() else {
+            continue;
+        };
+        for (name, prop) in props {
+            if !(name == "path"
+                || name.starts_with("path_")
+                || name == "vault"
+                || name.ends_with("_path"))
+            {
+                continue;
+            }
+            let desc = prop["description"].as_str().unwrap_or("");
+            if !desc.contains("server's working directory") {
+                missing.push(format!("{}.{name}: {desc}", def.name));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────

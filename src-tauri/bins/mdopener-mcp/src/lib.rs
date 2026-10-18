@@ -405,7 +405,7 @@ fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
             std::io::ErrorKind::InvalidData,
             format!(
                 "it is {:.1} MiB, more than the {} MiB a session file may be, so it was \
-                 not read; use a new `session_id`, or move the file aside",
+                 not read",
                 len as f64 / (1024.0 * 1024.0),
                 MAX_SESSION_FILE_BYTES / (1024 * 1024)
             ),
@@ -474,6 +474,10 @@ fn legacy_session_file_path(session_id: &str) -> Option<std::path::PathBuf> {
     sessions_dir().map(|d| d.join(format!("{safe}.json")))
 }
 
+/// What to do about a session file that cannot be read or parsed.
+const SESSION_FILE_NEXT_STEP: &str =
+    "use a new `session_id`, or move the file aside and call again";
+
 /// Load `session_id`'s log from disk, keeping only its own messages. On a
 /// case-insensitive file system ids that differ only in case (`Plan`, `plan`)
 /// still share a file; their messages are told apart by `session_id`.
@@ -497,11 +501,22 @@ fn load_own_session(session_id: &str) -> Result<Option<(SessionLog, bool)>, Stri
         return Ok(None);
     };
     if path.exists() {
-        let text =
-            read_session_file(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+        // Each failure names the file and the way out: an unreadable or
+        // unparseable file used to end at the OS or serde text.
+        let text = read_session_file(&path).map_err(|e| {
+            format!(
+                "Cannot read {}: {e}; {SESSION_FILE_NEXT_STEP}",
+                path.display()
+            )
+        })?;
         return parse_session_log(&text)
             .map(|log| Some(own(log)))
-            .map_err(|e| format!("{} is not a session file: {e}", path.display()));
+            .map_err(|e| {
+                format!(
+                    "{} is not a session file: {e}; {SESSION_FILE_NEXT_STEP}",
+                    path.display()
+                )
+            });
     }
     let Some(legacy) = legacy_session_file_path(session_id) else {
         return Ok(None);
@@ -720,9 +735,12 @@ fn append_message(
 /// If the in-process store is empty for this session, attempt to load from disk
 /// (handles cold-start / process-restart scenarios).
 pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationMessage>, String> {
-    let mut store = conversation_store()
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?;
+    let mut store = conversation_store().lock().map_err(|e| {
+        format!(
+            "the in-process conversation store is unusable after an earlier failure \
+             ({e}); restart mdopener-mcp (reconnect it in your MCP client)"
+        )
+    })?;
 
     // The persisted log is authoritative (other processes append to it); the
     // in-process copy only answers when it cannot be read. With no copy, an
@@ -763,7 +781,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Absolute or relative path to the Markdown file to open."
+                        "description": "Path to the Markdown file to open (absolute, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
                     },
                     "mode": {
                         "type": "string",
@@ -927,7 +945,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -1090,7 +1108,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "diff_documents",
-            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }. Only Markdown files (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles are read.",
+            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }: `hunks` is the number of change hunks, `added` and `removed` the number of lines added and removed, `path_a` and `path_b` the absolute paths read, and `diff` an empty string (with all three counts 0) when the documents are identical. Only Markdown files (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles are read.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1116,7 +1134,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use: only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1172,7 +1190,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "save": {
                         "type": "boolean",
-                        "description": "Write the mutated canvas back to disk. Defaults to true."
+                        "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`."
                     }
                 },
                 "required": ["path", "ops"]
@@ -1227,7 +1245,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1283,7 +1301,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional path assertion: errors if a different file is open. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional path assertion: errors if a different file is open; absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -3443,7 +3461,12 @@ pub fn tool_get_conversation_context(id: Value, args: &Value) -> Response {
                 }),
             )
         }
-        Err(e) => tool_error(id, format!("Failed to read conversation context: {e}")),
+        // "Failed to read conversation context: {e}" named neither the
+        // session nor, for a lock error, what to do.
+        Err(e) => tool_error(
+            id,
+            format!("Cannot get the conversation context of session `{session_id}`: {e}"),
+        ),
     }
 }
 
@@ -4922,8 +4945,8 @@ pub fn read_ipc_port() -> Result<u16, String> {
         .map(|h| h.join(".mdopener").join("ipc-port"))
         .ok_or("Cannot determine home directory")?;
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-port not found. Is Ashlr MD running?".to_string())?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
 
     content
         .trim()
@@ -4937,7 +4960,7 @@ pub fn read_ipc_token() -> Result<String, String> {
         .map(|h| h.join(".mdopener").join("ipc-token"))
         .ok_or("Cannot determine home directory")?;
     std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-token not found. Is Ashlr MD running?".to_string())
+        .map_err(|_| "~/.mdopener/ipc-token not found".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();
             if t.is_empty() {
@@ -5166,6 +5189,10 @@ pub fn tool_error(id: Value, message: String) -> Response {
     )
 }
 
+/// Say once that the app is not running, with the low-level reason in
+/// parentheses. The reasons are bare facts (`~/.mdopener/ipc-port not
+/// found`): they used to ask "Is Ashlr MD running?" themselves, so the
+/// message said it twice.
 pub fn app_not_running_msg(err: &str) -> String {
     // The running app refused the request: its reason (which may quote a
     // path containing "connect" or "not found") is the agent's to see as is.
@@ -5731,7 +5758,20 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Parse ────────────────────────────────────────────────────────────────
     let parsed = match parse_canvas_json(&raw_content) {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Canvas parse error: {e}")),
+        // "Canvas parse error: Invalid JSON: ..." named neither the file nor
+        // whether it had been touched.
+        Err(e) => {
+            return tool_error(
+                id,
+                format!(
+                    "Canvas parse error in '{}': {e}. The file was left unchanged: \
+                     edit_canvas does not overwrite a canvas it cannot parse. Fix the file \
+                     (a JSON object whose `nodes` and `edges` are arrays of objects), then \
+                     call edit_canvas again.",
+                    agent_path(&path)
+                ),
+            )
+        }
     };
 
     let mut nodes: Vec<serde_json::Map<String, Value>> = parsed.nodes;
