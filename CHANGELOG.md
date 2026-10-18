@@ -128,6 +128,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (open_file).", as `set_content` does, and the descriptions say so.
   `stream_edit` with `preview: false` says the edit is not written to disk
   instead of "unsaved".
+- **MCP: `get_current_content` says what a null `path` means.** Its
+  description said "`path` is null for an unsaved document", and
+  `export_text` and `export_metadata` that `path` is "absent for an unsaved
+  open document". The app opens only files, so it has no unsaved document:
+  it answers `path: null` only when no document is open (its welcome
+  screen, with empty content), which these tools report as an error. The
+  descriptions and docs/AGENTS.md now say that, and that `path` is the open
+  document's file.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

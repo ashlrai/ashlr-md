@@ -1040,7 +1040,14 @@ fn get_current_content_description_says_what_null_path_and_no_document_mean() {
         .find(|d| d.name == "get_current_content")
         .unwrap();
     let d = def.description;
-    assert!(d.contains("`path` is null for an unsaved document"), "{d}");
+    // It used to say "`path` is null for an unsaved document"; the app opens
+    // only files, so null is its welcome screen.
+    assert!(
+        d.contains(
+            "the app opens only files, so it answers `path: null` only when no document is open"
+        ),
+        "{d}"
+    );
     assert!(d.contains("With no document open this is an error"), "{d}");
     assert!(d.contains("isError: true"), "{d}");
     assert!(d.contains("as for mdopener://current"), "{d}");
@@ -10255,6 +10262,28 @@ fn find_replace_tools_do_not_promise_an_unsaved_document() {
     assert!(d.contains("not written to disk"), "{d}");
 }
 
+/// get_current_content said "`path` is null for an unsaved document", and
+/// export_text and export_metadata that `path` is "absent for an unsaved
+/// open document". The app opens only files, so it has no unsaved document:
+/// it answers `path: null` only on its welcome screen, which is an error.
+#[test]
+fn reading_tools_say_what_a_null_path_means() {
+    let desc = |tool: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description
+    };
+    for tool in ["get_current_content", "export_text", "export_metadata"] {
+        let d = desc(tool);
+        assert!(!d.contains("unsaved"), "{tool}: {d}");
+    }
+    // What they say instead is pinned by
+    // get_current_content_description_says_what_null_path_and_no_document_mean
+    // and export_text_and_metadata_descriptions_name_their_fields.
+}
+
 /// stream_edit's description said it returns diffs but not the fields, and
 /// docs/AGENTS.md said "the app's diff preview". The named shape is the
 /// reply the app's `/stream-edit` sends, with the tool's own `applied`.
@@ -10365,7 +10394,7 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
     ] {
         let d = desc(tool);
         assert!(d.contains(shape), "{tool} missing {shape:?}: {d}");
-        assert!(d.contains("absent for an unsaved open document"), "{tool}: {d}");
+        assert!(d.contains("with `path` omitted, the open document's file"), "{tool}: {d}");
         let v = content_text(&call(tool, args.clone(), &MockIpc::new()));
         let mut got: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
         got.sort_unstable();

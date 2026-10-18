@@ -853,7 +853,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD. Open one first (open_file).\"), as for mdopener://current (-32002 there, same message); export_text and export_metadata without `path` are errors too, but theirs says to pass `path` instead (\"No document is open in Ashlr MD; pass `path` to read a file.\"). The app reports an unsaved document that is still empty the same way, so an error here never hides content.",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is the absolute path of the document's file: the app opens only files, so it answers `path: null` only when no document is open (its welcome screen, with empty content). With no document open this is an error (isError: true, \"No document is open in Ashlr MD. Open one first (open_file).\"), as for mdopener://current (-32002 there, same message); export_text and export_metadata without `path` are errors too, but theirs says to pass `path` instead (\"No document is open in Ashlr MD; pass `path` to read a file.\").",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",
@@ -1330,7 +1330,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
                 { text, word_count, char_count, path? }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
-                path of the file read (absent for an unsaved open document). \
+                path of the file read (with `path` omitted, the open document's file). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
@@ -1363,7 +1363,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
-                `path` absent for an unsaved open document). Operates directly \
+                `path` the file read: with `path` omitted, the open document's file). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
                 reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
@@ -2109,8 +2109,8 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
 /// no document open the app answers `{ "path": null, "content": "" }`, which
 /// this tool used to return as a success, so an agent could not tell "nothing
 /// open" from an empty document. It is an error now, the one
-/// `mdopener://current` and `export_text` give; an empty unsaved document
-/// reads the same at the IPC and is reported the same way.
+/// `mdopener://current` and `export_text` give. The app opens only files,
+/// so `path: null` is its welcome screen.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
         Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
