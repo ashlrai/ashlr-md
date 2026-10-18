@@ -1528,9 +1528,7 @@ pub fn check_tool_arguments(def: &ToolDef, args: &Value) -> Result<(), String> {
                         .join(", ")
                 )
             };
-            let hint = closest_name(key, &names)
-                .map(|n| format!(" Did you mean `{n}`?"))
-                .unwrap_or_default();
+            let hint = unknown_name_hint(key, value, declared, &names);
             return Err(format!(
                 "Unknown argument `{key}` for `{tool}`: {takes}.{hint}"
             ));
@@ -1677,9 +1675,7 @@ fn check_item_fields(
         let Some(field) = fields.get(k) else {
             let mut names: Vec<&str> = fields.keys().map(String::as_str).collect();
             names.sort_unstable();
-            let hint = closest_name(k, &names)
-                .map(|n| format!(" Did you mean `{n}`?"))
-                .unwrap_or_default();
+            let hint = unknown_name_hint(k, v, fields, &names);
             return Err(format!(
                 "Unknown field `{k}` in `{at}`: it takes {}.{hint}",
                 names
@@ -1830,6 +1826,30 @@ fn json_type_phrase(value: &Value) -> String {
 
 /// The candidate closest to `name`: equal ignoring case, `-`/`_` and spaces,
 /// or within an edit distance of 2. `None` when nothing is that close.
+/// The " Did you mean `x`?" for an undeclared argument or op field `key`
+/// given `value`, or "" when nothing fits. A declared field whose `enum`
+/// lists `value` wins over a near spelling: `{"op": "move_node"}` was
+/// answered "Did you mean `id`?" (one edit from `op`), when the agent had
+/// named the op's `type` by another word.
+fn unknown_name_hint(
+    key: &str,
+    value: &Value,
+    declared: &serde_json::Map<String, Value>,
+    names: &[&str],
+) -> String {
+    let by_value = value.as_str().and_then(|v| {
+        names.iter().copied().find(|n| {
+            declared[*n]["enum"]
+                .as_array()
+                .is_some_and(|e| e.iter().any(|x| x.as_str() == Some(v)))
+        })
+    });
+    by_value
+        .or_else(|| closest_name(key, names))
+        .map(|n| format!(" Did you mean `{n}`?"))
+        .unwrap_or_default()
+}
+
 fn closest_name<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let norm = |s: &str| -> String {
         s.chars()

@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An unknown MCP argument whose value belongs to another argument points
+  at that argument.** An `edit_canvas` op written as `{"op": "move_node"}`
+  was refused with "Did you mean `id`?", the declared field one letter from
+  `op`, when the op is named by `type`. The hint now names the declared
+  field whose allowed values include the given one (`type` here, `format`
+  for `export` called with `"kind": "html"`), and falls back to the nearest
+  spelling otherwise.
 - **The install guide describes the update prompt the app shows.** It
   said to click **Update** and offered **Help → Check for Updates**, which
   does not exist. The prompt's buttons are **Install** and **Later**, and
