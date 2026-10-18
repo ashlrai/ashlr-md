@@ -414,3 +414,98 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
     assert_eq!(ctx["messages"][0]["role"], "human", "the latest one: {ctx}");
     c.finish();
 }
+
+/// An agent writes `~/notes/plan.md` as a person would, and no shell expands
+/// it inside a JSON argument. It used to be read as a folder named `~` in the
+/// server's working directory, so every path tool said the file did not exist.
+#[test]
+fn a_path_under_the_home_directory_can_be_written_with_a_tilde() {
+    let home = tempfile::Builder::new().prefix("home-").tempdir().unwrap();
+    let notes = home.path().join("notes");
+    std::fs::create_dir(&notes).unwrap();
+    std::fs::write(notes.join("plan.md"), PLAN).unwrap();
+    std::fs::write(
+        notes.join("plan v2.md"),
+        PLAN.replace("by Friday", "by Monday"),
+    )
+    .unwrap();
+    std::fs::write(
+        notes.join("board.canvas"),
+        r#"{"nodes":[{"id":"n1","type":"text","text":"x","x":0,"y":0,"width":10,"height":10}],"edges":[]}"#,
+    )
+    .unwrap();
+    // The working directory is somewhere else, with no `~` folder in it.
+    let cwd = tempfile::Builder::new().prefix("cwd-").tempdir().unwrap();
+    let real = |p: &str| std::fs::canonicalize(notes.join(p)).unwrap();
+
+    let mut c = Client::start(home.path(), cwd.path());
+    c.request(
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": { "name": "agent-journey", "version": "1" } }),
+    );
+
+    let text = c.ok("export_text", json!({ "path": "~/notes/plan.md" }));
+    assert_eq!(text["path"], json!(real("plan.md")), "{text}");
+    let meta = c.ok("export_metadata", json!({ "path": "~/notes/plan.md" }));
+    assert_eq!(meta["frontmatter"]["title"], "Launch plan", "{meta}");
+
+    let diff = c.ok(
+        "diff_documents",
+        json!({ "path_a": "~/notes/plan.md", "path_b": "~/notes/plan v2.md" }),
+    );
+    assert_eq!(diff["path_a"], json!(real("plan.md")), "{diff}");
+    assert_eq!(diff["hunks"], 1, "{diff}");
+
+    let notes_ann = c.ok("get_user_annotations", json!({ "path": "~/notes/plan.md" }));
+    assert_eq!(notes_ann["path"], json!(real("plan.md")), "{notes_ann}");
+    assert_eq!(
+        notes_ann["tasks"].as_array().unwrap().len(),
+        2,
+        "{notes_ann}"
+    );
+
+    let found = c.ok(
+        "search_vault",
+        json!({ "query": "changelog", "vault": "~/notes", "semantic": false }),
+    );
+    assert_eq!(found["mode"], "grep-disk", "{found}");
+    assert_eq!(
+        found["vault"],
+        json!(std::fs::canonicalize(&notes).unwrap()),
+        "{found}"
+    );
+    assert_eq!(found["results"].as_array().unwrap().len(), 2, "{found}");
+
+    let canvas = c.ok(
+        "edit_canvas",
+        json!({ "path": "~/notes/board.canvas", "save": false,
+                "ops": [{ "type": "move_node", "id": "n1", "x": 5, "y": 6 }] }),
+    );
+    assert_eq!(canvas["path"], json!(real("board.canvas")), "{canvas}");
+
+    let saved = c.ok(
+        "save_conversation_message",
+        json!({ "session_id": "tilde", "role": "agent", "content": "read it",
+                "cited_docs": ["~/notes/plan.md"] }),
+    );
+    assert_eq!(saved["ok"], true, "{saved}");
+    let ctx = c.ok("get_conversation_context", json!({ "session_id": "tilde" }));
+    assert_eq!(
+        ctx["recentDocs"],
+        json!([notes.join("plan.md")]),
+        "stored under the home directory: {ctx}"
+    );
+
+    // A `~` that is not the first component, or `~user`, is kept as given.
+    let (is_error, text) = c.call("export_text", json!({ "path": "~nobody/plan.md" }));
+    assert!(is_error, "{text}");
+    assert!(
+        text.contains(&format!(
+            "{}",
+            cwd.path().canonicalize().unwrap().join("~nobody").display()
+        )),
+        "{text}"
+    );
+    c.finish();
+}

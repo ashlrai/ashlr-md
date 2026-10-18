@@ -1125,6 +1125,85 @@ fn set_content_large_content_not_truncated() {
     assert_eq!(sent.len(), 11 * 1024 * 1024, "large content was truncated");
 }
 
+/// The app reads at most 16 MiB of a request body: past that it answers 413
+/// and closes the connection, so the agent saw "IPC write error: Connection
+/// reset by peer", which reads as an app that crashed, with no next step.
+/// Every tool that sends text to the app now refuses such a request first,
+/// measured as sent (JSON-escaped), and says what to do instead.
+#[test]
+fn a_request_larger_than_the_app_reads_is_refused_before_it_is_sent() {
+    let big = "x".repeat(17 * 1024 * 1024);
+    // Under 16 MiB as text, but each newline is two bytes once escaped.
+    let escaped = "\n".repeat(9 * 1024 * 1024);
+    let ok = Ok(json!({ "ok": true }));
+    for (tool, args, next) in [
+        (
+            "set_content",
+            json!({ "content": big }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "set_content",
+            json!({ "content": escaped }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "replace_document",
+            json!({ "content": big }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": big }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": big, "replace": "b" }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": big }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "request_review",
+            json!({ "content": big, "blocking": false }),
+            "pass its `path` instead",
+        ),
+    ] {
+        let ipc = MockIpc::new()
+            .on_post("/", ok.clone())
+            .on_get("/", Ok(json!({ "path": null, "content": "" })));
+        let resp = dispatch(
+            dispatch_req("tools/call", json!({ "name": tool, "arguments": args })),
+            &ipc,
+        )
+        .unwrap();
+        let err = resp
+            .error
+            .unwrap_or_else(|| panic!("{tool}: {:?}", resp.result));
+        assert_eq!(err.code, -32602, "{tool}: {}", err.message);
+        assert!(
+            err.message.contains(
+                "more than the 16 MiB Ashlr MD accepts in one request, so nothing was sent."
+            ),
+            "{tool}: {}",
+            err.message
+        );
+        assert!(err.message.contains(next), "{tool}: {}", err.message);
+        assert!(
+            ipc.calls().iter().all(|(m, _, _)| m != "POST"),
+            "{tool}: nothing is sent: {:?}",
+            ipc.calls()
+                .iter()
+                .map(|(m, p, _)| (m, p))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
 /// The app answers `/content` once the window has replaced the document (and
 /// saved it when asked). A refusal must reach the agent as a tool error, not
 /// as a success carrying `ok: false`.
@@ -11221,6 +11300,68 @@ fn document_reads_refuse_a_file_larger_than_16_mib() {
     assert_eq!(
         read_document_file(&at_cap).unwrap().len() as u64,
         MAX_DOCUMENT_BYTES
+    );
+}
+
+/// A document that is not UTF-8 (a Latin-1 or UTF-16 file, as some Windows
+/// editors save) was refused with the bare "stream did not contain valid
+/// UTF-8", which named neither where the problem was nor what to do, and
+/// `get_user_annotations`' `tasksNote` ran it on into "Its tasks were not
+/// read." with no full stop. The reason now says where and how to convert it.
+#[test]
+fn a_document_that_is_not_utf8_is_refused_with_where_and_what_to_do() {
+    let dir = tempfile::Builder::new().prefix("enc-").tempdir().unwrap();
+    let latin = dir.path().join("latin.md");
+    std::fs::write(&latin, b"# Menu\n\ncaf\xe9 au lait\n").unwrap();
+    let utf16 = dir.path().join("utf16.md");
+    std::fs::write(&utf16, b"\xff\xfe#\x00 \x00H\x00i\x00").unwrap();
+    let ok = dir.path().join("ok.md");
+    std::fs::write(&ok, "# ok\n").unwrap();
+    let canvas = dir.path().join("board.canvas");
+    std::fs::write(&canvas, b"{\"nodes\": [], \"edges\": [], \"t\": \"\xe9\"}").unwrap();
+
+    let convert = "Ashlr MD reads documents as UTF-8: convert the file to UTF-8";
+    for (tool, args) in [
+        ("export_text", json!({ "path": latin })),
+        ("export_metadata", json!({ "path": latin })),
+        ("diff_documents", json!({ "path_a": ok, "path_b": latin })),
+    ] {
+        let msg = tool_error_text(&call_tool(tool, args));
+        assert!(
+            msg.contains("it is not UTF-8 text (byte 12 is not valid UTF-8, on line 3)"),
+            "{tool}: {msg}"
+        );
+        assert!(msg.contains(convert), "{tool}: {msg}");
+        assert!(!msg.contains("stream did not contain"), "{tool}: {msg}");
+    }
+    let msg = tool_error_text(&call_tool("export_text", json!({ "path": utf16 })));
+    assert!(msg.contains("it is UTF-16 text, not UTF-8"), "{msg}");
+    assert!(msg.contains(convert), "{msg}");
+    let msg = tool_error_text(&call_tool(
+        "edit_canvas",
+        json!({ "path": canvas, "ops": [{ "type": "delete_node", "id": "a" }] }),
+    ));
+    assert!(
+        msg.contains("it is not UTF-8 text (byte 34 is not valid UTF-8, on line 1)"),
+        "{msg}"
+    );
+
+    // Read from disk with the app closed: the note is two sentences.
+    let ipc = MockIpc::new().on_get(
+        "/annotations",
+        Err("~/.mdopener/ipc-port not found".to_string()),
+    );
+    let out = content_text(&tool_get_annotations(
+        id(1),
+        &json!({ "path": latin }),
+        &ipc,
+    ));
+    assert_eq!(out["tasks"], json!([]), "{out}");
+    let note = out["tasksNote"].as_str().unwrap();
+    assert!(note.contains(convert), "{note}");
+    assert!(
+        note.ends_with("then try again. Its tasks were not read."),
+        "{note}"
     );
 }
 
