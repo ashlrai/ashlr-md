@@ -70,6 +70,27 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   sending anything (the size is counted with JSON escapes), saying what to
   do instead: change part of the document with `edit_document`, split the
   edit, or pass the review text as a file's `path`.
+- **MCP: `search_vault` says which vault files it could not read.** A vault
+  or recent Markdown file that is not UTF-8 text, is larger than 16 MiB or
+  cannot be read was left out of the on-disk searches (modes `grep-disk`,
+  `grep-local` and `semantic`) in silence, so words in it came back as no
+  hits. The `note` now says how many files were not searched, names the
+  first three with the reason (`/v/latin.md (not UTF-8 text (byte 4 is not
+  valid UTF-8, on line 1))`), counts the rest, and says to convert a file
+  that is not UTF-8.
+- **The app says where a document is not UTF-8, and what to do.** Opening a
+  Latin-1 or UTF-16 file in the window, or through `open_file`,
+  `present_document` or `request_review`, and applying a patch to one, failed
+  with the bare "stream did not contain valid UTF-8". The app now gives the
+  reason mdopener-mcp gives: the first byte that is not valid UTF-8 and its
+  line (or that the file is UTF-16), and to convert the file to UTF-8.
+- **MCP: `edit_canvas` takes `.canvas` in any case.** Only an exact
+  lowercase `.canvas` was accepted, so `Board.CANVAS` was refused while
+  Markdown extensions match in any case. Any case is taken now, and a `path`
+  that is not a canvas is refused with `-32602` naming the path. The docs of
+  `search_vault`'s `vault` walk now also say that a file symlink is followed
+  (the file it resolves to is searched under that path); only directory
+  symlinks are skipped, as before.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale

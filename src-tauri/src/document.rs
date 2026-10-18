@@ -740,6 +740,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A Latin-1 or UTF-16 file was refused with the bare "stream did not
+    /// contain valid UTF-8" (opening it, presenting it, reviewing it, and a
+    /// patch of it). The reason now says where the first invalid byte is (or
+    /// that the file is UTF-16) and to convert the file, as mdopener-mcp does.
+    #[test]
+    fn a_document_that_is_not_utf8_says_where_and_what_to_do() {
+        let root = make_tree();
+        let latin = root.join("latin.md");
+        std::fs::write(&latin, b"# Notes\ncaf\xe9\n").unwrap();
+        let err = read_markdown_file(s(&latin))
+            .err()
+            .expect("Latin-1 was read");
+        assert_eq!(
+            err,
+            format!(
+                "Could not read {}: it is not UTF-8 text (byte 12 is not valid UTF-8, on \
+                 line 2). Ashlr MD reads documents as UTF-8: convert the file to UTF-8 (for \
+                 example `iconv -f WINDOWS-1252 -t UTF-8`, or save it as UTF-8 in its \
+                 editor), then try again.",
+                s(&latin)
+            )
+        );
+        let utf16 = root.join("utf16.md");
+        std::fs::write(&utf16, [0xFF, 0xFE, b'#', 0, b' ', 0, b'x', 0]).unwrap();
+        let err = read_markdown_file(s(&utf16))
+            .err()
+            .expect("UTF-16 was read");
+        assert!(err.contains(": it is UTF-16 text, not UTF-8. "), "{err}");
+        assert!(err.contains("convert the file to UTF-8"), "{err}");
+        let err =
+            apply_file_patch(s(&root), "latin.md".into(), "caf".into(), "x".into()).unwrap_err();
+        assert!(
+            err.contains("(byte 12 is not valid UTF-8, on line 2)"),
+            "{err}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     fn make_tree() -> std::path::PathBuf {
         // Unique dir per call so the (parallel) tests don't race on a shared path.
         use std::sync::atomic::{AtomicU64, Ordering};
