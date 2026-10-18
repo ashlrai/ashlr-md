@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A popover action with no provider shows why on the setup panel.** When
+  an action from the selection popover found no AI provider, it opened the AI
+  sidebar, whose setup panel then hid the message in the chat behind it, so
+  the user saw the panel and no reason; the message also said "Set one up in
+  the AI sidebar" from inside that sidebar. The panel now shows the message on
+  top, the message points at the panel's options, and a sidebar that still
+  showed the chat switches to the panel.
 - **The no-provider message is true on every platform.** With no AI
   provider, the AI sidebar's answer and the change banner's **Explain
   changes** said only "Install Ollama or add an Anthropic API key", with no

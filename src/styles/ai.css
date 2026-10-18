@@ -209,6 +209,12 @@
   text-align: center;
 }
 
+.ai-setup-nudge__notice {
+  align-self: stretch;
+  display: flex;
+  text-align: left;
+}
+
 .ai-setup-nudge__icon {
   font-size: 36px;
   line-height: 1;

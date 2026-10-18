@@ -22,6 +22,15 @@ export interface AIErrorInfo {
  */
 export const NO_PROVIDER_MESSAGE = "No AI provider. Set one up in the AI sidebar.";
 
+/**
+ * What the selection popover leaves in the AI sidebar when no provider is
+ * found. The popover opens the sidebar, which then shows its setup panel
+ * with this message on top (AISidebar's SetupNudge), so it points at the
+ * panel's options instead of at "the AI sidebar" the user is already in.
+ */
+export const NO_PROVIDER_RUN_MESSAGE =
+  "No AI provider was found, so this did not run. Set one up here, then select the text and try again.";
+
 /** Whether the app runs on macOS, read at call time. */
 export function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
