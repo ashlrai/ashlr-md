@@ -1835,6 +1835,61 @@ fn get_user_annotations_reads_tasks_from_disk_when_the_app_is_not_running() {
     }
 }
 
+/// An app that answers HTTP 401 (a stale ~/.mdopener/ipc-token, or another
+/// instance on the port) was the bare "IPC auth failed" error: no tasks and no
+/// next step. The tasks now come from disk, and the note names the token and
+/// how to fix it.
+#[test]
+fn get_user_annotations_reads_tasks_from_disk_when_the_app_refuses_the_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("plan.md");
+    std::fs::write(&file, "- [x] write it\n- [ ] test it\n").unwrap();
+    let raw = b"HTTP/1.0 401 Unauthorized\r\n\r\n{}";
+    let err = mdopener_mcp::parse_http_body(raw).unwrap_err();
+    let ipc = MockIpc::new().on_get("/annotations", Err(err));
+    let resp = tool_get_annotations(id(1), &json!({ "path": file.to_str().unwrap() }), &ipc);
+    assert!(!is_error(&resp), "{:?}", resp.result);
+    let v = content_text(&resp);
+    assert_eq!(
+        v["tasks"],
+        json!([
+            { "text": "write it", "checked": true },
+            { "text": "test it", "checked": false }
+        ]),
+        "{v}"
+    );
+    assert!(v["verdict"].is_null() && v["comments"].is_null(), "{v}");
+    assert_eq!(v["appAuthFailed"], true, "{v}");
+    assert!(v.get("appRunning").is_none(), "the app may be running: {v}");
+    assert_eq!(v["note"], mdopener_mcp::ANNOTATIONS_APP_AUTH_FAILED_NOTE);
+    let note = v["note"].as_str().unwrap();
+    for part in ["ipc-token", "401", "quit", "get_user_annotations again"] {
+        assert!(note.contains(part), "{part}: {note}");
+    }
+}
+
+/// With a 401 the file that cannot be read still says why.
+#[test]
+fn get_user_annotations_with_a_refused_token_says_why_a_file_was_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.md");
+    let ipc = MockIpc::new().on_get(
+        "/annotations",
+        Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+    );
+    let resp = tool_get_annotations(id(1), &json!({ "path": missing.to_str().unwrap() }), &ipc);
+    let v = content_text(&resp);
+    assert_eq!(v["tasks"], json!([]), "{v}");
+    assert_eq!(v["appAuthFailed"], true);
+    assert!(
+        v["tasksNote"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("were not read"),
+        "{v}"
+    );
+}
+
 /// A file the disk read cannot take (missing, not Markdown) has no tasks, and
 /// `tasksNote` says why rather than an empty list reading as "no tasks".
 #[test]
@@ -9377,7 +9432,7 @@ fn tool_descriptions_name_their_result_shapes() {
         (
             "get_user_annotations",
             &[
-                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, note? }",
+                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, appAuthFailed?, note? }",
                 "null when no review",
             ][..],
         ),

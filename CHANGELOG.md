@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `get_user_annotations` reads the file on disk when the app refuses
+  the token.** An app that answered HTTP 401 (a stale
+  `~/.mdopener/ipc-token`, or another Ashlr MD instance on the port) gave the
+  bare "IPC auth failed" error, with no tasks and no next step, while a
+  closed app got the disk fallback. It now reads the task checkboxes from
+  disk too, with `verdict` and `comments` `null`, `appAuthFailed: true`, and a
+  `note` naming the token and saying to quit and restart Ashlr MD.
 - **MCP: `export_text` and `export_metadata` without `path` say to pass it
   when the app is closed.** Both read any Markdown file on disk without the
   app, but called without `path` while Ashlr MD was not running they said
