@@ -5,11 +5,11 @@
 //! convention), creating a symlink to the bundled sidecar. On Windows it copies
 //! `mdopen.exe` into `~/.local/bin`, which the user must add to `PATH`.
 //!
-//! Wire a "Install CLI tool" button in Preferences to:
+//! The **Install mdopen** button in Preferences (Command-line tool section,
+//! `src/components/settings/sections/CliSection.tsx`) calls it:
 //! ```ts
 //! import { invoke } from "@tauri-apps/api/core";
 //! const path = await invoke<string>("install_cli");
-//! alert(`mdopen installed at ${path}`);
 //! ```
 
 use std::path::{Path, PathBuf};

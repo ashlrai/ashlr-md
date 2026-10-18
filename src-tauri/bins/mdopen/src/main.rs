@@ -20,9 +20,9 @@
 //!   Windows — `rundll32 url.dll,FileProtocolHandler <url>`
 //!
 //! This binary is intentionally tiny: std only + urlencoding.  It is bundled
-//! as a Tauri sidecar and also installed to /usr/local/bin (macOS/Linux) or
-//! %LOCALAPPDATA%\Programs\mdopen (Windows) by the in-app "Install CLI tool"
-//! command.
+//! as a Tauri sidecar and also installed to /usr/local/bin or ~/.local/bin
+//! (macOS/Linux) or %USERPROFILE%\.local\bin (Windows) by the in-app
+//! **Install mdopen** button (Preferences, Command-line tool).
 
 use std::path::{Path, PathBuf};
 use std::process;

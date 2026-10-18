@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Code comments name the Install mdopen button.** The `mdopen` and
+  `install_cli` source comments still called the Preferences button
+  "Install CLI tool", and the `mdopen` one gave a Windows install folder
+  the app does not use. They now name **Install mdopen** and the real
+  folders (`/usr/local/bin` or `~/.local/bin`, and
+  `%USERPROFILE%\.local\bin` on Windows).
 - **The shortcut tables list every shortcut.** The README's table and
   the landing page's grid left out ⌘⇧C (Copy as rich text) and ⌘⇧T
   (Insert table), and the landing grid also lacked find, replace,
