@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **⌘⌥F works outside the source editor on macOS.** Option changes the
+  character a key types (Option+F types "ƒ"), so the app's shortcut
+  matcher, which compared that character, never saw ⌘⌥F as Find and
+  replace. On macOS, with Option held, a letter shortcut now also
+  matches by the physical key; other platforms match as before.
 - **Code comments name the Install mdopen button.** The `mdopen` and
   `install_cli` source comments still called the Preferences button
   "Install CLI tool", and the `mdopen` one gave a Windows install folder

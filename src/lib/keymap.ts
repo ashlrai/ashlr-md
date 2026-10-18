@@ -67,6 +67,20 @@ function eventKey(e: KeyboardEvent): string {
 }
 
 /**
+ * On macOS, Option changes `KeyboardEvent.key` to the character it types
+ * (Option+F reports "ƒ"), so "mod+alt+f" never matched `e.key` there. When
+ * Option is held and the shortcut's key is a letter, fall back to the
+ * physical key (`e.code`, "KeyF"), but only when `e.key` is not a plain
+ * letter, so a layout whose Option layer still types letters keeps
+ * matching by character. Other platforms report the letter in `e.key`.
+ */
+function macOptionLetter(e: KeyboardEvent, key: string): boolean {
+  if (!IS_MAC || !e.altKey || !/^[a-z]$/.test(key)) return false;
+  if (/^[a-z]$/i.test(e.key)) return false;
+  return e.code === `Key${key.toUpperCase()}`;
+}
+
+/**
  * True when `e` matches `shortcut`. Modifier matching is exact for mod / shift
  * / alt so that e.g. "mod+l" does not also fire on "mod+shift+l".
  */
@@ -82,7 +96,7 @@ export function matchShortcut(e: KeyboardEvent, shortcut: string): boolean {
   if (s.shift !== e.shiftKey) return false;
   if (s.alt !== e.altKey) return false;
 
-  return eventKey(e) === s.key;
+  return eventKey(e) === s.key || macOptionLetter(e, s.key);
 }
 
 /**
