@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` keeps indented code as code.** A line was trimmed
+  before its `#`s were taken off, so a `# comment` indented four spaces
+  lost its `#` and the `*` and `_` of indented code were stripped as
+  emphasis. Headings now follow the ATX rule of `export_metadata`, and
+  indented code that opens after a blank line or a heading is kept as
+  written without its indent. Inside a list an indented line is still read
+  as the item's continuation, so code there may be read as text, but text
+  is never read as code.
 - **MCP: a title and the headings read a heading the same way.**
   `export_metadata`'s headings trimmed the whole line, so a `# comment`
   indented four spaces (indented code) was a heading, while a recent

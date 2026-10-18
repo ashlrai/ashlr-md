@@ -8173,6 +8173,57 @@ fn title_and_headings_share_the_atx_heading_rule() {
     assert!(docs.contains("so a `# comment` indented four spaces is indented code"));
 }
 
+/// `strip_markdown` trimmed a line before it took its `#`s off, so a
+/// `# comment` indented four spaces lost its `#` and the rest of the
+/// indented code was read as Markdown. A heading now follows the ATX rule
+/// of the headings, and indented code that opens after a blank line or a
+/// heading is kept as code without its indent. After a list item an
+/// indented line is the item's continuation and is still read as text.
+#[test]
+fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
+    let cases = [
+        // Indented code after a blank line or a heading is code.
+        (
+            "Run this:\n\n    # install\n    make **all**\n\nDone",
+            "Run this:\n\n# install\nmake **all**\n\nDone",
+        ),
+        ("# Setup\n    # step\n", "Setup\n# step"),
+        ("\t# tabbed\n", "# tabbed"),
+        // Blank lines inside an indented block keep it open.
+        ("    # a\n\n    # b\n", "# a\n\n# b"),
+        // An indented line in a paragraph continues it.
+        ("Para\n    # lazy", "Para\n# lazy"),
+        // An indented line after a list item is its continuation, not code.
+        ("- item\n\n    **more**\n", "item\n\nmore"),
+        ("1. step\n    *more*\n", "step\nmore"),
+        // The list ends at a paragraph at column 0 after a blank line.
+        ("- item\n\nPara\n\n    *code*\n", "item\n\nPara\n\n*code*"),
+        // Headings by the ATX rule.
+        ("   ### Three ###\n", "Three"),
+        ("#\tTabbed\n", "Tabbed"),
+        ("#tag and C#\n", "#tag and C#"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, "# Notes\n\n    # keep\n").unwrap();
+    let resp = tool_export_text(
+        id(1),
+        &json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    );
+    let text = resp.result.unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["text"], "Notes\n\n# keep");
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("indented code is kept as code without its indent"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

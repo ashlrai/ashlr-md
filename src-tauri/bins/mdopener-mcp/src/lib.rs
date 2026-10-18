@@ -7865,7 +7865,16 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   block is closed only by the same character at least as long. Any line
 ///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
 ///   backtick block ended it and the code after it lost its `#`s and `*`s.
-/// - ATX headings: leading `#` characters and a space are removed.
+/// - Indented code (a line indented four columns or more that opens a block
+///   after a blank line or a heading) is kept as code without its indent, by
+///   [`markdown_lines::with_indented_code`]. After a list item an indented
+///   line is read as the item's continuation, not as code, until the list
+///   ends: telling the two apart needs the item's content column, so some
+///   code in a list item is read as text but text is never read as code.
+/// - ATX headings ([`markdown_lines::atx_heading`]: at most three spaces,
+///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
+///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
+///   `# comment` indented four spaces lost its `#`.
 /// - Setext heading underlines (`===` / `---` only lines) are removed.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
@@ -7880,7 +7889,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
-    let lines: Vec<(LineKind, &str)> = markdown_lines::markdown_lines(content)
+    let lines: Vec<(LineKind, &str)> = markdown_lines::with_indented_code(content)
         .filter(|(kind, _)| *kind != LineKind::FrontMatter)
         .collect();
 
@@ -7895,6 +7904,12 @@ pub fn strip_markdown(content: &str) -> String {
             }
             LineKind::Code => {
                 out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            LineKind::IndentedCode => {
+                in_table = false;
+                out.push_str(markdown_lines::without_code_indent(line));
                 out.push('\n');
                 continue;
             }
@@ -7948,14 +7963,7 @@ pub fn strip_markdown(content: &str) -> String {
         }
 
         // Strip ATX heading markers.
-        let line = {
-            let stripped = trimmed.trim_start_matches('#');
-            if stripped.len() < trimmed.len() && stripped.starts_with(' ') {
-                without_closing_hashes(stripped.trim_start())
-            } else {
-                line
-            }
-        };
+        let line = markdown_lines::atx_heading(line).map_or(line, |(_, text)| text);
 
         // Strip blockquote leaders.
         let line = {
@@ -8767,22 +8775,6 @@ fn split_flow_items(inner: &str) -> Vec<&str> {
     items.push(inner[start..].trim());
     items.retain(|s| !s.is_empty());
     items
-}
-
-/// An ATX heading's text without its optional closing sequence: `Title ##`
-/// is `Title`, while `C#` and `#hashtag` keep their `#`.
-fn without_closing_hashes(text: &str) -> &str {
-    let text = text.trim_end();
-    let body = text.trim_end_matches('#');
-    if body.len() == text.len() {
-        text
-    } else if body.is_empty() {
-        ""
-    } else if body.ends_with([' ', '\t']) {
-        body.trim_end()
-    } else {
-        text
-    }
 }
 
 /// Extract ATX headings into a tree.

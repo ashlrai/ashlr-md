@@ -21,6 +21,8 @@ pub enum LineKind {
     Fence,
     /// A line inside a fenced code block.
     Code,
+    /// A line of an indented code block, only from [`with_indented_code`].
+    IndentedCode,
     /// Any other line.
     Text,
 }
@@ -122,4 +124,99 @@ pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
         text
     };
     Some((level, text))
+}
+
+/// [`markdown_lines`], with the text lines of an indented code block marked
+/// [`LineKind::IndentedCode`]: a line indented four columns or more (a tab
+/// reaches the next multiple of four) that opens a block after a blank
+/// line, a heading, a fence or the start of the document, and the indented
+/// lines after it, blank lines between them included. An indented line in
+/// a paragraph continues the paragraph, as CommonMark reads it.
+///
+/// Inside a list an indented line is often an item's continuation, not
+/// code, and telling the two apart needs the item's content column. So
+/// after a list item no indented line is code until the list ends at a line
+/// that starts at column 0, is not a list item and follows a blank line (or
+/// is a heading). That reads some code inside a list item as text, never
+/// text as code.
+#[allow(dead_code)]
+pub fn with_indented_code(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
+    let mut can_open = true;
+    let mut in_code = false;
+    let mut in_list = false;
+    markdown_lines(content).map(move |(kind, line)| {
+        if kind != LineKind::Text {
+            // Front matter or a fence may be followed by indented code.
+            can_open = true;
+            in_code = false;
+            return (kind, line);
+        }
+        if line.trim().is_empty() {
+            can_open = true;
+            return (kind, line);
+        }
+        if indent_columns(line) >= 4 && (in_code || (can_open && !in_list)) {
+            in_code = true;
+            return (LineKind::IndentedCode, line);
+        }
+        in_code = false;
+        let heading = atx_heading(line).is_some();
+        if is_list_item(line) {
+            in_list = true;
+        } else if indent_columns(line) == 0 && (can_open || heading) {
+            in_list = false;
+        }
+        can_open = heading;
+        (kind, line)
+    })
+}
+
+/// `line` without the four columns of indentation that make it indented
+/// code (a tab reaches the next multiple of four).
+#[allow(dead_code)]
+pub fn without_code_indent(line: &str) -> &str {
+    let mut col = 0;
+    for (i, c) in line.char_indices() {
+        if col >= 4 {
+            return &line[i..];
+        }
+        match c {
+            ' ' => col += 1,
+            '\t' => col += 4 - col % 4,
+            _ => return &line[i..],
+        }
+    }
+    ""
+}
+
+/// How many columns of spaces and tabs `line` starts with, a tab reaching
+/// the next multiple of four.
+fn indent_columns(line: &str) -> usize {
+    let mut col = 0;
+    for c in line.chars() {
+        match c {
+            ' ' => col += 1,
+            '\t' => col += 4 - col % 4,
+            _ => break,
+        }
+    }
+    col
+}
+
+/// Whether `line` starts a list item: at most three spaces, then `-`, `*`,
+/// `+`, or 1 to 9 digits and `.` or `)`, then a space, a tab or the end.
+fn is_list_item(line: &str) -> bool {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return false;
+    }
+    let digits = body.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = if digits == 0 {
+        body.strip_prefix(['-', '*', '+'])
+    } else if digits <= 9 {
+        body[digits..].strip_prefix(['.', ')'])
+    } else {
+        None
+    };
+    rest.is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t']))
 }
