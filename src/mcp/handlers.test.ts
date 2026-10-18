@@ -229,6 +229,26 @@ describe("handlers integration — smoke tests per module", () => {
     expect(useUiStore.getState().exportOpen).toBe(false);
   });
 
+  it("export handler: with no document open names open_file as the next step", async () => {
+    useDocumentStore.setState({ path: null } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_0",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_0",
+      ok: false,
+      replaced: 0,
+      error:
+        'No document is open to export. Call open_file with the document\'s `path` and mode "read", then retry.',
+    });
+  });
+
   it("export handler: reports a headless export's outcome to the waiting request", async () => {
     const { exportHtml } = await import("../lib/export");
     useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
@@ -700,7 +720,12 @@ describe("handlers integration — open and present report the outcome", () => {
     >[0]);
     await fireEvent("mcp://present", { editId: "p1", path: null });
     expect(useUiStore.getState().zenMode).toBe(false);
-    expect(reply()).toMatchObject({ editId: "p1", ok: false });
+    expect(reply()).toMatchObject({
+      editId: "p1",
+      ok: false,
+      error:
+        "No document is open to present. Pass `path` to present_document, or call open_file with the document's `path` first.",
+    });
   });
 });
 

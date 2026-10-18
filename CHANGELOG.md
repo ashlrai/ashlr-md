@@ -116,6 +116,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   in Ashlr MD; open one first (open_file)." before it applies anything. The
   descriptions now say that, and that a failed save is the error that says
   the content was replaced but not saved.
+- **MCP: `export` and `present_document` with no document open name the
+  next step.** They answered "No document is open; open one before
+  exporting." and "No document is open to present.", without the tool that
+  opens one. `export` now says to call `open_file` with the document's
+  `path` and mode "read", then retry, and `present_document` says to pass
+  `path`, or to call `open_file` with the document's `path` first. The
+  app's IPC and its window give the same text.
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed

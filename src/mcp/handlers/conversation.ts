@@ -22,6 +22,13 @@ async function openForAgent(path: string): Promise<string | null> {
 }
 
 /**
+ * What `present_document` without `path` answers when no document is open.
+ * It used to stop at "No document is open to present." with no next step.
+ */
+export const NO_DOCUMENT_TO_PRESENT =
+  "No document is open to present. Pass `path` to present_document, or call open_file with the document's `path` first.";
+
+/**
  * Report an open or present to the IPC round-trip waiting on
  * `mcp_edit_result`. A payload with no `editId` (a review opening its file)
  * has nobody waiting, so the failure is only logged.
@@ -73,9 +80,7 @@ export function handlePresent(): Promise<UnlistenFn> {
       if (path) {
         error = await openForAgent(path);
       } else {
-        error = useDocumentStore.getState().path
-          ? null
-          : "No document is open to present.";
+        error = useDocumentStore.getState().path ? null : NO_DOCUMENT_TO_PRESENT;
       }
       if (error === null) {
         useDocumentStore.getState().setViewMode("read");
