@@ -108,6 +108,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   once answered the server with `matchCount: 0`; it now sends the number of
   occurrences, as a preview does (the error already says "not unique (3
   matches)").
+- **MCP: `set_content` and `replace_document` no longer promise a result
+  that never comes.** Their descriptions said that with `save: true` "a
+  document with no file yet" is an error saying the content was replaced
+  but not saved. The app opens only files, and with none it shows its
+  welcome screen, so the window refuses such a call as "No document is open
+  in Ashlr MD; open one first (open_file)." before it applies anything. The
+  descriptions now say that, and that a failed save is the error that says
+  the content was replaced but not saved.
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed
