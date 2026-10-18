@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the current document says what any other HTTP error is.**
+  `mdopener://current`, `mdopener://recent-documents` and the prompts
+  answer `-32000`, with the app's reason as the message, when the app
+  answers an HTTP error other than 401 (a 404 or a 500). Their
+  `resources/list` and `prompts/list` text and docs/AGENTS.md said nothing
+  about it. They now do, and a 500 whose reason held "not found" or
+  "connect" is no longer reported as Ashlr MD not running, for every tool.
 - **MCP: the prompts say what `-32000` means.** Each prompt's
   `prompts/list` description, and docs/AGENTS.md's prompts reference, said
   `-32000` means the app is not running. It is also the code, with the

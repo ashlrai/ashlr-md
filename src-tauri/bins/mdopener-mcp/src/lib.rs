@@ -4084,7 +4084,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error.",
         "mimeType": "text/markdown"
     })];
 
@@ -4107,7 +4107,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4231,7 +4231,10 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// JSON-RPC error: `-32002` when no document is open (the app answers
 /// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
 /// `-32000` when the app cannot be reached or refuses this server's token
-/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]). An open document that is empty
+/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]), and `-32000` with the app's
+/// reason when it answers any other HTTP error (a 404 or a 500): JSON-RPC
+/// keeps -32000 to -32099 for server errors, and the app failing is one; no
+/// standard code fits better. An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
 /// prompts already refused it. The app opens only files, so `path: null` is
@@ -4649,7 +4652,7 @@ fn lists_path(v: &Value, path: &str) -> bool {
 /// is also the code when the app refuses this server's token (HTTP 401), as
 /// the `mdopener://current` entry says; the note used to name only a closed
 /// app.
-pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).";
+pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Any other HTTP error from the app is -32000 too, with the app's reason.";
 
 pub fn prompts_list() -> Value {
     let described = |what: &str| format!("{what} {PROMPT_USAGE_NOTE}");
@@ -6040,9 +6043,12 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
     if app_auth_failed(err) {
         return APP_AUTH_FAILED_MSG.to_string();
     }
-    // The running app refused the request: its reason (which may quote a
-    // path containing "connect" or "not found") is the agent's to see as is.
-    if app_refused(err) {
+    // The running app refused the request or failed it (any HTTP error but
+    // 401): its reason (which may quote a path containing "connect" or "not
+    // found") is the agent's to see as is. A 5xx used to be checked for
+    // those words, so a reason such as "template not found" read as a
+    // closed app.
+    if err.starts_with("IPC server returned HTTP ") {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {

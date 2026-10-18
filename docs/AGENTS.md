@@ -439,7 +439,9 @@ names the same parameters, `&limit=` included (it used to leave `limit` out).
   open"), as for the prompts. It is `-32000` when the app is not running,
   and also when the app answers HTTP 401 (it refuses this server's token),
   with the refused-token message (see [Troubleshooting](#troubleshooting))
-  instead of the not-running one.
+  instead of the not-running one. Any other HTTP error the app answers (a
+  404 or a 500) is `-32000` too, with the app's reason as the message (a
+  500 whose reason said "not found" used to read as a closed app).
 - **`text://vault-search?q=<query>`**: the same search as `search_vault`, as a
   resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
   `&semantic=false` or `true` to force grep or semantic search, like
@@ -464,9 +466,9 @@ names the same parameters, `&limit=` included (it used to leave `limit` out).
   Markdown, or not a regular file), `tooLarge` (past 16 MiB) and
   `unreadable` (any other read failure, such as text that is not UTF-8).
   An app with no recents gives an empty list;
-  an app that cannot be reached, or that refuses this server's token (HTTP
-  401), is `-32000`, as for `mdopener://current` (it used to be an empty
-  list too).
+  an app that cannot be reached, that refuses this server's token (HTTP
+  401) or that answers any other HTTP error is `-32000`, as for
+  `mdopener://current` (it used to be an empty list too).
 - **`file://<path>` (vault files)**: every file the app lists in the
   **vault** (watched folder) is listed as an individually readable resource.
   The path in the URI is percent-encoded as RFC 3986 and RFC 8089 require:
@@ -527,12 +529,14 @@ The server implements `prompts/list` and `prompts/get`. Each prompt embeds the
 followed by the current document content. With no document open it is
 `-32002` ("No document is open"), and `-32000` when the app is not running
 or answers HTTP 401 (it refuses this server's token, and the message says
-how to fix it), the same errors `mdopener://current` gives. No prompt takes
-arguments: `arguments` may be left out, `null` or `{}`, and any argument
-given (such as a `path`, which used to be dropped while the prompt ran on
-the open document) is refused with `-32602`; open the document you mean
-with `open_file` first. Each prompt's `prompts/list` description says so
-too, `-32000` included (it used to name only a closed app).
+how to fix it), the same errors `mdopener://current` gives; any other
+HTTP error the app answers is `-32000` too, with the app's reason as the
+message. No prompt takes arguments: `arguments` may be left out, `null` or
+`{}`, and any argument given (such as a `path`, which used to be dropped
+while the prompt ran on the open document) is refused with `-32602`; open
+the document you mean with `open_file` first. Each prompt's `prompts/list`
+description says so too, `-32000` included (it used to name only a closed
+app).
 
 ---
 

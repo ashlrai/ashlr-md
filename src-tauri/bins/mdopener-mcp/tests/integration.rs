@@ -12050,6 +12050,60 @@ fn prompts_say_minus_32000_also_means_a_refused_token() {
     );
 }
 
+/// mdopener://current, the recents and the prompts answer -32000 with the
+/// app's reason for any HTTP error other than 401, which the listing, the
+/// prompt note and docs/AGENTS.md did not say. A 500 whose reason held "not
+/// found" also read as a closed app.
+#[test]
+fn current_document_other_http_errors_are_minus_32000_with_the_apps_reason() {
+    for reason in [
+        "IPC server returned HTTP 500: template not found",
+        "IPC server returned HTTP 404: no such route",
+    ] {
+        let failing = MockIpc::new()
+            .on_get("/content", Err(reason.into()))
+            .on_get("/vault", Err(reason.into()));
+        for uri in ["mdopener://current", "mdopener://recent-documents"] {
+            let err = handle_resource_read(id(1), uri, &failing).error.unwrap();
+            assert_eq!(err.code, -32000, "{uri}");
+            assert_eq!(err.message, reason, "{uri}");
+        }
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": "summarize" })),
+            &failing,
+        )
+        .unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!((err.code, err.message.as_str()), (-32000, reason));
+    }
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    for uri in ["mdopener://current", "mdopener://recent-documents"] {
+        let entry = resources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["uri"] == uri)
+            .unwrap();
+        let d = entry["description"].as_str().unwrap();
+        assert!(
+            d.contains("-32000 with the app's reason when it answers any other HTTP error"),
+            "{uri}: {d}"
+        );
+    }
+    assert!(mdopener_mcp::PROMPT_USAGE_NOTE
+        .contains("Any other HTTP error from the app is -32000 too, with the app's reason."));
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("Any other HTTP error the app answers (a\n  404 or a 500) is `-32000` too"),
+        "docs/AGENTS.md must say mdopener://current's other HTTP errors"
+    );
+    assert!(
+        docs.contains("any other\nHTTP error the app answers is `-32000` too"),
+        "docs/AGENTS.md must say the prompts' other HTTP errors"
+    );
+}
+
 #[test]
 fn unknown_resource_uri_names_the_closest_uri_and_resources_list() {
     let ipc = MockIpc::new();
