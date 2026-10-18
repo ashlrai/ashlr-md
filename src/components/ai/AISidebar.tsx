@@ -13,6 +13,7 @@ import {
 } from "../../ai/registry";
 import type { AIProvider } from "../../ai/types";
 import type { DocType } from "../../lib/docClassifier";
+import { formatShortcut, isActionEnter } from "../../lib/keymap";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
 import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
 import type { ChatMessage } from "../../store/aiStore";
@@ -561,7 +562,9 @@ export function AISidebar() {
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Not an Enter that commits an IME composition (isActionEnter), which
+    // used to send the message half typed.
+    if (isActionEnter(e) && !e.shiftKey) {
       e.preventDefault();
       send(input);
       setInput("");
@@ -592,7 +595,7 @@ export function AISidebar() {
           className="ai-sidebar__close"
           type="button"
           onClick={toggle}
-          title="Close AI sidebar (⌘K)"
+          title={`Close AI sidebar (${formatShortcut("mod+l")})`}
           aria-label="Close AI sidebar"
         >
           <CloseIcon />

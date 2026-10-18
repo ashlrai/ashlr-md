@@ -4,10 +4,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState } from "react";
 import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
-import { getShortcutCommands } from "./lib/commands";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
-import { matchShortcut } from "./lib/keymap";
+import { handleGlobalKeyDown } from "./lib/globalKeys";
 import { restoreSession } from "./lib/session";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
@@ -109,29 +108,11 @@ export default function App() {
     return () => unlisten?.();
   }, [openPath]);
 
-  // Global keyboard shortcuts — driven entirely by the command registry so the
-  // keymap is a single source of truth (see src/lib/commands.ts). Each command
-  // carries its canonical shortcut string; we match the event against the live
-  // list and run the first available command whose shortcut matches.
+  // Global keyboard shortcuts, driven by the command registry (see
+  // src/lib/globalKeys.ts).
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      // Escape leaves Zen mode first — it isn't expressible as a mod-shortcut.
-      if (e.key === "Escape" && useUiStore.getState().zenMode) {
-        e.preventDefault();
-        useUiStore.getState().closeZen();
-        return;
-      }
-      for (const cmd of getShortcutCommands()) {
-        if (cmd.shortcut && matchShortcut(e, cmd.shortcut)) {
-          if (cmd.when && !cmd.when()) return; // shortcut owned but unavailable
-          e.preventDefault();
-          cmd.run();
-          return;
-        }
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
   // React to external (on-disk) changes of the open file.

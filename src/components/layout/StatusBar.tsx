@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { detectDocKind } from "../../lib/agent-detect";
 import { parseCanvas } from "../../lib/canvas";
+import { formatShortcut } from "../../lib/keymap";
 import { computeDocStats } from "../../lib/wordcount";
 import { useDocumentStore } from "../../store/documentStore";
 import { THEMES, useSettingsStore } from "../../store/settingsStore";
@@ -51,7 +52,9 @@ export function StatusBar() {
         </>
       )}
       <span className="spacer" />
-      <span className="status-item">{isDirty ? "Unsaved (⌘S to save)" : "Saved"}</span>
+      <span className="status-item">
+        {isDirty ? `Unsaved (${formatShortcut("mod+s")} to save)` : "Saved"}
+      </span>
       <span className="status-item">{themeLabel}</span>
     </footer>
   );

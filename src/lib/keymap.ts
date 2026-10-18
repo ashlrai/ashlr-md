@@ -67,6 +67,20 @@ function eventKey(e: KeyboardEvent): string {
 }
 
 /**
+ * On macOS, Option changes `KeyboardEvent.key` to the character it types
+ * (Option+F reports "ƒ"), so "mod+alt+f" never matched `e.key` there. When
+ * Option is held and the shortcut's key is a letter, fall back to the
+ * physical key (`e.code`, "KeyF"), but only when `e.key` is not a plain
+ * letter, so a layout whose Option layer still types letters keeps
+ * matching by character. Other platforms report the letter in `e.key`.
+ */
+function macOptionLetter(e: KeyboardEvent, key: string): boolean {
+  if (!IS_MAC || !e.altKey || !/^[a-z]$/.test(key)) return false;
+  if (/^[a-z]$/i.test(e.key)) return false;
+  return e.code === `Key${key.toUpperCase()}`;
+}
+
+/**
  * True when `e` matches `shortcut`. Modifier matching is exact for mod / shift
  * / alt so that e.g. "mod+l" does not also fire on "mod+shift+l".
  */
@@ -82,7 +96,7 @@ export function matchShortcut(e: KeyboardEvent, shortcut: string): boolean {
   if (s.shift !== e.shiftKey) return false;
   if (s.alt !== e.altKey) return false;
 
-  return eventKey(e) === s.key;
+  return eventKey(e) === s.key || macOptionLetter(e, s.key);
 }
 
 /**
@@ -138,10 +152,32 @@ function formatKey(key: string): string {
  *
  * Takes a DOM `KeyboardEvent` or a React keyboard event.
  */
-export function isDismissEscape(
-  e: KeyboardEvent | { key: string; nativeEvent: KeyboardEvent },
-): boolean {
-  if (e.key !== "Escape") return false;
+export function isDismissEscape(e: KeyEventLike): boolean {
+  return e.key === "Escape" && !isImeKey(e);
+}
+
+/**
+ * Whether `e` is an Enter that should run or submit something: Enter, and
+ * not one that commits an input-method composition. Pressing Enter to
+ * accept a composition's text in the command palette or find bar used to
+ * run the selected command or jump to the next match as well. Same
+ * composition check as `isDismissEscape`.
+ *
+ * Takes a DOM `KeyboardEvent` or a React keyboard event.
+ */
+export function isActionEnter(e: KeyEventLike): boolean {
+  return e.key === "Enter" && !isImeKey(e);
+}
+
+/** A DOM `KeyboardEvent` or a React keyboard event. */
+type KeyEventLike = KeyboardEvent | { key: string; nativeEvent: KeyboardEvent };
+
+/**
+ * True when the key belongs to an input-method composition. `isComposing`
+ * covers most engines; WebKit reports the key that ends a composition with
+ * `isComposing` false but `keyCode` 229.
+ */
+function isImeKey(e: KeyEventLike): boolean {
   const native = "nativeEvent" in e ? e.nativeEvent : e;
-  return !native.isComposing && native.keyCode !== 229;
+  return native.isComposing || native.keyCode === 229;
 }

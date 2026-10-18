@@ -36,6 +36,51 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Shortcut hints show Ctrl on Windows and Linux, and the right key.**
+  Tooltips and hints (the title bar buttons, "Unsaved (⌘S to save)", the
+  welcome screen, the drawer, outline and table toolbar close and format
+  buttons, the AI metrics hint) hard-coded the macOS glyphs, so Windows
+  and Linux saw ⌘. The AI sidebar's close button also said ⌘K, the
+  command palette's shortcut, instead of ⌘L. They now come from the
+  keymap's own formatter, and a test fails on a hard-coded glyph.
+- **The sample documents have no em or en dashes.** `samples/showcase.md`
+  and `samples/agent-plan.md`, the documents a new user opens to try the
+  app, still used them. They now use commas and colons, and the dash
+  check covers `samples/` too.
+- **An IME Enter no longer sends a half typed AI message.** Pressing
+  Enter to commit an input-method composition in the AI chat sent the
+  message as typed so far, in Preferences' AI memory field it saved the
+  half typed fact, and in a WYSIWYG list it continued the list. All three
+  now ignore an Enter that belongs to a composition, and a test fails on
+  any new raw Enter comparison outside the shared check.
+- **⌘⌥F works outside the source editor on macOS.** Option changes the
+  character a key types (Option+F types "ƒ"), so the app's shortcut
+  matcher, which compared that character, never saw ⌘⌥F as Find and
+  replace. On macOS, with Option held, a letter shortcut now also
+  matches by the physical key; other platforms match as before.
+- **Code comments name the Install mdopen button.** The `mdopen` and
+  `install_cli` source comments still called the Preferences button
+  "Install CLI tool", and the `mdopen` one gave a Windows install folder
+  the app does not use. They now name **Install mdopen** and the real
+  folders (`/usr/local/bin` or `~/.local/bin`, and
+  `%USERPROFILE%\.local\bin` on Windows).
+- **The shortcut tables list every shortcut.** The README's table and
+  the landing page's grid left out ⌘⇧C (Copy as rich text) and ⌘⇧T
+  (Insert table), and the landing grid also lacked find, replace,
+  search, split preview, Zen mode and settings. Both now list every
+  registered shortcut, and a test fails when either drifts from the
+  keymap.
+- **An IME Escape no longer leaves Zen mode or cancels AI work.** The
+  Escape that ends an input-method composition also left Zen mode, hid
+  the AI selection toolbar, cancelled editing the hosted AI token, and
+  aborted a running AI rewrite in the WYSIWYG editor. All four now use the
+  same composition check as the dialogs (the token field's Enter too), and
+  a test fails on any new raw Escape comparison outside that check.
+- **An IME Enter no longer runs a command or jumps to a match.** Pressing
+  Enter to commit an input-method composition in the command palette ran
+  the selected command, and in the find bar it jumped to the next match.
+  Both now ignore an Enter that belongs to a composition, with the same
+  check the dialogs use for Escape; a plain Enter still runs or steps.
 - **MCP: an open the app did not confirm says what to do next.** When the
   app was reached but failed or did not answer in time, `open_file` said
   only that it "did not confirm opening" the file, with the IPC error. It

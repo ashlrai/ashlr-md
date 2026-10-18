@@ -1,3 +1,4 @@
+import { formatShortcut } from "../../lib/keymap";
 import { pickAndOpen } from "../../lib/openFile";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore, type ViewMode } from "../../store/documentStore";
@@ -134,7 +135,7 @@ export function TitleBar() {
             className="tb-btn"
             type="button"
             onClick={() => openExport()}
-            title="Export document (⌘E)"
+            title={`Export document (${formatShortcut("mod+e")})`}
           >
             <ExportIcon />
             Export
@@ -144,7 +145,7 @@ export function TitleBar() {
           className={`tb-btn${aiOpen ? " active" : ""}`}
           type="button"
           onClick={() => toggleAI()}
-          title="AI assistant (⌘L)"
+          title={`AI assistant (${formatShortcut("mod+l")})`}
           aria-label="Toggle AI assistant"
           aria-pressed={aiOpen}
         >
@@ -155,7 +156,7 @@ export function TitleBar() {
           className="tb-btn"
           type="button"
           onClick={() => openSettings()}
-          title="Preferences (⌘,)"
+          title={`Preferences (${formatShortcut("mod+,")})`}
           aria-label="Open preferences"
         >
           <GearIcon />
@@ -164,7 +165,7 @@ export function TitleBar() {
           className="tb-btn"
           type="button"
           onClick={cycleTheme}
-          title={`Theme: ${themeLabel} (⌘⇧L)`}
+          title={`Theme: ${themeLabel} (${formatShortcut("mod+shift+l")})`}
           aria-label={`Switch theme (current: ${themeLabel})`}
         >
           <ThemeIcon />
@@ -173,7 +174,7 @@ export function TitleBar() {
           className="tb-btn"
           type="button"
           onClick={() => pickAndOpen()}
-          title="Open a Markdown file (⌘O)"
+          title={`Open a Markdown file (${formatShortcut("mod+o")})`}
         >
           <OpenIcon />
           Open

@@ -153,6 +153,8 @@ Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
 | Open file | `⌘O` |
 | Save | `⌘S` |
 | Export | `⌘E` |
+| Copy as rich text | `⌘⇧C` |
+| Insert table | `⌘⇧T` |
 | Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
 | Find in document | `⌘F` |
 | Find & replace (source) | `⌘⌥F` |

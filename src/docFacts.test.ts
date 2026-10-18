@@ -7,10 +7,14 @@
 import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
+import landingHtml from "../landing/index.html?raw";
+import readme from "../README.md?raw";
 import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
+import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
+import commandsSrc from "./lib/commands.ts?raw";
 
 const AGENTS = "docs/AGENTS.md";
 const ROADMAP = "ROADMAP.md";
@@ -231,5 +235,76 @@ describe(`doc facts: ${ROADMAP}`, () => {
       sorted(all(/`([a-z_]+)`/g, m?.[1] ?? "")),
       `fix the prompt list at ${at}`,
     ).toEqual(sorted(prompts));
+  });
+});
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+// The README's shortcut table and the landing page's shortcut grid list every
+// registered shortcut (src/lib/commands.ts) plus the inline AI rewrite, which
+// the WYSIWYG editor binds itself. Both used to miss ⌘⇧C and ⌘⇧T.
+
+/** "mod+shift+t" (any modifier order) in one canonical order. */
+function canonShortcut(s: string): string {
+  const parts = s.toLowerCase().split("+");
+  const key = parts.filter((p) => !["mod", "alt", "shift"].includes(p)).join("+");
+  return ["mod", "alt", "shift"]
+    .filter((m) => parts.includes(m))
+    .concat(key)
+    .join("+");
+}
+
+/** "⌘⌥F" as a canonical shortcut string ("mod+alt+f"). */
+function fromGlyphs(g: string): string {
+  const mods: string[] = [];
+  let key = "";
+  for (const ch of g) {
+    if (ch === "⌘") mods.push("mod");
+    else if (ch === "⌥") mods.push("alt");
+    else if (ch === "⇧") mods.push("shift");
+    else key += ch.toLowerCase();
+  }
+  return canonShortcut([...mods, key].join("+"));
+}
+
+const registryShortcuts = [
+  ...commandsSrc.matchAll(/shortcut: ("(?:[^"\\]|\\.)*")/g),
+].map((m) => canonShortcut(JSON.parse(m[1]) as string));
+const EDITOR_SHORTCUTS = ["mod+i"];
+const documentedShortcuts = sorted([
+  ...new Set([...registryShortcuts, ...EDITOR_SHORTCUTS]),
+]);
+
+describe("doc facts: keyboard shortcuts", () => {
+  it("parses the registry and the editor's own binding", () => {
+    expect(registryShortcuts.length).toBeGreaterThan(15);
+    expect(registryShortcuts).toContain("mod+\\");
+    // MarkdownEditor binds mod+I itself, outside the registry.
+    expect(markdownEditor).toMatch(/e\.key === "i"/);
+  });
+
+  it("README's table lists exactly the real shortcuts", () => {
+    const section = readme.slice(readme.indexOf("## Keyboard shortcuts"));
+    const table = section.slice(0, section.indexOf("\n## ", 1));
+    const listed = table
+      .split("\n")
+      .filter((l) => l.startsWith("| ") && l.includes("`"))
+      .flatMap((l) => all(/`([^`]+)`/g, l.split("|")[2] ?? ""))
+      .map(fromGlyphs);
+    expect(sorted([...new Set(listed)]), "fix README.md's shortcut table").toEqual(
+      documentedShortcuts,
+    );
+  });
+
+  it("the landing page's grid lists exactly the real shortcuts", () => {
+    const at = landingHtml.indexOf('<section id="shortcuts">');
+    expect(at, "landing/index.html has no #shortcuts section").toBeGreaterThan(-1);
+    const section = landingHtml.slice(at, landingHtml.indexOf("</section>", at));
+    const listed = all(/<kbd[^>]*>([^<]*)<\/kbd>/g, section)
+      .flatMap((k) => k.trim().split(/\s+/))
+      .map(fromGlyphs);
+    expect(
+      sorted([...new Set(listed)]),
+      "fix the shortcut grid in landing/index.html",
+    ).toEqual(documentedShortcuts);
   });
 });

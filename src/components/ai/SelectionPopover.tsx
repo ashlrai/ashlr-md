@@ -15,6 +15,7 @@ import {
   NOOP_PROVIDER_ID,
   runSelectionAction,
 } from "../../ai/registry";
+import { isDismissEscape } from "../../lib/keymap";
 import { useAIStore } from "../../store/aiStore";
 
 interface PopoverPosition {
@@ -91,9 +92,10 @@ export function SelectionPopover() {
     setVisible(false);
   }, []);
 
-  // Hide on Escape.
+  // Hide on Escape, but not on one that ends an IME composition
+  // (isDismissEscape).
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") setVisible(false);
+    if (isDismissEscape(e)) setVisible(false);
   }, []);
 
   useEffect(() => {

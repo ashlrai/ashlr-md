@@ -1,3 +1,4 @@
+import { formatShortcut } from "../lib/keymap";
 import { pickAndOpen } from "../lib/openFile";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
@@ -96,7 +97,8 @@ export function Welcome() {
         className="welcome-hint welcome-hint-btn"
         onClick={() => openCommandPalette()}
       >
-        Press <kbd>⌘K</kbd> for everything: open, export, theme, AI
+        Press <kbd>{formatShortcut("mod+k")}</kbd> for everything: open, export, theme,
+        AI
       </button>
     </div>
   );

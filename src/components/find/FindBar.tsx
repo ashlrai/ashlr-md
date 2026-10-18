@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { clearHighlights, highlight, setActive } from "../../lib/domFind";
-import { isDismissEscape } from "../../lib/keymap";
+import { isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { useDocumentStore } from "../../store/documentStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/find.css";
@@ -64,7 +64,8 @@ export function FindBar() {
           setIndex(0);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (isActionEnter(e)) {
+            // Not an Enter that commits an IME composition (isActionEnter).
             e.preventDefault();
             go(e.shiftKey ? -1 : 1);
           } else if (isDismissEscape(e)) {

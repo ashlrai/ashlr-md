@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMMAND_GROUPS, type Command, getCommands } from "../lib/commands";
-import { formatShortcut, isDismissEscape } from "../lib/keymap";
+import { formatShortcut, isActionEnter, isDismissEscape } from "../lib/keymap";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useUiStore } from "../store/uiStore";
@@ -192,7 +192,8 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => (rows.length ? (i - 1 + rows.length) % rows.length : 0));
-    } else if (e.key === "Enter") {
+    } else if (isActionEnter(e)) {
+      // Not an Enter that commits an IME composition (isActionEnter).
       e.preventDefault();
       runRow(rows[active]);
     }
