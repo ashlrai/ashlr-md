@@ -781,7 +781,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Absolute or relative path to the Markdown file to open."
+                        "description": "Path to the Markdown file to open (absolute, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
                     },
                     "mode": {
                         "type": "string",
@@ -945,7 +945,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -1245,7 +1245,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open). An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1301,7 +1301,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional path assertion: errors if a different file is open. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional path assertion: errors if a different file is open; absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]

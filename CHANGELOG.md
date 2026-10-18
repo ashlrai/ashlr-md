@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Every path argument says what a relative path resolves against.**
+  `open_file`'s `path` said only "Absolute or relative path", and the
+  optional `path` checks of `edit_document`, `stream_edit` and
+  `stream_edit_apply` said nothing, though the server resolves each
+  against its own working directory (the app has another). They now say
+  so, as the other path arguments did, and `open_file` adds that `opened`
+  is the absolute path.
 - **`diff_documents` says what its counts are.** Its description listed
   `hunks`, `added` and `removed` without saying they count change hunks
   and added and removed lines, or that identical documents return an

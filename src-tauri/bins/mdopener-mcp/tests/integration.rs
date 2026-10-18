@@ -7979,6 +7979,33 @@ fn diff_documents_description_says_what_its_counts_are() {
     );
 }
 
+/// open_file's `path` said "Absolute or relative path" without saying
+/// relative to what, while the server resolves it against its own working
+/// directory and the app has another. Every path argument now says which.
+#[test]
+fn every_path_argument_says_what_a_relative_path_resolves_against() {
+    let mut missing = Vec::new();
+    for def in tool_registry() {
+        let Some(props) = def.input_schema["properties"].as_object() else {
+            continue;
+        };
+        for (name, prop) in props {
+            if !(name == "path"
+                || name.starts_with("path_")
+                || name == "vault"
+                || name.ends_with("_path"))
+            {
+                continue;
+            }
+            let desc = prop["description"].as_str().unwrap_or("");
+            if !desc.contains("server's working directory") {
+                missing.push(format!("{}.{name}: {desc}", def.name));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it
