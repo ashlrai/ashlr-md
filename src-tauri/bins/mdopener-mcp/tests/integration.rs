@@ -722,6 +722,14 @@ fn open_file_launcher_failure_is_an_error() {
     });
     let err = tool_error_text(&resp);
     assert!(err.contains("status 4"), "{}", err);
+    // It used to end on a question, with no next step for the agent.
+    assert!(err.contains("may not be installed"), "{err}");
+    assert!(
+        err.contains("github.com/ashlrai/ashlr-md/releases"),
+        "{err}"
+    );
+    assert!(err.contains("call open_file again"), "{err}");
+    assert!(!err.contains('?'), "{err}");
 }
 
 #[test]

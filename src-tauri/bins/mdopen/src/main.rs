@@ -583,12 +583,26 @@ fn open_in_app(
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
         // Both routes failed: say what each one hit, then what to do. Before,
         // this was `<launcher error> (<ipc error>)` with no next step.
-        _ => Err(NotOpened::no(format!(
-            "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
-             The mdopener:// URL: {}. Start Ashlr MD, then run mdopen again.",
-            outcome.describe()
+        _ => Err(NotOpened::no(not_opened_message(
+            abs_path,
+            &ipc_error,
+            &outcome.describe(),
         ))),
     }
+}
+
+/// Where to get Ashlr MD when it is not installed.
+const RELEASES_URL: &str = "https://github.com/ashlrai/ashlr-md/releases";
+
+/// The error for an open that neither the running app nor the URL launcher
+/// took: what each one hit, then what to do. It used to say only "Start
+/// Ashlr MD", which does not help when the app is not installed.
+fn not_opened_message(abs_path: &str, ipc_error: &str, launch: &str) -> String {
+    format!(
+        "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
+         The mdopener:// URL: {launch}. Start Ashlr MD (or install it from \
+         {RELEASES_URL}), then run mdopen again."
+    )
 }
 
 /// Claude Code `--hook` mode: parse the PostToolUse JSON from stdin and open the
@@ -1328,5 +1342,28 @@ mod tests {
                 Some(std::fs::canonicalize(&real).unwrap())
             );
         }
+    }
+
+    /// An open neither route took used to end "Start Ashlr MD, then run
+    /// mdopen again", no help when the app is not installed.
+    #[test]
+    fn a_failed_open_says_where_to_get_the_app() {
+        let failed = launch::Launch::Failed {
+            launcher: "xdg-open".into(),
+            code: Some(4),
+        };
+        let msg = not_opened_message(
+            "/notes/a.md",
+            "Ashlr MD is not running (no ~/.mdopener/ipc-port)",
+            &failed.describe(),
+        );
+        assert!(msg.contains("could not open /notes/a.md"), "{msg}");
+        assert!(msg.contains("may not be installed"), "{msg}");
+        assert!(
+            msg.contains("install it from https://github.com/ashlrai/ashlr-md/releases"),
+            "{msg}"
+        );
+        assert!(msg.ends_with("then run mdopen again."), "{msg}");
+        assert!(!msg.contains('?'), "{msg}");
     }
 }

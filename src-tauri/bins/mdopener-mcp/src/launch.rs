@@ -37,8 +37,11 @@ impl Launch {
             Launch::Pending { launcher } => {
                 format!("`{launcher}` is still running; the open is not confirmed")
             }
+            // It used to end in a question ("is Ashlr MD installed ...?")
+            // that left the reader to guess; it now states the likely causes.
             Launch::Failed { launcher, code } => format!(
-                "`{launcher}` exited with status {} (is Ashlr MD installed and a desktop session available?)",
+                "`{launcher}` exited with status {}: Ashlr MD may not be installed (nothing \
+                 handles mdopener:// URLs), or there is no desktop session",
                 code.map_or_else(|| "signal".to_string(), |c| c.to_string())
             ),
             Launch::NoLauncher { tried } => format!(
@@ -231,7 +234,10 @@ mod tests {
                 code: Some(4)
             }
         );
-        assert!(r.describe().contains("status 4"));
+        let why = r.describe();
+        assert!(why.contains("status 4"), "{why}");
+        assert!(why.contains("may not be installed"), "{why}");
+        assert!(!why.contains('?'), "{why}");
     }
 
     #[test]

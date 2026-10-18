@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A missing Ashlr MD gets a next step from `mdopen` and `open_file`.**
+  When the app was not running and the `mdopener://` launcher failed, the
+  error ended on a question ("is Ashlr MD installed and a desktop session
+  available?"), `mdopen` said only to start the app, and the MCP
+  `open_file` tool gave the agent no next step at all. Both now say Ashlr
+  MD may not be installed or there is no desktop session, and to start it
+  (or install it from the GitHub releases page), then try again.
 - **The review countdown says what it counts.** A screen reader read the
   review panel's countdown as a bare "4:59". It is now a timer labelled in
   words ("Time left to review: 4 minutes 59 seconds"), still kept out of

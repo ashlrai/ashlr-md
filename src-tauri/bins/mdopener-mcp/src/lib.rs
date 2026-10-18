@@ -2024,7 +2024,9 @@ pub fn tool_open_file_with(
         _ => tool_error(
             id,
             format!(
-                "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}.",
+                "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}. \
+                 Ask the user to start Ashlr MD (or install it from \
+                 https://github.com/ashlrai/ashlr-md/releases), then call open_file again.",
                 outcome.describe()
             ),
         ),
