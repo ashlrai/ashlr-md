@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The shortcut tables list every shortcut.** The README's table and
+  the landing page's grid left out ⌘⇧C (Copy as rich text) and ⌘⇧T
+  (Insert table), and the landing grid also lacked find, replace,
+  search, split preview, Zen mode and settings. Both now list every
+  registered shortcut, and a test fails when either drifts from the
+  keymap.
 - **An IME Escape no longer leaves Zen mode or cancels AI work.** The
   Escape that ends an input-method composition also left Zen mode, hid
   the AI selection toolbar, cancelled editing the hosted AI token, and
