@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: `present_document` and `request_review` say they need the app.**
+  Both show the human something, so an agent may call one first, but
+  neither starts Ashlr MD and their descriptions did not say so; the agent
+  learned it only from the error. Both now say to call `open_file` first
+  when the app is closed.
 - **MCP: `initialize` tells an agent where to start.** It sent no
   `instructions`, so an agent saw 20 tools with no word on which to use
   first, that only `open_file` starts the app, or what to do when Ashlr MD

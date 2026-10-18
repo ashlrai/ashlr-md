@@ -187,6 +187,24 @@ fn initialize_capabilities_advertised() {
 }
 
 #[test]
+fn review_and_present_say_they_need_the_app_running() {
+    // Both show the human something, so an agent may call one first; neither
+    // starts the app, and their descriptions used to leave that unsaid.
+    for name in ["present_document", "request_review"] {
+        let def = tool_registry()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap();
+        assert!(
+            def.description
+                .contains("Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first."),
+            "{name}: {}",
+            def.description
+        );
+    }
+}
+
+#[test]
 fn initialize_instructions_name_the_first_tools_and_a_missing_app() {
     // No `instructions` used to be sent, so an agent saw 20 tools and no word
     // on which to start with, that only open_file starts the app, or what to
