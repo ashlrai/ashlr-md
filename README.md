@@ -113,8 +113,10 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
   export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
   the instant they land and **"Explain changes"** narrates each on-disk edit.
   One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](./docs/AGENTS.md).
-- **Phantom's Markdown opener**: [Phantom](https://github.com/ashlrai/phantom) opens
-  `.md` files in Ashlr MD out of the box. See [**docs/PHANTOM.md**](./docs/PHANTOM.md).
+- **Phantom's Markdown viewer**: when Ashlr MD is installed, [Phantom](https://github.com/ashlrai/phantom)
+  hands its inbox and digest Markdown (`phm inbox show --open`, `phm digest --open`)
+  to `mdopen`. The broader "open any `.md`" opener is not on Phantom's `master` yet.
+  See [**docs/PHANTOM.md**](./docs/PHANTOM.md).
 - **Obsidian integration**: the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.
@@ -271,6 +273,8 @@ siblings: [Phantom](https://github.com/ashlrai/phantom),
 [Lexicon](https://github.com/ashlrai/lexicon),
 [Locus](https://github.com/ashlrai/locus) and
 [Ashlr Stack](https://github.com/ashlrai/ashlr-stack).
+
+**Post-quantum readiness:** [docs/PQ-READINESS.md](./docs/PQ-READINESS.md) records what Ashlr MD does with cryptography today (no primitives implemented in the application source; dependencies such as `keyring`, `reqwest` and `tauri-plugin-updater` bring their own, not audited there) and what a migration would touch. It makes no claim that Ashlr MD is quantum-safe.
 
 ## Contributing
 
