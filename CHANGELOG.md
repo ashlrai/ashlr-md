@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The app-not-running error says it once.** It read `Ashlr MD does not
+  appear to be running (~/.mdopener/ipc-port not found. Is Ashlr MD
+  running?). Launch it first, ...`, asking the same thing twice, and
+  `open_file` repeated the question inside its own not-running message.
+  The reason is now a bare fact (`~/.mdopener/ipc-port not found`), and
+  the one sentence that wraps it says the app is not running and what to
+  do.
 - **`get_conversation_context` says which session failed and what to do.**
   A session it could not load answered `Failed to read conversation
   context: ...`, with no session named and, for an unreadable or

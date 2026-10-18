@@ -77,8 +77,14 @@ fn handshake_with_current_client_protocol_versions() {
         assert_eq!(out[4]["id"], 5);
         assert!(out[4].get("error").is_none(), "{:?}", out[4]);
         assert_eq!(out[4]["result"]["isError"], true, "{:?}", out[4]);
+        // Said once: the reason in parentheses used to ask "Is Ashlr MD
+        // running?" again inside "does not appear to be running".
         let text = out[4]["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("Ashlr MD"), "{text}");
+        assert_eq!(
+            text,
+            "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
+             Launch it first, or use open_file which can start it automatically."
+        );
     }
 }
 

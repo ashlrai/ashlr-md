@@ -906,10 +906,7 @@ fn get_current_content_ipc_unavailable_returns_tool_error() {
 
 #[test]
 fn get_current_content_stale_ipc_returns_error_with_hint() {
-    let ipc = MockIpc::new().on_get(
-        "/content",
-        Err("ipc-port not found. Is Ashlr MD running?".into()),
-    );
+    let ipc = MockIpc::new().on_get("/content", Err("~/.mdopener/ipc-port not found".into()));
     let resp = tool_get_content(id(1), &ipc);
     let err = tool_error_text(&resp);
     assert!(err.contains("Ashlr MD"), "error should mention app name");
@@ -2133,11 +2130,11 @@ fn ai_actions_registry_count_matches_tool_response() {
 
 #[test]
 fn app_not_running_msg_ipc_port_error_includes_hint() {
-    let msg = mdopener_mcp::app_not_running_msg("ipc-port not found. Is Ashlr MD running?");
-    assert!(msg.contains("Ashlr MD"), "hint should mention app name");
-    assert!(
-        msg.contains("open_file"),
-        "hint should mention open_file tool"
+    let msg = mdopener_mcp::app_not_running_msg("~/.mdopener/ipc-port not found");
+    assert_eq!(
+        msg,
+        "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
+         Launch it first, or use open_file which can start it automatically."
     );
 }
 
@@ -2360,10 +2357,7 @@ fn export_tool_disk_full_error_propagated() {
 
 #[test]
 fn export_tool_app_not_running_returns_descriptive_error() {
-    let ipc = MockIpc::new().on_post(
-        "/export",
-        Err("ipc-port not found. Is Ashlr MD running?".into()),
-    );
+    let ipc = MockIpc::new().on_post("/export", Err("~/.mdopener/ipc-port not found".into()));
     let resp = tool_export(id(33), &json!({ "format": "html" }), &ipc);
     let err = tool_error_text(&resp);
     // app_not_running_msg should enrich the message.

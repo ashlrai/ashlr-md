@@ -4945,8 +4945,8 @@ pub fn read_ipc_port() -> Result<u16, String> {
         .map(|h| h.join(".mdopener").join("ipc-port"))
         .ok_or("Cannot determine home directory")?;
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-port not found. Is Ashlr MD running?".to_string())?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
 
     content
         .trim()
@@ -4960,7 +4960,7 @@ pub fn read_ipc_token() -> Result<String, String> {
         .map(|h| h.join(".mdopener").join("ipc-token"))
         .ok_or("Cannot determine home directory")?;
     std::fs::read_to_string(&path)
-        .map_err(|_| "~/.mdopener/ipc-token not found. Is Ashlr MD running?".to_string())
+        .map_err(|_| "~/.mdopener/ipc-token not found".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();
             if t.is_empty() {
@@ -5189,6 +5189,10 @@ pub fn tool_error(id: Value, message: String) -> Response {
     )
 }
 
+/// Say once that the app is not running, with the low-level reason in
+/// parentheses. The reasons are bare facts (`~/.mdopener/ipc-port not
+/// found`): they used to ask "Is Ashlr MD running?" themselves, so the
+/// message said it twice.
 pub fn app_not_running_msg(err: &str) -> String {
     // The running app refused the request: its reason (which may quote a
     // path containing "connect" or "not found") is the agent's to see as is.
