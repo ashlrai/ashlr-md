@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A saved Anthropic key can be replaced or removed.** The key could only be
+  entered in the AI sidebar's setup nudge, which shows only when no provider
+  is found, so once saved it could not be changed. Preferences now has an
+  **Anthropic API key** section to add, replace or remove it, stored in the
+  OS keychain as before; it says only whether a key is saved and never shows
+  any of it. The next request uses the new key, and removing it moves the
+  sidebar off the Anthropic tier.
 - **An IME Escape no longer cancels an inline AI rewrite in the source
   editor.** Pressing Escape to end an input-method composition (or close its
   candidate list) while a ⌘I rewrite was streaming cancelled the rewrite and

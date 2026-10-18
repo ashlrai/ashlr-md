@@ -291,6 +291,9 @@ export function AISidebar() {
   const setBusy = useAIStore((s) => s.setBusy);
   const libraryScope = useAIStore((s) => s.libraryScope);
   const setLibraryScope = useAIStore((s) => s.setLibraryScope);
+  // Re-detect when a key is added or removed (the setup nudge or Preferences),
+  // so a removed key does not leave the sidebar on the Anthropic tier.
+  const hasApiKey = useAIStore((s) => !!s.apiKey);
 
   const docContent = useDocumentStore((s) => s.content);
   const currentDocType = useUiStore((s) => s.currentDocType);
@@ -314,6 +317,7 @@ export function AISidebar() {
   // Detect provider when sidebar opens. Use the startup-warmed cache for an
   // instant render (no "Detecting…" wall), then refresh silently in the
   // background so a newly-installed Ollama still gets picked up.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasApiKey is a trigger, a key change re-runs detection
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -334,7 +338,7 @@ export function AISidebar() {
     return () => {
       cancelled = true;
     };
-  }, [open, setProvider]);
+  }, [open, setProvider, hasApiKey]);
 
   // Scroll to bottom when messages change.
   useEffect(() => {

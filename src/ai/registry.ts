@@ -175,7 +175,6 @@ export const ANTHROPIC_MODEL = "claude-haiku-4-5";
 
 class AnthropicProvider implements AIProvider {
   readonly id = "anthropic";
-  private _key: string | null = null;
 
   get capabilities(): AICapabilities {
     return {
@@ -188,15 +187,17 @@ class AnthropicProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
-    this._key = detectAnthropicKey();
-    return !!this._key;
+    return !!detectAnthropicKey();
   }
 
   async *generate(
     messages: AIMessage[],
     opts: { signal?: AbortSignal },
   ): AsyncGenerator<string> {
-    const key = this._key ?? detectAnthropicKey();
+    // Re-read from the store on every request, as the hosted provider does:
+    // a key replaced or removed in Preferences must win over the value cached
+    // when detection ran.
+    const key = detectAnthropicKey();
     if (!key) throw new Error("Anthropic: no API key configured");
 
     const deltas: string[] = [];
