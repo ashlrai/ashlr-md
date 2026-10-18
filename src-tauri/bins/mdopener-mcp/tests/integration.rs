@@ -8854,6 +8854,36 @@ fn edit_canvas_refuses_a_colour_json_canvas_does_not_allow() {
     }
 }
 
+/// edit_canvas's description said "set node colour" and its refusal "a hex
+/// colour", while the op is `set_node_color` and the schema's field
+/// `color` says "Color preset". Both now spell it "color".
+#[test]
+fn edit_canvas_spells_color_as_its_schema_does() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "edit_canvas")
+        .unwrap();
+    let schema = def.input_schema.to_string();
+    assert!(!def.description.contains("colour"), "{}", def.description);
+    assert!(!schema.contains("colour"), "{schema}");
+    assert!(
+        def.description.contains("set node color"),
+        "{}",
+        def.description
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"a","x":0,"y":0,"width":9,"height":9}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": [{ "type": "set_node_color", "id": "a", "color": "red" }] }),
+    );
+    let msg = param_error(&resp);
+    assert!(msg.contains("a hex color #rgb or #rrggbb"), "{msg}");
+    assert!(!msg.contains("colour"), "{msg}");
+}
+
 /// A node or edge that is not a JSON object used to vanish silently on save;
 /// now the edit is refused and the file is left as it was.
 #[test]

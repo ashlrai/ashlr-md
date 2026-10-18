@@ -47,6 +47,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `edit_canvas` spells "color" as its schema does.** Its description
+  said "set node colour" and a refused color said "a hex colour", while the
+  op is `set_node_color` and the `color` field says "Color preset". Both now
+  say "color", as docs/AGENTS.md does.
 - **MCP: `export_text` and `export_metadata` say what they read without
   `path`.** Their descriptions said they operate on disk and return the
   path of "the file read", but without `path` they read the open document
