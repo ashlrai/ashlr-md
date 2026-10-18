@@ -47,6 +47,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`mdopen` and `stream_edit_apply` name the right next step.** The `mdopen`
+  CLI's HTTP 401 text, "IPC auth failed (stale ~/.mdopener/ipc-token)", gave
+  no next step; it now says the token is stale or belongs to another Ashlr MD
+  instance, and to quit every Ashlr MD window and start it again. With the
+  app closed, the MCP `stream_edit_apply` said to call `open_file` and then
+  call it again, but the `editId` of a preview from before the app started no
+  longer exists; it now says to start the app, then call `stream_edit` again
+  for a fresh preview.
 - **MCP: `search_vault` after a refused token says why and how to fix it.**
   Results grepped on disk after an HTTP 401 had a `note` quoting the raw
   "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token". The

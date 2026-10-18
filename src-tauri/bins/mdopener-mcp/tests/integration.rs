@@ -2607,14 +2607,6 @@ fn app_tools_given_a_path_name_the_open_file_call_when_the_app_is_closed() {
                 &ipc,
             ),
         ),
-        (
-            "stream_edit_apply",
-            tool_stream_edit_apply(
-                id(1),
-                &json!({ "edit_id": "e1", "find": "a", "replace": "b", "path": doc }),
-                &ipc,
-            ),
-        ),
     ];
     for (tool, resp) in calls {
         let err = tool_error_text(&resp);
@@ -2633,6 +2625,47 @@ fn app_tools_given_a_path_name_the_open_file_call_when_the_app_is_closed() {
     let err = tool_error_text(&resp);
     assert!(err.contains("use open_file which can start it"), "{err}");
     assert!(!err.contains("\"path\""), "{err}");
+}
+
+/// With the app closed, stream_edit_apply said to call open_file and then
+/// call it again, but the editId of a preview made before the app started
+/// no longer exists, and the document may have changed. It now says to run
+/// stream_edit again for a fresh preview, with or without `path`.
+#[test]
+fn stream_edit_apply_with_the_app_closed_asks_for_a_fresh_preview() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let canonical = std::fs::canonicalize(&doc).unwrap();
+    let canonical = canonical.to_str().unwrap();
+    let down = "~/.mdopener/ipc-port not found";
+    let ipc = MockIpc::new().on_post("/", Err(down.into()));
+    let args = json!({ "edit_id": "e1", "find": "a", "replace": "b", "path": doc });
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(
+        err,
+        format!(
+            "Ashlr MD does not appear to be running ({down}). Call open_file with {}, which \
+             starts it with this document, then call stream_edit again for a fresh preview \
+             before stream_edit_apply: the editId of a preview from before the app started no \
+             longer exists, and the document may have changed since. If it is not installed, \
+             ask the user to install it from https://github.com/ashlrai/ashlr-md/releases.",
+            json!({ "path": canonical })
+        )
+    );
+    let args = json!({ "edit_id": "e1", "find": "a", "replace": "b" });
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert!(err.contains("use open_file which can start it"), "{err}");
+    assert!(
+        err.contains("call stream_edit again for a fresh preview"),
+        "{err}"
+    );
+    assert!(!err.contains("call this tool again"), "{err}");
+    // A refused token is still the shared message.
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new().on_post("/", Err(auth));
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG);
 }
 
 /// A path with a quote or backslash is written as JSON, so the call still

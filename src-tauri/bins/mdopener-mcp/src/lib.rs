@@ -5436,7 +5436,27 @@ pub fn app_not_running_msg_for(err: &str, path: Option<&str>) -> String {
     not_running_msg(err, path)
 }
 
+/// [`app_not_running_msg_for`] for `stream_edit_apply`. Its next step is a
+/// fresh `stream_edit` preview, not the call itself: a preview from before
+/// the app started belonged to the app that closed, and the document it was
+/// made from may have changed (an unsaved buffer is gone). It used to say to
+/// call `open_file`, then this tool again.
+pub fn stream_edit_apply_not_running_msg(err: &str, path: Option<&str>) -> String {
+    not_running_msg_then(err, path, Some(STREAM_EDIT_APPLY_AFTER_START))
+}
+
+/// What `stream_edit_apply` says to do once the closed app is started.
+const STREAM_EDIT_APPLY_AFTER_START: &str = "then call stream_edit again for a fresh preview \
+before stream_edit_apply: the editId of a preview from before the app started no longer \
+exists, and the document may have changed since.";
+
 fn not_running_msg(err: &str, path: Option<&str>) -> String {
+    not_running_msg_then(err, path, None)
+}
+
+/// [`not_running_msg`] with the step after starting the app, `then`, in
+/// place of "then call this tool again".
+fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> String {
     // The app refused this server's token: say why and what fixes it.
     if app_auth_failed(err) {
         return APP_AUTH_FAILED_MSG.to_string();
@@ -5447,14 +5467,21 @@ fn not_running_msg(err: &str, path: Option<&str>) -> String {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
-        let next = match path {
-            Some(p) => format!(
+        let next = match (path, then) {
+            (Some(p), None) => format!(
                 "Call open_file with {}, which starts it with this document, then call \
                  this tool again.",
                 json!({ "path": p })
             ),
-            None => {
+            (Some(p), Some(then)) => format!(
+                "Call open_file with {}, which starts it with this document, {then}",
+                json!({ "path": p })
+            ),
+            (None, None) => {
                 "Launch it first, or use open_file which can start it automatically.".to_string()
+            }
+            (None, Some(then)) => {
+                format!("Launch it first, or use open_file which can start it, {then}")
             }
         };
         format!(
@@ -7167,7 +7194,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
+        Err(e) => tool_error(id, stream_edit_apply_not_running_msg(&e, path.as_deref())),
     }
 }
 
