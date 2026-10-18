@@ -321,6 +321,23 @@ describe("doc facts: Windows install folder", () => {
     expect(seen).toBeGreaterThanOrEqual(4);
   });
 
+  it("the install guide says where the Windows CLI and MCP server are", () => {
+    // The Linux section said where the .deb puts mdopen and that it is not on
+    // PATH; the Windows section said nothing about either sidecar.
+    const windows = installDoc.split("\n## Windows")[1]?.split("\n## ")[0] ?? "";
+    for (const needle of [
+      "`mdopen.exe`",
+      "`mdopener-mcp.exe`",
+      "Install mdopen",
+      "`PATH`",
+    ]) {
+      expect(
+        windows,
+        `docs/INSTALL.md's Windows section must name ${needle}`,
+      ).toContain(needle);
+    }
+  });
+
   it("the Settings placeholder in sidecar_path.rs uses the same folder", () => {
     expect(sidecarPath).toContain(`"{base}\\\\${product}\\\\{}"`);
   });

@@ -47,6 +47,13 @@ There are no Homebrew, winget or AUR packages yet.
 > Ashlr_MD_X.Y.Z_x64-setup.exe /S
 > ```
 
+The installer puts the `mdopen` CLI (`mdopen.exe`) and the `mdopener-mcp` MCP
+server (`mdopener-mcp.exe`) next to the app in `%LOCALAPPDATA%\Ashlr MD\`.
+Neither is on your `PATH` after install. Use **Preferences → Command-line tool
+→ Install mdopen**, which copies `mdopen.exe` to `%USERPROFILE%\.local\bin\`
+(add that folder to your user `PATH`), or call it by its full path:
+`& "$env:LOCALAPPDATA\Ashlr MD\mdopen.exe" notes.md` in PowerShell.
+
 ### Option B: MSI Package
 
 Download `Ashlr_MD_X.Y.Z_x64_en-US.msi` from the same release page.

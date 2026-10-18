@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The install guide says where the Windows CLI and MCP server are.** The
+  Linux section said where the `.deb` puts `mdopen` and that it is not on
+  `PATH`; the Windows section said nothing about `mdopen.exe` or
+  `mdopener-mcp.exe`. It now names their folder, says neither is on
+  `PATH`, and gives **Install mdopen** and the full-path command.
 - **`mdopen --help` and docs/AGENTS.md agree.** The help's exit status
   left out two ways `mdopen` exits 1 without trying the URL scheme, a file
   the running app refuses and a connection that breaks, which the guide
