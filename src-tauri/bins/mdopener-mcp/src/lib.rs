@@ -3252,10 +3252,15 @@ pub fn search_vault_in(
     let mut semantic_note = None;
     if use_semantic {
         // Attempt semantic search via Ollama embeddings.
-        match files().and_then(|f| semantic_hits(query, limit, &f.paths, embed).map(|h| (f, h))) {
-            Ok((f, hits)) => {
+        let semantic = files().and_then(|f| {
+            let (hits, unread) =
+                with_unread_documents(|| semantic_hits(query, limit, &f.paths, embed));
+            hits.map(|h| (f, h, unread))
+        });
+        match semantic {
+            Ok((f, hits, unread)) => {
                 let mut v = json!({ "results": hits.results, "mode": "semantic" });
-                let note = [f.disk_note(), hits.skipped_note()]
+                let note = [f.disk_note(), hits.skipped_note(), unread.note()]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<_>>()
@@ -3307,8 +3312,9 @@ pub fn search_vault_in(
             let refused = app_refused(&ipc_err);
             match files() {
                 Ok(f) if f.disk_vault.is_some() => {
-                    let results = grep_paths(query, limit, &f.paths);
-                    let note = [semantic_note, f.disk_note()]
+                    let (results, unread) =
+                        with_unread_documents(|| grep_paths(query, limit, &f.paths));
+                    let note = [semantic_note, f.disk_note(), unread.note()]
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>()
@@ -3323,7 +3329,8 @@ pub fn search_vault_in(
                     Ok(v)
                 }
                 Ok(f) => {
-                    let results = grep_paths(query, limit, &f.paths);
+                    let (results, unread) =
+                        with_unread_documents(|| grep_paths(query, limit, &f.paths));
                     let verb = if refused { "refused" } else { "failed" };
                     let search_note = if app_auth_failed(&ipc_err) {
                         format!(
@@ -3338,11 +3345,16 @@ pub fn search_vault_in(
                              come from grepping the vault files on disk."
                         )
                     };
-                    let note = [semantic_note, Some(search_note), f.disk_note()]
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let note = [
+                        semantic_note,
+                        Some(search_note),
+                        f.disk_note(),
+                        unread.note(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                     let mut v = json!({
                         "results": results,
                         "mode": "grep-local",
@@ -5219,8 +5231,93 @@ fn semantic_hits(
 /// whatever the human opened, and the grep and semantic searches used to read
 /// every one, returning lines of a dropped `.env` or of a `notes.md` link to
 /// `~/.ssh/id_rsa` that every other read refuses.
+///
+/// A document that passes that check but cannot be read (not UTF-8 text,
+/// larger than [`MAX_DOCUMENT_BYTES`], or a read error) is recorded for
+/// [`with_unread_documents`], so a search can say it was not searched: it
+/// used to be dropped in silence, and no hits read as "not in the vault".
 fn searchable_document(path: &str) -> Option<String> {
-    checked_document(path, "path").ok()?.read().ok()
+    let doc = checked_document(path, "path").ok()?;
+    match doc.read() {
+        Ok(text) => Some(text),
+        Err(e) => {
+            UNREAD_DOCUMENTS.with(|u| {
+                if let Some(list) = u.borrow_mut().as_mut() {
+                    list.push((path.to_string(), e.to_string()));
+                }
+            });
+            None
+        }
+    }
+}
+
+thread_local! {
+    /// The documents [`searchable_document`] could not read while
+    /// [`with_unread_documents`] runs on this thread (`None` otherwise).
+    static UNREAD_DOCUMENTS: std::cell::RefCell<Option<Vec<(String, String)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `search`, returning what it returned and the documents it could not
+/// read (each path with the reason), in the order they were tried.
+fn with_unread_documents<T>(search: impl FnOnce() -> T) -> (T, UnreadDocuments) {
+    let outer = UNREAD_DOCUMENTS.with(|u| u.replace(Some(Vec::new())));
+    let out = search();
+    let unread = UNREAD_DOCUMENTS
+        .with(|u| u.replace(outer))
+        .unwrap_or_default();
+    (out, UnreadDocuments(unread))
+}
+
+/// The vault documents a search could not read: see [`searchable_document`].
+struct UnreadDocuments(Vec<(String, String)>);
+
+/// How many unread documents [`UnreadDocuments::note`] names; the rest are
+/// counted.
+const UNREAD_NAMED: usize = 3;
+
+impl UnreadDocuments {
+    /// Says how many documents were not searched, names the first few with
+    /// the reason, and says what to do, so an agent does not read the
+    /// absence of hits as "not in the vault".
+    fn note(&self) -> Option<String> {
+        let n = self.0.len();
+        if n == 0 {
+            return None;
+        }
+        let named = self
+            .0
+            .iter()
+            .take(UNREAD_NAMED)
+            .map(|(path, why)| {
+                // The reason's first sentence, without its leading "it is":
+                // "not UTF-8 text (byte 5 is not valid UTF-8, on line 2)".
+                let why = why.split(". ").next().unwrap_or(why);
+                let why = why.strip_prefix("it is ").unwrap_or(why);
+                format!("{path} ({why})")
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let more = match n.saturating_sub(UNREAD_NAMED) {
+            0 => String::new(),
+            m => format!("; and {m} more"),
+        };
+        let (count, verb) = if n == 1 {
+            ("1 file".to_string(), "was")
+        } else {
+            (format!("{n} files"), "were")
+        };
+        let not_utf8 = self.0.iter().any(|(_, why)| why.contains("UTF-8"));
+        let fix = if not_utf8 {
+            " Convert a file that is not UTF-8 to UTF-8 to make it searchable."
+        } else {
+            ""
+        };
+        Some(format!(
+            "{count} {verb} not searched because {} could not be read: {named}{more}.{fix}",
+            if n == 1 { "it" } else { "they" }
+        ))
+    }
 }
 
 pub fn grep_vault(query: &str, limit: u64, ipc: &dyn IpcClient) -> Result<Vec<Value>, String> {

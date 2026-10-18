@@ -3957,6 +3957,107 @@ fn search_vault_limit_is_the_same_in_every_mode() {
     );
 }
 
+/// A vault file the search could not read (not UTF-8, larger than 16 MiB)
+/// was dropped in silence, so `search_vault` answered "no hits" for words
+/// that were in it. Every on-disk mode (grep-disk, grep-local, semantic) now
+/// says how many files were not searched, names the first few and says why.
+#[test]
+fn search_vault_says_which_vault_files_it_could_not_read() {
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
+    // Latin-1 "café target": byte 4 is not UTF-8.
+    std::fs::write(dir.path().join("latin.md"), b"caf\xe9 target\n").unwrap();
+    let big = std::fs::File::create(dir.path().join("big.md")).unwrap();
+    big.set_len(mdopener_mcp::MAX_DOCUMENT_BYTES + 1).unwrap();
+    for name in ["w1.md", "w2.md", "w3.md"] {
+        std::fs::write(dir.path().join(name), [0xFF, 0xFE, b't', 0]).unwrap();
+    }
+    let vault = dir.path().to_str().unwrap();
+    let canon = std::fs::canonicalize(dir.path()).unwrap();
+    let latin = canon.join("latin.md").to_string_lossy().into_owned();
+    let big = canon.join("big.md").to_string_lossy().into_owned();
+
+    let check = |v: &Value, mode: &str| {
+        assert_eq!(v["mode"], mode, "{v}");
+        assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+        let note = v["note"].as_str().unwrap();
+        assert!(
+            note.contains("5 files were not searched because they could not be read: "),
+            "{note}"
+        );
+        assert!(
+            note.contains(&format!(
+                "{big} (16.0 MiB, more than the 16 MiB a document may be)"
+            )),
+            "{note}"
+        );
+        assert!(
+            note.contains(&format!(
+                "{latin} (not UTF-8 text (byte 4 is not valid UTF-8, on line 1))"
+            )),
+            "{note}"
+        );
+        assert!(note.contains("(UTF-16 text, not UTF-8)"), "{note}");
+        assert!(note.contains("; and 2 more."), "{note}");
+        assert!(
+            note.ends_with("Convert a file that is not UTF-8 to UTF-8 to make it searchable."),
+            "{note}"
+        );
+    };
+
+    // grep-disk: the app is down and `vault` is walked.
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": vault });
+    check(
+        &content_text(&tool_search_vault(id(1), &args, &ipc)),
+        "grep-disk",
+    );
+
+    // grep-local: the app lists the files but its own search failed.
+    let files: Vec<Value> = mdopener_mcp::disk_vault_scan(dir.path())
+        .paths
+        .into_iter()
+        .map(|p| json!({ "path": p }))
+        .collect();
+    let ipc = MockIpc::new()
+        .on_get("/vault", Ok(json!({ "files": files, "recents": [] })))
+        .on_get("/search", Err("IPC server returned HTTP 500: boom".into()));
+    let args = json!({ "query": "target", "semantic": false });
+    check(
+        &content_text(&tool_search_vault(id(2), &args, &ipc)),
+        "grep-local",
+    );
+
+    // semantic: over the same files.
+    let embed = |_: &str| Ok(vec![1.0, 0.0]);
+    let v = mdopener_mcp::search_vault_in("target", 5, true, None, &ipc, &embed).unwrap();
+    check(&v, "semantic");
+
+    // A single unreadable file that is not a UTF-8 problem gets no advice.
+    let one = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    std::fs::File::create(one.path().join("big.md"))
+        .unwrap()
+        .set_len(mdopener_mcp::MAX_DOCUMENT_BYTES + 1)
+        .unwrap();
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args = json!({ "query": "target", "semantic": false, "vault": one.path() });
+    let v = content_text(&tool_search_vault(id(3), &args, &ipc));
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.ends_with(" (16.0 MiB, more than the 16 MiB a document may be)."),
+        "{note}"
+    );
+    assert!(
+        note.contains("1 file was not searched because it could not be read: "),
+        "{note}"
+    );
+}
+
 /// `vault` is searched on disk only when the app cannot be reached: a refusal
 /// stays the error, and an unreachable app falls back with a note.
 #[test]

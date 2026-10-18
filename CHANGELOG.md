@@ -70,6 +70,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   sending anything (the size is counted with JSON escapes), saying what to
   do instead: change part of the document with `edit_document`, split the
   edit, or pass the review text as a file's `path`.
+- **MCP: `search_vault` says which vault files it could not read.** A vault
+  or recent Markdown file that is not UTF-8 text, is larger than 16 MiB or
+  cannot be read was left out of the on-disk searches (modes `grep-disk`,
+  `grep-local` and `semantic`) in silence, so words in it came back as no
+  hits. The `note` now says how many files were not searched, names the
+  first three with the reason (`/v/latin.md (not UTF-8 text (byte 4 is not
+  valid UTF-8, on line 1))`), counts the rest, and says to convert a file
+  that is not UTF-8.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale
