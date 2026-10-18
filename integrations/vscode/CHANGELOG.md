@@ -18,6 +18,11 @@ All notable changes to the **Open in Ashlr MD** VS Code extension.
 
 ### Fixed
 
+- When `mdopen` ran but could not open the file, the error passes on what it
+  printed (or its exit status) instead of saying to install Ashlr MD. When
+  `mdopen` cannot be run, the error says where Ashlr MD installs it
+  (Preferences, Command-line tool, Install `mdopen`); the README named an
+  "Install CLI tool" command the app does not have.
 - An untitled Markdown document is told to save the file first. It used to
   be told Ashlr MD opens only Markdown files, since its name (`Untitled-1`)
   was judged before the check for a file on disk.

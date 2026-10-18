@@ -50,10 +50,12 @@ mdopen [--edit] -- <absolute-path>
 
 and reports an error unless `mdopen` exits `0` (it exits `1` when the file
 could not be opened; a `mdopen` killed by a signal counts as a failure too).
+When `mdopen` ran and said why it could not open the file, the error passes
+that reason on.
 
 The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
-`mdopen`, resolved on your `PATH`). Install the CLI from inside Ashlr MD via the
-**"Install CLI tool"** command.
+`mdopen`, resolved on your `PATH`). Install the CLI from inside Ashlr MD:
+**Preferences, Command-line tool, Install `mdopen`**.
 
 ### Edge cases handled
 
@@ -86,7 +88,8 @@ npm test            # compile, then run the helper tests with node:test
 ```
 
 `npm test` runs `src/*.test.ts` (the pure helpers in `src/links.ts`: which
-files Ashlr MD opens and the deep link) under Node's built-in `node:test`
+files Ashlr MD opens and the deep link; and the `mdopen` fallback in
+`src/cli.ts`) under Node's built-in `node:test`
 runner, with no test dependencies; the tests are left out of the `.vsix`.
 
 Or with Bun:
@@ -128,8 +131,9 @@ npm run package               # → ashlr-md-vscode.vsix
 ## Caveats
 
 - **Ashlr MD must be installed.** If the `mdopener://` scheme is not registered
-  and the `mdopen` CLI is not on `PATH`, the extension shows an error pointing
-  to [md.ashlr.ai](https://md.ashlr.ai).
+  and the `mdopen` CLI cannot be run, the extension shows an error pointing
+  to [md.ashlr.ai](https://md.ashlr.ai) and to where Ashlr MD installs
+  `mdopen`.
 - **Not published to the Marketplace** yet; install from source / `.vsix`.
 
 ---

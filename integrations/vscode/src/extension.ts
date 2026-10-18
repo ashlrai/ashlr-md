@@ -14,45 +14,11 @@
  * CLI (configurable via `ashlr-md.cliPath`, default `mdopen` on PATH).
  */
 
-import { spawn } from "node:child_process";
 import * as vscode from "vscode";
+import { cliFailureMessage, openViaCli } from "./cli";
 import { buildDeepLink, handoffRefusal, type OpenMode } from "./links";
 
 export { buildDeepLink, isOpenableInAshlr } from "./links";
-
-/**
- * Fallback: spawn the `mdopen [--edit] -- <path>` CLI. Resolves true only when it
- * exits 0 (it exits 1 when the file could not be opened); false when it
- * cannot be spawned, exits non-zero, or is killed by a signal (a `null`
- * exit code, which used to count as success), so the caller can surface an
- * error. `--` keeps a path that starts with `-` from being read as a flag.
- */
-function openViaCli(
-  cliPath: string,
-  absolutePath: string,
-  mode: OpenMode,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (ok: boolean) => {
-      if (!settled) {
-        settled = true;
-        resolve(ok);
-      }
-    };
-
-    try {
-      const flags = mode === "edit" ? ["--edit"] : [];
-      const child = spawn(cliPath, [...flags, "--", absolutePath], {
-        stdio: "ignore",
-      });
-      child.on("error", () => done(false));
-      child.on("close", (code) => done(code === 0));
-    } catch {
-      done(false);
-    }
-  });
-}
 
 /**
  * Core command: open the active editor's Markdown file in Ashlr MD, in edit
@@ -102,16 +68,12 @@ async function openInAshlr(mode?: OpenMode): Promise<void> {
   // Fallback: spawn the `mdopen` CLI.
   const cliPath = config.get<string>("cliPath")?.trim() || "mdopen";
 
-  const cliOpened = await openViaCli(cliPath, absolutePath, openMode);
-  if (cliOpened) {
+  const outcome = await openViaCli(cliPath, absolutePath, openMode);
+  if (outcome.kind === "opened") {
     return;
   }
 
-  vscode.window.showErrorMessage(
-    "Ashlr MD: could not open the file. Make sure Ashlr MD is installed " +
-      "(https://md.ashlr.ai) so the mdopener:// scheme is registered, or set " +
-      "`ashlr-md.cliPath` to your `mdopen` CLI.",
-  );
+  vscode.window.showErrorMessage(cliFailureMessage(cliPath, outcome));
 }
 
 export function activate(context: vscode.ExtensionContext): void {

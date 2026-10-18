@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **VS Code: a failed `mdopen` fallback says why.** When the deep link did
+  not open and `mdopen` ran but could not open the file, the extension
+  still said to install Ashlr MD or set `ashlr-md.cliPath`, and dropped
+  what `mdopen` printed. It now passes on `mdopen`'s reason (or its exit
+  status). When `mdopen` cannot be run at all, the error says where Ashlr
+  MD installs it (Preferences, Command-line tool, Install `mdopen`); the
+  README named an "Install CLI tool" command the app does not have.
 - **VS Code: an untitled Markdown file is told to save first.** The
   extension judged the file name before checking for a file on disk, and
   an untitled buffer is named `Untitled-1`, so a new Markdown document was
