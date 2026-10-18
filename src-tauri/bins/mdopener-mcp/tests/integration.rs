@@ -4860,6 +4860,28 @@ fn resource_read_vault_search_rejects_a_non_numeric_limit() {
     assert!(ok.error.is_none(), "{:?}", ok.error);
 }
 
+/// `limit` was the one value read without percent-decoding, so `limit=%35`
+/// was refused as not a whole number from 1 to 200, got "5".
+#[test]
+fn resource_read_vault_search_decodes_an_encoded_limit() {
+    let ipc = MockIpc::new().on_get("/search", Ok(json!({ "results": [] })));
+    let resp = handle_resource_read(
+        id(316),
+        "text://vault-search?q=x&limit=%35&semantic=false",
+        &ipc,
+    );
+    assert!(resp.error.is_none(), "{:?}", resp.error);
+    let calls = ipc.calls();
+    assert!(
+        calls.iter().any(|(_, path, _)| path.ends_with("&limit=5")),
+        "{calls:?}"
+    );
+    let resp = handle_resource_read(id(317), "text://vault-search?q=x&limit=%32%30%31", &ipc);
+    let err = resp.error.expect("201 is past the cap");
+    assert_eq!(err.code, -32602);
+    assert!(err.message.contains("got \"201\""), "{}", err.message);
+}
+
 /// A misspelt query parameter (`lmit=5`) was dropped, so the search ran with
 /// the default, and `text://vault-searchx` was read as this resource.
 #[test]

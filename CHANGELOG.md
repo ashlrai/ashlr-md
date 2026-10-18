@@ -47,6 +47,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `text://vault-search` decodes an encoded `limit`.** `q`, `vault`
+  and `semantic` were percent-decoded but `limit` was not, so
+  `limit=%35` was refused as not a whole number from 1 to 200, got "5".
+  It is now decoded like the other values.
 - **MCP: the server instructions name the no-app tools correctly.** They
   said the tools that work without the app all work "on files on disk",
   but `list_ai_actions` and the conversation tools read no file you name,

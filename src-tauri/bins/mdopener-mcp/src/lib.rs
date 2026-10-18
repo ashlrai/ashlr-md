@@ -4351,7 +4351,9 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
                     }
                 };
             } else if let Some(val) = part.strip_prefix("limit=") {
-                limit = match val.parse() {
+                // Decoded like the other values: `limit=%35` used to be
+                // refused as not a whole number, got "5".
+                limit = match decode(val).parse() {
                     Ok(l) if (1..=SEARCH_MAX_RESULTS).contains(&l) => l,
                     _ => {
                         return Response::err(
