@@ -879,7 +879,9 @@ The MCP binary must exist before the agent can launch it. Either:
 
 **Tools return "Ashlr MD does not appear to be running"**
 The app must be open for everything except `open_file`. Launch Ashlr MD (or call
-`open_file`, which cold-starts it), then retry.
+`open_file`, which cold-starts it), then retry. The message also says that an
+app that is not installed comes from
+[the releases page](https://github.com/ashlrai/ashlr-md/releases).
 
 **"IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token"**
 The app is starting up or wrote a stale/empty token. Make sure Ashlr MD has

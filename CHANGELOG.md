@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: the app-not-running error covers an app that is not installed.**
+  "Ashlr MD does not appear to be running" told the agent to launch it or
+  call `open_file`, which a user without the app cannot follow. It now
+  also says to ask the user to install it from the releases page.
 - **MCP: `present_document` and `request_review` say they need the app.**
   Both show the human something, so an agent may call one first, but
   neither starts Ashlr MD and their descriptions did not say so; the agent

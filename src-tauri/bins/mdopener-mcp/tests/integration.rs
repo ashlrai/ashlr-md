@@ -2236,7 +2236,9 @@ fn app_not_running_msg_ipc_port_error_includes_hint() {
     assert_eq!(
         msg,
         "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
-         Launch it first, or use open_file which can start it automatically."
+         Launch it first, or use open_file which can start it automatically. If it \
+         is not installed, ask the user to install it from \
+         https://github.com/ashlrai/ashlr-md/releases."
     );
 }
 

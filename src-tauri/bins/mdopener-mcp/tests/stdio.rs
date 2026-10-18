@@ -83,7 +83,9 @@ fn handshake_with_current_client_protocol_versions() {
         assert_eq!(
             text,
             "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
-             Launch it first, or use open_file which can start it automatically."
+             Launch it first, or use open_file which can start it automatically. If it \
+             is not installed, ask the user to install it from \
+             https://github.com/ashlrai/ashlr-md/releases."
         );
     }
 }

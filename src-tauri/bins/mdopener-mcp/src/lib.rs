@@ -5249,7 +5249,9 @@ pub fn app_not_running_msg(err: &str) -> String {
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
         format!(
             "Ashlr MD does not appear to be running ({}). \
-             Launch it first, or use open_file which can start it automatically.",
+             Launch it first, or use open_file which can start it automatically. If it \
+             is not installed, ask the user to install it from \
+             https://github.com/ashlrai/ashlr-md/releases.",
             err
         )
     } else {
