@@ -111,4 +111,44 @@ describe("ReviewPanel countdown", () => {
     );
     expect(host.querySelector('[aria-label="Content to review"]')).toBeNull();
   });
+
+  // Escape pressed to end an IME composition in the comment box bubbled to
+  // the panel and dismissed the review, dropping the comment.
+  it("does not dismiss on an Escape that ends an IME composition", () => {
+    useReviewStore.getState().registerReview({
+      reviewId: "rev-5",
+      path: "/notes/plan.md",
+      content: null,
+      timeoutMs: 60_000,
+      registeredAt: Date.now(),
+    });
+    act(() => root.render(createElement(ReviewPanel)));
+    act(() => useReviewStore.getState().setDraftComment("\u5909\u63db"));
+    const comment = host.querySelector("textarea");
+    expect(comment).not.toBeNull();
+    act(() => {
+      comment!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          isComposing: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(useReviewStore.getState().pending?.reviewId).toBe("rev-5");
+    expect(useReviewStore.getState().draftComment).toBe("\u5909\u63db");
+    expect(invokeMock).not.toHaveBeenCalled();
+
+    act(() => {
+      comment!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(invokeMock).toHaveBeenCalledWith("set_review_verdict", {
+      reviewId: "rev-5",
+      verdict: "dismissed",
+      comments: null,
+    });
+    expect(useReviewStore.getState().pending).toBeNull();
+  });
 });

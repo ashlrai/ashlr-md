@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildDeepLink, isOpenableInAshlr } from "./links";
+import {
+  buildDeepLink,
+  handoffRefusal,
+  isOpenableInAshlr,
+  NOT_OPENABLE_MESSAGE,
+  NOT_SAVED_MESSAGE,
+} from "./links";
 
 describe("isOpenableInAshlr", () => {
   it("takes every Markdown extension the app opens, in any case", () => {
@@ -49,5 +55,31 @@ describe("buildDeepLink", () => {
       "mdopener://open?path=%2Fa.md&mode=edit",
     );
     assert.equal(buildDeepLink("/a.md", undefined), "mdopener://open?path=%2Fa.md");
+  });
+});
+
+describe("handoffRefusal", () => {
+  // An untitled Markdown buffer is named `Untitled-1`, with no extension, so
+  // it was told Ashlr MD opens only Markdown files instead to save first.
+  it("tells an untitled or non-file document to save first", () => {
+    assert.equal(
+      handoffRefusal({ fsPath: "Untitled-1", isUntitled: true, scheme: "untitled" }),
+      NOT_SAVED_MESSAGE,
+    );
+    assert.equal(
+      handoffRefusal({ fsPath: "/remote/a.md", isUntitled: false, scheme: "vscode-remote" }),
+      NOT_SAVED_MESSAGE,
+    );
+  });
+
+  it("names the files Ashlr MD opens for any other file, and passes Markdown", () => {
+    assert.equal(
+      handoffRefusal({ fsPath: "/notes/a.txt", isUntitled: false, scheme: "file" }),
+      NOT_OPENABLE_MESSAGE,
+    );
+    assert.equal(
+      handoffRefusal({ fsPath: "/notes/a.md", isUntitled: false, scheme: "file" }),
+      undefined,
+    );
   });
 });

@@ -36,6 +36,48 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer dismisses a review.** Pressing Escape to end
+  an input-method composition (or close its candidate list) while typing
+  a comment in the review panel bubbled up to the panel, which recorded
+  `dismissed` for the agent and dropped the comment. The panel now
+  ignores an Escape that belongs to a composition; a plain Escape still
+  dismisses.
+- **Obsidian: a missing Ashlr MD gets the "could not launch" notice.** When
+  Electron's `shell.openExternal` rejected (no app registered for
+  `mdopener://`), the plugin caught it and fell back to `window.open`,
+  which resolved, so its "could not launch the app" notice never showed
+  and the click did nothing. The fallback is now only for when Electron
+  cannot be loaded; a rejected open shows the notice. `npm run typecheck`
+  also passes now (it failed on the missing `electron` types).
+- **Obsidian: the edit-mode setting names the real command.** Its
+  description said to use the "Open in edit mode" command, a name the
+  command palette does not list; the command is "Open current note in
+  Ashlr MD (edit mode)", and the description now says so. The plugin's
+  pure helpers moved to `links.ts`, with `npm test` (Node's `node:test`)
+  and `npm run typecheck` scripts.
+- **VS Code: a failed `mdopen` fallback says why.** When the deep link did
+  not open and `mdopen` ran but could not open the file, the extension
+  still said to install Ashlr MD or set `ashlr-md.cliPath`, and dropped
+  what `mdopen` printed. It now passes on `mdopen`'s reason (or its exit
+  status). When `mdopen` cannot be run at all, the error says where Ashlr
+  MD installs it (Preferences, Command-line tool, Install `mdopen`); the
+  README named an "Install CLI tool" command the app does not have.
+- **VS Code: an untitled Markdown file is told to save first.** The
+  extension judged the file name before checking for a file on disk, and
+  an untitled buffer is named `Untitled-1`, so a new Markdown document was
+  told Ashlr MD opens only Markdown files. It is now told to save the file
+  first, as the README says.
+- **An empty IPC token says what to do next.** When
+  `~/.mdopener/ipc-token` existed but was empty, every app-backed tool
+  failed with `~/.mdopener/ipc-token is empty. Has Ashlr MD finished
+  starting?` and no next step. It now says the app has not finished
+  starting, and to retry once it has finished launching or restart Ashlr
+  MD if the token stays empty, as the not-running error says to launch it.
+- **`export_text` says `char_count` counts characters.** Its description
+  called the field a "character count" without saying whether that meant
+  bytes, and a non-ASCII document has more bytes than characters. It now
+  says `char_count` is the text's length in Unicode characters, not bytes,
+  which is what the tool counts.
 - **Every path argument says what a relative path resolves against.**
   `open_file`'s `path` said only "Absolute or relative path", and the
   optional `path` checks of `edit_document`, `stream_edit` and

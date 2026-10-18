@@ -47,6 +47,8 @@ npm install
 npm run build      # produces main.js (minified, CJS)
 # or for watch/dev mode:
 npm run dev
+npm test           # the pure helpers in links.ts, under node:test
+npm run typecheck  # tsc --noEmit
 ```
 
 ---
@@ -78,8 +80,10 @@ npm run dev
   the absolute path.  Vaults backed by a remote adapter (e.g. a hypothetical
   cloud-only vault) will see a friendly notice instead of opening.
 - **Ashlr MD must be installed.** If the URL scheme is not registered, the
-  operating system does nothing (or says it has no app for the link).
-  Install Ashlr MD from [md.ashlr.ai](https://md.ashlr.ai).
+  plugin shows a "could not launch the app" notice where the operating
+  system reports that no app handles the link (some Linux desktops report
+  nothing, and then nothing opens). Install Ashlr MD from
+  [md.ashlr.ai](https://md.ashlr.ai).
 - **Where `mdopener://` is registered.** The macOS app registers it on
   install; the Windows installers (`.msi`, `-setup.exe`) and the Linux
   `.deb`/`.rpm` packages register it too (through their desktop file on
@@ -97,6 +101,7 @@ plugin toolchain.  Source entry point: `main.ts`.
 ```
 integrations/obsidian/
 ├── main.ts           ← plugin source
+├── links.ts          ← pure helpers and strings (tested by links.test.ts)
 ├── styles.css        ← minimal CSS (Obsidian design tokens)
 ├── manifest.json     ← plugin metadata
 ├── versions.json     ← minAppVersion map

@@ -5093,6 +5093,28 @@ fn export_text_preserves_code_block_content() {
     );
 }
 
+/// `char_count` said only "character counts", leaving an agent to guess
+/// bytes or characters. The description says Unicode characters, and the
+/// count of a non-ASCII document is its chars, not its bytes.
+#[test]
+fn export_text_char_count_is_unicode_characters_not_bytes() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "export_text")
+        .unwrap()
+        .description;
+    assert!(d.contains("in Unicode characters"), "{d}");
+    assert!(d.contains("not bytes"), "{d}");
+    let result = run_export_text_on("Caf\u{e9} \u{1F600}\n");
+    let text = result["text"].as_str().unwrap();
+    assert!(text.len() > text.chars().count(), "{text:?}");
+    assert_eq!(
+        result["char_count"].as_u64().unwrap() as usize,
+        text.chars().count(),
+        "{result}"
+    );
+}
+
 #[test]
 fn export_text_word_and_char_counts_are_correct() {
     // Strip a simple document and verify counts match the extracted text.
