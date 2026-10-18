@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isActionEnter } from "../../../lib/keymap";
 import { useMemoryStore } from "../../../store/memoryStore";
 
 /** "What Ashlr remembers" — local AI memory, fully transparent + editable. */
@@ -28,7 +29,8 @@ export function MemorySection() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
+            // Not an Enter that commits an IME composition (isActionEnter).
+            if (isActionEnter(e)) submit();
           }}
         />
         <button

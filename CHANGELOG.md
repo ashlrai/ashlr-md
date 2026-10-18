@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Enter no longer sends a half typed AI message.** Pressing
+  Enter to commit an input-method composition in the AI chat sent the
+  message as typed so far, in Preferences' AI memory field it saved the
+  half typed fact, and in a WYSIWYG list it continued the list. All three
+  now ignore an Enter that belongs to a composition, and a test fails on
+  any new raw Enter comparison outside the shared check.
 - **⌘⌥F works outside the source editor on macOS.** Option changes the
   character a key types (Option+F types "ƒ"), so the app's shortcut
   matcher, which compared that character, never saw ⌘⌥F as Find and

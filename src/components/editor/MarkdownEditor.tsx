@@ -15,7 +15,7 @@ import {
   isUrl,
 } from "../../lib/editorShortcuts";
 import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
-import { isDismissEscape } from "../../lib/keymap";
+import { isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
@@ -357,7 +357,8 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
       if (!view.hasFocus()) return;
 
       // ── List continuation (Enter at end of a list item) ────────────────────
-      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Not an Enter that commits an IME composition (isActionEnter).
+      if (isActionEnter(e) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const sel = view.state.selection;
         if (sel.from === sel.to) {
           // Resolve the current line by walking back to the nearest \n.
