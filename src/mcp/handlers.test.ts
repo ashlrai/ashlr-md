@@ -458,7 +458,9 @@ describe("handlers integration — edits with save: true", () => {
       });
       const r = reply("mcp_stream_edit_preview");
       expect(r).toMatchObject({ editId: "s1", ok: false, matchCount: 0 });
-      expect(r.error).toBe("No document is open in Ashlr MD; open one first (open_file).");
+      expect(r.error).toBe(
+        "No document is open in Ashlr MD; open one first (open_file).",
+      );
     }
     invokeMock.mockClear();
     await fireEvent("mcp://stream-edit-apply", {
@@ -469,9 +471,13 @@ describe("handlers integration — edits with save: true", () => {
     });
     const r = reply("mcp_stream_edit_apply_result");
     expect(r).toMatchObject({ editId: "a1", ok: false, replaced: 0 });
-    expect(r.error).toBe("No document is open in Ashlr MD; open one first (open_file).");
+    expect(r.error).toBe(
+      "No document is open in Ashlr MD; open one first (open_file).",
+    );
     expect(useDocumentStore.getState().content).toBe("");
-    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(false);
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      false,
+    );
   });
 
   it("set-content: reports the replaced content as ok", async () => {

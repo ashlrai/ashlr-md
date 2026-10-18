@@ -5,15 +5,15 @@
 // the Rust-side check in mdopener-mcp/tests/integration.rs does not gate PRs.
 
 import { describe, expect, it } from "vitest";
+import releaseWorkflow from "../.github/workflows/release.yml?raw";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
+import releasingDoc from "../docs/RELEASING.md?raw";
 import obsidianReadme from "../integrations/obsidian/README.md?raw";
 import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
-import releasingDoc from "../docs/RELEASING.md?raw";
-import releaseWorkflow from "../.github/workflows/release.yml?raw";
 import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
@@ -172,7 +172,12 @@ describe(`doc facts: ${AGENTS}`, () => {
       msg,
       "src/mcp/handlers/edit.ts no longer defines NO_DOCUMENT_OPEN",
     ).toBeTruthy();
-    for (const tool of ["set_content", "edit_document", "stream_edit", "stream_edit_apply"]) {
+    for (const tool of [
+      "set_content",
+      "edit_document",
+      "stream_edit",
+      "stream_edit_apply",
+    ]) {
       const row =
         agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
       expect(
@@ -511,7 +516,9 @@ describe("doc facts: AppImage MCP server path", () => {
   it("the manual steps copy the server out of the AppImage and register the copy", () => {
     const lines = manual.split("\n");
     const extract = lines.find((l) => l.includes("--appimage-extract")) ?? "";
-    expect(extract, `${AGENTS}: no --appimage-extract step`).toContain(`"${inAppImage}"`);
+    expect(extract, `${AGENTS}: no --appimage-extract step`).toContain(
+      `"${inAppImage}"`,
+    );
     const copy = lines.find((l) => l.startsWith("install -D")) ?? "";
     expect(copy).toContain(`"squashfs-root/${inAppImage}"`);
     const dest = copy.split(" ").at(-1) ?? "";
@@ -565,9 +572,12 @@ describe("doc facts: release asset names", () => {
 
   it("RELEASING.md maps every bundler output to its published name", () => {
     for (const [built, published] of assets) {
-      const row = releasingDoc.split("\n").find((l) => l.includes(`\`${built}\``)) ?? "";
+      const row =
+        releasingDoc.split("\n").find((l) => l.includes(`\`${built}\``)) ?? "";
       expect(row, `${RELEASING}: no table row names \`${built}\``).not.toBe("");
-      expect(row, `${where(RELEASING, releasingDoc, built)}`).toContain(`\`${published}\``);
+      expect(row, `${where(RELEASING, releasingDoc, built)}`).toContain(
+        `\`${published}\``,
+      );
     }
   });
 
@@ -581,7 +591,9 @@ describe("doc facts: release asset names", () => {
     for (const [built, published] of assets) {
       expect(installDoc, "docs/INSTALL.md names a bundler output").not.toContain(built);
       if (published.endsWith("_x64.dmg")) continue; // no Intel build is published yet
-      expect(installDoc, `docs/INSTALL.md does not name ${published}`).toContain(published);
+      expect(installDoc, `docs/INSTALL.md does not name ${published}`).toContain(
+        published,
+      );
     }
   });
 });
