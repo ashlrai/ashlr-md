@@ -17,10 +17,11 @@ bun install
 bun run tauri dev        # hot-reloading desktop app
 ```
 
-Open a file while developing by passing it as an argument:
+Open a file while developing by passing it after a second `--` (arguments
+after the first go to `cargo run`, which refuses a file name):
 
 ```bash
-bun run tauri dev -- /path/to/file.md
+bun run tauri dev -- -- /path/to/file.md
 ```
 
 ### Check the frontend without the desktop shell

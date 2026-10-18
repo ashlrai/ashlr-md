@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The README and CONTRIBUTING open a file in `tauri dev` correctly.** They
+  said `bun run tauri dev -- file.md`, but the Tauri CLI hands arguments
+  after the first `--` to `cargo run`, which stops with an unexpected
+  argument error. The app's arguments go after a second `--`:
+  `bun run tauri dev -- -- file.md`.
 - **The Linux install guide's default-app commands name the real desktop
   entry.** `docs/INSTALL.md` told you to run `xdg-mime default
   app.mdopener.desktop.desktop text/markdown`, a file the `.deb` and `.rpm`
