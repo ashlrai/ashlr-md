@@ -32,7 +32,7 @@ free, private, **on-device AI** built in.
 ## 30-second start
 
 1. Download v0.4.0 for your OS from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest): `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
-2. Double-click any `.md` file, or run `mdopen notes.md`.
+2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
 3. Ask the built-in on-device AI about it. No account, no API key.
 
 ## Connect your agent (MCP)

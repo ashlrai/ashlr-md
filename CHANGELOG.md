@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The README quick start says how to get `mdopen`.** Step 2 said to run
+  `mdopen notes.md`, but no app installer puts `mdopen` on `PATH`, so a new
+  user got "command not found". It now names **Install mdopen** first, and
+  a doc facts test fails when the step drops it.
 - **`mdopener-mcp --help` says how to register the server.** It ended
   "see docs/AGENTS.md", a file an installed server has nowhere near it,
   and the hint printed when it is run by hand in a terminal said the same.

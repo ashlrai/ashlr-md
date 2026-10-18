@@ -410,6 +410,20 @@ describe("doc facts: uninstalling", () => {
   });
 });
 
+describe("doc facts: README quick start", () => {
+  it("says how mdopen gets on PATH before telling you to run it", () => {
+    // Step 2 said "run `mdopen notes.md`", but no installer puts mdopen on
+    // PATH, so a new user got "command not found".
+    const start = readme.split("## 30-second start")[1]?.split("\n## ")[0] ?? "";
+    const step = start.split("\n").find((l) => l.includes("`mdopen ")) ?? "";
+    expect(step, "README.md: the 30-second start no longer runs mdopen").not.toBe("");
+    expect(
+      step,
+      `name Install mdopen at ${where("README.md", readme, step)}`,
+    ).toContain("Install mdopen");
+  });
+});
+
 describe("doc facts: download links", () => {
   // The VS Code and Obsidian READMEs sent "download here" to md.ashlr.ai,
   // the landing page, while every other doc (and its own Download button)
