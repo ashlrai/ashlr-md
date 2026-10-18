@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ActionId, AI_ACTIONS } from "../../ai/actions";
-import { describeAIError, NO_PROVIDER_MESSAGE } from "../../ai/errors";
+import { describeAIError, NO_PROVIDER_RUN_MESSAGE } from "../../ai/errors";
 import {
   detectProvider,
   NOOP_PROVIDER_ID,
@@ -43,6 +43,7 @@ export function SelectionPopover() {
   const stopLast = useAIStore((s) => s.stopLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const setAbortController = useAIStore((s) => s.setAbortController);
+  const setProvider = useAIStore((s) => s.setProvider);
 
   /** Returns true if the selection's anchor node is inside `.markdown-body` */
   function isInsideMarkdownBody(sel: Selection): boolean {
@@ -147,12 +148,16 @@ export function SelectionPopover() {
     });
 
     // No provider: say so in the sidebar with the next step, as the editors'
-    // inline AI does, instead of stopping without a word.
+    // inline AI does, instead of stopping without a word. Recording the no-op
+    // provider makes a sidebar that still showed the chat switch to its setup
+    // panel, which shows this message on top: the message used to sit in the
+    // chat the panel hides, so a freshly opened sidebar showed no reason.
     if (!provider || provider.id === NOOP_PROVIDER_ID) {
+      if (provider) setProvider(provider.id, provider.capabilities);
       pushMessage({
         role: "assistant",
         content: "",
-        error: { message: NO_PROVIDER_MESSAGE, detail: detectDetail },
+        error: { message: NO_PROVIDER_RUN_MESSAGE, detail: detectDetail },
       });
       return;
     }

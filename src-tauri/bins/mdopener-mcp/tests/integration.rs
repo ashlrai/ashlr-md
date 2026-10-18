@@ -11399,3 +11399,81 @@ fn no_home_directory_error_names_a_next_step() {
         home.join(".mdopener").join("ipc-token")
     );
 }
+
+// ── edit_canvas names the ids that exist when one is not found ───────────────
+
+/// A mistyped or stale node or edge id came back as "node `n2` not found",
+/// naming neither the ids the canvas has nor whether anything was written, so
+/// the agent had to read the file to retry. The error now lists the ids that
+/// exist at that op (after the ops before it) and says the file is unchanged.
+#[test]
+fn edit_canvas_not_found_lists_the_ids_that_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let canvas = json!({
+        "nodes": [
+            { "id": "n1", "type": "text", "text": "a", "x": 0, "y": 0, "width": 1, "height": 1 },
+            { "id": "n3", "type": "text", "text": "b", "x": 0, "y": 0, "width": 1, "height": 1 }
+        ],
+        "edges": [ { "id": "e1", "fromNode": "n1", "toNode": "n3" } ]
+    })
+    .to_string();
+    std::fs::write(&path, &canvas).unwrap();
+    let unchanged = "No op was applied and the file was left unchanged.";
+    let cases = [
+        (
+            json!([{ "type": "move_node", "id": "n2", "x": 1, "y": 2 }]),
+            "op[0] move_node: node `n2` not found. The canvas's node ids at this op are `n1`, `n3`.",
+        ),
+        (
+            json!([{ "type": "delete_edge", "id": "e2" }]),
+            "op[0] delete_edge: edge `e2` not found. The canvas's edge ids at this op are `e1`.",
+        ),
+        (
+            json!([{ "type": "add_edge", "edge": { "id": "e2", "fromNode": "n1", "toNode": "nx" } }]),
+            "op[0] add_edge: toNode `nx` not found. The canvas's node ids at this op are `n1`, `n3`.",
+        ),
+        (
+            json!([{ "type": "reorder_edges", "ids": ["e9"] }]),
+            "op[0] reorder_edges: unknown edge id `e9`. The canvas's edge ids at this op are `e1`.",
+        ),
+        // The ids are those left by the ops before it: n1 was deleted with
+        // its edge in op[0].
+        (
+            json!([
+                { "type": "delete_node", "id": "n1" },
+                { "type": "edit_edge_label", "id": "e1", "label": "x" }
+            ]),
+            "op[1] edit_edge_label: edge `e1` not found. The canvas has no edges at this op.",
+        ),
+    ];
+    for (ops, want) in cases {
+        let args = json!({ "path": path, "ops": ops });
+        let msg = param_error(&mdopener_mcp::tool_edit_canvas(id(1), &args));
+        assert_eq!(msg, format!("{want} {unchanged}"));
+        assert_eq!(
+            param_error(&call("edit_canvas", args, &MockIpc::new())),
+            msg
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), canvas);
+    }
+}
+
+/// A canvas with many nodes lists the first 20 ids and counts the rest.
+#[test]
+fn edit_canvas_not_found_caps_the_id_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.canvas");
+    let nodes: Vec<Value> = (0..25)
+        .map(|n| {
+            json!({ "id": format!("n{n}"), "type": "text", "text": "t",
+                          "x": 0, "y": 0, "width": 1, "height": 1 })
+        })
+        .collect();
+    std::fs::write(&path, json!({ "nodes": nodes, "edges": [] }).to_string()).unwrap();
+    let args = json!({ "path": path, "ops": [{ "type": "delete_node", "id": "zz" }] });
+    let msg = param_error(&mdopener_mcp::tool_edit_canvas(id(1), &args));
+    assert!(msg.contains("`n0`, `n1`"), "{msg}");
+    assert!(msg.contains("`n19` and 5 more."), "{msg}");
+    assert!(!msg.contains("`n20`"), "{msg}");
+}

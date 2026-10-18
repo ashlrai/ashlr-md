@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
-import { type AIErrorInfo, describeAIError } from "../../ai/errors";
+import { type AIErrorInfo, describeAIError, isMacPlatform } from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -123,6 +123,14 @@ function MessageError({ error }: { error: AIErrorInfo }) {
   );
 }
 
+/** The error of the last message when it is a failed assistant turn with no
+ *  text, which the setup nudge shows instead of the hidden chat. */
+function unrunNotice(messages: ChatMessage[]): AIErrorInfo | null {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant" || !last.error || last.content.trim()) return null;
+  return last.error;
+}
+
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "system") return null;
   // A failed or stopped turn with no text shows only its note, not an empty
@@ -160,12 +168,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 // API key entry form (shown when no provider is found)
 // ---------------------------------------------------------------------------
 
-/** Whether the app runs on macOS, read when the nudge renders. */
-function onMac(): boolean {
-  return /Mac/.test(navigator.platform || navigator.userAgent || "");
-}
-
-function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
+function SetupNudge({
+  onKeySet,
+  notice,
+}: {
+  onKeySet: () => void;
+  /** The request that just failed for want of a provider (say a selection
+   *  popover action), shown on top so the user sees why nothing ran. */
+  notice: AIErrorInfo | null;
+}) {
   const setApiKey = useAIStore((s) => s.setApiKey);
   const [draft, setDraft] = useState("");
 
@@ -180,13 +191,18 @@ function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
 
   return (
     <div className="ai-setup-nudge">
+      {notice && (
+        <div className="ai-setup-nudge__notice">
+          <MessageError error={notice} />
+        </div>
+      )}
       <div className="ai-setup-nudge__icon">🤖</div>
       <p className="ai-setup-nudge__title">No AI provider found</p>
       <p className="ai-setup-nudge__body">
         {/* The README promises a zero-install on-device model on macOS 26+;
             the nudge used to offer only Ollama and a key, with no word on why
             that model was not found. Ashlr MD checks for it once per launch. */}
-        {onMac() && (
+        {isMacPlatform() && (
           <>
             On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device
             model needs Apple Intelligence: turn it on in System Settings → Apple
@@ -658,6 +674,7 @@ export function AISidebar() {
         </div>
       ) : isNoop || !provider ? (
         <SetupNudge
+          notice={unrunNotice(messages)}
           onKeySet={() => {
             setDetecting(true);
             detectProvider().then((p) => {

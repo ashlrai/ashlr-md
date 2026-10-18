@@ -47,6 +47,27 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `edit_canvas` names the ids that exist when one is not found.** A
+  mistyped or stale node or edge id came back as "node `n2` not found", with
+  no word on which ids the canvas has or whether anything was written, so an
+  agent had to read the file before it could retry. The error now lists the
+  ids that exist at that op (the first 20, then a count) and says the file
+  was left unchanged.
+- **A popover action with no provider shows why on the setup panel.** When
+  an action from the selection popover found no AI provider, it opened the AI
+  sidebar, whose setup panel then hid the message in the chat behind it, so
+  the user saw the panel and no reason; the message also said "Set one up in
+  the AI sidebar" from inside that sidebar. The panel now shows the message on
+  top, the message points at the panel's options, and a sidebar that still
+  showed the chat switches to the panel.
+- **The no-provider message is true on every platform.** With no AI
+  provider, the AI sidebar's answer and the change banner's **Explain
+  changes** said only "Install Ollama or add an Anthropic API key", with no
+  word on the Mac's on-device model, and the README's quick start promised
+  "No account, no API key" everywhere, which is untrue on Windows and Linux.
+  On a Mac they now say the on-device model needs Apple Silicon, macOS 26 or
+  later and Apple Intelligence turned on, then a restart; elsewhere they point
+  at Ollama or an Anthropic API key. The app's two messages share one text.
 - **The selection popover says when no AI provider is found.** If the
   provider went away after the AI sidebar opened (say Ollama stopped), an
   action from the selection popover opened the sidebar and stopped without a

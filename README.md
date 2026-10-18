@@ -33,7 +33,7 @@ free, private, **on-device AI** built in.
 
 1. Download v0.4.0 for your OS from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest): `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
 2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](./docs/AGENTS.md#install)).
-3. Ask the built-in on-device AI about it. No account, no API key.
+3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
 
 ## Connect your agent (MCP)
 

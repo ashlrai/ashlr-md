@@ -10,6 +10,7 @@ import {
   detectHostedToken,
   detectOllama,
 } from "./bridge";
+import { noProviderAnswer } from "./errors";
 import type { AICapabilities, AIMessage, AIProvider } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -371,7 +372,7 @@ class NoOpProvider implements AIProvider {
     _messages: AIMessage[],
     _opts: { signal?: AbortSignal },
   ): AsyncGenerator<string> {
-    yield "No AI provider is available. Install Ollama or add an Anthropic API key.";
+    yield noProviderAnswer();
   }
 }
 

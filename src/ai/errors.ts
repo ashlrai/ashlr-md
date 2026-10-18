@@ -22,6 +22,38 @@ export interface AIErrorInfo {
  */
 export const NO_PROVIDER_MESSAGE = "No AI provider. Set one up in the AI sidebar.";
 
+/**
+ * What the selection popover leaves in the AI sidebar when no provider is
+ * found. The popover opens the sidebar, which then shows its setup panel
+ * with this message on top (AISidebar's SetupNudge), so it points at the
+ * panel's options instead of at "the AI sidebar" the user is already in.
+ */
+export const NO_PROVIDER_RUN_MESSAGE =
+  "No AI provider was found, so this did not run. Set one up here, then select the text and try again.";
+
+/** Whether the app runs on macOS, read at call time. */
+export function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mac/.test(navigator.platform || navigator.userAgent || "");
+}
+
+/**
+ * How to get an AI provider, true for the platform: the on-device model
+ * exists only on a Mac (Apple Silicon, macOS 26 or later, Apple Intelligence
+ * on), so Windows and Linux are pointed at Ollama or a key. The README's
+ * quick start says the same (docFacts.test.ts holds the two together).
+ */
+export function noProviderSetupHint(mac: boolean = isMacPlatform()): string {
+  return mac
+    ? "On a Mac with Apple Silicon and macOS 26 or later, turn on Apple Intelligence in System Settings, then restart Ashlr MD. Or install Ollama, or add an Anthropic API key in Preferences."
+    : "Install Ollama for free local AI, or add an Anthropic API key in Preferences.";
+}
+
+/** The no-op provider's answer: no provider, and how to get one here. */
+export function noProviderAnswer(mac: boolean = isMacPlatform()): string {
+  return `No AI provider is available. ${noProviderSetupHint(mac)}`;
+}
+
 const NETWORK =
   /error sending request|failed to fetch|networkerror|network error|connection (refused|reset|closed)|dns error|could not resolve|stream read error|load failed/i;
 const TIMEOUT = /timed out|timeout/i;

@@ -1,7 +1,9 @@
 /**
  * The selection popover opened the AI sidebar and then stopped without a
- * word when no provider was found. It now leaves the same plain message with
- * a next step that the editors' inline AI shows.
+ * word when no provider was found. It now leaves a plain message with a next
+ * step. A sidebar the action opens fresh shows its setup panel, which hid
+ * that message in the chat behind it; the panel now shows it on top, and the
+ * message points at the panel instead of at "the AI sidebar".
  */
 import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -28,7 +30,7 @@ vi.mock("../../ai/registry", async (importOriginal) => {
   };
 });
 
-import { NO_PROVIDER_MESSAGE } from "../../ai/errors";
+import { NO_PROVIDER_RUN_MESSAGE } from "../../ai/errors";
 import { NOOP_PROVIDER_ID } from "../../ai/registry";
 import { useAIStore } from "../../store/aiStore";
 import { AISidebar } from "./AISidebar";
@@ -68,7 +70,7 @@ describe("Selection popover with no provider", () => {
 
   /** Opens the sidebar with a provider, then runs `arrange` (the provider
    *  goes away, say Ollama stops) and clicks Explain in the popover. */
-  async function clickExplain(arrange: () => void) {
+  async function clickExplain(arrange: () => void = () => {}) {
     await act(async () =>
       root.render(
         createElement(
@@ -112,10 +114,41 @@ describe("Selection popover with no provider", () => {
     expect(useAIStore.getState().open).toBe(true);
     expect(useAIStore.getState().busy).toBe(false);
     const msg = lastAssistant();
-    expect(msg?.error?.message).toBe(NO_PROVIDER_MESSAGE);
+    expect(msg?.error?.message).toBe(NO_PROVIDER_RUN_MESSAGE);
     expect(msg?.streaming).toBeFalsy();
     expect(host.querySelector(".ai-msg__error-msg")?.textContent).toBe(
-      NO_PROVIDER_MESSAGE,
+      NO_PROVIDER_RUN_MESSAGE,
+    );
+  });
+
+  it("a sidebar the action opens fresh shows the message on its setup panel", async () => {
+    // Closed sidebar, no provider any more: both the popover's detection and
+    // the sidebar's own find only the no-op provider.
+    useAIStore.setState({ open: false });
+    detect.mockResolvedValue({
+      id: NOOP_PROVIDER_ID,
+      capabilities: { tier: 1, modelName: "None" },
+      isAvailable: async () => true,
+      async *generate() {},
+    });
+    await clickExplain();
+    await act(async () => {});
+
+    expect(useAIStore.getState().open).toBe(true);
+    const nudge = host.querySelector(".ai-setup-nudge");
+    expect(nudge, "the sidebar shows its setup panel").not.toBeNull();
+    const notice = nudge!.querySelector(".ai-setup-nudge__notice [role='alert']");
+    expect(notice, "the panel shows why nothing ran").not.toBeNull();
+    expect(notice!.textContent).toContain(NO_PROVIDER_RUN_MESSAGE);
+    expect(notice!.textContent).not.toContain("in the AI sidebar");
+    // The setup options are still there to act on.
+    expect(nudge!.querySelector(".ai-key-form")).not.toBeNull();
+  });
+
+  it("an open chat switches to the setup panel when the provider is gone", async () => {
+    await clickExplain(() => detect.mockResolvedValue({ id: NOOP_PROVIDER_ID }));
+    expect(host.querySelector(".ai-setup-nudge__notice")?.textContent).toContain(
+      NO_PROVIDER_RUN_MESSAGE,
     );
   });
 });

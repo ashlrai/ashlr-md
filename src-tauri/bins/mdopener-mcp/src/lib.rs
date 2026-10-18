@@ -5903,7 +5903,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] move_node: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] move_node: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -5954,7 +5957,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] resize_node: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] resize_node: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -5988,7 +5994,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] edit_text: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] edit_text: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -6028,7 +6037,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] edit_link: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] edit_link: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -6068,7 +6080,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] edit_group_label: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] edit_group_label: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -6098,7 +6113,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] set_node_color: node `{node_id}` not found"),
+                            format!(
+                                "op[{i}] set_node_color: node `{node_id}` not found. {}",
+                                canvas_known_ids(&nodes, "node")
+                            ),
                         )
                     }
                 };
@@ -6165,7 +6183,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     return Response::err(
                         id,
                         -32602,
-                        format!("op[{i}] delete_node: node `{node_id}` not found"),
+                        format!(
+                            "op[{i}] delete_node: node `{node_id}` not found. {}",
+                            canvas_known_ids(&nodes, "node")
+                        ),
                     );
                 }
                 edges.retain(|e| {
@@ -6242,7 +6263,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     return Response::err(
                         id,
                         -32602,
-                        format!("op[{i}] add_edge: fromNode `{from}` not found"),
+                        format!(
+                            "op[{i}] add_edge: fromNode `{from}` not found. {}",
+                            canvas_known_ids(&nodes, "node")
+                        ),
                     );
                 }
                 if !nodes
@@ -6252,7 +6276,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     return Response::err(
                         id,
                         -32602,
-                        format!("op[{i}] add_edge: toNode `{to}` not found"),
+                        format!(
+                            "op[{i}] add_edge: toNode `{to}` not found. {}",
+                            canvas_known_ids(&nodes, "node")
+                        ),
                     );
                 }
                 if let Some(msg) = canvas_edge_problem(new_edge) {
@@ -6277,7 +6304,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                     return Response::err(
                         id,
                         -32602,
-                        format!("op[{i}] delete_edge: edge `{edge_id}` not found"),
+                        format!(
+                            "op[{i}] delete_edge: edge `{edge_id}` not found. {}",
+                            canvas_known_ids(&edges, "edge")
+                        ),
                     );
                 }
             }
@@ -6298,7 +6328,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         return Response::err(
                             id,
                             -32602,
-                            format!("op[{i}] edit_edge_label: edge `{edge_id}` not found"),
+                            format!(
+                                "op[{i}] edit_edge_label: edge `{edge_id}` not found. {}",
+                                canvas_known_ids(&edges, "edge")
+                            ),
                         )
                     }
                 };
@@ -6327,9 +6360,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                         id,
                         -32602,
                         format!(
-                            "op[{i}] reorder_edges: expected {} ids, got {}",
+                            "op[{i}] reorder_edges: expected {} ids, got {}. {}",
                             edges.len(),
-                            new_ids.len()
+                            new_ids.len(),
+                            canvas_known_ids(&edges, "edge")
                         ),
                     );
                 }
@@ -6360,7 +6394,10 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
                             return Response::err(
                                 id,
                                 -32602,
-                                format!("op[{i}] reorder_edges: unknown edge id `{eid}`"),
+                                format!(
+                                    "op[{i}] reorder_edges: unknown edge id `{eid}`. {}",
+                                    canvas_known_ids(&edges, "edge")
+                                ),
                             )
                         }
                     }
@@ -6721,6 +6758,29 @@ fn is_canvas_color(c: &str) -> bool {
 
 fn canvas_color_problem(field: &str, c: &str) -> String {
     format!("{field} must be a preset \"1\"..\"6\" or a hex colour #rgb or #rrggbb, got {c:?}")
+}
+
+/// The next step a canvas "not found" error gives: the ids that exist at that
+/// op (after the ops before it), so an agent can correct a typo or a stale id
+/// without reading the file, and that nothing was written. The error used to
+/// name only the missing id.
+fn canvas_known_ids(items: &[serde_json::Map<String, Value>], kind: &str) -> String {
+    const SHOWN: usize = 20;
+    let ids: Vec<String> = items
+        .iter()
+        .filter_map(|m| m.get("id").and_then(Value::as_str))
+        .map(|s| format!("`{s}`"))
+        .collect();
+    let listed = match ids.len() {
+        0 => format!("The canvas has no {kind}s at this op"),
+        n if n > SHOWN => format!(
+            "The canvas's {kind} ids at this op are {} and {} more",
+            ids[..SHOWN].join(", "),
+            n - SHOWN
+        ),
+        _ => format!("The canvas's {kind} ids at this op are {}", ids.join(", ")),
+    };
+    format!("{listed}. No op was applied and the file was left unchanged.")
 }
 
 fn find_node_mut<'a>(
