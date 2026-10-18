@@ -1,11 +1,11 @@
 //! The lines of a Markdown text, each with what it is: part of a leading
 //! YAML front matter block, a code fence, a line of fenced code, or text.
 //! mdopener-mcp includes this file, so every scanner there that must not
-//! read code as Markdown (a document's title, the headings of
+//! read code as Markdown (a document's title, the headings and wikilinks of
 //! `export_metadata`) uses one rule for front matter and one for fences.
-//! The headings scanner used to flip an "in code" flag on any line starting
-//! with ```` ``` ```` or `~~~`, so a ```` ```` ```` block holding
-//! ```` ``` ```` ended early and a `~~~` line closed a backtick block.
+//! Those scanners used to flip an "in code" flag on any line starting with
+//! ```` ``` ```` or `~~~`, so a ```` ```` ```` block holding ```` ``` ````
+//! ended early and a `~~~` line closed a backtick block.
 
 /// What a line of a Markdown text is, from [`markdown_lines`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

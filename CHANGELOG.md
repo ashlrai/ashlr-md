@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_metadata` wikilinks use the same fence rule.** Any line
+  starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line
+  inside a backtick block made the `[[links]]` in the code after it count
+  and those after the block not, and a ```` ``` ```` line in a front
+  matter block scalar hid every link in the body. Wikilinks now skip
+  fenced code by the headings' rule. Front matter is still read, so a
+  property such as `related: "[[Plan]]"` links to `Plan` as Obsidian reads
+  it, but its lines are never fences.
 - **MCP: `export_metadata` headings skip front matter and code.** A
   `# comment` in YAML front matter was listed as a heading, and any line
   starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line

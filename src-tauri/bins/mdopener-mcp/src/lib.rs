@@ -1373,7 +1373,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
                 mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
                 headings tree (level + text for \
-                every ATX heading outside front matter and fenced code), all [[wikilinks]] found in the document, the count of embedded \
+                every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
+                code (front matter properties included), the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
@@ -2989,6 +2990,7 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 // The front matter and code fence rule every Markdown scanner here uses.
 #[path = "../../../src/markdown_lines.rs"]
 mod markdown_lines;
+use markdown_lines::LineKind;
 
 // The task-checkbox parser is shared with the app's `/annotations`.
 #[path = "../../../src/task_list.rs"]
@@ -8805,22 +8807,24 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
 /// Extract all `[[wikilinks]]` from the content (not inside code blocks).
 ///
 /// Returns a deduplicated, sorted list of link targets (the part before `|`).
+/// Fenced code is skipped by the rule of [`extract_headings`]
+/// ([`markdown_lines`]); any line starting with ```` ``` ```` or `~~~` used
+/// to flip an "in code" flag, so a `~~~` line inside a backtick block made
+/// the code after it links and the text after the block not. A leading
+/// front matter block is read: a property such as `related: "[[Plan]]"`
+/// links to `Plan`, as Obsidian reads it. Its lines are never fences, so a
+/// `` ``` `` line in a front matter block scalar no longer hides the body.
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
     let mut links = std::collections::HashSet::new();
-    let mut in_code_block = false;
-    let chars: Vec<char> = content.chars().collect();
+    let text: Vec<&str> = markdown_lines::markdown_lines(content)
+        .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
+        .map(|(_, line)| line)
+        .collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
     let n = chars.len();
     let mut i = 0;
     while i < n {
-        // Toggle code-block state on fence lines.
-        if i == 0 || chars[i - 1] == '\n' {
-            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
-            let t = rest.trim();
-            if t.starts_with("```") || t.starts_with("~~~") {
-                in_code_block = !in_code_block;
-            }
-        }
-        if !in_code_block && chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
+        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
             if let Some(close) = find_double_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
                 let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();

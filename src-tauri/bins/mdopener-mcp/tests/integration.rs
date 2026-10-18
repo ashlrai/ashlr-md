@@ -8040,6 +8040,45 @@ fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
     ));
 }
 
+/// extract_wikilinks flipped "in code" on any line starting with ``` or
+/// ~~~, so a `~~~` line inside a backtick block made the code after it
+/// links and the text after the block not, and a ``` line in a front matter
+/// block scalar hid the whole body. It now uses the shared fence rule, and
+/// reads front matter as links (Obsidian properties) without fences.
+#[test]
+fn export_metadata_wikilinks_use_the_fence_rule_and_keep_front_matter() {
+    use mdopener_mcp::extract_wikilinks;
+    let cases: [(&str, &[&str]); 7] = [
+        ("```\n~~~\n[[InCode]]\n```\n[[Real]]\n", &["Real"]),
+        ("````\n```\n[[InCode]]\n````\n[[Real]]\n", &["Real"]),
+        ("```\n``` sh\n[[InCode]]\n```\n[[Real]]\n", &["Real"]),
+        ("[[Real]]\n~~~\n[[InCode]]\n", &["Real"]),
+        (
+            "---\nrelated: \"[[Plan]]\"\n---\n[[Body]]\n",
+            &["Body", "Plan"],
+        ),
+        ("---\nnote: |\n  ```\n---\n[[Body]]\n", &["Body"]),
+        ("    ```\n[[Real]]\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    let tools = mdopener_mcp::tool_list();
+    let tool = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "export_metadata")
+        .unwrap();
+    let d = tool["description"].as_str().unwrap();
+    assert!(
+        d.contains("all [[wikilinks]] outside fenced code (front matter properties included)"),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("targets sorted, outside fenced code by the same fence rule"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
