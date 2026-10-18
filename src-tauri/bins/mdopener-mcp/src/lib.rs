@@ -1223,7 +1223,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \
                 when `find` is not found, when `path` is not the open \
                 document, with preview=false when `find` is not unique, when the window does not answer \
-                within 4 s, or when two edits are already waiting on the app (retry in a moment).",
+                within 4 s, or when two edits are already waiting on the app (retry in a moment). \
+                A refusal from the window also has `matchCount` beside `content` and `isError`: the \
+                occurrences of `find` it counted (0 when not found, or when it did not search, as with \
+                no document open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -7350,7 +7353,8 @@ pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
 ///  - `matchCount` — total occurrences of find in the document
 ///  - `editId`     — the app's id for this preview
 ///  - `applied`    — true only when `preview` was false (the edit is applied)
-///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error
+///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error,
+///    with the window's `matchCount` beside `content` when the app sent one
 pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
@@ -7400,7 +7404,14 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Ok(mut v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit preview failed.");
-                return tool_error(id, msg.to_string());
+                let mut resp = tool_error(id, msg.to_string());
+                // The app's count of `find` (an app that predates it sends
+                // none), beside `content` and `isError`, which stay as they
+                // were. It used to be dropped.
+                if let (Some(n), Some(r)) = (v["matchCount"].as_u64(), resp.result.as_mut()) {
+                    r["matchCount"] = json!(n);
+                }
+                return resp;
             }
             // Without a preview the app has already applied the edit (unsaved);
             // calling stream_edit_apply on top would apply it a second time.

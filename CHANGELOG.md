@@ -136,6 +136,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   screen, with empty content), which these tools report as an error. The
   descriptions and docs/AGENTS.md now say that, and that `path` is the open
   document's file.
+- **MCP: a refused `stream_edit` keeps the window's match count.** When
+  the window refused a stream edit (a `find` that is not found, or with
+  `preview: false` not unique), it sent its `matchCount`, but the app's
+  `/stream-edit` reply was `{ ok: false, error }` and dropped it. The reply
+  now carries `matchCount` too, and the tool's error result has it beside
+  `content` and `isError`; the error text and the rest of the result are as
+  they were.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that
