@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --hook` opens only what a write tool wrote.** It opened the
+  `tool_input.file_path` of any payload, so a hand-written hook wired as
+  `PreToolUse` opened the file before the tool changed it, and a broad
+  matcher opened every Markdown file the agent merely read. A payload whose
+  `hook_event_name` is not `PostToolUse`, or whose `tool_name` is not
+  `Write`, `Edit` or `MultiEdit`, now opens nothing (still silently, exit
+  `0`). The installed hook is unaffected.
 - **The VS Code extension offers Ashlr MD for `.mdx` files and opens in
   edit mode on request.** Its title-bar button and command appeared only for
   files in the Markdown language mode, so an `.mdx` file (or another

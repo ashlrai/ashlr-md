@@ -565,7 +565,13 @@ silent and always succeeds, so it never disrupts Claude's tool flow: it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
 read mode: through the running app's loopback IPC channel, or via the
 `mdopener://` scheme when the app is not running. It reads at most 64 MiB of
-stdin; a longer payload opens nothing (still silently, exit `0`).
+stdin; a longer payload opens nothing (still silently, exit `0`). It acts only
+on a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit`: a payload whose
+`hook_event_name` is another event (a hook wired as `PreToolUse` would open the
+file before the tool changed it) or whose `tool_name` is another tool (`Read`
+carries a `file_path` too) opens nothing, so a broad hand-written matcher does
+not open every Markdown file the agent reads. A payload without those fields
+is judged by its `tool_input.file_path` alone.
 
 ### One-click install
 

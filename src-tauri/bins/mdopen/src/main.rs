@@ -550,14 +550,33 @@ fn hook_terminal_hint(stdin_is_terminal: bool) -> Option<&'static str> {
 }
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
-/// `None` when there is nothing to open: unparseable JSON, no `file_path`, not
-/// Markdown, or no such file (e.g. the write failed).
+/// `None` when there is nothing to open: unparseable JSON, another hook event,
+/// a tool that does not write files, no `file_path`, not Markdown, or no such
+/// file (e.g. the write failed).
+///
+/// The installed hook is gated to `PostToolUse` on `Edit|Write`, but a hand-
+/// written one may not be: wired as a `PreToolUse` hook it opened the file
+/// before the tool changed it, and with a broad matcher it opened every
+/// Markdown file the agent merely read (`Read` carries `file_path` too). A
+/// payload naming another `hook_event_name`, or a `tool_name` outside
+/// [`HOOK_WRITE_TOOLS`], now opens nothing. A payload without those fields
+/// (another agent's hook) is still judged by its `file_path` alone.
 ///
 /// `file_path` is normally absolute. A relative one is resolved against the
 /// payload's `cwd` (the session's working directory), not this process's,
 /// and the app is never handed a relative path it cannot resolve.
 fn hook_target(input: &str) -> Option<PathBuf> {
     let v: serde_json::Value = serde_json::from_str(input).ok()?;
+    if let Some(event) = v.get("hook_event_name").filter(|e| !e.is_null()) {
+        if event.as_str() != Some("PostToolUse") {
+            return None;
+        }
+    }
+    if let Some(tool) = v.get("tool_name").filter(|t| !t.is_null()) {
+        if !tool.as_str().is_some_and(|t| HOOK_WRITE_TOOLS.contains(&t)) {
+            return None;
+        }
+    }
     let path = v["tool_input"]["file_path"].as_str().unwrap_or("");
     if path.is_empty() {
         return None;
@@ -581,6 +600,9 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     let abs = std::fs::canonicalize(&p).ok()?;
     (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
 }
+
+/// The Claude Code tools whose PostToolUse payload names a file they wrote.
+const HOOK_WRITE_TOOLS: [&str; 3] = ["Write", "Edit", "MultiEdit"];
 
 const HELP: &str = "mdopen: open Markdown files in Ashlr MD
 
@@ -622,7 +644,9 @@ EXIT STATUS:
        (the app may still open the file, so a `-` temp file is kept).
        With no arguments at all, this help is printed on stderr.
     --hook always exits 0 and prints nothing (run with a terminal on stdin,
-       it prints a hint on stderr instead of waiting for a payload)
+       it prints a hint on stderr instead of waiting for a payload). It
+       opens only the Markdown file a PostToolUse payload of Write, Edit or
+       MultiEdit names; another hook event or tool opens nothing.
 ";
 
 #[cfg(test)]
@@ -1031,6 +1055,47 @@ mod tests {
         assert_eq!(hook_target(""), None);
         assert_eq!(hook_target("[1,2]"), None);
         assert_eq!(hook_target(r#"{"tool_input":{"file_path":7}}"#), None);
+    }
+
+    /// A hand-wired hook may fire on other events or tools: a `PreToolUse`
+    /// payload, or a `Read` of a Markdown file, used to open the file.
+    #[test]
+    fn hook_target_opens_only_what_a_write_tool_wrote_after_the_fact() {
+        let s = Scratch::new("hook-event");
+        let f = s.file("PLAN.md");
+        let with = |event: serde_json::Value, tool: serde_json::Value| {
+            let mut v: serde_json::Value = serde_json::from_str(&payload(&s.0, "PLAN.md")).unwrap();
+            v["hook_event_name"] = event;
+            v["tool_name"] = tool;
+            hook_target(&v.to_string())
+        };
+        let canon = std::fs::canonicalize(&f).unwrap();
+        for tool in HOOK_WRITE_TOOLS {
+            assert_eq!(
+                with("PostToolUse".into(), tool.into()),
+                Some(canon.clone()),
+                "{tool}"
+            );
+        }
+        for event in ["PreToolUse", "UserPromptSubmit", "Stop", "posttooluse", ""] {
+            assert_eq!(with(event.into(), "Write".into()), None, "{event}");
+        }
+        assert_eq!(with(7.into(), "Write".into()), None);
+        for tool in ["Read", "Glob", "Bash", "NotebookEdit", "write", ""] {
+            assert_eq!(with("PostToolUse".into(), tool.into()), None, "{tool}");
+        }
+        assert_eq!(
+            with("PostToolUse".into(), serde_json::json!(["Write"])),
+            None
+        );
+        // A payload without the fields (another agent's hook) is judged by
+        // its `file_path` alone, as before.
+        let bare = serde_json::json!({ "tool_input": { "file_path": f } }).to_string();
+        assert_eq!(hook_target(&bare), Some(canon.clone()));
+        assert_eq!(
+            with(serde_json::Value::Null, serde_json::Value::Null),
+            Some(canon)
+        );
     }
 
     #[test]

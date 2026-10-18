@@ -37,7 +37,9 @@ most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
 | `1` | Bad usage, a missing or unresolvable path, a file that is not a Markdown document or is a dotfile, the running app refused the file (its reason is on stderr, and the URL scheme is not tried), the running app was reached but failed: it answered with a server error, the connection broke, or it did not answer within 6 s (the URL scheme is not tried, since the app may still open the file, and a `mdopen -` temp file is kept), the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
 
 `mdopen --hook` (the Claude Code `PostToolUse` hook) always exits `0` and prints
-nothing, waiting at most 5 seconds for the launcher. Run by hand with a
+nothing, waiting at most 5 seconds for the launcher. It opens only the Markdown
+file a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit` names; a
+payload naming another `hook_event_name` or `tool_name` opens nothing. Run by hand with a
 terminal on stdin (nothing piped in), it prints a hint on stderr and exits `0`
 at once instead of waiting for a payload.
 
