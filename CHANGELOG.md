@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The review countdown says what it counts.** A screen reader read the
+  review panel's countdown as a bare "4:59". It is now a timer labelled in
+  words ("Time left to review: 4 minutes 59 seconds"), still kept out of
+  live announcements so it does not speak every second.
 - **An IME Escape no longer closes a dialog.** Pressing Escape to end an
   input-method composition (or close its candidate list) while typing in
   Preferences, the Export dialog, the command palette, the search panel,

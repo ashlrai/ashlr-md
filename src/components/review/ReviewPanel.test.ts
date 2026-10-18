@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { useReviewStore } from "../../store/reviewStore";
-import { ReviewPanel } from "./ReviewPanel";
+import { countdownLabel, ReviewPanel } from "./ReviewPanel";
 
 // React only flushes act() updates when this flag is set.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -150,5 +150,38 @@ describe("ReviewPanel countdown", () => {
       comments: null,
     });
     expect(useReviewStore.getState().pending).toBeNull();
+  });
+
+  // The countdown was read as a bare "4:59", with nothing saying what it
+  // counts. It now has a label in words, and stays out of live announcements.
+  it("labels the countdown in words without announcing every tick", () => {
+    useReviewStore.getState().registerReview({
+      reviewId: "rev-6",
+      path: "/notes/plan.md",
+      content: null,
+      timeoutMs: 300_000,
+      registeredAt: Date.now(),
+    });
+    act(() => root.render(createElement(ReviewPanel)));
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const timer = host.querySelector('[role="timer"]');
+    expect(timer).not.toBeNull();
+    expect(timer!.textContent).toBe("4:59");
+    expect(timer!.getAttribute("aria-label")).toBe(
+      "Time left to review: 4 minutes 59 seconds",
+    );
+    expect(timer!.getAttribute("aria-live")).toBe("off");
+  });
+});
+
+describe("countdownLabel", () => {
+  it("says the time left in words, singular where it is one", () => {
+    expect(countdownLabel(300_000)).toBe("Time left to review: 5 minutes");
+    expect(countdownLabel(61_000)).toBe("Time left to review: 1 minute 1 second");
+    expect(countdownLabel(59_999)).toBe("Time left to review: 59 seconds");
+    expect(countdownLabel(0)).toBe("Time left to review: 0 seconds");
+    expect(countdownLabel(-5)).toBe("Time left to review: 0 seconds");
   });
 });

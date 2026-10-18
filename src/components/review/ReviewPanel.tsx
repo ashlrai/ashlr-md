@@ -164,9 +164,29 @@ function ReviewCountdown({
 
   const m = Math.floor(remaining / 60000);
   const s = Math.floor((remaining % 60000) / 1000);
+  // A screen reader used to read the bare "4:59". The label says what it is,
+  // in words; `timer` keeps it out of live announcements (it would otherwise
+  // speak every second), so it is read when the user reaches it.
   return (
-    <span className="review-panel__countdown" aria-live="off">
+    <span
+      className="review-panel__countdown"
+      role="timer"
+      aria-live="off"
+      aria-label={countdownLabel(remaining)}
+    >
       {m}:{String(s).padStart(2, "0")}
     </span>
   );
+}
+
+/** "Time left to review: 4 minutes 59 seconds" for the countdown's label. */
+export function countdownLabel(remainingMs: number): string {
+  const total = Math.max(0, Math.floor(remainingMs / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const parts: string[] = [];
+  if (m > 0) parts.push(unit(m, "minute"));
+  if (s > 0 || m === 0) parts.push(unit(s, "second"));
+  return `Time left to review: ${parts.join(" ")}`;
 }
