@@ -2676,7 +2676,20 @@ pub fn tool_request_review_with(
             std::thread::sleep(poll.min(deadline - now));
         }
         match ipc.get(&endpoint) {
-            Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
+            // The review is registered: the reply has to carry its id, or an
+            // agent whose app answered late, or was briefly unreachable, can
+            // neither keep waiting nor tell this from a review never made.
+            Err(e) => {
+                return tool_error(
+                    id,
+                    format!(
+                        "Lost contact with Ashlr MD while waiting on review `{review_id}`: {e}. \
+                         If the app is still open, call request_review with review_id \
+                         `{review_id}` to keep waiting; if it was closed, the review is gone, \
+                         so request a new one."
+                    ),
+                )
+            }
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" if check_once => {
                     let closed = review_window_end_ms(&review_id)
@@ -3057,8 +3070,20 @@ pub const DISK_VAULT_MAX_DEPTH: usize = 16;
 /// walk would skip below a vault. Only the documents [`disk_vault_files`]
 /// finds under it are read. Errors are for `isError`.
 pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
-    let dir =
-        std::fs::canonicalize(raw).map_err(|e| format!("`vault` '{}': {e}", agent_path(raw)))?;
+    // A missing folder used to come back as the raw OS text ("No such file
+    // or directory (os error 2)"), which read like a fault and gave no next
+    // step.
+    let dir = std::fs::canonicalize(raw).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "`vault` '{}' does not exist: name an existing folder of Markdown files to \
+                 search, or start Ashlr MD to search its vault.",
+                agent_path(raw)
+            )
+        } else {
+            format!("`vault` '{}': {e}", agent_path(raw))
+        }
+    })?;
     if !dir.is_dir() {
         return Err(format!(
             "`vault` '{}' is not a directory: name the folder of Markdown files to search.",
@@ -5687,7 +5712,20 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
+        // "Failed to read missing.canvas: No such file or directory (os
+        // error 2)" named neither where it looked nor that the tool only
+        // edits an existing canvas.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return tool_error(
+                id,
+                format!(
+                    "{} edit_canvas edits an existing .canvas file and does not create \
+                     one: pass the path of a canvas that exists.",
+                    cannot_read("", &agent_path(&path), &e)
+                ),
+            )
+        }
+        Err(e) => return tool_error(id, cannot_read("", &agent_path(&path), &e)),
     };
 
     // ── Parse ────────────────────────────────────────────────────────────────

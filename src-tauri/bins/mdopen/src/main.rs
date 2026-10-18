@@ -45,14 +45,20 @@ fn main() {
     // Asked-for help wins over every other flag, `--hook` included, so
     // `mdopen --hook --help` prints the help instead of waiting on stdin.
     if wants_help(&args) {
-        print!("{HELP}");
-        process::exit(0);
+        process::exit(print_stdout(HELP));
     }
 
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
-    // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
-    // agent, whatever the payload looks like.
+    // written Markdown file in Ashlr MD. Exits 0 so it never blocks the
+    // agent, whatever the payload looks like. Only a hook command with other
+    // arguments is refused (exit 1, which Claude Code reports without
+    // blocking): the payload comes on stdin, so an argument is a config
+    // mistake that used to be ignored in silence.
     if is_hook(&args) {
+        if let Some(msg) = hook_extra_args(&args) {
+            eprintln!("mdopen: {msg}");
+            process::exit(1);
+        }
         run_hook();
         process::exit(0);
     }
@@ -65,12 +71,10 @@ fn main() {
     let (mode, target) = match parse_args(&args) {
         Ok(Cli::Help) => {
             // Asked-for help is the command's output: stdout, exit 0.
-            print!("{HELP}");
-            process::exit(0);
+            process::exit(print_stdout(HELP));
         }
         Ok(Cli::Version) => {
-            println!("{}", version_line());
-            process::exit(0);
+            process::exit(print_stdout(&format!("{}\n", version_line())));
         }
         Ok(Cli::Usage) => {
             // No file to open is bad usage: a script that ran `mdopen` with an
@@ -112,6 +116,24 @@ fn main() {
             }
             eprintln!("mdopen: {msg}");
             process::exit(1);
+        }
+    }
+}
+
+/// Write `text` to stdout and return the exit status. `print!` panicked
+/// when stdout could not be written (exit 101 and a backtrace): a reader
+/// that closed early (`mdopen --help | head -1`) is not an error, so that
+/// exits 0 in silence, and any other failure (a full disk) is reported on
+/// stderr with exit 1.
+fn print_stdout(text: &str) -> i32 {
+    use std::io::Write as _;
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => 0,
+        Err(e) => {
+            eprintln!("mdopen: cannot write to stdout: {e}");
+            1
         }
     }
 }
@@ -159,6 +181,33 @@ fn wants_help(args: &[String]) -> bool {
 /// Whether the command line asks for `--hook` mode.
 fn is_hook(args: &[String]) -> bool {
     flag_args(args).iter().any(|a| a == "--hook")
+}
+
+/// The usage error for a `--hook` command line with anything besides
+/// `--hook` (a trailing `--` alone is harmless), or `None`. `mdopen --hook
+/// notes.md` used to ignore `notes.md` and read stdin as usual.
+fn hook_extra_args(args: &[String]) -> Option<String> {
+    let mut extra: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| *a != "--hook")
+        .collect();
+    if extra.last() == Some(&"--") && extra.iter().filter(|a| **a == "--").count() == 1 {
+        extra.pop();
+    }
+    if extra.is_empty() {
+        return None;
+    }
+    let list = extra
+        .iter()
+        .map(|a| format!("{a:?}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!(
+        "--hook takes no other arguments, got {list}: it reads the Claude Code \
+         PostToolUse payload on stdin. Make the hook command `mdopen --hook`, \
+         or run `mdopen <file.md>` to open a file."
+    ))
 }
 
 /// What the command line asks for (everything except `--hook`).
@@ -591,8 +640,8 @@ fn hook_terminal_hint(stdin_is_terminal: bool) -> Option<&'static str> {
 
 /// The Markdown file a PostToolUse payload wrote, as an absolute path, or
 /// `None` when there is nothing to open: unparseable JSON, another hook event,
-/// a tool that does not write files, no `file_path`, not Markdown, or no such
-/// file (e.g. the write failed).
+/// a tool that does not write files, a `tool_response` that reports the
+/// tool failed, no `file_path`, not Markdown, or no such file.
 ///
 /// The installed hook is gated to `PostToolUse` on `Edit|Write`, but a hand-
 /// written one may not be: wired as a `PreToolUse` hook it opened the file
@@ -617,6 +666,9 @@ fn hook_target(input: &str) -> Option<PathBuf> {
             return None;
         }
     }
+    if tool_failed(&v["tool_response"]) {
+        return None;
+    }
     let path = v["tool_input"]["file_path"].as_str().unwrap_or("");
     if path.is_empty() {
         return None;
@@ -639,6 +691,32 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     // file, used to be handed to the app, which refuses it.
     let abs = std::fs::canonicalize(&p).ok()?;
     (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
+}
+
+/// Whether a payload's `tool_response` says the tool failed: an object with
+/// `success: false`, `is_error`/`isError: true` or a non-empty `error`, or
+/// a Claude Code `<tool_use_error>` string. A failed `Edit` leaves the file
+/// as it was (and a failed `Write` may leave an older one), so opening it
+/// would show the agent's change as made when it was not. A missing or
+/// unrecognized `tool_response` is not a failure.
+fn tool_failed(response: &serde_json::Value) -> bool {
+    match response {
+        serde_json::Value::Object(o) => {
+            let set = |k: &str| match o.get(k) {
+                None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {
+                    false
+                }
+                Some(serde_json::Value::String(s)) => !s.trim().is_empty(),
+                Some(_) => true,
+            };
+            o.get("success") == Some(&serde_json::Value::Bool(false))
+                || o.get("is_error") == Some(&serde_json::Value::Bool(true))
+                || o.get("isError") == Some(&serde_json::Value::Bool(true))
+                || set("error")
+        }
+        serde_json::Value::String(s) => s.trim_start().starts_with("<tool_use_error>"),
+        _ => false,
+    }
 }
 
 /// The Claude Code tools whose PostToolUse payload names a file they wrote.
@@ -682,11 +760,16 @@ EXIT STATUS:
        1 when the running app answered with a server error or did not
        answer within 6s: the open is not retried through the URL scheme
        (the app may still open the file, so a `-` temp file is kept).
-       With no arguments at all, this help is printed on stderr.
-    --hook always exits 0 and prints nothing (run with a terminal on stdin,
-       it prints a hint on stderr instead of waiting for a payload). It
+       With no arguments at all, this help is printed on stderr. Also 1
+       when --help or --version cannot write to stdout (a reader that
+       closed early, as with `| head -1`, is not an error).
+    --hook exits 0 and prints nothing (run with a terminal on stdin, it
+       prints a hint on stderr instead of waiting for a payload); any other
+       argument with it is bad usage (exit 1), as the payload comes on
+       stdin. It
        opens only the Markdown file a PostToolUse payload of Write, Edit or
-       MultiEdit names; another hook event or tool opens nothing.
+       MultiEdit names; another hook event or tool, or a tool_response
+       that reports the tool failed, opens nothing.
 ";
 
 #[cfg(test)]
@@ -724,6 +807,31 @@ mod tests {
 
     /// `--hook` read stdin to its end however long it was. Past the cap it
     /// stops reading and opens nothing (still silently, exit 0).
+    /// `mdopen --hook extra.md` ignored `extra.md` in silence; anything
+    /// besides `--hook` is now a usage error naming it.
+    #[test]
+    fn hook_with_other_arguments_is_a_usage_error() {
+        for ok in [&["--hook"][..], &["--hook", "--hook"], &["--hook", "--"]] {
+            assert_eq!(hook_extra_args(&args(ok)), None, "{ok:?}");
+        }
+        for (argv, named) in [
+            (&["--hook", "extra.md"][..], "\"extra.md\""),
+            (&["notes.md", "--hook"], "\"notes.md\""),
+            (&["--hook", "--edit"], "\"--edit\""),
+            (&["--hook", "--version"], "\"--version\""),
+            (&["--hook", "-"], "\"-\""),
+            (&["--hook", "--", "a.md"], "\"--\" \"a.md\""),
+            (&["--hook", "a.md", "b.md"], "\"a.md\" \"b.md\""),
+        ] {
+            let msg = hook_extra_args(&args(argv)).unwrap_or_else(|| panic!("{argv:?}"));
+            assert!(
+                msg.starts_with(&format!("--hook takes no other arguments, got {named}:")),
+                "{argv:?}: {msg}"
+            );
+            assert!(msg.contains("`mdopen --hook`"), "{msg}");
+        }
+    }
+
     #[test]
     fn hook_payload_is_read_up_to_its_cap() {
         let payload = r#"{"tool_input":{"file_path":"/x.md"}}"#;
@@ -1158,6 +1266,42 @@ mod tests {
             with(serde_json::Value::Null, serde_json::Value::Null),
             Some(canon)
         );
+    }
+
+    /// A payload whose `tool_response` reports the write failed used to
+    /// open the file anyway, showing an unchanged file as the agent's edit.
+    #[test]
+    fn hook_target_opens_nothing_when_the_tool_failed() {
+        let s = Scratch::new("hook-failed");
+        let f = s.file("PLAN.md");
+        let with = |response: serde_json::Value| {
+            let mut v: serde_json::Value = serde_json::from_str(&payload(&s.0, "PLAN.md")).unwrap();
+            v["tool_response"] = response;
+            hook_target(&v.to_string())
+        };
+        use serde_json::json;
+        for failed in [
+            json!({ "success": false }),
+            json!({ "is_error": true }),
+            json!({ "isError": true }),
+            json!({ "error": "String to replace not found in file." }),
+            json!({ "error": { "message": "denied" } }),
+            json!({ "success": true, "error": "partial" }),
+            json!("<tool_use_error>File has not been read yet.</tool_use_error>"),
+        ] {
+            assert_eq!(with(failed.clone()), None, "{failed}");
+        }
+        let canon = std::fs::canonicalize(&f).unwrap();
+        for ok in [
+            json!({ "success": true }),
+            json!({ "type": "create", "filePath": f, "content": "# hi" }),
+            json!({ "error": null, "is_error": false }),
+            json!({ "error": "" }),
+            json!("File created successfully"),
+            serde_json::Value::Null,
+        ] {
+            assert_eq!(with(ok.clone()), Some(canon.clone()), "{ok}");
+        }
     }
 
     #[test]

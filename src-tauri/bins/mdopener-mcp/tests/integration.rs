@@ -3383,6 +3383,25 @@ fn search_vault_on_disk_says_when_folders_were_too_deep() {
     assert_eq!(v["depthCut"], true, "{v}");
 }
 
+/// A `vault` that does not exist was refused with the raw OS text
+/// ("No such file or directory (os error 2)") and no next step.
+#[test]
+fn search_vault_names_a_missing_vault_folder_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope");
+    let err = mdopener_mcp::disk_vault_dir(missing.to_str().unwrap())
+        .expect_err("a missing vault is refused");
+    assert_eq!(
+        err,
+        format!(
+            "`vault` '{}' does not exist: name an existing folder of Markdown files to \
+             search, or start Ashlr MD to search its vault.",
+            missing.display()
+        )
+    );
+    assert!(!err.contains("os error"), "{err}");
+}
+
 /// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
 /// though the walk skips hidden folders below a vault: its own notes were
 /// read and grepped. It is now refused, as the hidden subfolders are skipped.
@@ -5895,6 +5914,32 @@ fn edit_canvas_refuses_empty_ops_before_reading_or_writing() {
     assert_eq!(param_error(&resp), "`ops` must not be empty");
 }
 
+/// A missing canvas answered "Failed to read missing.canvas: No such file or
+/// directory (os error 2)", with the relative path as given and no next
+/// step. It now names the absolute path and says the canvas must exist.
+#[test]
+fn edit_canvas_on_a_missing_file_names_it_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.canvas");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({
+            "path": missing.to_string_lossy(),
+            "ops": [{ "type": "delete_node", "id": "n1" }]
+        }),
+    );
+    let err = tool_error_text(&resp);
+    assert_eq!(
+        err,
+        format!(
+            "Cannot read '{}': the file does not exist. edit_canvas edits an existing \
+             .canvas file and does not create one: pass the path of a canvas that exists.",
+            missing.display()
+        )
+    );
+    assert!(!missing.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {
@@ -6727,6 +6772,45 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
         done.calls().iter().all(|(m, _, _)| m == "GET"),
         "resume must not re-register"
     );
+}
+
+/// The app going quiet while a review was being waited on came back as
+/// "App unreachable during review: ..." with no review id and no next step,
+/// so the agent could neither resume nor tell it from a review never made.
+#[test]
+fn request_review_that_loses_the_app_names_the_review_and_how_to_resume() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Err("Could not connect to IPC server at 127.0.0.1:1: Connection refused".into()),
+        );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "wait_ms": 1000 }),
+        &ipc,
+        Duration::from_millis(10),
+    );
+    let err = tool_error_text(&resp);
+    let review_id = ipc
+        .calls()
+        .iter()
+        .find_map(|(m, _, body)| (m == "POST").then(|| body.clone()).flatten())
+        .and_then(|b| b["reviewId"].as_str().map(str::to_string))
+        .expect("the review was registered");
+    assert!(
+        err.starts_with(&format!(
+            "Lost contact with Ashlr MD while waiting on review `{review_id}`: Could not connect"
+        )),
+        "{err}"
+    );
+    assert!(
+        err.contains(&format!("call request_review with review_id `{review_id}`")),
+        "{err}"
+    );
+    assert!(err.ends_with("request a new one."), "{err}");
 }
 
 /// A resumed call with `blocking: false` used to wait up to `wait_ms` like a

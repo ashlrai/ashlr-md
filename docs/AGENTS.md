@@ -561,7 +561,7 @@ closed), plus the current state of its GFM task checkboxes
 
 `mdopen --hook` is a Claude Code **PostToolUse hook**: whenever Claude writes or
 edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
-silent and always succeeds, so it never disrupts Claude's tool flow: it reads
+silent and exits `0`, so it never disrupts Claude's tool flow: it reads
 the PostToolUse JSON from stdin, extracts the written file path, and opens it in
 read mode: through the running app's loopback IPC channel, or via the
 `mdopener://` scheme when the app is not running. It reads at most 64 MiB of
@@ -570,8 +570,14 @@ on a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit`: a payload whose
 `hook_event_name` is another event (a hook wired as `PreToolUse` would open the
 file before the tool changed it) or whose `tool_name` is another tool (`Read`
 carries a `file_path` too) opens nothing, so a broad hand-written matcher does
-not open every Markdown file the agent reads. A payload without those fields
-is judged by its `tool_input.file_path` alone.
+not open every Markdown file the agent reads. A payload whose `tool_response`
+reports the tool failed (`success: false`, `is_error: true`, a non-empty
+`error`, or a `<tool_use_error>` string) opens nothing either, since a failed
+`Edit` leaves the file unchanged. A payload without those fields is judged by
+its `tool_input.file_path` alone. The hook command takes no arguments besides
+`--hook`: `mdopen --hook notes.md` is a usage error (exit `1`, naming the
+extra argument on stderr, which Claude Code reports without blocking the
+tool call), since the payload arrives on stdin.
 
 ### One-click install
 
@@ -644,7 +650,7 @@ path is empty, and a directory is refused as a directory (exit `1` for
 both). An argument that is
 not valid UTF-8 is a usage error (exit `1`, naming it on stderr): Ashlr MD
 takes paths as UTF-8 text, and such an argument used to crash `mdopen` with
-exit `101`, `--hook` included, which still exits `0` in silence.
+exit `101`, `--hook` included.
 
 ### Install
 

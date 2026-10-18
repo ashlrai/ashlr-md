@@ -36,6 +36,40 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --help` and `--version` no longer panic on an unwritable
+  stdout.** Piped into a reader that had already closed
+  (`mdopen --help | head -1`), or written to a full disk, they panicked
+  with exit `101` and a backtrace. A closed reader now exits `0` in
+  silence, and any other write failure says so on stderr with exit `1`.
+- **`search_vault` with a missing `vault` says what to do.** A `vault`
+  folder that does not exist was refused with the raw OS text (`No such
+  file or directory (os error 2)`). It now says the folder does not exist
+  and to name an existing folder of Markdown files, or start Ashlr MD to
+  search its vault; the `text://vault-search` resource says the same.
+- **`edit_canvas` on a missing file names it and what to do.** It answered
+  `Failed to read missing.canvas: No such file or directory (os error 2)`,
+  with the path as passed and no next step. It now names the absolute path,
+  says the file does not exist, and that `edit_canvas` edits an existing
+  canvas and does not create one.
+- **`request_review` that loses the app mid-wait names the review.** When
+  Ashlr MD stopped answering while a review was being waited on, the error
+  read `App unreachable during review: ...`, with no review id and no next
+  step, so the agent could neither keep waiting nor tell it from a review
+  never made. It now names the review and says to call `request_review`
+  with that `review_id` if the app is still open, or to request a new one
+  if it was closed.
+- **`mdopen --hook` refuses other arguments.** `mdopen --hook extra.md`
+  ignored `extra.md` in silence and read the payload from stdin, hiding a
+  mistaken hook command. Any argument besides `--hook` is now a usage
+  error (exit `1`, naming it on stderr; Claude Code reports a nonzero hook
+  exit without blocking the tool call). `mdopen --hook` alone still exits
+  `0` in silence.
+- **`mdopen --hook` opens nothing when the tool failed.** A PostToolUse
+  payload whose `tool_response` reported a failed `Write`, `Edit` or
+  `MultiEdit` still opened the file, showing an unchanged file as if the
+  agent's edit had landed. A `tool_response` with `success: false`,
+  `is_error: true`, a non-empty `error`, or a `<tool_use_error>` string now
+  opens nothing, silently, and the hook still exits `0`.
 - **`mdopen` names the flag a misspelled one was meant to be.** An
   unknown flag was refused with only "unknown flag", so a hook command
   with `--hok` failed on every tool call with nothing to go on. A near
