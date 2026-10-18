@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen --hook` refuses other arguments.** `mdopen --hook extra.md`
+  ignored `extra.md` in silence and read the payload from stdin, hiding a
+  mistaken hook command. Any argument besides `--hook` is now a usage
+  error (exit `1`, naming it on stderr; Claude Code reports a nonzero hook
+  exit without blocking the tool call). `mdopen --hook` alone still exits
+  `0` in silence.
 - **`mdopen --hook` opens nothing when the tool failed.** A PostToolUse
   payload whose `tool_response` reported a failed `Write`, `Edit` or
   `MultiEdit` still opened the file, showing an unchanged file as if the

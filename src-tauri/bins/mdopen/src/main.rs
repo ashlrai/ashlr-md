@@ -50,9 +50,16 @@ fn main() {
     }
 
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
-    // written Markdown file in Ashlr MD. ALWAYS exits 0 so it never blocks the
-    // agent, whatever the payload looks like.
+    // written Markdown file in Ashlr MD. Exits 0 so it never blocks the
+    // agent, whatever the payload looks like. Only a hook command with other
+    // arguments is refused (exit 1, which Claude Code reports without
+    // blocking): the payload comes on stdin, so an argument is a config
+    // mistake that used to be ignored in silence.
     if is_hook(&args) {
+        if let Some(msg) = hook_extra_args(&args) {
+            eprintln!("mdopen: {msg}");
+            process::exit(1);
+        }
         run_hook();
         process::exit(0);
     }
@@ -159,6 +166,33 @@ fn wants_help(args: &[String]) -> bool {
 /// Whether the command line asks for `--hook` mode.
 fn is_hook(args: &[String]) -> bool {
     flag_args(args).iter().any(|a| a == "--hook")
+}
+
+/// The usage error for a `--hook` command line with anything besides
+/// `--hook` (a trailing `--` alone is harmless), or `None`. `mdopen --hook
+/// notes.md` used to ignore `notes.md` and read stdin as usual.
+fn hook_extra_args(args: &[String]) -> Option<String> {
+    let mut extra: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| *a != "--hook")
+        .collect();
+    if extra.last() == Some(&"--") && extra.iter().filter(|a| **a == "--").count() == 1 {
+        extra.pop();
+    }
+    if extra.is_empty() {
+        return None;
+    }
+    let list = extra
+        .iter()
+        .map(|a| format!("{a:?}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!(
+        "--hook takes no other arguments, got {list}: it reads the Claude Code \
+         PostToolUse payload on stdin. Make the hook command `mdopen --hook`, \
+         or run `mdopen <file.md>` to open a file."
+    ))
 }
 
 /// What the command line asks for (everything except `--hook`).
@@ -712,8 +746,10 @@ EXIT STATUS:
        answer within 6s: the open is not retried through the URL scheme
        (the app may still open the file, so a `-` temp file is kept).
        With no arguments at all, this help is printed on stderr.
-    --hook always exits 0 and prints nothing (run with a terminal on stdin,
-       it prints a hint on stderr instead of waiting for a payload). It
+    --hook exits 0 and prints nothing (run with a terminal on stdin, it
+       prints a hint on stderr instead of waiting for a payload); any other
+       argument with it is bad usage (exit 1), as the payload comes on
+       stdin. It
        opens only the Markdown file a PostToolUse payload of Write, Edit or
        MultiEdit names; another hook event or tool, or a tool_response
        that reports the tool failed, opens nothing.
@@ -754,6 +790,31 @@ mod tests {
 
     /// `--hook` read stdin to its end however long it was. Past the cap it
     /// stops reading and opens nothing (still silently, exit 0).
+    /// `mdopen --hook extra.md` ignored `extra.md` in silence; anything
+    /// besides `--hook` is now a usage error naming it.
+    #[test]
+    fn hook_with_other_arguments_is_a_usage_error() {
+        for ok in [&["--hook"][..], &["--hook", "--hook"], &["--hook", "--"]] {
+            assert_eq!(hook_extra_args(&args(ok)), None, "{ok:?}");
+        }
+        for (argv, named) in [
+            (&["--hook", "extra.md"][..], "\"extra.md\""),
+            (&["notes.md", "--hook"], "\"notes.md\""),
+            (&["--hook", "--edit"], "\"--edit\""),
+            (&["--hook", "--version"], "\"--version\""),
+            (&["--hook", "-"], "\"-\""),
+            (&["--hook", "--", "a.md"], "\"--\" \"a.md\""),
+            (&["--hook", "a.md", "b.md"], "\"a.md\" \"b.md\""),
+        ] {
+            let msg = hook_extra_args(&args(argv)).unwrap_or_else(|| panic!("{argv:?}"));
+            assert!(
+                msg.starts_with(&format!("--hook takes no other arguments, got {named}:")),
+                "{argv:?}: {msg}"
+            );
+            assert!(msg.contains("`mdopen --hook`"), "{msg}");
+        }
+    }
+
     #[test]
     fn hook_payload_is_read_up_to_its_cap() {
         let payload = r#"{"tool_input":{"file_path":"/x.md"}}"#;

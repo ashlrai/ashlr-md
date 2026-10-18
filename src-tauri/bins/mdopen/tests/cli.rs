@@ -338,8 +338,8 @@ fn failed_open_names_the_file_both_routes_and_the_next_step() {
 }
 
 /// An argument that is not valid UTF-8 used to panic in `std::env::args`
-/// (exit 101 and a backtrace), `--hook` included, which must always exit 0.
-/// It is now a usage error, and `--hook` still exits 0 in silence.
+/// (exit 101 and a backtrace), `--hook` included. It is now a usage error,
+/// with `--hook` too, which takes no other arguments.
 #[cfg(unix)]
 #[test]
 fn an_argument_that_is_not_utf8_is_a_usage_error_not_a_panic() {
@@ -358,6 +358,58 @@ fn an_argument_that_is_not_utf8_is_a_usage_error_not_a_panic() {
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--hook takes no other arguments"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
+/// `mdopen --hook extra.md` ignored the argument and ran the hook as usual.
+/// It is now refused on stderr with exit 1 before stdin is read, and
+/// `mdopen --hook` alone still exits 0 in silence.
+#[cfg(unix)]
+#[test]
+fn hook_with_an_extra_argument_is_refused() {
+    use std::io::Write as _;
+    let s = Scratch::new("hook-extra");
+    let file = s.0.join("extra.md");
+    std::fs::write(&file, "# extra\n").unwrap();
+    let out = headless(&s)
+        .args(["--hook", "extra.md"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(out.stdout.is_empty(), "{out:?}");
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.starts_with("mdopen: --hook takes no other arguments, got \"extra.md\":"),
+        "{stderr}"
+    );
+
+    let mut child = headless(&s)
+        .arg("--hook")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let payload = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": file },
+        "tool_response": { "success": true }
+    });
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{out:?}");
-    assert!(out.stderr.is_empty(), "{out:?}");
+    assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{out:?}");
 }
