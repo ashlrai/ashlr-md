@@ -2259,7 +2259,36 @@ fn cannot_read(what: &str, path: &str, e: &std::io::Error) -> String {
     }
 }
 
+/// `raw` with a leading `~` (alone, or followed by `/`, or `\` on Windows)
+/// replaced by the home directory, as a shell would have done. Agents write
+/// `~/notes/plan.md` as freely as people do, and no shell expands it inside a
+/// JSON argument, so it used to be resolved as a folder named `~` in this
+/// server's working directory ("'/repo/~/notes/plan.md': the file does not
+/// exist"). `~user` and a `~` later in the path are kept as given, and so is
+/// everything when there is no home directory.
+pub fn expand_home(raw: &str) -> std::borrow::Cow<'_, str> {
+    let rest = match raw.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => rest,
+        #[cfg(windows)]
+        Some(rest) if rest.starts_with('\\') => rest,
+        _ => return std::borrow::Cow::Borrowed(raw),
+    };
+    match dirs::home_dir() {
+        Some(home) => {
+            let rest = rest.trim_start_matches(['/', '\\']);
+            let full = if rest.is_empty() {
+                home
+            } else {
+                home.join(rest)
+            };
+            std::borrow::Cow::Owned(full.to_string_lossy().into_owned())
+        }
+        None => std::borrow::Cow::Borrowed(raw),
+    }
+}
+
 pub fn agent_path(raw: &str) -> String {
+    let raw = &*expand_home(raw);
     std::fs::canonicalize(raw)
         .or_else(|_| std::path::absolute(raw))
         .map(|p| p.to_string_lossy().into_owned())
@@ -2275,7 +2304,8 @@ mod export_path;
 /// without asking, so only a file with the format's own extension, not a
 /// dotfile, in an existing directory is accepted. Errors are argument errors.
 pub fn export_output_path(raw: &str, format: &str) -> Result<std::path::PathBuf, String> {
-    let abs = std::path::absolute(raw).map_err(|e| format!("`output_path` '{raw}': {e}"))?;
+    let abs = std::path::absolute(&*expand_home(raw))
+        .map_err(|e| format!("`output_path` '{raw}': {e}"))?;
     export_path::checked_export_path(&abs, format, "output_path")
 }
 
@@ -3306,7 +3336,7 @@ pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
     // A missing folder used to come back as the raw OS text ("No such file
     // or directory (os error 2)"), which read like a fault and gave no next
     // step.
-    let dir = std::fs::canonicalize(raw).map_err(|e| {
+    let dir = std::fs::canonicalize(&*expand_home(raw)).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             format!(
                 "`vault` '{}' does not exist: name an existing folder of Markdown files to \
@@ -3761,7 +3791,7 @@ pub fn tool_save_conversation_message(id: Value, args: &Value) -> Response {
         .enumerate()
         .filter_map(|(i, v)| v.as_str().map(|s| (i, s)))
     {
-        match std::path::absolute(raw) {
+        match std::path::absolute(&*expand_home(raw)) {
             Ok(p) => cited_docs.push(p.to_string_lossy().into_owned()),
             Err(e) => {
                 return Response::err(
@@ -5996,6 +6026,7 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     if !raw_path.ends_with(".canvas") {
         return Response::err(id, -32602, "`path` must point to a .canvas file");
     }
+    let raw_path = &*expand_home(raw_path);
     let path = std::fs::canonicalize(raw_path)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| raw_path.to_string());

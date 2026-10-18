@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a path may start with `~/`.** No shell expands `~` inside a JSON
+  argument, so `~/notes/plan.md` was resolved as a folder named `~` in the
+  server's working directory, and every path tool said the file did not
+  exist. A leading `~` (alone, or followed by `/`) now stands for the home
+  directory in every path argument: `path`, `path_a`, `path_b`, `vault`,
+  `output_path` and each `cited_docs` entry. `~user` is kept as given.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale
