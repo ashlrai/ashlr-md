@@ -36,6 +36,42 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code extension's `mdopen` fallback reports a killed CLI.** It
+  counted a `mdopen` that ended without an exit status (killed by a signal)
+  as having opened the file, so no error was shown. Only exit status `0`
+  counts now, and the path is passed after `--`.
+- **The VS Code extension hands off only files the app opens.** It took any
+  file in the Markdown language mode, or with a Markdown extension, including
+  dotfiles (`.notes.md`), but the app ignores a link to a dotfile or a file
+  without a Markdown extension, so nothing opened and no message said why.
+  It now applies the app's rule and says so for any other file.
+- **The Obsidian plugin offers Ashlr MD only for notes it opens.** "Open in
+  Ashlr MD" was in the menu of every file, and its commands ran for any
+  active file, but the app ignores a link to anything other than a Markdown
+  document that is not a dotfile, so clicking it on a PDF, an image or a
+  `.canvas` did nothing. The menu items and commands now appear only for
+  `.md`, `.markdown`, `.mdown`, `.mkd` and `.mdx` notes that are not
+  dotfiles, and the ribbon icon says why for any other file.
+- **`mdopener://export` links open the file in Read view.** An export link
+  ignored `mode` and opened the file in whatever view it was, and an export
+  from Edit view fails. It now switches the file to Read view before the
+  dialog opens; `mode=read` is accepted, and `mode=edit` or an unknown mode
+  ignores the link with a logged reason, as an open link refuses an unknown
+  mode. docs/AGENTS.md says so, and that other parameters are ignored by both
+  kinds of link.
+- **Files opened while the app runs no longer pile up.** Every
+  `mdopener://` link, second launch and Finder open appended its path to the
+  buffer of files opened before the window was ready, which the window
+  drains only once at startup, so the buffer grew for as long as the app ran.
+  Paths are now buffered only until the window has drained it; later ones
+  open through the live event alone, as they already did.
+- **`mdopener://export` links export once the file has loaded.** The link
+  sent its export request as an event right after the open, so when the link
+  started the app the window was not listening yet and the request was lost
+  (only the file opened), and with the app running the dialog could open
+  before the file had loaded. The app now keeps a link's format per file
+  until the window has opened it, as it does for `mode`, and the window then
+  opens the export dialog with that format.
 - **`mdopen`'s exit status docs cover an app that was reached but failed.**
   docs/PHANTOM.md's exit table (which Phantom reads) and docs/AGENTS.md left
   out that `mdopen` exits `1` without trying the URL scheme when the running

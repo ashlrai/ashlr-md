@@ -36,8 +36,11 @@ brings the file up instantly (cold-starting the app if needed).
 spawning the bundled `mdopen` CLI:
 
 ```
-mdopen <absolute-path>
+mdopen -- <absolute-path>
 ```
+
+and reports an error unless `mdopen` exits `0` (it exits `1` when the file
+could not be opened; a `mdopen` killed by a signal counts as a failure too).
 
 The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 `mdopen`, resolved on your `PATH`). Install the CLI from inside Ashlr MD via the
@@ -46,7 +49,10 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 ### Edge cases handled
 
 - **No active editor:** informational message.
-- **Non-Markdown file:** informational message.
+- **Not a file Ashlr MD opens:** informational message. Ashlr MD opens only
+  Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not
+  dotfiles, and ignores a link to any other file, so a dotfile (`.notes.md`)
+  or a file merely shown in the Markdown language mode is not handed off.
 - **Untitled / never-saved file:** prompts you to save first (there is no
   on-disk path to hand off). Saved-but-dirty files open their last-saved
   on-disk version (the extension does not auto-save).

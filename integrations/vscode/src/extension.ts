@@ -9,17 +9,14 @@
  * URL scheme and percent-decodes the `path` parameter (see
  * `src-tauri/src/deep_link.rs` + `src-tauri/bins/mdopen/src/main.rs`).
  *
- * Fallback: if the deep link cannot be opened, spawn the `mdopen <path>` CLI
+ * Fallback: if the deep link cannot be opened, spawn the `mdopen -- <path>` CLI
  * (configurable via `ashlr-md.cliPath`, default `mdopen` on PATH).
  */
 
 import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 
-/** Markdown language ids VS Code uses for `.md` / `.markdown` files. */
-const MARKDOWN_LANGUAGE_IDS = new Set(["markdown", "mdx"]);
-
-/** Markdown file extensions accepted as a fallback when the language id is generic. */
+/** The extensions Ashlr MD opens from a link (`MD_EXTENSIONS` in the app). */
 const MARKDOWN_EXTENSIONS = [".md", ".markdown", ".mdown", ".mkd", ".mdx"];
 
 /**
@@ -34,18 +31,28 @@ export function buildDeepLink(absolutePath: string): string {
   return `mdopener://open?path=${encodeURIComponent(absolutePath)}`;
 }
 
-/** True when the document looks like a Markdown file we can hand off. */
-function isMarkdownDocument(document: vscode.TextDocument): boolean {
-  if (MARKDOWN_LANGUAGE_IDS.has(document.languageId)) {
-    return true;
-  }
-  const lowerPath = document.uri.fsPath.toLowerCase();
-  return MARKDOWN_EXTENSIONS.some((ext) => lowerPath.endsWith(ext));
+/**
+ * True when Ashlr MD opens the file from a link: a Markdown extension and a
+ * name that is not a dotfile, the rule the app applies. The app ignores any
+ * other link without a word, so a dotfile (`.notes.md`) or a file VS Code
+ * merely shows in the Markdown language mode (a `.txt`) used to be handed
+ * off and then nothing opened.
+ */
+export function isOpenableInAshlr(fsPath: string): boolean {
+  const name = fsPath.split(/[\\/]/).pop() ?? "";
+  const lower = name.toLowerCase();
+  return (
+    !name.startsWith(".") &&
+    MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))
+  );
 }
 
 /**
- * Fallback: spawn the `mdopen <path>` CLI. Resolves false if the process
- * cannot be spawned or exits non-zero, so the caller can surface an error.
+ * Fallback: spawn the `mdopen -- <path>` CLI. Resolves true only when it
+ * exits 0 (it exits 1 when the file could not be opened); false when it
+ * cannot be spawned, exits non-zero, or is killed by a signal (a `null`
+ * exit code, which used to count as success), so the caller can surface an
+ * error. `--` keeps a path that starts with `-` from being read as a flag.
  */
 function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -58,13 +65,11 @@ function openViaCli(cliPath: string, absolutePath: string): Promise<boolean> {
     };
 
     try {
-      const child = spawn(cliPath, [absolutePath], {
-        // Detach so the CLI's own URL launcher (open/xdg-open/start) is not
-        // tied to VS Code's lifetime.
+      const child = spawn(cliPath, ["--", absolutePath], {
         stdio: "ignore",
       });
       child.on("error", () => done(false));
-      child.on("close", (code) => done(code === 0 || code === null));
+      child.on("close", (code) => done(code === 0));
     } catch {
       done(false);
     }
@@ -85,9 +90,10 @@ async function openInAshlr(): Promise<void> {
 
   const document = editor.document;
 
-  if (!isMarkdownDocument(document)) {
+  if (!isOpenableInAshlr(document.uri.fsPath)) {
     vscode.window.showInformationMessage(
-      "Ashlr MD: the active file is not a Markdown (.md / .markdown) file.",
+      "Ashlr MD: Ashlr MD opens only Markdown files (.md, .markdown, .mdown, " +
+        ".mkd, .mdx) that are not dotfiles.",
     );
     return;
   }

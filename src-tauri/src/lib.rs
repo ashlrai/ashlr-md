@@ -22,8 +22,37 @@ mod watcher;
 use std::sync::Mutex;
 
 /// File paths opened before the frontend was ready, buffered for it to drain.
+///
+/// The window drains it once, on mount ([`file_handler::take_pending_files`]);
+/// files opened after that reach it through the live `file-opened` event
+/// only, so they are not queued. Every link, second launch and Finder open
+/// used to be appended for as long as the app ran, though nothing read them.
 #[derive(Default)]
-pub struct PendingFiles(pub Mutex<Vec<String>>);
+pub struct PendingFiles(Mutex<PendingBuf>);
+
+#[derive(Default)]
+struct PendingBuf {
+    files: Vec<String>,
+    drained: bool,
+}
+
+impl PendingFiles {
+    /// Buffer `paths` for the window, unless it has already drained the
+    /// buffer (then the `file-opened` event sent with them is what opens them).
+    pub fn queue(&self, paths: impl IntoIterator<Item = String>) {
+        let mut buf = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !buf.drained {
+            buf.files.extend(paths);
+        }
+    }
+
+    /// The buffered paths, emptied; from now on nothing is queued.
+    pub fn take(&self) -> Vec<String> {
+        let mut buf = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        buf.drained = true;
+        std::mem::take(&mut buf.files)
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,6 +73,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(PendingFiles::default())
         .manage(deep_link::LinkViewModes::default())
+        .manage(deep_link::LinkExports::default())
         .manage(watcher::FileWatcher::default())
         .manage(ipc::DocMirror::default())
         .manage(ipc::RecentMirror::default())
@@ -70,6 +100,7 @@ pub fn run() {
             export::write_file_bytes,
             file_handler::take_pending_files,
             deep_link::take_link_view_mode,
+            deep_link::take_link_export,
             watcher::watch_file,
             watcher::unwatch_file,
             ai::ai_detect_ollama,
@@ -136,4 +167,21 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PendingFiles;
+
+    /// Paths opened while the app ran used to pile up in the buffer, which
+    /// the window drains only once at startup.
+    #[test]
+    fn pending_files_queue_only_until_the_window_drains_them() {
+        let p = PendingFiles::default();
+        p.queue(["/a.md".to_string()]);
+        p.queue(["/b.md".to_string(), "/c.md".to_string()]);
+        assert_eq!(p.take(), ["/a.md", "/b.md", "/c.md"]);
+        p.queue(["/d.md".to_string()]);
+        assert!(p.take().is_empty());
+    }
 }

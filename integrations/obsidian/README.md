@@ -20,6 +20,10 @@ macOS, with a single click or keyboard shortcut.
 | **Right-click** inside the editor | "Open in Ashlr MD" |
 | **Settings → Open in Ashlr MD** | Toggle "open in edit mode by default" |
 
+Ashlr MD opens only Markdown notes (`.md`, `.markdown`, `.mdown`, `.mkd`,
+`.mdx`) that are not dotfiles, so the menu items and commands are offered only
+for those; the ribbon icon says so for any other active file.
+
 The plugin resolves the vault-relative path to an absolute file-system path and
 fires `mdopener://open?path=<encoded-absolute-path>[&mode=edit]`.  Ashlr MD
 picks it up instantly via its registered URL scheme.
