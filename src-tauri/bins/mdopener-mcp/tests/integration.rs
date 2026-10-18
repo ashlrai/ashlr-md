@@ -10408,6 +10408,50 @@ fn stream_edit_refusal_carries_the_match_count() {
     );
 }
 
+/// A stream_edit_apply refusal from the window's search carries its
+/// `matchCount` beside `content` and `isError`, which the tool did not pass
+/// on; a refusal without one (it did not search, or an older app) adds no
+/// field, so the result is as it was.
+#[test]
+fn stream_edit_apply_refusal_carries_the_match_count_when_sent() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit_apply")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains("also has `matchCount` beside `content` and `isError`"),
+        "{d}"
+    );
+    assert!(
+        d.contains("The other refusals did not search, and have none."),
+        "{d}"
+    );
+    let refusal = "matchIndex 5 out of bounds: document has 2 occurrence(s). Use a match_index \
+                   from 0 to 1, or call stream_edit again to see the candidates.";
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": false, "error": refusal, "matchCount": 2 })),
+    );
+    let args = json!({ "find": "a", "replace": "b", "match_index": 5 });
+    let resp = call("stream_edit_apply", args.clone(), &ipc);
+    let r = resp.result.as_ref().unwrap();
+    assert_eq!(
+        r,
+        &json!({ "content": [{ "type": "text", "text": refusal }], "isError": true, "matchCount": 2 })
+    );
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": false, "error": refusal })),
+    );
+    let resp = call("stream_edit_apply", args, &ipc);
+    let r = resp.result.as_ref().unwrap();
+    assert_eq!(
+        r,
+        &json!({ "content": [{ "type": "text", "text": refusal }], "isError": true })
+    );
+}
+
 /// export's description said when the call returns but not what it
 /// returns, though docs/AGENTS.md gave both shapes. The named shapes are the
 /// tool's own results, for a written file and for the dialog.

@@ -1280,7 +1280,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 `edit_id` names no pending preview of the open document with this find/replace (one \
                 already applied, made before the app started, or of another document: call stream_edit \
                 again for a fresh preview); the app opens only files, so every document it shows has \
-                one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
+                one. With `save: true`, a failed save is an error saying the edit was applied but not saved. \
+                A refusal because `find` is not found or `match_index` is past its last occurrence also \
+                has `matchCount` beside `content` and `isError`: the occurrences of `find` the window \
+                counted. The other refusals did not search, and have none.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -7483,7 +7486,14 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Ok(v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit-apply failed.");
-                return tool_error(id, msg.to_string());
+                let mut resp = tool_error(id, msg.to_string());
+                // The window's count of `find`, sent only with a refusal that
+                // searched for it (an app that predates it, or a refusal that
+                // did not search, sends none), beside `content` and `isError`.
+                if let (Some(n), Some(r)) = (v["matchCount"].as_u64(), resp.result.as_mut()) {
+                    r["matchCount"] = json!(n);
+                }
+                return resp;
             }
             tool_result(id, v)
         }

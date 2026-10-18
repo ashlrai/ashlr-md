@@ -436,6 +436,11 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         replaced: outcome.replaced,
         matchIndex,
         error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
+        // A refusal from the search (`find` not found, or `matchIndex` past
+        // its last occurrence) says how many occurrences there are, as a
+        // stream_edit refusal does. The refusals above did not search, so
+        // they send none.
+        ...(outcome.ok ? {} : { matchCount: findAllOccurrences(liveContent, find).length }),
       }).catch(() => {
         /* non-fatal */
       });

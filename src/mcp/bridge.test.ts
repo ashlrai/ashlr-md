@@ -1283,6 +1283,53 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
     expect(call![1].replaced).toBe(1);
   });
 
+  // A refusal from the search says how many occurrences the window found,
+  // as a stream_edit refusal does; one that did not search sends no count.
+  it("a refusal from the search carries the window's match count", async () => {
+    const reply = () =>
+      invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_apply_result")![1];
+    resetDocumentStore({ path: "/doc.md", content: "foo bar foo" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sa-013",
+      find: "foo",
+      replace: "baz",
+      matchIndex: 5,
+    });
+    expect(reply()).toMatchObject({ ok: false, replaced: 0, matchCount: 2 });
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sa-014",
+      find: "absent",
+      replace: "x",
+    });
+    expect(reply()).toMatchObject({ ok: false, replaced: 0, matchCount: 0 });
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sa-015",
+      find: "foo",
+      replace: "x",
+      path: "/other.md",
+    });
+    expect(reply().ok).toBe(false);
+    expect(reply()).not.toHaveProperty("matchCount");
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sa-016",
+      originalEditId: "never-made",
+      find: "foo",
+      replace: "x",
+    });
+    expect(reply().ok).toBe(false);
+    expect(reply()).not.toHaveProperty("matchCount");
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", { editId: "sa-017", find: "foo", replace: "x" });
+    expect(reply()).toMatchObject({ ok: true, replaced: 1 });
+    expect(reply()).not.toHaveProperty("matchCount");
+    expect(useDocumentStore.getState().content).toBe("x bar foo");
+  });
+
   it("applies at last occurrence when matchIndex = N-1", async () => {
     resetDocumentStore({ content: "A B A C A" });
     mountBridge();

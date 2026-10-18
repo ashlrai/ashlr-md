@@ -157,6 +157,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `path`), while the edit tools refuse that state. Each now gives its own
   "no document open" error for any `path: null` answer, with the text it
   had, and the exports' result always has `path`.
+- **MCP: a `stream_edit_apply` refused by its search says how many
+  matches there are.** When `find` was no longer in the document or
+  `match_index` was past its last occurrence, the result had only the error
+  text (the out-of-bounds one names the count in words). The window now
+  sends its count, the app's `/stream-edit-apply` reply passes it on, and
+  the tool's error result has `matchCount` beside `content` and `isError`.
+  A refusal that did not search (no document open, a `path` that is not
+  the open document, a stale `edit_id`, a busy app, a window that does not
+  answer) has no count, and neither does an older app; no count is made
+  up. The Rust-side `/stream-edit` refusals (an empty `find`, a `path`
+  mismatch, a busy app, a timeout) are not searched either, so they still
+  carry none.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that
