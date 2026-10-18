@@ -189,6 +189,21 @@ pub async fn ai_generate(
     Ok(())
 }
 
+/// Remove the first complete line from a streamed response's bytes and
+/// return it decoded and trimmed, or `None` until a newline has arrived.
+///
+/// The bytes are decoded a whole line at a time: a network chunk can end in
+/// the middle of a multi-byte character (an em dash, a curly quote, CJK or an
+/// emoji), and decoding each chunk on its own turned both halves into U+FFFD,
+/// so the answer (and any text it replaced in the document) showed `�`. A
+/// `\n` byte never occurs inside a multi-byte UTF-8 character.
+fn take_line(buf: &mut Vec<u8>) -> Option<String> {
+    let nl = buf.iter().position(|&b| b == b'\n')?;
+    let rest = buf.split_off(nl + 1);
+    let line = std::mem::replace(buf, rest);
+    Some(String::from_utf8_lossy(&line).trim().to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Ollama streaming
 // ---------------------------------------------------------------------------
@@ -228,17 +243,14 @@ async fn stream_ollama(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut buf = String::new();
+    let mut buf: Vec<u8> = Vec::new();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
-        let text = String::from_utf8_lossy(&chunk);
-        buf.push_str(&text);
+        buf.extend_from_slice(&chunk);
 
         // NDJSON — process complete lines.
-        while let Some(nl) = buf.find('\n') {
-            let line = buf[..nl].trim().to_string();
-            buf = buf[nl + 1..].to_string();
+        while let Some(line) = take_line(&mut buf) {
             if line.is_empty() {
                 continue;
             }
@@ -255,7 +267,12 @@ async fn stream_ollama(
                     }
                 }
                 if chunk_obj.done == Some(true) {
-                    let _ = app.emit("ai://done", DonePayload { request_id: request_id.clone() });
+                    let _ = app.emit(
+                        "ai://done",
+                        DonePayload {
+                            request_id: request_id.clone(),
+                        },
+                    );
                     return Ok(());
                 }
             }
@@ -335,20 +352,22 @@ async fn stream_anthropic(
     // Anthropic streams SSE.  Lines look like:
     //   data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}
     let mut stream = resp.bytes_stream();
-    let mut buf = String::new();
+    let mut buf: Vec<u8> = Vec::new();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
-        buf.push_str(&String::from_utf8_lossy(&chunk));
+        buf.extend_from_slice(&chunk);
 
         // Process complete SSE lines.
-        while let Some(nl) = buf.find('\n') {
-            let line = buf[..nl].trim().to_string();
-            buf = buf[nl + 1..].to_string();
-
+        while let Some(line) = take_line(&mut buf) {
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
-                    let _ = app.emit("ai://done", DonePayload { request_id: request_id.clone() });
+                    let _ = app.emit(
+                        "ai://done",
+                        DonePayload {
+                            request_id: request_id.clone(),
+                        },
+                    );
                     return Ok(());
                 }
                 if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
@@ -373,7 +392,9 @@ async fn stream_anthropic(
                         "message_stop" => {
                             let _ = app.emit(
                                 "ai://done",
-                                DonePayload { request_id: request_id.clone() },
+                                DonePayload {
+                                    request_id: request_id.clone(),
+                                },
                             );
                             return Ok(());
                         }
@@ -390,4 +411,39 @@ async fn stream_anthropic(
     // Stream ended — emit done.
     let _ = app.emit("ai://done", DonePayload { request_id });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::take_line;
+
+    /// A chunk boundary inside a character used to turn it into two U+FFFD.
+    #[test]
+    fn a_character_split_across_chunks_is_decoded_whole() {
+        let event = "data: {\"text\":\"caf\u{e9} \u{2014} \u{1f600}\"}\n";
+        let bytes = event.as_bytes();
+        for cut in 1..bytes.len() {
+            let mut buf = Vec::new();
+            buf.extend_from_slice(&bytes[..cut]);
+            let mut lines = Vec::new();
+            while let Some(l) = take_line(&mut buf) {
+                lines.push(l);
+            }
+            buf.extend_from_slice(&bytes[cut..]);
+            while let Some(l) = take_line(&mut buf) {
+                lines.push(l);
+            }
+            assert_eq!(lines, vec![event.trim().to_string()], "cut at {cut}");
+            assert!(buf.is_empty());
+        }
+    }
+
+    #[test]
+    fn lines_wait_for_their_newline() {
+        let mut buf = b"a\r\n\nb".to_vec();
+        assert_eq!(take_line(&mut buf).as_deref(), Some("a"));
+        assert_eq!(take_line(&mut buf).as_deref(), Some(""));
+        assert_eq!(take_line(&mut buf), None);
+        assert_eq!(buf, b"b");
+    }
 }

@@ -155,11 +155,26 @@ fn make_snippet(line: &str, needle_lower: &str) -> String {
     let trimmed = line.trim_start();
     let lower = trimmed.to_lowercase();
     let byte_pos = lower.find(needle_lower).unwrap_or(0);
-    let char_pos = lower[..byte_pos].chars().count();
-
     let chars: Vec<char> = trimmed.chars().collect();
-    let start = char_pos.saturating_sub(SNIPPET_RADIUS);
-    let end = (char_pos + needle_lower.chars().count() + SNIPPET_RADIUS).min(chars.len());
+    // Lower-casing can change the number of characters (`İ` becomes `i̇`,
+    // two), so a position in `lower` is not one in `trimmed`: counting it
+    // there put the snippet's start past its end, and slicing panicked (the
+    // IPC worker or the search command died on a line of Turkish capitals).
+    // Map each byte of `lower` back to the character of `trimmed` it came
+    // from; per character, lower-casing gives the same byte lengths as the
+    // whole-string `to_lowercase` (its final-sigma rule swaps σ for ς).
+    let mut owner = Vec::with_capacity(lower.len() + 1);
+    for (i, c) in chars.iter().enumerate() {
+        let len: usize = c.to_lowercase().map(char::len_utf8).sum();
+        owner.extend(std::iter::repeat_n(i, len));
+    }
+    owner.push(chars.len());
+    let at = |byte: usize| owner.get(byte).copied().unwrap_or(chars.len());
+    let char_pos = at(byte_pos);
+    let match_end = at(byte_pos + needle_lower.len()).max(char_pos);
+
+    let start = char_pos.saturating_sub(SNIPPET_RADIUS).min(chars.len());
+    let end = (match_end + SNIPPET_RADIUS).min(chars.len());
 
     let mut snippet = String::new();
     if start > 0 {
@@ -244,6 +259,20 @@ mod tests {
     fn skips_missing_files() {
         let res = search_files(vec!["/no/such/file.md".into()], "x".into(), None);
         assert!(res.is_empty());
+    }
+
+    /// `İ` lower-cases to two characters, so a match after many of them was
+    /// placed past the end of the line and the snippet slice panicked.
+    #[test]
+    fn snippet_survives_lowercase_that_changes_length() {
+        let line = format!("{}needle tail", "İ".repeat(100));
+        let s = make_snippet(&line, "needle");
+        assert!(s.starts_with('…'), "{s}");
+        assert!(s.contains("needle tail"), "{s}");
+        assert_eq!(s.chars().filter(|&c| c == 'İ').count(), SNIPPET_RADIUS);
+        // A match inside the expanded characters still yields a snippet.
+        let s = make_snippet(&"İ".repeat(200), "i\u{307}");
+        assert!(s.contains('İ'), "{s}");
     }
 
     #[test]
