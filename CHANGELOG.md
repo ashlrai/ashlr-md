@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `search_vault` without `vault` after a refused token names `vault`.**
+  On an HTTP 401 with no `vault` argument, `search_vault` returned only the
+  shared refused-token message, so the agent could do nothing but wait for
+  the user to restart the app. It now adds "To search without the app, pass
+  `vault`: the directory of Markdown files to grep on disk.", as it does when
+  the app is not running; a 401 with `vault` already searched that folder.
 - **`mdopen` and `stream_edit_apply` name the right next step.** The `mdopen`
   CLI's HTTP 401 text, "IPC auth failed (stale ~/.mdopener/ipc-token)", gave
   no next step; it now says the token is stale or belongs to another Ashlr MD

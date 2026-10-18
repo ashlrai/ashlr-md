@@ -3259,9 +3259,11 @@ pub fn search_vault_in(
                     Ok(v)
                 }
                 Err(_) if refused => Err(ipc_err),
-                Err(e) if app_unreachable(&e) => Err(format!(
-                    "{} To search without the app, pass `vault`: the directory of \
-                     Markdown files to grep on disk.",
+                // A refused token searches `vault` on disk as an unreachable
+                // app does, so name it here too: the bare refused-token
+                // message left the agent waiting on the user to restart.
+                Err(e) if app_unreachable(&e) || app_auth_failed(&e) => Err(format!(
+                    "{} {SEARCH_WITHOUT_APP_HINT}",
                     app_not_running_msg(&e)
                 )),
                 Err(e) => Err(app_not_running_msg(&e)),
@@ -3269,6 +3271,12 @@ pub fn search_vault_in(
         }
     }
 }
+
+/// What `search_vault` without `vault` adds to its error when the app is
+/// unreachable or refuses this server's token: both cases search `vault` on
+/// disk instead.
+pub const SEARCH_WITHOUT_APP_HINT: &str =
+    "To search without the app, pass `vault`: the directory of Markdown files to grep on disk.";
 
 /// True when an IPC error means no app could be reached at all (no port or
 /// token file, or nothing listening), as opposed to the app refusing or
