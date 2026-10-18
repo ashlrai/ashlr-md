@@ -692,6 +692,12 @@ fn open_file_does_not_retry_through_the_url_scheme_when_the_app_was_reached() {
         let text = tool_error_text(&resp);
         assert!(text.contains("did not confirm opening"), "{text}");
         assert!(text.contains(err), "{text}");
+        // What to do next: check before retrying, which may open it twice.
+        assert!(
+            text.contains("call get_current_content to see which document is open"),
+            "{text}"
+        );
+        assert!(text.ends_with("a retry may open it twice."), "{text}");
     }
 }
 

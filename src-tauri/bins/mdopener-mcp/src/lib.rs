@@ -1985,8 +1985,15 @@ pub fn tool_open_file_with(
         Err(e) if app_reached_but_failed(&e) => {
             return tool_error(
                 id,
-                format!("Ashlr MD is running but did not confirm opening {abs}: {e}"),
-            )
+                // It used to stop at the IPC error, leaving the agent to
+                // guess whether to retry (which may open the file twice).
+                format!(
+                    "Ashlr MD is running but did not confirm opening {abs}: {}. It may \
+                     still open it: call get_current_content to see which document is \
+                     open before calling open_file again, since a retry may open it twice.",
+                    e.trim_end_matches('.')
+                ),
+            );
         }
         Err(e) => e,
     };

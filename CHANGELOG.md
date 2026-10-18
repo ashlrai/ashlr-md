@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: an open the app did not confirm says what to do next.** When the
+  app was reached but failed or did not answer in time, `open_file` said
+  only that it "did not confirm opening" the file, with the IPC error. It
+  now says the app may still open it, and to call `get_current_content`
+  to see which document is open before calling `open_file` again, since a
+  retry may open it twice.
 - **MCP: a directory passed as a document is called a directory.** Giving
   `open_file`, `present_document`, `request_review` or a tool that reads a
   path a directory was refused with "only Markdown documents ... can be
