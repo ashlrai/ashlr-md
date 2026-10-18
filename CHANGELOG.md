@@ -47,6 +47,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the vault-search resource entry names every `note`.** The
+  `resources/list` entry for `text://vault-search` said `note` reports
+  only that semantic search or the app's own search was unavailable. It
+  also reports semantic results that leave out documents whose embedding
+  failed, vault files that could not be read and so were not searched, and
+  a search of the `vault` folder on disk because the app could not be
+  reached or refused this server's token. The entry now names each, as
+  `search_vault`'s description does.
 - **MCP: the resource entries say what `-32000` means.** The
   `mdopener://current` and `mdopener://recent-documents` entries of
   `resources/list`, and docs/AGENTS.md's resources reference, said

@@ -4589,6 +4589,37 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// The vault-search resources/list entry said `note` reports only an
+/// unavailable semantic search or app search, but it also reports documents
+/// whose embedding failed, vault files that could not be read, and a search
+/// of the `vault` folder on disk. The entry now names each.
+#[test]
+fn vault_search_entry_names_every_note() {
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    let entry = resources
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .unwrap()
+        .clone();
+    let d = entry["description"].as_str().unwrap();
+    for part in [
+        "semantic search was tried but unavailable",
+        "documents whose embedding failed (saying how many)",
+        "vault files could not be read and so were not searched",
+        "the `vault` folder was searched on disk",
+        "the app's own search refused or failed",
+    ] {
+        assert!(d.contains(part), "{part:?} missing: {d}");
+    }
+    assert!(
+        !d.contains("when semantic search or the app's own search was unavailable"),
+        "{d}"
+    );
+}
+
 /// `mdopener://current` and `mdopener://recent-documents` are -32000 with
 /// the refused-token message when the app answers HTTP 401, not only when it
 /// is not running, but their resources/list entries and docs/AGENTS.md said
