@@ -445,7 +445,12 @@ describe("handlers integration — edits with save: true", () => {
     >[0]);
     for (const save of [false, true]) {
       invokeMock.mockClear();
-      await fireEvent("mcp://edit", { editId: "e1", find: "hello", replace: "hi", save });
+      await fireEvent("mcp://edit", {
+        editId: "e1",
+        find: "hello",
+        replace: "hi",
+        save,
+      });
       expect(reply("mcp_edit_result")).toMatchObject({
         editId: "e1",
         ok: false,
@@ -462,7 +467,10 @@ describe("handlers integration — edits with save: true", () => {
         preview,
         previewLines: 5,
       });
-      expect(reply("mcp_stream_edit_preview")).toMatchObject({ ok: false, error: want });
+      expect(reply("mcp_stream_edit_preview")).toMatchObject({
+        ok: false,
+        error: want,
+      });
     }
     invokeMock.mockClear();
     await fireEvent("mcp://stream-edit-apply", {
