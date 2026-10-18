@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **VS Code: an untitled Markdown file is told to save first.** The
+  extension judged the file name before checking for a file on disk, and
+  an untitled buffer is named `Untitled-1`, so a new Markdown document was
+  told Ashlr MD opens only Markdown files. It is now told to save the file
+  first, as the README says.
 - **An empty IPC token says what to do next.** When
   `~/.mdopener/ipc-token` existed but was empty, every app-backed tool
   failed with `~/.mdopener/ipc-token is empty. Has Ashlr MD finished

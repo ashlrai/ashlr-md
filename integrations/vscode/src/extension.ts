@@ -16,7 +16,7 @@
 
 import { spawn } from "node:child_process";
 import * as vscode from "vscode";
-import { buildDeepLink, isOpenableInAshlr, type OpenMode } from "./links";
+import { buildDeepLink, handoffRefusal, type OpenMode } from "./links";
 
 export { buildDeepLink, isOpenableInAshlr } from "./links";
 
@@ -69,19 +69,15 @@ async function openInAshlr(mode?: OpenMode): Promise<void> {
 
   const document = editor.document;
 
-  if (!isOpenableInAshlr(document.uri.fsPath)) {
-    vscode.window.showInformationMessage(
-      "Ashlr MD: Ashlr MD opens only Markdown files (.md, .markdown, .mdown, " +
-        ".mkd, .mdx) that are not dotfiles.",
-    );
-    return;
-  }
-
-  // Untitled / never-saved files have no on-disk path to hand off.
-  if (document.isUntitled || document.uri.scheme !== "file") {
-    vscode.window.showInformationMessage(
-      "Ashlr MD: save the file to disk first, then open it in Ashlr MD.",
-    );
+  // A document with no file on disk is told to save first; any other file
+  // Ashlr MD does not open is told which files it does.
+  const refusal = handoffRefusal({
+    fsPath: document.uri.fsPath,
+    isUntitled: document.isUntitled,
+    scheme: document.uri.scheme,
+  });
+  if (refusal) {
+    vscode.window.showInformationMessage(refusal);
     return;
   }
 

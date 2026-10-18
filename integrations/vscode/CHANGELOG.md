@@ -18,6 +18,9 @@ All notable changes to the **Open in Ashlr MD** VS Code extension.
 
 ### Fixed
 
+- An untitled Markdown document is told to save the file first. It used to
+  be told Ashlr MD opens only Markdown files, since its name (`Untitled-1`)
+  was judged before the check for a file on disk.
 - The title-bar button and the commands are offered for every extension
   Ashlr MD opens (`resourceExtname`), not only for files in the Markdown
   language mode, so an `.mdx` file (which VS Code usually shows as MDX, or as

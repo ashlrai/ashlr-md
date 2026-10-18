@@ -39,3 +39,27 @@ export function isOpenableInAshlr(fsPath: string): boolean {
     MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))
   );
 }
+
+/** What the extension says for a file it cannot hand off, by reason. */
+export const NOT_SAVED_MESSAGE =
+  "Ashlr MD: save the file to disk first, then open it in Ashlr MD.";
+export const NOT_OPENABLE_MESSAGE =
+  "Ashlr MD: Ashlr MD opens only Markdown files (.md, .markdown, .mdown, " +
+  ".mkd, .mdx) that are not dotfiles.";
+
+/**
+ * Why the document cannot be handed off to Ashlr MD, or `undefined` when it
+ * can. A document with no file on disk is told to save first before its
+ * name is judged: an untitled Markdown buffer is named `Untitled-1`, which
+ * has no Markdown extension, so it used to be told Ashlr MD opens only
+ * Markdown files although it was one.
+ */
+export function handoffRefusal(doc: {
+  fsPath: string;
+  isUntitled: boolean;
+  scheme: string;
+}): string | undefined {
+  if (doc.isUntitled || doc.scheme !== "file") return NOT_SAVED_MESSAGE;
+  if (!isOpenableInAshlr(doc.fsPath)) return NOT_OPENABLE_MESSAGE;
+  return undefined;
+}
