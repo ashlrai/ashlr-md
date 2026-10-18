@@ -5,9 +5,11 @@
 // the Rust-side check in mdopener-mcp/tests/integration.rs does not gate PRs.
 
 import { describe, expect, it } from "vitest";
+import releaseWorkflow from "../.github/workflows/release.yml?raw";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
+import releasingDoc from "../docs/RELEASING.md?raw";
 import obsidianReadme from "../integrations/obsidian/README.md?raw";
 import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
@@ -16,8 +18,10 @@ import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
+import agentSetup from "../src-tauri/src/agent_setup.rs?raw";
 import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
+import linuxConf from "../src-tauri/tauri.linux.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
 import mcpEditHandlers from "./mcp/handlers/edit.ts?raw";
@@ -168,7 +172,12 @@ describe(`doc facts: ${AGENTS}`, () => {
       msg,
       "src/mcp/handlers/edit.ts no longer defines NO_DOCUMENT_OPEN",
     ).toBeTruthy();
-    for (const tool of ["set_content", "edit_document"]) {
+    for (const tool of [
+      "set_content",
+      "edit_document",
+      "stream_edit",
+      "stream_edit_apply",
+    ]) {
       const row =
         agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
       expect(
@@ -176,10 +185,15 @@ describe(`doc facts: ${AGENTS}`, () => {
         `quote "${msg}" at ${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`,
       ).toContain(msg);
     }
-    const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
-      /name: "edit_document",\s*description: "((?:[^"\\]|\\.)*)"/,
-    )?.[1];
-    expect(desc?.replaceAll('\\"', '"'), "edit_document's description").toContain(msg);
+    for (const tool of ["edit_document", "stream_edit", "stream_edit_apply"]) {
+      const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
+        new RegExp(`name: "${tool}",\\s*description: "((?:[^"\\\\]|\\\\[\\s\\S])*)"`),
+      )?.[1];
+      // A `\` line continuation in the Rust literal joins its lines with
+      // the next line's leading whitespace dropped.
+      const text = desc?.replace(/\\\n\s*/g, "").replaceAll('\\"', '"');
+      expect(text, `${tool}'s description`).toContain(msg);
+    }
   });
 
   it("export row lists the real formats", () => {
@@ -473,6 +487,114 @@ describe("doc facts: download links", () => {
       }
     }
     expect(seen).toBeGreaterThanOrEqual(4);
+  });
+});
+
+// ── AppImage MCP server path ──────────────────────────────────────────────────
+// An AppImage mounts itself at a new /tmp/.mount_* directory each launch.
+// The app's Connect and Copy resolve the server through Tauri's resource_dir,
+// which for an AppImage is $APPDIR/usr/lib/<productName>, inside that mount.
+// docs/AGENTS.md said to "use the resource dir inside the mount", a path that
+// stops working when the app quits; it now copies the server out once.
+
+describe("doc facts: AppImage MCP server path", () => {
+  const { productName } = JSON.parse(tauriConf) as { productName: string };
+  const inAppImage = `usr/lib/${productName}/mdopener-mcp`;
+  const manual = agentsDoc.split("### Manual")[1]?.split("```")[1] ?? "";
+
+  it("Connect resolves the server through the resource dir", () => {
+    expect(linuxConf).toContain('"target/release/mdopener-mcp": "./"');
+    expect(agentSetup).toContain("app.path().resource_dir()");
+  });
+
+  it("never tells the reader to use a path inside the mount", () => {
+    expect(agentsDoc, where(AGENTS, agentsDoc, /resource dir/)).not.toMatch(
+      /resource dir(ectory)? inside the mount|AppImage resource directory/,
+    );
+  });
+
+  it("the manual steps copy the server out of the AppImage and register the copy", () => {
+    const lines = manual.split("\n");
+    const extract = lines.find((l) => l.includes("--appimage-extract")) ?? "";
+    expect(extract, `${AGENTS}: no --appimage-extract step`).toContain(
+      `"${inAppImage}"`,
+    );
+    const copy = lines.find((l) => l.startsWith("install -D")) ?? "";
+    expect(copy).toContain(`"squashfs-root/${inAppImage}"`);
+    const dest = copy.split(" ").at(-1) ?? "";
+    expect(dest).toBe("~/.local/bin/mdopener-mcp");
+    const add = lines.filter((l) => l.startsWith("claude mcp add")).at(-1) ?? "";
+    expect(add).toBe(`claude mcp add --scope user ashlr-md ${dest}`);
+  });
+
+  it("says Connect, Copy and the hook button use the in-mount path", () => {
+    const at = where(AGENTS, agentsDoc, "/tmp/.mount_");
+    expect(agentsDoc, at).toContain(`\`/tmp/.mount_*/${inAppImage}\``);
+    const hook = agentsDoc.split("### One-click install")[1]?.split("\n---")[0] ?? "";
+    expect(hook, `${AGENTS} One-click install`).toContain("/tmp/.mount_*");
+  });
+});
+
+// ── Release asset names ───────────────────────────────────────────────────────
+// The Tauri bundler names each installer after productName, space included
+// (`Ashlr MD_0.4.0_amd64.deb`, `Ashlr MD-0.4.0-1.x86_64.rpm`), and
+// release.yml uploads them as workflow artifacts under those names without
+// publishing anything. The published release renames them (`Ashlr_MD_…`),
+// which every download link uses: uploaded as built, GitHub would turn the
+// space into a dot and the links would 404. RELEASING.md said the workflow
+// produced the `Ashlr_MD_` names and never listed the .rpm or the rename.
+
+describe("doc facts: release asset names", () => {
+  const { productName } = JSON.parse(tauriConf) as { productName: string };
+  const pub = productName.replaceAll(" ", "_");
+  const v = "X.Y.Z";
+  // [what the bundler writes, what the release publishes]
+  const assets: [string, string][] = [
+    [`${productName}_${v}_aarch64.dmg`, `${pub}_${v}_aarch64.dmg`],
+    [`${productName}_${v}_x64.dmg`, `${pub}_${v}_x64.dmg`],
+    [`${productName}_${v}_amd64.deb`, `${pub}_${v}_amd64.deb`],
+    [`${productName}-${v}-1.x86_64.rpm`, `${pub}_${v}_x86_64.rpm`],
+    [`${productName}_${v}_amd64.AppImage`, `${pub}_${v}_amd64.AppImage`],
+    [`${productName}_${v}_x64-setup.exe`, `${pub}_${v}_x64-setup.exe`],
+    [`${productName}_${v}_x64_en-US.msi`, `${pub}_${v}_x64_en-US.msi`],
+  ];
+  const RELEASING = "docs/RELEASING.md";
+
+  it("release.yml uploads the bundles as built and publishes nothing", () => {
+    const steps = releaseWorkflow
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("#"))
+      .join("\n");
+    expect(steps).toContain("src-tauri/target/release/bundle/**/*");
+    expect(steps).not.toMatch(/^\s*(tagName|releaseName|releaseId):/m);
+    expect(steps).not.toMatch(/gh release (create|upload)/);
+  });
+
+  it("RELEASING.md maps every bundler output to its published name", () => {
+    for (const [built, published] of assets) {
+      const row =
+        releasingDoc.split("\n").find((l) => l.includes(`\`${built}\``)) ?? "";
+      expect(row, `${RELEASING}: no table row names \`${built}\``).not.toBe("");
+      expect(row, `${where(RELEASING, releasingDoc, built)}`).toContain(
+        `\`${published}\``,
+      );
+    }
+  });
+
+  it("RELEASING.md says to rename the bundles before attaching them", () => {
+    const publish = releasingDoc.split("\n## 4.")[1]?.split("\n## ")[0] ?? "";
+    expect(publish, `${RELEASING} §4`).toMatch(/Rename each bundle/);
+    expect(publish, `${RELEASING} §4`).toContain(`\`${pub}_${v}_x86_64.rpm\``);
+  });
+
+  it("the install guide downloads only published names", () => {
+    for (const [built, published] of assets) {
+      expect(installDoc, "docs/INSTALL.md names a bundler output").not.toContain(built);
+      if (published.endsWith("_x64.dmg")) continue; // no Intel build is published yet
+      expect(installDoc, `docs/INSTALL.md does not name ${published}`).toContain(
+        published,
+      );
+    }
   });
 });
 

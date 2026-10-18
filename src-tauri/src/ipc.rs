@@ -1089,6 +1089,25 @@ fn window_round_trip_within(
     Some(outcome)
 }
 
+/// The error for a window round-trip that got no answer within
+/// [`EDIT_ROUNDTRIP_TIMEOUT`], naming the next step. These used to end on a
+/// question ("Is a document open?"), and none said that a change the window
+/// had not confirmed may still land: retrying such an edit blindly can apply
+/// it twice, so `may_apply` says to read the document first.
+fn window_timed_out(doing: &str, may_apply: bool) -> String {
+    let secs = EDIT_ROUNDTRIP_TIMEOUT.as_secs();
+    let next = if may_apply {
+        "The window may still apply it, so call get_current_content to see whether it did \
+         before retrying."
+    } else {
+        "Retry once the Ashlr MD window is responding again."
+    };
+    format!(
+        "Timed out waiting for the app to {doing}: the window did not answer within {secs} s. \
+         {next}"
+    )
+}
+
 /// The `/content` reply for what the window reported (or did not report).
 fn set_content_reply(outcome: Result<EditOutcome, mpsc::RecvTimeoutError>) -> serde_json::Value {
     match outcome {
@@ -1099,7 +1118,7 @@ fn set_content_reply(outcome: Result<EditOutcome, mpsc::RecvTimeoutError>) -> se
         }),
         Err(_) => serde_json::json!({
             "ok": false,
-            "error": "Timed out waiting for the app to replace the document content. Is the window responsive?",
+            "error": window_timed_out("replace the document content", true),
         }),
     }
 }
@@ -1165,9 +1184,7 @@ fn window_open_reply(
         Err(_) => serde_json::json!({
             "ok": false,
             "path": path,
-            "error": format!(
-                "Timed out waiting for the app to {doing} {path}. Is the window responsive?"
-            ),
+            "error": window_timed_out(&format!("{doing} {path}"), false),
         }),
     }
 }
@@ -2029,7 +2046,7 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             app.state::<PendingEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for the app to apply the edit. Is a document open and the window responsive?",
+                "error": window_timed_out("apply the edit", true),
             }));
         }
     }
@@ -2123,7 +2140,10 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for stream-edit preview. Is a document open?",
+                "error": window_timed_out(
+                    if body.preview { "preview the edit" } else { "apply the edit" },
+                    !body.preview,
+                ),
             }));
         }
     }
@@ -2211,7 +2231,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
             send_json(req, serde_json::json!({
                 "ok": false,
-                "error": "Timed out waiting for stream-edit-apply. Is a document open?",
+                "error": window_timed_out("apply the edit", true),
             }));
         }
     }
@@ -2837,6 +2857,36 @@ mod tests {
             assert_eq!(v["ok"], false);
             assert!(v["error"].as_str().unwrap().contains("Timed out"));
         }
+    }
+
+    /// A window that never answers gets an error naming the next step, not
+    /// a question, and an unconfirmed change says to check before retrying.
+    #[test]
+    fn window_timeouts_name_the_next_step() {
+        use super::{set_content_reply, window_open_reply, window_timed_out};
+        use std::sync::mpsc::RecvTimeoutError;
+        let edit = window_timed_out("apply the edit", true);
+        assert_eq!(
+            edit,
+            "Timed out waiting for the app to apply the edit: the window did not answer \
+             within 4 s. The window may still apply it, so call get_current_content to see \
+             whether it did before retrying."
+        );
+        let open = window_timed_out("open /d/a.md", false);
+        assert!(
+            open.ends_with("Retry once the Ashlr MD window is responding again."),
+            "{open}"
+        );
+        for e in [edit, open] {
+            assert!(!e.contains('?'), "{e}");
+            assert!(e.starts_with("Timed out"), "{e}");
+        }
+        let reply = set_content_reply(Err(RecvTimeoutError::Timeout));
+        let e = reply["error"].as_str().unwrap();
+        assert!(e.contains("get_current_content"), "{e}");
+        let reply = window_open_reply(Err(RecvTimeoutError::Timeout), "/d/a.md", "present");
+        let e = reply["error"].as_str().unwrap();
+        assert!(e.contains("present /d/a.md: the window did not answer"), "{e}");
     }
 
     /// `/open` and `/present` answer with what the window did, so an open

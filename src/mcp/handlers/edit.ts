@@ -42,8 +42,18 @@ function notSaved(reason: string, what = "Edit applied to"): string {
   return `${what} the open document but not saved: ${reason}`;
 }
 
-/** What set-content and edit answer when no document is open. */
+/** What set-content and the edits answer when no document is open. */
 const NO_DOCUMENT_OPEN = "No document is open in Ashlr MD; open one first (open_file).";
+
+/**
+ * The welcome screen: no file and an empty buffer. The find/replace edits
+ * check this, so the agent is told to open a document rather than that its
+ * `find` text was not found.
+ */
+function noDocumentOpen(): boolean {
+  const { path, content } = useDocumentStore.getState();
+  return !path && content === "";
+}
 
 // ── mcp://set-content ─────────────────────────────────────────────────────────
 
@@ -90,11 +100,10 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
     const { editId, find, replace, save } = e.payload;
     let reply: { ok: boolean; replaced: number; error: string | null };
     try {
-      const { path, content: liveContent } = useDocumentStore.getState();
-      if (!path && liveContent === "") {
-        // The welcome screen: the edit used to be refused as "`find` string
-        // not found", which sent the agent looking for its text instead of
-        // opening a document. An unsaved document with text is still edited.
+      const liveContent = useDocumentStore.getState().content;
+      if (noDocumentOpen()) {
+        // The edit used to be refused as "`find` string not found", which
+        // sent the agent looking for its text instead of opening a document.
         reply = { ok: false, replaced: 0, error: NO_DOCUMENT_OPEN };
       } else {
         const outcome = applyUniqueEdit(liveContent, find, replace);
@@ -153,6 +162,21 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         });
         return;
       }
+    }
+
+    if (noDocumentOpen()) {
+      await invoke("mcp_stream_edit_preview", {
+        editId,
+        ok: false,
+        diff: "",
+        candidates: null,
+        matchCount: 0,
+        previewLines,
+        error: NO_DOCUMENT_OPEN,
+      }).catch(() => {
+        /* non-fatal */
+      });
+      return;
     }
 
     // Any throw below still gets a reply, so the agent sees the reason
@@ -261,6 +285,19 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
         replaced: 0,
         matchIndex,
         error: "`find` is required in stream-edit-apply payload.",
+      }).catch(() => {
+        /* non-fatal */
+      });
+      return;
+    }
+
+    if (noDocumentOpen()) {
+      await invoke("mcp_stream_edit_apply_result", {
+        editId,
+        ok: false,
+        replaced: 0,
+        matchIndex,
+        error: NO_DOCUMENT_OPEN,
       }).catch(() => {
         /* non-fatal */
       });

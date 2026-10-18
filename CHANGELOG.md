@@ -36,6 +36,49 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A headless `export` from Edit view tells the agent how to fix it.** An
+  `export` with `output_path` while the document was in Edit or Source view
+  failed with "Switch to Read view before exporting.", the app's message for
+  the human, naming a toggle the agent cannot click. The agent is now told
+  to call `open_file` with the document's path and `mode: "read"`, then
+  retry, and the `export` description and docs/AGENTS.md row say so.
+- **A window that does not answer says what to do next.** When the window
+  gave no answer within 4 s, `edit_document`, `stream_edit`,
+  `stream_edit_apply`, `set_content`, `replace_document`, `open_file`,
+  `present_document` and `request_review` (opening its file) ended on a
+  question ("Is a document open?", "Is the window responsive?"), and none
+  said that the change might still land. They now say the window did not
+  answer within 4 s and, for a change, that the window may still apply it,
+  so call `get_current_content` to see whether it did before retrying
+  (retrying blindly could apply an edit twice); for an open or a preview, to
+  retry once the window responds.
+- **`stream_edit` and `stream_edit_apply` with no document open say so.**
+  With the welcome screen showing, both answered "`find` string not found in
+  the document.", so an agent went looking for its text instead of opening a
+  file, the case `edit_document` already fixed. They now answer "No document
+  is open in Ashlr MD; open one first (open_file).", nothing is applied or
+  saved, and both tool descriptions and docs/AGENTS.md rows state the case.
+- **The agent guide gives an AppImage a server path that lasts.** For an
+  AppImage, docs/AGENTS.md said to register the MCP server from "the resource
+  dir inside the mount", but the AppImage mounts at a new `/tmp/.mount_*`
+  directory on every launch and unmounts when it quits, so that registration
+  breaks as soon as the app closes. The in-app Connect, Copy and Install
+  auto-open hook buttons register that same in-mount path. The guide now
+  copies `mdopener-mcp` out of the AppImage once (`--appimage-extract`) into
+  `~/.local/bin` and registers the copy, says the buttons use the in-mount
+  path, and tells hook users to point the hook at the `mdopen` that
+  **Install mdopen** copies out. A doc facts test checks the steps against
+  `productName` and the Linux resource map.
+- **The release runbook names what the bundler writes and what to publish.**
+  docs/RELEASING.md said the workflow produces `Ashlr_MD_X.Y.Z_amd64.deb` and
+  the like, but the Tauri bundler writes `Ashlr MD_X.Y.Z_amd64.deb` and
+  `Ashlr MD-X.Y.Z-1.x86_64.rpm` (space included), the workflow uploads them
+  as built, and the `.rpm` was not listed at all. The published `Ashlr_MD_`
+  names the install guide and packaging templates download come from renaming
+  the files by hand, a step the runbook never gave; uploaded as built, GitHub
+  turns the space into a `.` and every link 404s. The runbook now lists both
+  names for each bundle and says to rename before attaching, and a doc facts
+  test ties both to `productName` and to `release.yml`.
 - **The uninstall table has a `.rpm` row.** The install guide documents the
   Fedora / RHEL `.rpm` but said only how to remove the `.deb`. It now gives
   `sudo dnf remove ashlr-md`, the package name Tauri writes into the `.rpm`

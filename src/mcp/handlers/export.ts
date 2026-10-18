@@ -13,12 +13,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "../../lib/export";
+import { READ_VIEW_REQUIRED } from "../../lib/exportErrors";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
 import { useUiStore } from "../../store/uiStore";
 import type { ExportPayload } from "./types";
 
 // ── mcp://export ─────────────────────────────────────────────────────────────
+
+/**
+ * The agent's reply when the export needs Read view. The app's own message,
+ * "Switch to Read view before exporting.", names a toggle only the human can
+ * click; `open_file` with `mode: "read"` switches an open document's view.
+ */
+export const NOT_IN_READ_VIEW =
+  'Export failed in the app: the document is not in Read view, which a headless export renders. Call open_file with its path and mode "read", then retry.';
 
 export function handleExportPayload(): Promise<UnlistenFn> {
   return listen<ExportPayload>("mcp://export", async (e) => {
@@ -51,7 +60,12 @@ export function handleExportPayload(): Promise<UnlistenFn> {
         const errStr =
           typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
         toast.error(`MCP export failed: ${errStr}`);
-        await replyToExport(editId, `Export failed in the app: ${errStr}`);
+        await replyToExport(
+          editId,
+          errStr === READ_VIEW_REQUIRED
+            ? NOT_IN_READ_VIEW
+            : `Export failed in the app: ${errStr}`,
+        );
       }
     } else {
       // Open the dialog with the format pre-selected.

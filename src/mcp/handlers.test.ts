@@ -261,7 +261,24 @@ describe("handlers integration — smoke tests per module", () => {
       editId: "export_2",
       ok: false,
       replaced: 0,
-      error: "Export failed in the app: Switch to Read view before exporting.",
+      // The app's own message names a toggle the agent cannot click; the
+      // agent is told the call that switches the view.
+      error:
+        'Export failed in the app: the document is not in Read view, which a headless export renders. Call open_file with its path and mode "read", then retry.',
+    });
+
+    vi.mocked(exportHtml).mockRejectedValueOnce("Disk full");
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_2b",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_2b",
+      ok: false,
+      replaced: 0,
+      error: "Export failed in the app: Disk full",
     });
 
     useDocumentStore.setState({ path: null } as Parameters<
@@ -421,6 +438,45 @@ describe("handlers integration — edits with save: true", () => {
     expect(r).toMatchObject({ editId: "e1", ok: false, replaced: 0 });
     expect(r.error).toBe(
       "No document is open in Ashlr MD; open one first (open_file).",
+    );
+  });
+
+  it("stream-edit and stream-edit-apply: with no document open say so", async () => {
+    // Both used to answer "`find` string not found in the document.", as
+    // edit did, which sent the agent looking for its text.
+    useDocumentStore.setState({ path: null, content: "" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    for (const preview of [true, false]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://stream-edit", {
+        editId: "s1",
+        find: "hello",
+        replace: "hi",
+        preview,
+        previewLines: 5,
+      });
+      const r = reply("mcp_stream_edit_preview");
+      expect(r).toMatchObject({ editId: "s1", ok: false, matchCount: 0 });
+      expect(r.error).toBe(
+        "No document is open in Ashlr MD; open one first (open_file).",
+      );
+    }
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "a1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    const r = reply("mcp_stream_edit_apply_result");
+    expect(r).toMatchObject({ editId: "a1", ok: false, replaced: 0 });
+    expect(r.error).toBe(
+      "No document is open in Ashlr MD; open one first (open_file).",
+    );
+    expect(useDocumentStore.getState().content).toBe("");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      false,
     );
   });
 
