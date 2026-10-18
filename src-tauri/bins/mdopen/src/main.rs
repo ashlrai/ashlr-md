@@ -211,7 +211,7 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             "--edit" | "-e" => mode = set_mode(mode, "edit")?,
             "--read" | "-r" => mode = set_mode(mode, "read")?,
             flag if flag.starts_with('-') && flag != "-" => {
-                return Err(format!("unknown flag: {flag}"));
+                return Err(unknown_flag(flag));
             }
             other => positional.push((other, false)),
         }
@@ -238,6 +238,46 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
             many.len()
         )),
     }
+}
+
+/// The flags `mdopen` takes, long form.
+const LONG_FLAGS: [&str; 5] = ["--edit", "--read", "--hook", "--help", "--version"];
+
+/// The usage error for an unknown `flag`, with the flag it was probably
+/// meant to be (`--hok`, `-edit`, `--Edit`) or, for what looks like a file
+/// name (`-notes.md`), how to pass it. A misspelled `--hook` in a hook
+/// command failed with only "unknown flag" on every tool call.
+fn unknown_flag(flag: &str) -> String {
+    let norm = format!("--{}", flag.trim_start_matches('-').to_ascii_lowercase());
+    let near = LONG_FLAGS
+        .iter()
+        .map(|f| (edit_distance(&norm, f), *f))
+        .filter(|(d, _)| *d <= 2)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, f)| f);
+    match near {
+        Some(f) => format!("unknown flag: {flag} (did you mean {f}?)"),
+        None if flag.contains(['.', '/', '\\']) => format!(
+            "unknown flag: {flag} (to open a file whose name starts with `-`, \
+             run mdopen -- {flag})"
+        ),
+        None => format!("unknown flag: {flag}"),
+    }
+}
+
+/// Levenshtein distance between two short strings.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != *cb);
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 /// Record a `--edit`/`--read` flag. Both on one command line used to open
@@ -762,9 +802,31 @@ mod tests {
         assert!(parse_args(&args(&["--edit"]))
             .unwrap_err()
             .contains("no file"));
-        assert!(parse_args(&args(&["--bogus", "a.md"]))
-            .unwrap_err()
-            .contains("unknown flag: --bogus"));
+        assert_eq!(
+            parse_args(&args(&["--bogus", "a.md"])).unwrap_err(),
+            "unknown flag: --bogus"
+        );
+        // A near miss names the flag it was meant to be.
+        for (typo, meant) in [
+            ("--hok", "--hook"),
+            ("-hook", "--hook"),
+            ("--Edit", "--edit"),
+            ("-edit", "--edit"),
+            ("--raed", "--read"),
+            ("--verison", "--version"),
+            ("--hepl", "--help"),
+        ] {
+            assert_eq!(
+                parse_args(&args(&[typo, "a.md"])).unwrap_err(),
+                format!("unknown flag: {typo} (did you mean {meant}?)")
+            );
+        }
+        // A file name starting with `-` is told about `--`.
+        assert_eq!(
+            parse_args(&args(&["-notes.md"])).unwrap_err(),
+            "unknown flag: -notes.md (to open a file whose name starts with `-`, \
+             run mdopen -- -notes.md)"
+        );
         // A second file is an error, not silently dropped.
         assert!(parse_args(&args(&["a.md", "b.md"]))
             .unwrap_err()

@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` names the flag a misspelled one was meant to be.** An
+  unknown flag was refused with only "unknown flag", so a hook command
+  with `--hok` failed on every tool call with nothing to go on. A near
+  miss (`--hok`, `-edit`, `--Edit`) now says which flag it was probably
+  meant to be, and a file name starting with `-` (`-notes.md`) is told to
+  pass it after `--`.
 - **An unknown MCP argument whose value belongs to another argument points
   at that argument.** An `edit_canvas` op written as `{"op": "move_node"}`
   was refused with "Did you mean `id`?", the declared field one letter from
