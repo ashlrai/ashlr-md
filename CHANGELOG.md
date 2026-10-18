@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **On a Mac, the AI sidebar says why the on-device model is missing.** With
+  no AI provider, the sidebar offered only Ollama and an Anthropic key, though
+  the README promises a zero-install on-device model on macOS 26+. On a Mac
+  it now says that model needs Apple Silicon, macOS 26 or later and Apple
+  Intelligence turned on in System Settings, then a restart of Ashlr MD.
 - **Stop in the AI sidebar stops a selection action.** When an action from
   the selection popover (Explain, Rewrite, Summarize, Translate) was
   streaming its answer into the AI sidebar, the sidebar showed **Stop**, but
