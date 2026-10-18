@@ -1134,7 +1134,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. Each operation is atomic: if any step fails the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, and the edges delete_node removed with their node. Safe for remote/agent use: only operates on files ending in .canvas.",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node colour, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1190,7 +1190,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "save": {
                         "type": "boolean",
-                        "description": "Write the mutated canvas back to disk. Defaults to true."
+                        "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`."
                     }
                 },
                 "required": ["path", "ops"]

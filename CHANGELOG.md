@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` says what `saved` and `content` hold.** Its description
+  listed them without a word on their meaning, and called each op atomic
+  when the whole call is. It now says the ops apply all or nothing, that
+  `content` is `null` once the file is written, and that `save: false` is
+  a dry run that writes nothing and returns the would-be canvas JSON as
+  `content`.
 - **The app-not-running error says it once.** It read `Ashlr MD does not
   appear to be running (~/.mdopener/ipc-port not found. Is Ashlr MD
   running?). Launch it first, ...`, asking the same thing twice, and

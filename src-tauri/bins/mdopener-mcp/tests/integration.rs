@@ -7871,6 +7871,56 @@ fn edit_canvas_on_invalid_json_names_the_file_and_the_next_step() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
 
+/// The edit_canvas description listed `saved` and `content` without saying
+/// what they hold, and called each op atomic when the whole call is: an
+/// agent could not tell that `save: false` is a dry run whose result is in
+/// `content`, or that `content` is null once the file is written.
+#[test]
+fn edit_canvas_description_says_what_saved_and_content_hold() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "edit_canvas")
+        .unwrap();
+    assert!(
+        def.description.contains(
+            "`saved` whether the file was written, and `content` null once it was; with \
+             `save: false` nothing is written and `content` is the canvas JSON (a string) \
+             that would have been."
+        ),
+        "{}",
+        def.description
+    );
+    assert!(def.description.contains("The ops apply all or nothing"));
+    let save = def.input_schema["properties"]["save"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(
+        save.contains("false is a dry run that writes nothing"),
+        "{save}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("board.canvas");
+    let raw = r#"{"nodes":[{"id":"a","type":"text","text":"x","x":0,"y":0,"width":10,"height":10}],"edges":[]}"#;
+    std::fs::write(&path, raw).unwrap();
+    let op = json!([{ "type": "move_node", "id": "a", "x": 5, "y": 6 }]);
+    let dry = content_text(&mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({ "path": path, "ops": op, "save": false }),
+    ));
+    assert_eq!(dry["saved"], false);
+    let would_be: Value = serde_json::from_str(dry["content"].as_str().unwrap()).unwrap();
+    assert_eq!(would_be["nodes"][0]["x"], 5);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
+    let saved = content_text(&mdopener_mcp::tool_edit_canvas(
+        id(2),
+        &json!({ "path": path, "ops": op }),
+    ));
+    assert_eq!(saved["saved"], true);
+    assert_eq!(saved["content"], Value::Null);
+    assert_ne!(std::fs::read_to_string(&path).unwrap(), raw);
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it
