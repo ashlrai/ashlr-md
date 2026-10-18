@@ -73,7 +73,7 @@ tool or method, or invalid arguments (`-32602`).
 ## Detection paths
 
 `mdopen` on `PATH`; macOS `/Applications/Ashlr MD.app` or `~/Applications/Ashlr MD.app`;
-Windows `%LOCALAPPDATA%\Programs\Ashlr MD\Ashlr MD.exe`; Linux `/usr/bin/md-opener`
+Windows `%LOCALAPPDATA%\Ashlr MD\Ashlr MD.exe`; Linux `/usr/bin/md-opener`
 (or `/usr/bin/ashlr-md`) or an `Ashlr MD.desktop` entry.
 
 On a Linux `.deb` install the sidecars (`mdopen`, `mdopener-mcp`) land in

@@ -217,6 +217,26 @@ pub fn invalid_envelope(message: &Value) -> Option<Response> {
 pub const SUPPORTED_PROTOCOLS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-06-18"];
 pub const DEFAULT_PROTOCOL: &str = "2025-06-18";
 
+/// The `instructions` of the `initialize` result: what the server is for, the
+/// tools an agent reaches for first, and what to do when the app is not
+/// running or not installed. Clients may add it to the model's context, so an
+/// agent that has only `tools/list` is not left to guess which of 20 tools to
+/// start with, or that only `open_file` starts the app.
+pub const SERVER_INSTRUCTIONS: &str = "Ashlr MD is a Markdown viewer and editor on the \
+user's desktop. These tools show Markdown documents to the human in its window, ask for \
+their sign-off, and edit the open document. Start with: open_file to show a file (the only \
+tool that starts the app), present_document for a full-screen reading view of a finished \
+result, request_review to wait for the human to Approve, Request changes or Dismiss, \
+get_current_content to read the open document, and edit_document for an exact, unique \
+find and replace in it (prefer it to replace_document and set_content, which replace the \
+whole document). The other tools that use the window need Ashlr MD running: when one says \
+the app is not running, call open_file. If open_file says the app could not be launched, \
+Ashlr MD is probably not installed: ask the user to install it from \
+https://github.com/ashlrai/ashlr-md/releases. Without the app these still work on files on \
+disk: export_text, export_metadata and diff_documents (pass `path`), search_vault (pass \
+`vault`), edit_canvas, list_ai_actions, get_conversation_context and \
+save_conversation_message.";
+
 pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
     // Negotiate: honor the client's requested protocolVersion if we support it,
     // otherwise advertise our latest (per the MCP lifecycle spec).
@@ -238,7 +258,8 @@ pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
             "serverInfo": {
                 "name": "mdopener-mcp",
                 "version": env!("CARGO_PKG_VERSION")
-            }
+            },
+            "instructions": SERVER_INSTRUCTIONS
         }),
     )
 }
@@ -895,7 +916,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "request_review",
-            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve, Request changes or Dismiss, then return { verdict, reviewId, comments } (verdict approved, changes_requested, dismissed, timeout when the panel's `timeout_ms` window closes undecided, or superseded). One call blocks at most `wait_ms` (default 50000 ms, below the 60 s request timeout of common MCP clients): if the human has not decided by then it returns { status: 'pending', reviewId }, and calling again with that `review_id` keeps waiting on the same review. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding.",
+            description: "Surface a Markdown document to the human for review in Ashlr MD and BLOCK until they Approve, Request changes or Dismiss, then return { verdict, reviewId, comments } (verdict approved, changes_requested, dismissed, timeout when the panel's `timeout_ms` window closes undecided, or superseded). One call blocks at most `wait_ms` (default 50000 ms, below the 60 s request timeout of common MCP clients): if the human has not decided by then it returns { status: 'pending', reviewId }, and calling again with that `review_id` keeps waiting on the same review. The panel shows one review at a time: a newer review replaces this one, which then ends at once with verdict `superseded` (request it again if it still needs sign-off). Use this for explicit human sign-off on agent-generated plans, diffs, or docs before proceeding. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1002,7 +1023,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -5228,7 +5249,9 @@ pub fn app_not_running_msg(err: &str) -> String {
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
         format!(
             "Ashlr MD does not appear to be running ({}). \
-             Launch it first, or use open_file which can start it automatically.",
+             Launch it first, or use open_file which can start it automatically. If it \
+             is not installed, ask the user to install it from \
+             https://github.com/ashlrai/ashlr-md/releases.",
             err
         )
     } else {

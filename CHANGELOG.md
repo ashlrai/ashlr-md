@@ -36,6 +36,44 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The uninstall guide lists what an uninstall leaves behind.** It named
+  only the preferences folder. `~/.mdopener/` (the IPC token and the
+  conversation memory agents save) stays on every platform, and a deleted
+  AppImage leaves its `mdopener://` handler pointing at a missing file;
+  the guide now names both, and a test fails when it drops them.
+- **The install guide says where the Windows CLI and MCP server are.** The
+  Linux section said where the `.deb` puts `mdopen` and that it is not on
+  `PATH`; the Windows section said nothing about `mdopen.exe` or
+  `mdopener-mcp.exe`. It now names their folder, says neither is on
+  `PATH`, and gives **Install mdopen** and the full-path command.
+- **`mdopen --help` and docs/AGENTS.md agree.** The help's exit status
+  left out two ways `mdopen` exits 1 without trying the URL scheme, a file
+  the running app refuses and a connection that breaks, which the guide
+  named; the guide's usage block left out `-h`, and its stdin hint gave
+  only Ctrl+D, which is Ctrl+Z and Enter on Windows. A test now fails when
+  the help's flags differ from the ones `mdopen` accepts or the usage
+  block leaves out a short flag.
+- **MCP: the app-not-running error covers an app that is not installed.**
+  "Ashlr MD does not appear to be running" told the agent to launch it or
+  call `open_file`, which a user without the app cannot follow. It now
+  also says to ask the user to install it from the releases page.
+- **MCP: `present_document` and `request_review` say they need the app.**
+  Both show the human something, so an agent may call one first, but
+  neither starts Ashlr MD and their descriptions did not say so; the agent
+  learned it only from the error. Both now say to call `open_file` first
+  when the app is closed.
+- **MCP: `initialize` tells an agent where to start.** It sent no
+  `instructions`, so an agent saw 20 tools with no word on which to use
+  first, that only `open_file` starts the app, or what to do when Ashlr MD
+  is not installed. The result now carries `instructions` naming the five
+  tools to start with, the install page for a missing app, and the tools
+  that work on disk without it.
+- **The docs name the folder the Windows installer uses.** The install
+  guide and the Phantom detection paths said `%LOCALAPPDATA%\Programs\Ashlr MD\`,
+  while the README, docs/AGENTS.md and the Settings copy command said
+  `%LOCALAPPDATA%\Ashlr MD\`. The per-user NSIS installer installs to
+  `%LOCALAPPDATA%\Ashlr MD\`, so the two docs now say that, and a test
+  fails when a doc or the Settings placeholder names another folder.
 - **Shortcut hints show Ctrl on Windows and Linux, and the right key.**
   Tooltips and hints (the title bar buttons, "Unsaved (⌘S to save)", the
   welcome screen, the drawer, outline and table toolbar close and format

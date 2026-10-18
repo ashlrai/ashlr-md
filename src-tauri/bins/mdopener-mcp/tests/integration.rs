@@ -186,6 +186,65 @@ fn initialize_capabilities_advertised() {
     assert!(caps["prompts"].is_object());
 }
 
+#[test]
+fn review_and_present_say_they_need_the_app_running() {
+    // Both show the human something, so an agent may call one first; neither
+    // starts the app, and their descriptions used to leave that unsaid.
+    for name in ["present_document", "request_review"] {
+        let def = tool_registry()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap();
+        assert!(
+            def.description
+                .contains("Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first."),
+            "{name}: {}",
+            def.description
+        );
+    }
+}
+
+#[test]
+fn initialize_instructions_name_the_first_tools_and_a_missing_app() {
+    // No `instructions` used to be sent, so an agent saw 20 tools and no word
+    // on which to start with, that only open_file starts the app, or what to
+    // do when Ashlr MD is not installed.
+    let resp = handle_initialize(id(1), None);
+    let text = resp.result.as_ref().unwrap()["instructions"]
+        .as_str()
+        .expect("initialize sends instructions");
+    assert_eq!(text, mdopener_mcp::SERVER_INSTRUCTIONS);
+    for tool in [
+        "open_file",
+        "present_document",
+        "request_review",
+        "get_current_content",
+        "edit_document",
+    ] {
+        assert!(text.contains(tool), "instructions must name {tool}: {text}");
+    }
+    assert!(text.contains("the only tool that starts the app"), "{text}");
+    assert!(text.contains("not installed"), "{text}");
+    assert!(
+        text.contains("https://github.com/ashlrai/ashlr-md/releases"),
+        "{text}"
+    );
+    // Every snake_case word that looks like a tool is a real one.
+    let names: Vec<&str> = tool_registry().iter().map(|t| t.name).collect();
+    for word in text.split(|c: char| !(c.is_ascii_lowercase() || c == '_')) {
+        if word.contains('_') {
+            assert!(
+                names.contains(&word),
+                "instructions name unknown tool {word}"
+            );
+        }
+    }
+    assert!(
+        !text.contains('\u{2014}') && !text.contains('\u{2013}'),
+        "{text}"
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool list — count, membership, and ALL_TOOL_NAMES consistency
 // ════════════════════════════════════════════════════════════════════════════
@@ -2177,7 +2236,9 @@ fn app_not_running_msg_ipc_port_error_includes_hint() {
     assert_eq!(
         msg,
         "Ashlr MD does not appear to be running (~/.mdopener/ipc-port not found). \
-         Launch it first, or use open_file which can start it automatically."
+         Launch it first, or use open_file which can start it automatically. If it \
+         is not installed, ask the user to install it from \
+         https://github.com/ashlrai/ashlr-md/releases."
     );
 }
 

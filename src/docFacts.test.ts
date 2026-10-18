@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
+import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
@@ -13,6 +14,8 @@ import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
+import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
+import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
 
@@ -71,6 +74,8 @@ const defaultProtocol = mcpLib.match(
 )?.[1];
 const mdopenCode = mdopenMain.split("#[cfg(test)]")[0];
 const mdopenLongFlags = [...new Set(all(/"(--[a-z]+)"/g, mdopenCode))];
+const mdopenShortFlags = [...new Set(all(/"(-[a-zA-Z])"/g, mdopenCode))];
+const mdopenHelp = mdopenCode.match(/const HELP: &str = "([^"]*)";/)?.[1] ?? "";
 
 const NUMBER_WORDS = [
   "zero",
@@ -185,6 +190,45 @@ describe(`doc facts: ${AGENTS}`, () => {
   });
 });
 
+describe("doc facts: mdopen --help and docs/AGENTS.md", () => {
+  const helpFlags = mdopenHelp.split("FLAGS:\n")[1]?.split("\n\n")[0] ?? "";
+  const usage = agentsDoc.split("### Usage")[1]?.split("```")[1] ?? "";
+
+  it("parses the help and the usage block", () => {
+    expect(helpFlags, "mdopen's HELP has no FLAGS section").toContain("--edit");
+    expect(usage, `${AGENTS} has no mdopen usage block`).toContain("mdopen");
+    expect(mdopenShortFlags).toEqual(expect.arrayContaining(["-e", "-r", "-h", "-V"]));
+  });
+
+  it("help FLAGS lists every flag the CLI accepts, and only those", () => {
+    // The flag column only: "--read, -r" before the description.
+    const listed = helpFlags
+      .split("\n")
+      .flatMap((l) => (l.trim().split(/\s{2,}/)[0] ?? "").split(", "))
+      .filter(Boolean);
+    expect(sorted(listed)).toEqual(sorted([...mdopenLongFlags, ...mdopenShortFlags]));
+  });
+
+  it("the usage block names every short flag", () => {
+    const at = where(AGENTS, agentsDoc, "### Usage");
+    for (const f of mdopenShortFlags) {
+      expect(usage, `name \`${f}\` in the mdopen usage block at ${at}`).toMatch(
+        new RegExp(`\\(${f} also works`),
+      );
+    }
+  });
+
+  it("the usage block's comments line up", () => {
+    const cols = usage
+      .split("\n")
+      .filter((l) => l.startsWith("mdopen") || l.startsWith("cat"))
+      .map((l) => l.indexOf("#"));
+    expect(new Set(cols).size, `align the comments in ${AGENTS}'s mdopen usage`).toBe(
+      1,
+    );
+  });
+});
+
 describe("doc facts: mdopen exit status", () => {
   // How long mdopen waits for the running app's answer before it exits 1
   // without trying the URL scheme. docs/PHANTOM.md's exit table, which
@@ -235,6 +279,86 @@ describe(`doc facts: ${ROADMAP}`, () => {
       sorted(all(/`([a-z_]+)`/g, m?.[1] ?? "")),
       `fix the prompt list at ${at}`,
     ).toEqual(sorted(prompts));
+  });
+});
+
+// ── Windows install folder ────────────────────────────────────────────────────
+// The NSIS installer (the recommended Windows download) installs per user to
+// $LOCALAPPDATA\<productName> unless bundle.windows.nsis.installMode says
+// otherwise (Tauri v2's installer template). The docs once disagreed: two said
+// %LOCALAPPDATA%\Programs\Ashlr MD\, a folder the installer never uses.
+
+describe("doc facts: Windows install folder", () => {
+  const conf = JSON.parse(tauriConf) as {
+    productName: string;
+    bundle?: { windows?: { nsis?: { installMode?: string } } };
+  };
+  const product = conf.productName;
+  const docs: [string, string][] = [
+    ["README.md", readme],
+    [AGENTS, agentsDoc],
+    ["docs/INSTALL.md", installDoc],
+    ["docs/PHANTOM.md", phantomDoc],
+  ];
+  const LOCAL =
+    /(%LOCALAPPDATA%|\$env:LOCALAPPDATA|AppData\\{1,2}Local)((?:\\{1,2}[^\\`"\n]+)+)/g;
+
+  it("the NSIS installer installs per user", () => {
+    expect(product).toBe("Ashlr MD");
+    const mode = conf.bundle?.windows?.nsis?.installMode ?? "currentUser";
+    expect(mode).toBe("currentUser");
+  });
+
+  it("every doc names %LOCALAPPDATA%\\<productName>", () => {
+    let seen = 0;
+    for (const [file, doc] of docs) {
+      for (const m of doc.matchAll(LOCAL)) {
+        seen++;
+        const folder = m[2].split(/\\+/).filter(Boolean)[0];
+        expect(folder, `${where(file, doc, m[0])}: ${m[0]}`).toBe(product);
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(4);
+  });
+
+  it("the install guide says where the Windows CLI and MCP server are", () => {
+    // The Linux section said where the .deb puts mdopen and that it is not on
+    // PATH; the Windows section said nothing about either sidecar.
+    const windows = installDoc.split("\n## Windows")[1]?.split("\n## ")[0] ?? "";
+    for (const needle of [
+      "`mdopen.exe`",
+      "`mdopener-mcp.exe`",
+      "Install mdopen",
+      "`PATH`",
+    ]) {
+      expect(
+        windows,
+        `docs/INSTALL.md's Windows section must name ${needle}`,
+      ).toContain(needle);
+    }
+  });
+
+  it("the Settings placeholder in sidecar_path.rs uses the same folder", () => {
+    expect(sidecarPath).toContain(`"{base}\\\\${product}\\\\{}"`);
+  });
+});
+
+describe("doc facts: uninstalling", () => {
+  it("the uninstall section names what an uninstall leaves behind", () => {
+    // It listed only the preferences folder, so ~/.mdopener (the IPC token
+    // and agents' conversation memory) and an AppImage's scheme handler,
+    // which points at the deleted file, stayed behind unmentioned.
+    const section = installDoc.split("\n## Uninstalling")[1] ?? "";
+    for (const needle of [
+      "`~/.mdopener/`",
+      "`sessions/`",
+      "md-opener-handler.desktop",
+    ]) {
+      expect(
+        section,
+        `docs/INSTALL.md's Uninstalling section must name ${needle}`,
+      ).toContain(needle);
+    }
   });
 });
 

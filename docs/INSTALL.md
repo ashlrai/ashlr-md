@@ -36,7 +36,8 @@ There are no Homebrew, winget or AUR packages yet.
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
 2. Download `Ashlr_MD_X.Y.Z_x64-setup.exe`.
-3. Run the installer. It installs to `%LOCALAPPDATA%\Programs\Ashlr MD\` by default.
+3. Run the installer. It installs for the current user to `%LOCALAPPDATA%\Ashlr MD\`
+   by default.
 4. If Windows Defender SmartScreen appears, click **More info → Run anyway**.
    (This warning appears for unsigned installers. It will disappear once the
    app is code-signed with an EV/OV certificate.)
@@ -45,6 +46,13 @@ There are no Homebrew, winget or AUR packages yet.
 > ```bat
 > Ashlr_MD_X.Y.Z_x64-setup.exe /S
 > ```
+
+The installer puts the `mdopen` CLI (`mdopen.exe`) and the `mdopener-mcp` MCP
+server (`mdopener-mcp.exe`) next to the app in `%LOCALAPPDATA%\Ashlr MD\`.
+Neither is on your `PATH` after install. Use **Preferences → Command-line tool
+→ Install mdopen**, which copies `mdopen.exe` to `%USERPROFILE%\.local\bin\`
+(add that folder to your user `PATH`), or call it by its full path:
+`& "$env:LOCALAPPDATA\Ashlr MD\mdopen.exe" notes.md` in PowerShell.
 
 ### Option B: MSI Package
 
@@ -157,12 +165,17 @@ again. A failed check (offline, for example) is silent.
 | macOS DMG | Drag `Ashlr MD.app` from `/Applications` to Trash |
 | Windows | Settings → Apps → Ashlr MD → Uninstall |
 | Linux .deb | `sudo apt remove ashlr-md` |
-| Linux AppImage | Delete the `.AppImage` file |
+| Linux AppImage | Delete the `.AppImage` file, and `~/.local/share/applications/md-opener-handler.desktop` (the `mdopener://` handler it registered) |
 
 Preferences and app data are stored at:
 - **macOS:** `~/Library/Application Support/app.mdopener.desktop`
 - **Windows:** `%APPDATA%\app.mdopener.desktop`
 - **Linux:** `~/.config/app.mdopener.desktop`
+
+On every platform the app and its agent tools also keep `~/.mdopener/`
+(`%USERPROFILE%\.mdopener\` on Windows): the IPC port and token files and
+`sessions/`, the conversation memory agents save. A copy made with **Install
+mdopen** stays where it was copied too.
 
 These are not removed by a standard uninstall; delete them manually if you
 want a clean slate.
