@@ -343,6 +343,25 @@ describe("doc facts: Windows install folder", () => {
   });
 });
 
+describe("doc facts: uninstalling", () => {
+  it("the uninstall section names what an uninstall leaves behind", () => {
+    // It listed only the preferences folder, so ~/.mdopener (the IPC token
+    // and agents' conversation memory) and an AppImage's scheme handler,
+    // which points at the deleted file, stayed behind unmentioned.
+    const section = installDoc.split("\n## Uninstalling")[1] ?? "";
+    for (const needle of [
+      "`~/.mdopener/`",
+      "`sessions/`",
+      "md-opener-handler.desktop",
+    ]) {
+      expect(
+        section,
+        `docs/INSTALL.md's Uninstalling section must name ${needle}`,
+      ).toContain(needle);
+    }
+  });
+});
+
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 // The README's shortcut table and the landing page's shortcut grid list every
 // registered shortcut (src/lib/commands.ts) plus the inline AI rewrite, which

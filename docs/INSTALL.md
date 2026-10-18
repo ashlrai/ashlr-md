@@ -165,12 +165,17 @@ again. A failed check (offline, for example) is silent.
 | macOS DMG | Drag `Ashlr MD.app` from `/Applications` to Trash |
 | Windows | Settings → Apps → Ashlr MD → Uninstall |
 | Linux .deb | `sudo apt remove ashlr-md` |
-| Linux AppImage | Delete the `.AppImage` file |
+| Linux AppImage | Delete the `.AppImage` file, and `~/.local/share/applications/md-opener-handler.desktop` (the `mdopener://` handler it registered) |
 
 Preferences and app data are stored at:
 - **macOS:** `~/Library/Application Support/app.mdopener.desktop`
 - **Windows:** `%APPDATA%\app.mdopener.desktop`
 - **Linux:** `~/.config/app.mdopener.desktop`
+
+On every platform the app and its agent tools also keep `~/.mdopener/`
+(`%USERPROFILE%\.mdopener\` on Windows): the IPC port and token files and
+`sessions/`, the conversation memory agents save. A copy made with **Install
+mdopen** stays where it was copied too.
 
 These are not removed by a standard uninstall; delete them manually if you
 want a clean slate.

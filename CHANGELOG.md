@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The uninstall guide lists what an uninstall leaves behind.** It named
+  only the preferences folder. `~/.mdopener/` (the IPC token and the
+  conversation memory agents save) stays on every platform, and a deleted
+  AppImage leaves its `mdopener://` handler pointing at a missing file;
+  the guide now names both, and a test fails when it drops them.
 - **The install guide says where the Windows CLI and MCP server are.** The
   Linux section said where the `.deb` puts `mdopen` and that it is not on
   `PATH`; the Windows section said nothing about `mdopen.exe` or
