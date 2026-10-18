@@ -866,7 +866,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "list_recent",
-            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch).",
+            description: "Return the recently opened files, most recent first, as [{ path, fileName, openedAt }] (openedAt in milliseconds since the Unix epoch). Needs Ashlr MD running (the app keeps the list): this tool does not start it, so with the app closed it is an error, and open_file starts the app.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2680,7 +2680,7 @@ pub fn tool_request_review_with(
                     return tool_error(id, window_refusal(&resp, "open", what));
                 }
                 Ok(_) => {}
-                Err(e) => return tool_error(id, app_not_running_msg(&e)),
+                Err(e) => return tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
             }
             remember_review(
                 &review_id,
@@ -2758,6 +2758,18 @@ pub fn tool_request_review_with(
             // The review is registered: the reply has to carry its id, or an
             // agent whose app answered late, or was briefly unreachable, can
             // neither keep waiting nor tell this from a review never made.
+            // A refused token is fixed only by restarting the app, which
+            // drops the review, so it says to request a new one.
+            Err(e) if app_auth_failed(&e) => {
+                return tool_error(
+                    id,
+                    format!(
+                        "Lost contact with Ashlr MD while waiting on review `{review_id}`. \
+                         {APP_AUTH_FAILED_MSG} Restarting the app ends this review, so call \
+                         request_review again without review_id to request a new one."
+                    ),
+                )
+            }
             Err(e) => {
                 return tool_error(
                     id,
@@ -2878,16 +2890,36 @@ in memory only while it runs: a review given before it quit cannot be read, so n
 does not mean that no review was given. To ask for one, call request_review (open_file \
 starts the app). `tasks` are the checkboxes saved in the file.";
 
+/// Why the app answered HTTP 401, shared by [`APP_AUTH_FAILED_MSG`] and
+/// [`ANNOTATIONS_APP_AUTH_FAILED_NOTE`] so the two say it the same way.
+macro_rules! app_auth_failed_cause {
+    () => {
+        "Ashlr MD answered on the port in ~/.mdopener/ipc-port but refused the token in \
+         ~/.mdopener/ipc-token (HTTP 401): the token file is stale, or the port belongs to \
+         another Ashlr MD instance."
+    };
+}
 /// The `note` of a `get_user_annotations` result read from disk because the
 /// app answered HTTP 401 (`appAuthFailed: true`).
-pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = "Ashlr MD answered on the port in \
-~/.mdopener/ipc-port but refused the token in ~/.mdopener/ipc-token (HTTP 401): the token \
-file is stale, or the port belongs to another Ashlr MD instance. So this was read from the \
+pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = concat!(
+    app_auth_failed_cause!(),
+    " So this was read from the \
 file on disk, and `verdict` and `comments` are null because the review, if there is one, is \
 held by the app this server could not read: null here does not mean that no review was \
 given. To fix it, ask the user to quit every Ashlr MD window fully and start the app again, \
 which writes a new ipc-port and ipc-token, then call get_user_annotations again. `tasks` \
-are the checkboxes saved in the file.";
+are the checkboxes saved in the file."
+);
+
+/// The error of every app tool (other than `get_user_annotations`, which
+/// reads the disk instead) when the app answered HTTP 401. It used to be the
+/// bare "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token",
+/// which named neither the cause nor a next step.
+pub const APP_AUTH_FAILED_MSG: &str = concat!(
+    app_auth_failed_cause!(),
+    " Ask the user to quit every Ashlr MD window fully and start the app again, which \
+     writes a new ipc-port and ipc-token, then retry this call."
+);
 
 /// True when the app's port answered HTTP 401: the token this server read
 /// from `~/.mdopener/ipc-token` is not the one the listener expects.
@@ -2900,9 +2932,15 @@ fn app_auth_failed(err: &str) -> bool {
 /// on disk, read with the same checks as the other disk tools. A file that
 /// cannot be read has no tasks and a `tasksNote` saying why.
 fn disk_annotations(path: &str) -> Value {
+    // The raw OS text ("No such file or directory (os error 2)") read like a
+    // fault: it is worded as the other disk tools word it.
     let read = checked_document(path, "path").and_then(|doc| {
-        doc.read()
-            .map_err(|e| format!("The tasks of {} were not read: {e}.", doc.path))
+        doc.read().map_err(|e| {
+            format!(
+                "{} Its tasks were not read.",
+                cannot_read("", &doc.path, &e)
+            )
+        })
     });
     let mut body = json!({
         "path": path,
@@ -2945,9 +2983,10 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         Err(e) => return Response::err(id, -32602, e),
     };
 
+    let path = path.map(agent_path);
     let mut body = json!({ "find": find, "replace": replace, "save": save });
-    if let Some(p) = path {
-        body["path"] = json!(agent_path(p));
+    if let Some(p) = &path {
+        body["path"] = json!(p);
     }
 
     match ipc.post("/edit", body) {
@@ -2958,7 +2997,7 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -3498,7 +3537,7 @@ pub fn tool_present_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Re
             tool_error(id, window_refusal(&v, "present", what))
         }
         Ok(v) => tool_result(id, v),
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -5338,18 +5377,42 @@ pub fn tool_error(id: Value, message: String) -> Response {
 /// found`): they used to ask "Is Ashlr MD running?" themselves, so the
 /// message said it twice.
 pub fn app_not_running_msg(err: &str) -> String {
+    not_running_msg(err, None)
+}
+
+/// [`app_not_running_msg`] for a tool that was given `path`: the next step
+/// is the `open_file` call with that path, written out so the agent can copy
+/// it. The generic "use open_file which can start it" left the agent to work
+/// out the arguments.
+pub fn app_not_running_msg_for(err: &str, path: Option<&str>) -> String {
+    not_running_msg(err, path)
+}
+
+fn not_running_msg(err: &str, path: Option<&str>) -> String {
+    // The app refused this server's token: say why and what fixes it.
+    if app_auth_failed(err) {
+        return APP_AUTH_FAILED_MSG.to_string();
+    }
     // The running app refused the request: its reason (which may quote a
     // path containing "connect" or "not found") is the agent's to see as is.
     if app_refused(err) {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
+        let next = match path {
+            Some(p) => format!(
+                "Call open_file with {}, which starts it with this document, then call \
+                 this tool again.",
+                json!({ "path": p })
+            ),
+            None => {
+                "Launch it first, or use open_file which can start it automatically.".to_string()
+            }
+        };
         format!(
-            "Ashlr MD does not appear to be running ({}). \
-             Launch it first, or use open_file which can start it automatically. If it \
+            "Ashlr MD does not appear to be running ({err}). {next} If it \
              is not installed, ask the user to install it from \
-             https://github.com/ashlrai/ashlr-md/releases.",
-            err
+             https://github.com/ashlrai/ashlr-md/releases."
         )
     } else {
         err.to_string()
@@ -6993,7 +7056,7 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
             v["applied"] = json!(!preview);
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 
@@ -7056,7 +7119,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg(&e)),
+        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
     }
 }
 

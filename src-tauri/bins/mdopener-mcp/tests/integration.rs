@@ -1910,6 +1910,32 @@ fn get_user_annotations_without_the_app_says_why_a_file_was_not_read() {
     }
 }
 
+/// `tasksNote` for a missing file quoted the raw OS error ("No such file or
+/// directory (os error 2)"); it now says what the other disk tools say.
+#[test]
+fn get_user_annotations_tasks_note_says_the_file_does_not_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.md");
+    let abs = mdopener_mcp::agent_path(missing.to_str().unwrap());
+    for err in [
+        "~/.mdopener/ipc-port not found",
+        "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token",
+    ] {
+        let ipc = MockIpc::new().on_get("/annotations", Err(err.into()));
+        let resp = tool_get_annotations(id(1), &json!({ "path": missing.to_str().unwrap() }), &ipc);
+        let v = content_text(&resp);
+        assert_eq!(
+            v["tasksNote"],
+            format!("Cannot read '{abs}': the file does not exist. Its tasks were not read."),
+            "{err}: {v}"
+        );
+        assert!(
+            !v["tasksNote"].as_str().unwrap().contains("os error"),
+            "{v}"
+        );
+    }
+}
+
 /// The description and the initialize instructions say it works without the
 /// app, and how.
 #[test]
@@ -2420,9 +2446,238 @@ fn app_not_running_msg_connect_error_includes_hint() {
 
 #[test]
 fn app_not_running_msg_other_error_passthrough() {
-    let msg = mdopener_mcp::app_not_running_msg("IPC auth failed: token mismatch");
+    let msg = mdopener_mcp::app_not_running_msg("IPC server returned HTTP 500");
     // Should pass through unchanged for non-connectivity errors
-    assert_eq!(msg, "IPC auth failed: token mismatch");
+    assert_eq!(msg, "IPC server returned HTTP 500");
+}
+
+/// An HTTP 401 (a stale ~/.mdopener/ipc-token, or another instance on the
+/// port) came back from every app tool but get_user_annotations as the bare
+/// "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token", with
+/// no cause and no next step. It is now one message that says both, in the
+/// words of get_user_annotations' `appAuthFailed` note.
+#[test]
+fn every_app_tool_explains_a_refused_token_and_how_to_fix_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let doc = doc.to_str().unwrap();
+    let out = dir.path().join("plan.html");
+    let out = out.to_str().unwrap();
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new()
+        .on_get("/", Err(auth.clone()))
+        .on_post("/", Err(auth));
+    let calls: Vec<(&str, mdopener_mcp::Response)> = vec![
+        ("get_current_content", tool_get_content(id(1), &ipc)),
+        (
+            "set_content",
+            tool_set_content(id(1), &json!({ "content": "x" }), &ipc),
+        ),
+        ("list_recent", tool_list_recent(id(1), &json!({}), &ipc)),
+        (
+            "export",
+            tool_export_with(
+                id(1),
+                &json!({ "format": "html", "output_path": out }),
+                &ipc,
+                std::time::Duration::from_millis(10),
+            ),
+        ),
+        (
+            "request_review",
+            tool_request_review(id(1), &json!({ "path": doc, "blocking": false }), &ipc),
+        ),
+        (
+            "edit_document",
+            tool_edit_document(id(1), &json!({ "find": "a", "replace": "b" }), &ipc),
+        ),
+        (
+            "replace_document",
+            tool_replace_document(id(1), &json!({ "content": "x" }), &ipc),
+        ),
+        (
+            "search_vault",
+            tool_search_vault(id(1), &json!({ "query": "plan", "semantic": false }), &ipc),
+        ),
+        (
+            "present_document",
+            tool_present_document(id(1), &json!({ "path": doc }), &ipc),
+        ),
+        (
+            "stream_edit",
+            tool_stream_edit(id(1), &json!({ "find": "a", "replace": "b" }), &ipc),
+        ),
+        (
+            "stream_edit_apply",
+            tool_stream_edit_apply(
+                id(1),
+                &json!({ "edit_id": "e1", "find": "a", "replace": "b" }),
+                &ipc,
+            ),
+        ),
+        (
+            "export_text",
+            mdopener_mcp::tool_export_text(id(1), &json!({}), &ipc),
+        ),
+    ];
+    for (tool, resp) in calls {
+        let err = tool_error_text(&resp);
+        assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG, "{tool}");
+    }
+    let msg = mdopener_mcp::APP_AUTH_FAILED_MSG;
+    for part in [
+        "HTTP 401",
+        "~/.mdopener/ipc-token",
+        "stale",
+        "another Ashlr MD instance",
+        "quit every Ashlr MD window",
+        "start the app again",
+        "retry",
+    ] {
+        assert!(msg.contains(part), "{part}: {msg}");
+    }
+    // The same cause as get_user_annotations' note, word for word.
+    let cause = msg.split(" Ask the user").next().unwrap();
+    assert!(
+        mdopener_mcp::ANNOTATIONS_APP_AUTH_FAILED_NOTE.starts_with(cause),
+        "{cause}"
+    );
+}
+
+/// With the app closed, a tool given `path` was told to "use open_file which
+/// can start it", leaving the agent to work out the call. It now names the
+/// `open_file` call with that exact path, ready to copy.
+#[test]
+fn app_tools_given_a_path_name_the_open_file_call_when_the_app_is_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let canonical = std::fs::canonicalize(&doc).unwrap();
+    let canonical = canonical.to_str().unwrap();
+    let doc = doc.to_str().unwrap();
+    let down = "~/.mdopener/ipc-port not found";
+    let ipc = MockIpc::new()
+        .on_get("/", Err(down.into()))
+        .on_post("/", Err(down.into()));
+    let next = format!(
+        "Call open_file with {}, which starts it with this document, then call this tool again.",
+        json!({ "path": canonical })
+    );
+    let calls: Vec<(&str, mdopener_mcp::Response)> = vec![
+        (
+            "request_review",
+            tool_request_review(id(1), &json!({ "path": doc, "blocking": false }), &ipc),
+        ),
+        (
+            "present_document",
+            tool_present_document(id(1), &json!({ "path": doc }), &ipc),
+        ),
+        (
+            "edit_document",
+            tool_edit_document(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": doc }),
+                &ipc,
+            ),
+        ),
+        (
+            "stream_edit",
+            tool_stream_edit(
+                id(1),
+                &json!({ "find": "a", "replace": "b", "path": doc }),
+                &ipc,
+            ),
+        ),
+        (
+            "stream_edit_apply",
+            tool_stream_edit_apply(
+                id(1),
+                &json!({ "edit_id": "e1", "find": "a", "replace": "b", "path": doc }),
+                &ipc,
+            ),
+        ),
+    ];
+    for (tool, resp) in calls {
+        let err = tool_error_text(&resp);
+        assert_eq!(
+            err,
+            format!(
+                "Ashlr MD does not appear to be running ({down}). {next} If it is not \
+                 installed, ask the user to install it from \
+                 https://github.com/ashlrai/ashlr-md/releases."
+            ),
+            "{tool}"
+        );
+    }
+    // Without `path` there is no document to name: the generic step stays.
+    let resp = tool_present_document(id(1), &json!({}), &ipc);
+    let err = tool_error_text(&resp);
+    assert!(err.contains("use open_file which can start it"), "{err}");
+    assert!(!err.contains("\"path\""), "{err}");
+}
+
+/// A path with a quote or backslash is written as JSON, so the call still
+/// parses when copied.
+#[test]
+fn app_not_running_msg_for_writes_the_path_as_json() {
+    let msg = mdopener_mcp::app_not_running_msg_for(
+        "~/.mdopener/ipc-port not found",
+        Some(r#"/tmp/a "b"\c.md"#),
+    );
+    assert!(
+        msg.contains(r#"open_file with {"path":"/tmp/a \"b\"\\c.md"}"#),
+        "{msg}"
+    );
+    // A refusal and a 401 read the same with or without a path.
+    assert_eq!(
+        mdopener_mcp::app_not_running_msg_for("IPC auth failed: x", Some("/a.md")),
+        mdopener_mcp::APP_AUTH_FAILED_MSG
+    );
+    assert_eq!(
+        mdopener_mcp::app_not_running_msg_for("IPC server returned HTTP 404: gone", Some("/a.md")),
+        "IPC server returned HTTP 404: gone"
+    );
+}
+
+/// list_recent needs the app (it keeps the list), and its description did
+/// not say so.
+#[test]
+fn list_recent_is_described_as_needing_the_app() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "list_recent")
+        .unwrap();
+    assert!(
+        def.description.contains("Needs Ashlr MD running"),
+        "{}",
+        def.description
+    );
+    assert!(def.description.contains("open_file"), "{}", def.description);
+}
+
+/// A 401 while waiting on a review says what to do, and that restarting the
+/// app ends the review, instead of "Lost contact ...: IPC auth failed".
+#[test]
+fn request_review_that_hits_a_refused_token_says_to_restart_and_request_again() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "wait_ms": 1000 }),
+        &ipc,
+        Duration::from_millis(10),
+    );
+    let err = tool_error_text(&resp);
+    assert!(err.contains(mdopener_mcp::APP_AUTH_FAILED_MSG), "{err}");
+    assert!(err.contains("request a new one"), "{err}");
+    assert!(!err.contains("IPC auth failed"), "{err}");
 }
 
 #[test]
