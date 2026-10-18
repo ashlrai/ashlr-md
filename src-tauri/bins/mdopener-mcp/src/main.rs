@@ -52,9 +52,17 @@ USAGE:
     mdopener-mcp --version     print the version
     mdopener-mcp --help        print this help
 
-Other arguments are ignored with a warning on stderr. Register it with your
-MCP client; see docs/AGENTS.md.
+Other arguments are ignored with a warning on stderr.
+
+Register it with your MCP client by its full path, for example:
+    claude mcp add --scope user ashlr-md /path/to/mdopener-mcp
+or click Connect in Ashlr MD under Preferences > AI agents (MCP). Guide:
+https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md
 ";
+
+/// Where the agent guide is published: an installed `mdopener-mcp` has no
+/// `docs/` folder next to it, so `docs/AGENTS.md` alone named nothing.
+const AGENTS_GUIDE: &str = "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md";
 
 fn main() {
     // Informational flags answer and exit instead of blocking on stdin.
@@ -155,11 +163,10 @@ fn startup_notes(ignored: &[String], stdin_is_terminal: bool) -> Vec<String> {
         ));
     }
     if stdin_is_terminal {
-        notes.push(
+        notes.push(format!(
             "mdopener-mcp: this is an MCP stdio server: it reads JSON-RPC requests on stdin. \
-             Register it with your MCP client (see docs/AGENTS.md), or run --help. Ctrl-D exits."
-                .to_string(),
-        );
+             Register it with your MCP client (see {AGENTS_GUIDE}), or run --help. Ctrl-D exits."
+        ));
     }
     notes
 }
@@ -227,7 +234,7 @@ fn to_line(response: &Response) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{serve, startup_notes};
+    use super::{serve, startup_notes, AGENTS_GUIDE, HELP};
     use mdopener_mcp::IpcClient;
     use serde_json::Value;
 
@@ -294,5 +301,22 @@ mod tests {
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("MCP stdio server"), "{notes:?}");
         assert_eq!(startup_notes(&args, true).len(), 2);
+    }
+
+    /// `--help` and the terminal hint said "see docs/AGENTS.md", a path an
+    /// installed server has nowhere near it. Both name the published guide,
+    /// and `--help` shows a registration command.
+    #[test]
+    fn help_and_hint_point_at_the_published_guide() {
+        assert!(HELP.contains(AGENTS_GUIDE), "{HELP}");
+        assert!(
+            HELP.contains("claude mcp add --scope user ashlr-md "),
+            "{HELP}"
+        );
+        assert!(HELP.contains("Preferences > AI agents (MCP)"), "{HELP}");
+        for text in [HELP.to_string(), startup_notes(&[], true).join("\n")] {
+            assert!(!text.contains("see docs/AGENTS.md"), "{text}");
+        }
+        assert!(startup_notes(&[], true)[0].contains(AGENTS_GUIDE));
     }
 }

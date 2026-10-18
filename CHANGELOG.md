@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopener-mcp --help` says how to register the server.** It ended
+  "see docs/AGENTS.md", a file an installed server has nowhere near it,
+  and the hint printed when it is run by hand in a terminal said the same.
+  `--help` now shows a `claude mcp add` command and the in-app Connect
+  button, and both name the published guide's URL.
 - **The VS Code and Obsidian READMEs link the download to GitHub
   Releases.** Their "download here" links went to md.ashlr.ai, the landing
   page, while the README, the install guide and the landing page's own
