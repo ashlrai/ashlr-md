@@ -165,6 +165,7 @@ again. A failed check (offline, for example) is silent.
 | macOS DMG | Drag `Ashlr MD.app` from `/Applications` to Trash |
 | Windows | Settings → Apps → Ashlr MD → Uninstall |
 | Linux .deb | `sudo apt remove ashlr-md` |
+| Linux .rpm | `sudo dnf remove ashlr-md` |
 | Linux AppImage | Delete the `.AppImage` file, and `~/.local/share/applications/md-opener-handler.desktop` (the `mdopener://` handler it registered) |
 
 Preferences and app data are stored at:

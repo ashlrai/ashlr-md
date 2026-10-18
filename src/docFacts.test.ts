@@ -392,6 +392,25 @@ describe("doc facts: Windows install folder", () => {
 });
 
 describe("doc facts: uninstalling", () => {
+  it("the uninstall table removes the .deb and .rpm by their package name", () => {
+    // The table had no .rpm row. Tauri names both packages after productName
+    // in kebab case ("Ashlr MD" is `ashlr-md`, checked against a built
+    // .deb's control file and .rpm's header).
+    const { productName } = JSON.parse(tauriConf) as { productName: string };
+    const pkg = productName.toLowerCase().replace(/\s+/g, "-");
+    expect(pkg).toBe("ashlr-md");
+    const section = installDoc.split("\n## Uninstalling")[1] ?? "";
+    for (const [row, cmd] of [
+      ["| Linux .deb |", `\`sudo apt remove ${pkg}\``],
+      ["| Linux .rpm |", `\`sudo dnf remove ${pkg}\``],
+    ]) {
+      const line = section.split("\n").find((l) => l.startsWith(row)) ?? "";
+      expect(line, `docs/INSTALL.md's uninstall table needs a "${row}" row`).toContain(
+        cmd,
+      );
+    }
+  });
+
   it("the uninstall section names what an uninstall leaves behind", () => {
     // It listed only the preferences folder, so ~/.mdopener (the IPC token
     // and agents' conversation memory) and an AppImage's scheme handler,

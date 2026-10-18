@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The uninstall table has a `.rpm` row.** The install guide documents the
+  Fedora / RHEL `.rpm` but said only how to remove the `.deb`. It now gives
+  `sudo dnf remove ashlr-md`, the package name Tauri writes into the `.rpm`
+  (checked against a built package), and a test fails when the row is gone.
 - **The README quick start says how to get `mdopen`.** Step 2 said to run
   `mdopen notes.md`, but no app installer puts `mdopen` on `PATH`, so a new
   user got "command not found". It now names **Install mdopen** first, and
