@@ -23,6 +23,7 @@ import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import linuxConf from "../src-tauri/tauri.linux.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
+import mcpSection from "./components/settings/sections/McpSection.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
 import mcpEditHandlers from "./mcp/handlers/edit.ts?raw";
 
@@ -549,6 +550,43 @@ describe("doc facts: AppImage MCP server path", () => {
     expect(agentsDoc, at).toContain(`\`${stableDir}\``);
     const hook = agentsDoc.split("### One-click install")[1]?.split("\n---")[0] ?? "";
     expect(hook, `${AGENTS} One-click install`).toContain(`${stableDir}mdopen`);
+  });
+});
+
+// ── One-click setup buttons ───────────────────────────────────────────────────
+// docs/AGENTS.md told readers to click "Install auto-open hook", a button the
+// AI agents (MCP) section does not have (it is "Auto-open agent Markdown"),
+// and said every button there is enabled only for detected tools, which the
+// hook button is not.
+
+describe("doc facts: one-click setup buttons", () => {
+  const quick =
+    agentsDoc.split("## Quick start: one-click setup (in-app)")[1]?.split("\n---")[0] ??
+    "";
+  const buttonText = (label: string) =>
+    new RegExp(
+      `\\n\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n\\s*</button>`,
+    );
+
+  it("every button the quick start lists is a button in the MCP section", () => {
+    const labels = [...quick.matchAll(/^- \*\*([^*]+)\*\*:/gm)].map((m) => m[1]);
+    expect(labels.length).toBe(4);
+    for (const label of labels) {
+      expect(mcpSection, `${AGENTS}: no "${label}" button`).toMatch(buttonText(label));
+    }
+  });
+
+  it("every button the doc names under Preferences → AI agents (MCP) exists", () => {
+    for (const m of agentsDoc.matchAll(/AI agents \(MCP\) → ([^*]+)\*\*/g)) {
+      expect(mcpSection, `${AGENTS}: no "${m[1]}" button`).toMatch(buttonText(m[1]));
+    }
+  });
+
+  it("only the Connect buttons wait for a detected tool", () => {
+    expect(mcpSection).toMatch(/disabled=\{hookBusy\}/);
+    expect(quick).toContain(
+      "The **Connect** buttons are only enabled for tools detected",
+    );
   });
 });
 

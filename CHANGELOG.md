@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md names the hook button the app shows.** It told readers
+  to click **Install auto-open hook**, a button Preferences does not have;
+  the button is **Auto-open agent Markdown**. A doc-facts test now checks
+  every one-click button docs/AGENTS.md names against the Settings section.
 - **A stream edit for another document names the next step.** When the
   window answered a `stream_edit` or `stream_edit_apply` whose `path` was not
   the open document, it said "Path mismatch: '...' is not the currently open
@@ -43,8 +47,8 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   the app's own path check already did.
 - **Connecting an agent from the AppImage registers a path that lasts.**
   An AppImage mounts itself at a new `/tmp/.mount_*` directory on every
-  launch, and the **Connect** buttons, the **Copy** command, **Install
-  auto-open hook** and **Install mdopen** all registered the `mdopener-mcp`
+  launch, and the **Connect** buttons, the **Copy** command, **Auto-open
+  agent Markdown** and **Install mdopen** all registered the `mdopener-mcp`
   or `mdopen` inside that mount, which was gone once the app quit. When
   `$APPIMAGE` is set on Linux they now copy the binary to
   `~/.local/share/app.mdopener.desktop/bin/` and register the copy,

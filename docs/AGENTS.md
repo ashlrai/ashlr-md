@@ -59,10 +59,10 @@ Open **Ashlr MD → Preferences → AI agents (MCP)** and click:
 - **Connect to Claude Code**: runs `claude mcp add` for you, no terminal needed.
 - **Connect to Cursor**: writes/merges `~/.cursor/mcp.json` automatically.
 - **Connect to Codex**: runs `codex mcp add` for you.
-- **Install auto-open hook**: adds a Claude Code `PostToolUse` hook so written
+- **Auto-open agent Markdown**: installs a Claude Code `PostToolUse` hook so written
   `.md` files open in Ashlr MD automatically (see [Auto-open hook](#auto-open-hook)).
 
-The in-app buttons are only enabled for tools detected on your machine
+The **Connect** buttons are only enabled for tools detected on your machine
 (`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For any
 other agent, copy the command with the **Copy** button and paste it in a terminal.
 
@@ -112,7 +112,7 @@ claude mcp add --scope user ashlr-md ~/.local/bin/mdopener-mcp
 An AppImage mounts itself at a new `/tmp/.mount_*` directory on every launch
 and unmounts when it quits, so a path inside the mount stops working once the
 app closes. From an AppImage, the **Connect** buttons, the **Copy** command and
-**Install auto-open hook** therefore copy `mdopener-mcp` (and `mdopen`) to
+**Auto-open agent Markdown** therefore copy `mdopener-mcp` (and `mdopen`) to
 `~/.local/share/app.mdopener.desktop/bin/` and register that copy, which stays
 put after the app quits. The copy is refreshed whenever you click one of them
 after updating the AppImage. The AppImage commands above are only needed when
@@ -610,7 +610,7 @@ tool call), since the payload arrives on stdin.
 
 ### One-click install
 
-**Preferences → AI agents (MCP) → Install auto-open hook**. Ashlr MD merges this
+**Preferences → AI agents (MCP) → Auto-open agent Markdown**. Ashlr MD merges this
 into **`~/.claude/settings.json`** (idempotently: it won't add a duplicate).
 If the hook it installed earlier runs an `mdopen` that no longer exists (the app
 was moved, for example from Downloads to Applications), clicking it again points
