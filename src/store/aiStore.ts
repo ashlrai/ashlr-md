@@ -86,6 +86,10 @@ interface AIState {
   messages: ChatMessage[];
   /** true while a generation is in flight */
   busy: boolean;
+  /** Aborts the generation in flight, whichever surface started it (the
+   *  sidebar or the selection popover), so the sidebar's Stop button stops
+   *  either. Never persisted. */
+  abortController: AbortController | null;
   /** Anthropic (or future provider) API key — held in memory only; the source
    *  of truth is the OS keychain. Loaded via `loadApiKey()` at startup. */
   apiKey: string | null;
@@ -109,6 +113,7 @@ interface AIState {
   finalizeLastAssistantMessage(): void;
   clearMessages(): void;
   setBusy(busy: boolean): void;
+  setAbortController(controller: AbortController | null): void;
   setApiKey(key: string | null): void;
   /** Load the key from the OS keychain (migrating any legacy plaintext key). */
   loadApiKey(): Promise<void>;
@@ -134,6 +139,7 @@ export const useAIStore = create<AIState>()(
       providerId: null,
       messages: [],
       busy: false,
+      abortController: null,
       apiKey: null,
       hostedToken: null,
       preferredTier: null,
@@ -212,6 +218,10 @@ export const useAIStore = create<AIState>()(
 
       setBusy(busy) {
         set({ busy });
+      },
+
+      setAbortController(abortController) {
+        set({ abortController });
       },
 
       setApiKey(key) {

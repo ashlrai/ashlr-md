@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Stop in the AI sidebar stops a selection action.** When an action from
+  the selection popover (Explain, Rewrite, Summarize, Translate) was
+  streaming its answer into the AI sidebar, the sidebar showed **Stop**, but
+  clicking it did nothing: the popover kept the request's abort handle to
+  itself. Stop now ends that request too.
 - **A missing home directory says what to set.** When the home directory
   could not be found, **Connect to Cursor**, **Auto-open agent Markdown** and
   `mdopener-mcp` (reaching the app or saving a conversation) said "Cannot

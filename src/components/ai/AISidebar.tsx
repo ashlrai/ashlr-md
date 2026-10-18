@@ -573,6 +573,8 @@ export function AISidebar() {
 
   function handleStop() {
     abortRef.current?.abort();
+    // A selection popover action registers its controller in the store.
+    useAIStore.getState().abortController?.abort();
     // Clear any pending retry when the user manually stops.
     setRetryState(null);
   }

@@ -39,7 +39,7 @@ export function SelectionPopover() {
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
-  const abortRef = useRef<AbortController | null>(null);
+  const setAbortController = useAIStore((s) => s.setAbortController);
 
   /** Returns true if the selection's anchor node is inside `.markdown-body` */
   function isInsideMarkdownBody(sel: Selection): boolean {
@@ -147,8 +147,10 @@ export function SelectionPopover() {
     pushMessage({ role: "assistant", content: "", streaming: true });
     setBusy(true);
 
+    // Registered in the store so the sidebar's Stop button aborts it: it
+    // used to be held here alone, and Stop did nothing for a popover action.
     const controller = new AbortController();
-    abortRef.current = controller;
+    setAbortController(controller);
 
     try {
       await runSelectionAction(
@@ -163,7 +165,7 @@ export function SelectionPopover() {
     } finally {
       finalizeLast();
       setBusy(false);
-      abortRef.current = null;
+      setAbortController(null);
     }
   }
 
