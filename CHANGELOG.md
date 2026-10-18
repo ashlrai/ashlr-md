@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `stream_edit` no longer says to prefer it for large files.** Its
+  description said "Prefer this over edit_document for large files", but
+  neither tool sends the document: both post the app only `find` and
+  `replace`, a preview adds a diff and a second call, and `stream_edit`
+  with `path` even fetches the whole document to compare paths. It now
+  says to prefer it only to see the change before committing it, since
+  `edit_document` applies at once, and why size is no reason.
 - **MCP: `edit_canvas` spells "color" as its schema does.** Its description
   said "set node colour" and a refused color said "a hex colour", while the
   op is `set_node_color` and the `color` field says "Color preset". Both now

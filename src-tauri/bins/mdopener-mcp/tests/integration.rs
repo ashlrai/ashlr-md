@@ -10445,6 +10445,70 @@ fn stream_edit_description_names_its_result_and_refusals() {
     assert_eq!(tool_error_text(&resp), refusal);
 }
 
+/// stream_edit's description said "Prefer this over edit_document for large
+/// files", but neither tool sends the document: both post only `find` and
+/// `replace`, and stream_edit with `path` even fetches the whole document
+/// to compare paths. The advice now gives the real reason, the preview.
+#[test]
+fn stream_edit_is_not_preferred_for_large_files() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(!d.contains("for large files or"), "{d}");
+    assert!(
+        d.contains("only to see the change before committing it (edit_document applies at once)"),
+        "{d}"
+    );
+    assert!(d.contains("not for large files"), "{d}");
+    let big = "x".repeat(1 << 20);
+    let doc = json!({ "path": "/notes/big.md", "content": big });
+    let reply =
+        json!({ "ok": true, "editId": "s", "diff": "@@", "candidates": null, "matchCount": 1 });
+    // Without `path`, each tool posts `find` and `replace` and reads nothing.
+    for tool in ["edit_document", "stream_edit"] {
+        let ipc = MockIpc::new()
+            .on_get("/content", Ok(doc.clone()))
+            .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })))
+            .on_post("/stream-edit", Ok(reply.clone()));
+        let resp = call(tool, json!({ "find": "x", "replace": "y" }), &ipc);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        let calls = ipc.calls();
+        assert_eq!(calls.len(), 1, "{tool}: {calls:?}");
+        let body = calls[0].2.as_ref().unwrap().to_string();
+        assert!(body.len() < 200, "{tool} sent {} bytes", body.len());
+    }
+    // With `path`, stream_edit fetches the whole document; edit_document
+    // sends the path for the app to check.
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(doc.clone()))
+        .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
+    call(
+        "edit_document",
+        json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
+        &ipc,
+    );
+    assert!(
+        ipc.calls().iter().all(|c| c.0 == "POST"),
+        "edit_document with path reads nothing"
+    );
+    let ipc = MockIpc::new()
+        .on_get("/content", Ok(doc))
+        .on_post("/stream-edit", Ok(reply));
+    call(
+        "stream_edit",
+        json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
+        &ipc,
+    );
+    assert!(
+        ipc.calls()
+            .iter()
+            .any(|c| c.0 == "GET" && c.1 == "/content"),
+        "stream_edit with path reads /content"
+    );
+}
+
 /// A refusal from the window carries its `matchCount`, which the app's
 /// `/stream-edit` reply used to drop and the tool did not pass on. It sits
 /// beside `content` and `isError`, so the error text and shape are as they

@@ -1215,8 +1215,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
                 the find string must match exactly once) and the result has applied: true, so do not \
-                call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
-                confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
+                before committing it (edit_document applies at once), not for large files: both send the \
+                app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
+                this tool also fetches the whole document to compare paths. Returns { ok, editId, diff, candidates, matchCount, applied }: \
                 `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
