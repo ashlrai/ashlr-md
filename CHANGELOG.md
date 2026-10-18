@@ -85,6 +85,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `unread: [{ path, reason }]` (the first 20) with `unreadCount`, and
   `search_vault` turns them into the same `note` as the on-disk modes. An
   app that predates the fields gives no note, as before.
+- **Reindexing the library says which files it could not read.** The app's
+  semantic index (the "My library" chat) left a file it could not read (not
+  UTF-8 text, larger than 16 MiB, not a regular file) out in silence, so the
+  chat could not know it and nothing said why. `embed_index` now returns
+  them as `unread` with the reason, and **Reindex library** in Settings says
+  how many files were not indexed, names the first three with the reason,
+  and says to convert a file that is not UTF-8.
 - **The app says where a document is not UTF-8, and what to do.** Opening a
   Latin-1 or UTF-16 file in the window, or through `open_file`,
   `present_document` or `request_review`, and applying a patch to one, failed
