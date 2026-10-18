@@ -354,6 +354,28 @@ pub const MAX_MESSAGES_PER_SESSION: usize = 200;
 
 static SESSIONS_DIR_OVERRIDE: OnceLock<std::path::PathBuf> = OnceLock::new();
 
+/// The error when the home directory (which holds `~/.mdopener`) cannot be
+/// found. It used to be "Cannot determine home directory" and nothing more;
+/// it now names the setting to fix. [`app_unreachable`] matches its first
+/// sentence.
+#[cfg(not(windows))]
+pub const NO_HOME_DIR: &str = "Cannot determine home directory. Set HOME to your home \
+    folder in the environment of the agent that runs mdopener-mcp, then restart that agent.";
+#[cfg(windows)]
+pub const NO_HOME_DIR: &str = "Cannot determine home directory. Check that your Windows \
+    user profile folder exists and that you are signed in to it, then restart the agent \
+    that runs mdopener-mcp.";
+
+/// `<home>/.mdopener/<name>`, or [`NO_HOME_DIR`] when there is no home.
+#[doc(hidden)]
+pub fn mdopener_file_in(
+    home: Option<std::path::PathBuf>,
+    name: &str,
+) -> Result<std::path::PathBuf, String> {
+    home.map(|h| h.join(".mdopener").join(name))
+        .ok_or_else(|| NO_HOME_DIR.to_string())
+}
+
 /// Keep session files in `dir` instead of `~/.mdopener/sessions` for the rest
 /// of this process. Tests use it to stay off the real home directory without
 /// mutating `HOME` while other test threads read it. Returns `false` (and
@@ -574,7 +596,7 @@ pub fn parse_session_log(text: &str) -> Result<SessionLog, String> {
 /// of a session file. The desktop app takes the same lock when it persists a
 /// session, so neither process writes a stale copy over the other's appends.
 fn lock_sessions_dir() -> Result<std::fs::File, String> {
-    let dir = sessions_dir().ok_or("Cannot determine home directory")?;
+    let dir = sessions_dir().ok_or(NO_HOME_DIR)?;
     create_private_dir(&dir)?;
     let lock = std::fs::OpenOptions::new()
         .create(true)
@@ -592,7 +614,7 @@ fn lock_sessions_dir() -> Result<std::fs::File, String> {
 /// (another server process, this one after a restart) sees, so a failed
 /// write is an error for the caller to report.
 pub fn persist_session(session_id: &str, log: &SessionLog) -> Result<(), String> {
-    let path = session_file_path(session_id).ok_or("Cannot determine home directory")?;
+    let path = session_file_path(session_id).ok_or(NO_HOME_DIR)?;
     if let Some(dir) = path.parent() {
         create_private_dir(dir)?;
     }
@@ -4988,9 +5010,7 @@ pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
 
 /// Read the port written by the running app.
 pub fn read_ipc_port() -> Result<u16, String> {
-    let path = dirs::home_dir()
-        .map(|h| h.join(".mdopener").join("ipc-port"))
-        .ok_or("Cannot determine home directory")?;
+    let path = mdopener_file_in(dirs::home_dir(), "ipc-port")?;
 
     let content =
         std::fs::read_to_string(&path).map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
@@ -5011,9 +5031,7 @@ pub const IPC_TOKEN_EMPTY: &str = "~/.mdopener/ipc-token is empty, so Ashlr MD h
 
 /// Read the per-session auth token written by the running app.
 pub fn read_ipc_token() -> Result<String, String> {
-    let path = dirs::home_dir()
-        .map(|h| h.join(".mdopener").join("ipc-token"))
-        .ok_or("Cannot determine home directory")?;
+    let path = mdopener_file_in(dirs::home_dir(), "ipc-token")?;
     std::fs::read_to_string(&path)
         .map_err(|_| "~/.mdopener/ipc-token not found".to_string())
         .and_then(|s| {

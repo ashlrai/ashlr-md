@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A missing home directory says what to set.** When the home directory
+  could not be found, **Connect to Cursor**, **Auto-open agent Markdown** and
+  `mdopener-mcp` (reaching the app or saving a conversation) said "Cannot
+  determine home directory" and nothing more. They now say to set `HOME` to
+  your home folder (on Windows, to check the user profile folder) and to
+  restart Ashlr MD or the agent that runs `mdopener-mcp`.
 - **docs/AGENTS.md says what re-running Connect to Claude Code does.** It
   said re-running Connect when the server already exists "is treated as
   success". The Claude Code section now says Connect asks `claude mcp get`
