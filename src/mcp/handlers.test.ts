@@ -519,7 +519,9 @@ describe("handlers integration — edits with save: true", () => {
         previewLines: 5,
       });
       const r = reply("mcp_stream_edit_preview");
-      expect(r).toMatchObject({ editId: "s1", ok: false, matchCount: 0 });
+      expect(r).toMatchObject({ editId: "s1", ok: false });
+      // Nothing was searched, so no count is sent (it used to be a made-up 0).
+      expect(r).not.toHaveProperty("matchCount");
       expect(r.error).toBe(
         "No document is open in Ashlr MD; open one first (open_file).",
       );
@@ -819,6 +821,7 @@ describe("handlers integration — stream-edit failures are replied", () => {
     const r = call![1] as Record<string, unknown>;
     expect(r).toMatchObject({ editId: "s1", ok: false });
     expect(String(r.error)).toContain("editor gone");
+    expect(r).not.toHaveProperty("matchCount");
   });
 });
 

@@ -47,6 +47,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a `stream_edit` refusal that did not search has no `matchCount`.**
+  With no document open, a `path` that is not the open document, or an
+  exception in the window, the window sent `matchCount: 0`, so the tool's
+  error said `find` occurs nowhere although nothing was searched. Those
+  refusals now carry no `matchCount`; a search that found nothing still
+  says `0`. The app's `StreamEditPreviewOutcome.match_count` is optional,
+  and the `stream_edit` description and docs/AGENTS.md say which refusals
+  carry a count.
 - **MCP: a path may start with `~/`.** No shell expands `~` inside a JSON
   argument, so `~/notes/plan.md` was resolved as a folder named `~` in the
   server's working directory, and every path tool said the file did not

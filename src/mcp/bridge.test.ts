@@ -1041,6 +1041,8 @@ describe("mcp://stream-edit event — preview phase", () => {
     const call = invokeMock.mock.calls.find((c) => c[0] === "mcp_stream_edit_preview");
     expect(call![1].ok).toBe(false);
     expect(call![1].error).toMatch(/mismatch/i);
+    // The window did not search, so it sends no count (it used to send 0).
+    expect(call![1]).not.toHaveProperty("matchCount");
   });
 
   it("path assertion passes when path matches the open document", async () => {

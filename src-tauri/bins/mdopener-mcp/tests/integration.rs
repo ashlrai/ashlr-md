@@ -10408,6 +10408,40 @@ fn stream_edit_refusal_carries_the_match_count() {
     );
 }
 
+/// A stream_edit refusal that did not search (no document open, a `path`
+/// that is not the open document, an exception in the window) used to carry
+/// a made-up `matchCount: 0`, and the description said so. Now the app sends
+/// no count for them and the tool adds no field, while a real search that
+/// found nothing keeps its `0`.
+#[test]
+fn stream_edit_refusal_without_a_search_has_no_match_count() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(!d.contains("or when it did not search"), "{d}");
+    assert!(d.contains("did not search, and have none"), "{d}");
+    let missing = "`find` string not found in the document.";
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit",
+        Ok(json!({ "ok": false, "error": missing, "matchCount": 0 })),
+    );
+    let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+    assert_eq!(resp.result.as_ref().unwrap()["matchCount"], 0);
+    let none = "No document is open in Ashlr MD; open one first (open_file).";
+    for reply in [
+        json!({ "ok": false, "error": none }),
+        json!({ "ok": false, "error": none, "matchCount": null }),
+    ] {
+        let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply));
+        let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+        let r = resp.result.as_ref().unwrap();
+        assert!(r.get("matchCount").is_none(), "{r}");
+        assert_eq!(tool_error_text(&resp), none);
+    }
+}
+
 /// The edit descriptions listed "the window does not answer within 4 s"
 /// among the refusals that leave the document unchanged, but the app's
 /// timeout error says the window may still apply the edit (or content) and

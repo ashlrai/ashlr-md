@@ -1226,9 +1226,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 answer within 4 s, or when two edits are already waiting on the app (retry in a moment). \
                 With preview=false a window that does not answer within 4 s is an error too, but it may \
                 still apply the edit: call get_current_content to see whether it did before retrying. \
-                A refusal from the window also has `matchCount` beside `content` and `isError`: the \
-                occurrences of `find` it counted (0 when not found, or when it did not search, as with \
-                no document open).",
+                A refusal from the window's search also has `matchCount` beside `content` and `isError`: the \
+                occurrences of `find` it counted (0 when not found). The other refusals (no document \
+                open, a `path` that is not the open document, a busy app, a window that does not \
+                answer or fails) did not search, and have none.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

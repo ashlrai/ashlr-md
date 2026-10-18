@@ -239,7 +239,8 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
           ok: false,
           diff: "",
           candidates: null,
-          matchCount: 0,
+          // No `matchCount`: the window did not search, and a 0 here used
+          // to read as "`find` is not in the document".
           previewLines,
           error: pathMismatch(assertPath),
         }).catch(() => {
@@ -256,7 +257,7 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         ok: false,
         diff: "",
         candidates: null,
-        matchCount: 0,
+        // No `matchCount`: there is no document to search.
         previewLines,
         error: NO_DOCUMENT_OPEN,
       }).catch(() => {
@@ -334,7 +335,7 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         ok: false,
         diff: "",
         candidates: null,
-        matchCount: 0,
+        // No `matchCount`: the count did not reach a reply, so none is sent.
         previewLines,
         error: `stream-edit failed in app: ${String(err)}`,
       }).catch(() => {
