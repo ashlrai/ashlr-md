@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
+import obsidianReadme from "../integrations/obsidian/README.md?raw";
+import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
 import roadmap from "../ROADMAP.md?raw";
@@ -405,6 +407,39 @@ describe("doc facts: uninstalling", () => {
         `docs/INSTALL.md's Uninstalling section must name ${needle}`,
       ).toContain(needle);
     }
+  });
+});
+
+describe("doc facts: download links", () => {
+  // The VS Code and Obsidian READMEs sent "download here" to md.ashlr.ai,
+  // the landing page, while every other doc (and its own Download button)
+  // goes to GitHub Releases, where the installers are.
+  const RELEASES = "https://github.com/ashlrai/ashlr-md/releases";
+  const docs: [string, string][] = [
+    ["README.md", readme],
+    ["docs/INSTALL.md", installDoc],
+    ["integrations/obsidian/README.md", obsidianReadme],
+    ["integrations/vscode/README.md", vscodeReadme],
+  ];
+
+  it("the landing page's download button goes to GitHub Releases", () => {
+    const section = landingHtml.split('id="download"')[1] ?? "";
+    expect(section).toContain(`href="${RELEASES}`);
+  });
+
+  it("every download or install link goes to GitHub Releases", () => {
+    let seen = 0;
+    for (const [file, doc] of docs) {
+      for (const m of doc.matchAll(/([^\n]{0,40})\[([^\]]+)\]\((https?:[^)\s]+)\)/g)) {
+        const around = `${m[1]} ${m[2]}`;
+        if (!/download|install ashlr md from|releases/i.test(around)) continue;
+        seen++;
+        expect(m[3], `${where(file, doc, m[0])}: ${m[0]}`).toMatch(
+          new RegExp(`^${RELEASES.replaceAll(".", "\\.")}(/|$)`),
+        );
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(4);
   });
 });
 

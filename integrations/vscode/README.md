@@ -72,7 +72,7 @@ The CLI path is configurable via the **`ashlr-md.cliPath`** setting (default
 
 ## Requirements
 
-- **Ashlr MD** installed ([download here](https://md.ashlr.ai)) so the
+- **Ashlr MD** installed ([download here](https://github.com/ashlrai/ashlr-md/releases/latest)) so the
   `mdopener://` scheme is registered.
 - VS Code **1.85.0** or later.
 

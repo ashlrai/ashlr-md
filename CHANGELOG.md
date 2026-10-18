@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The VS Code and Obsidian READMEs link the download to GitHub
+  Releases.** Their "download here" links went to md.ashlr.ai, the landing
+  page, while the README, the install guide and the landing page's own
+  Download button go to GitHub Releases, where the installers are. A doc
+  facts test now fails when a download link points anywhere else.
 - **`edit_document` with no document open says so.** The window applied
   the edit to the empty welcome buffer and answered "`find` string not
   found in the current document.", so an agent went looking for its text
