@@ -47,6 +47,43 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `resources/list` percent-encodes its `file://` URIs.** A vault
+  file was listed as `file://` followed by its path as is, so a path with a
+  space, `%`, `#` or `?` was not a valid URI. The path is now
+  percent-encoded as RFC 3986 and RFC 8089 require (`My Notes.md` is
+  `My%20Notes.md`, and a Windows path `C:\notes\a.md` is
+  `file:///C:/notes/a.md`). `resources/read` takes both the encoded URI
+  and the old unencoded form, so existing clients keep working.
+- **MCP: a recent document's `title` skips front matter and code.** The
+  `mdopener://recent-documents` `title` was the first line starting with
+  `# `, even inside YAML front matter or a fenced code block, so a front
+  matter comment or a shell comment such as `# install it` named the
+  document. Lines of a leading front matter block and of fenced code
+  (```` ``` ```` or `~~~`, closed by the same fence at least as long) are
+  now skipped; with no other `# ` heading the title is the file name, as
+  before.
+- **MCP: the vault-search resource entry names every `note`.** The
+  `resources/list` entry for `text://vault-search` said `note` reports
+  only that semantic search or the app's own search was unavailable. It
+  also reports semantic results that leave out documents whose embedding
+  failed, vault files that could not be read and so were not searched, and
+  a search of the `vault` folder on disk because the app could not be
+  reached or refused this server's token. The entry now names each, as
+  `search_vault`'s description does.
+- **MCP: the resource entries say what `-32000` means.** The
+  `mdopener://current` and `mdopener://recent-documents` entries of
+  `resources/list`, and docs/AGENTS.md's resources reference, said
+  `-32000` means the app is not running. It is also the code, with the
+  refused-token message, when the app answers HTTP 401. They now say both,
+  and so does docs/AGENTS.md for a `file://` read.
+- **MCP: the stream-edit tools no longer fetch the document to check
+  `path`.** `stream_edit` and `stream_edit_apply` with `path` asked the
+  app's `/content` for the open document's path, which sent its whole
+  content (up to 16 MiB) to compare one field. The app has a new
+  `GET /content/path`, with the same token check, that answers the path
+  alone, and the tools ask it instead (an app without it is asked
+  `/content`, as before). What the tools send and the errors they give are
+  unchanged.
 - **MCP: the vault-search resource entry names `limit`.** The
   `resources/list` entry for `text://vault-search` named `&vault=` and
   `&semantic=` but not `&limit=`, which a read takes and the template

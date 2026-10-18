@@ -4589,6 +4589,141 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// The recent-documents `title` was the first line starting with `# `,
+/// even one inside YAML front matter or a fenced code block, so a front
+/// matter comment or a shell comment named the document. Those lines are
+/// now skipped.
+#[test]
+fn document_title_skips_front_matter_and_fenced_code() {
+    use mdopener_mcp::document_title;
+    let cases = [
+        ("# Plan\n", Some("Plan")),
+        (
+            "---\n# a yaml comment\ntitle: x\n---\n# Real\n",
+            Some("Real"),
+        ),
+        ("---\n# only front matter\n...\nbody\n", None),
+        ("```sh\n# install\n```\n# Real\n", Some("Real")),
+        ("~~~\n# not\n~~~\n# Real\n", Some("Real")),
+        // A shorter or other-character fence does not close the block.
+        ("````\n```\n# not\n````\n# Real\n", Some("Real")),
+        ("```\n~~~\n# not\n```\n# Real\n", Some("Real")),
+        ("   ```\n# not\n   ```\n# Real\n", Some("Real")),
+        // A fence left open runs to the end.
+        ("```\n# not\n", None),
+        // Four spaces is indented code, not a fence, and `` `a` `` is text.
+        ("    ```\n# Real\n", Some("Real")),
+        ("``a`` b\n# Real\n", Some("Real")),
+        // An unclosed `---` is a thematic break, not front matter.
+        ("---\n# Real\n", Some("Real")),
+        ("## Two\n#tag\n", None),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(document_title(doc).as_deref(), want, "{doc:?}");
+    }
+}
+
+/// `mdopener://recent-documents` takes its `title` with [`document_title`]:
+/// a front matter comment and a fenced shell comment are not the title.
+#[test]
+fn recent_documents_title_skips_front_matter_and_fenced_code() {
+    use mdopener_mcp::handle_resource_read;
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let fm = root.join("fm.md");
+    std::fs::write(&fm, "---\n# generated\ntags: [a]\n---\n# Front Title\n").unwrap();
+    let code = root.join("setup-notes.md");
+    std::fs::write(&code, "Intro.\n\n```sh\n# install it\n```\n").unwrap();
+    let paths = [fm, code].map(|p| p.to_string_lossy().into_owned());
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": paths })));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    let result = resp.result.unwrap();
+    let v: Value = serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
+    let titles: Vec<&str> = v["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Front Title", "setup-notes"]);
+}
+
+/// The vault-search resources/list entry said `note` reports only an
+/// unavailable semantic search or app search, but it also reports documents
+/// whose embedding failed, vault files that could not be read, and a search
+/// of the `vault` folder on disk. The entry now names each.
+#[test]
+fn vault_search_entry_names_every_note() {
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    let entry = resources
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["uri"] == "text://vault-search")
+        .unwrap()
+        .clone();
+    let d = entry["description"].as_str().unwrap();
+    for part in [
+        "semantic search was tried but unavailable",
+        "documents whose embedding failed (saying how many)",
+        "vault files could not be read and so were not searched",
+        "the `vault` folder was searched on disk",
+        "the app's own search refused or failed",
+    ] {
+        assert!(d.contains(part), "{part:?} missing: {d}");
+    }
+    assert!(
+        !d.contains("when semantic search or the app's own search was unavailable"),
+        "{d}"
+    );
+}
+
+/// `mdopener://current` and `mdopener://recent-documents` are -32000 with
+/// the refused-token message when the app answers HTTP 401, not only when it
+/// is not running, but their resources/list entries and docs/AGENTS.md said
+/// -32000 meant only that the app is not running. They now say both.
+#[test]
+fn resource_entries_say_minus_32000_also_means_a_refused_token() {
+    use mdopener_mcp::handle_resource_read;
+    let denied = MockIpc::new()
+        .on_get(
+            "/content",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        )
+        .on_get(
+            "/vault",
+            Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+        );
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    for uri in ["mdopener://current", "mdopener://recent-documents"] {
+        let err = handle_resource_read(id(2), uri, &denied).error.unwrap();
+        assert_eq!(err.code, -32000, "{uri}");
+        assert_eq!(err.message, mdopener_mcp::APP_AUTH_FAILED_MSG, "{uri}");
+        let entry = resources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["uri"] == uri)
+            .unwrap();
+        let d = entry["description"].as_str().unwrap();
+        assert!(
+            d.contains(
+                "-32000) when the app is not running or refuses this server's token (HTTP 401"
+            ) || d.contains(
+                "-32000 when the app is not running or refuses this server's token (HTTP 401"
+            ),
+            "{uri}: {d}"
+        );
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("and also when the app answers HTTP 401 (it refuses this server's token),\n  with the refused-token message"),
+        "docs/AGENTS.md must say -32000 also means a refused token"
+    );
+}
+
 /// When `/vault` failed, resources/list dropped the vault's `file://`
 /// entries without a word, so a client read it as a vault with no files.
 /// The result is still a valid `ListResourcesResult`, with the reason in
@@ -7640,6 +7775,57 @@ fn stream_edit_tools_assert_the_open_documents_own_path() {
     assert_eq!(stream_edit_path(&other, &ipc), other);
 }
 
+/// The stream-edit tools fetched the app's `/content`, the whole document,
+/// only to compare its path with `path`. They now ask `/content/path`, which
+/// answers the path alone, so a large document's content is not fetched. An
+/// app from before that route (HTTP 404) is still asked `/content`.
+#[cfg(unix)]
+#[test]
+fn stream_edit_path_check_does_not_fetch_the_documents_content() {
+    use mdopener_mcp::stream_edit_path;
+    let dir = tempfile::tempdir().unwrap();
+    let doc = std::fs::canonicalize(dir.path()).unwrap().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let large = "x".repeat(8 * 1024 * 1024);
+    let ipc = MockIpc::new()
+        .on_get("/content/path", Ok(json!({ "path": doc })))
+        .on_get("/content", Ok(json!({ "path": doc, "content": large })))
+        .on_post("/stream-edit", Ok(json!({ "ok": true })));
+    tool_stream_edit(
+        id(1),
+        &json!({ "find": "a", "replace": "b", "path": doc }),
+        &ipc,
+    );
+    tool_stream_edit_apply(
+        id(2),
+        &json!({ "edit_id": "e", "find": "a", "replace": "b", "path": doc }),
+        &ipc,
+    );
+    let calls = ipc.calls();
+    let gets: Vec<&str> = calls
+        .iter()
+        .filter(|(m, _, _)| m == "GET")
+        .map(|(_, p, _)| p.as_str())
+        .collect();
+    assert_eq!(gets, ["/content/path", "/content/path"], "{gets:?}");
+    for (_, p, body) in calls.iter().filter(|(m, _, _)| m == "POST") {
+        assert_eq!(body.as_ref().unwrap()["path"], json!(doc), "{p}");
+    }
+
+    // An older app answers 404 for the route: `/content` gives the path.
+    let opened_as = format!("{}/./plan.md", doc.rsplit_once('/').unwrap().0);
+    let older = MockIpc::new()
+        .on_get(
+            "/content/path",
+            Err("IPC server returned HTTP 404: No such endpoint: GET /content/path".into()),
+        )
+        .on_get("/content", Ok(json!({ "path": opened_as, "content": "" })));
+    assert_eq!(stream_edit_path(&doc, &older), opened_as);
+    // With the app closed the path is sent resolved, as before.
+    assert_eq!(stream_edit_path(&doc, &MockIpc::new()), doc);
+}
+
 // ── Agent-workflow regressions ────────────────────────────────────────────────
 
 /// `text://vault-search?q=my+topic` (the form resources/list documents) must
@@ -9447,6 +9633,101 @@ fn frontmatter_reads_lists_of_mappings_block_scalars_and_deep_nesting() {
     );
 }
 
+// ── file:// resource URIs are percent-encoded in resources/list ──────────────
+
+/// resources/list gave `file://` and the path as is, so a path with a space
+/// (or `%`, `#`, `?`, or a character that is not ASCII) was not a valid URI.
+/// The path is now percent-encoded as RFC 3986 and RFC 8089 require.
+#[test]
+fn file_uri_percent_encodes_the_path() {
+    use mdopener_mcp::file_uri;
+    let cases = [
+        ("/v/a.md", "file:///v/a.md"),
+        ("/v/My Notes.md", "file:///v/My%20Notes.md"),
+        ("/v/100% #1?.md", "file:///v/100%25%20%231%3F.md"),
+        ("/v/caf\u{e9}.md", "file:///v/caf%C3%A9.md"),
+        (
+            "/v/a-b_c~d(1)+x@y:z,w;q=r!$&'*.md",
+            "file:///v/a-b_c~d(1)+x@y:z,w;q=r!$&'*.md",
+        ),
+        (
+            "/v/[x]{y}`z^|\"<>.md",
+            "file:///v/%5Bx%5D%7By%7D%60z%5E%7C%22%3C%3E.md",
+        ),
+        ("C:\\notes\\a b.md", "file:///C:/notes/a%20b.md"),
+        ("\\\\srv\\share\\a.md", "file:////srv/share/a.md"),
+    ];
+    for (path, want) in cases {
+        assert_eq!(file_uri(path), want, "{path}");
+    }
+}
+
+/// A vault file whose path has a space and a `%` is listed by its encoded
+/// URI, and resources/read takes both that URI and the unencoded form
+/// resources/list used to give, so existing clients keep working.
+#[test]
+fn listed_file_uris_are_encoded_and_both_forms_read() {
+    use mdopener_mcp::handle_resource_read;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let doc = dir.join("My Notes 100%.md");
+    std::fs::write(&doc, "# Notes\n").unwrap();
+    let doc = doc.to_string_lossy().into_owned();
+    let vault = json!({ "files": [{ "path": doc, "name": "My Notes 100%.md" }], "recents": [] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let listed = handle_resources_list(id(1), &ipc).result.unwrap();
+    let uris: Vec<String> = listed["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .filter(|u| u.starts_with("file://"))
+        .map(str::to_string)
+        .collect();
+    let encoded = format!("file://{}", doc.replace('%', "%25").replace(' ', "%20"));
+    assert_eq!(uris, std::slice::from_ref(&encoded));
+    assert!(!encoded.contains(' '), "{encoded}");
+    for uri in [encoded, format!("file://{doc}")] {
+        let resp = handle_resource_read(id(2), &uri, &ipc);
+        assert!(resp.error.is_none(), "{uri}: {:?}", resp.error);
+        assert_eq!(
+            resp.result.unwrap()["contents"][0]["text"],
+            "# Notes\n",
+            "{uri}"
+        );
+    }
+}
+
+/// A Windows path is listed as `file:///C:/...`; reading that URI names the
+/// advertised `C:\...` path (it is then checked on disk like any other), not
+/// "not in vault". A path the app does not list is still refused.
+#[test]
+fn an_encoded_windows_file_uri_names_the_advertised_path() {
+    use mdopener_mcp::{file_uri, handle_resource_read};
+    let win = "C:\\notes\\My Notes.md";
+    let share = "\\\\srv\\share\\a.md";
+    let vault = json!({ "files": [{ "path": win, "name": "My Notes.md" }], "recents": [share] });
+    let ipc = MockIpc::new().on_get("/vault", Ok(vault));
+    let uri = file_uri(win);
+    assert_eq!(uri, "file:///C:/notes/My%20Notes.md");
+    for uri in [uri, format!("file://{win}"), file_uri(share)] {
+        let err = handle_resource_read(id(1), &uri, &ipc).error.unwrap();
+        assert!(
+            !err.message.starts_with("Resource not in vault"),
+            "{uri}: {}",
+            err.message
+        );
+    }
+    let err = handle_resource_read(id(2), "file:///C:/notes/other.md", &ipc)
+        .error
+        .unwrap();
+    assert!(
+        err.message.starts_with("Resource not in vault"),
+        "{}",
+        err.message
+    );
+}
+
 // ── file:// resource URIs are percent-decoded ─────────────────────────────────
 
 /// Clients percent-encode file URIs (`file:///a/My%20Notes.md`); the server
@@ -10649,8 +10930,9 @@ fn stream_edit_is_not_preferred_for_large_files() {
         let body = calls[0].2.as_ref().unwrap().to_string();
         assert!(body.len() < 200, "{tool} sent {} bytes", body.len());
     }
-    // With `path`, stream_edit fetches the whole document; edit_document
-    // sends the path for the app to check.
+    // With `path`, stream_edit asks the app for the open path alone (it
+    // used to fetch the whole document); edit_document sends the path for
+    // the app to check.
     let ipc = MockIpc::new()
         .on_get("/content", Ok(doc.clone()))
         .on_post("/edit", Ok(json!({ "ok": true, "replaced": 1 })));
@@ -10671,12 +10953,18 @@ fn stream_edit_is_not_preferred_for_large_files() {
         json!({ "find": "x", "replace": "y", "path": "/notes/big.md" }),
         &ipc,
     );
-    assert!(
-        ipc.calls()
-            .iter()
-            .any(|c| c.0 == "GET" && c.1 == "/content"),
-        "stream_edit with path reads /content"
+    let gets: Vec<String> = ipc
+        .calls()
+        .into_iter()
+        .filter(|c| c.0 == "GET")
+        .map(|c| c.1)
+        .collect();
+    assert_eq!(
+        gets,
+        ["/content/path"],
+        "stream_edit with path reads only the path"
     );
+    assert!(d.contains("not its content"), "{d}");
 }
 
 /// A refusal from the window carries its `matchCount`, which the app's

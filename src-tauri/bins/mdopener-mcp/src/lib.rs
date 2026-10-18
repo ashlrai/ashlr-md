@@ -1218,7 +1218,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
                 before committing it (edit_document applies at once), not for large files: both send the \
                 app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
-                this tool also fetches the whole document to compare paths. Returns { ok, editId, diff, candidates, matchCount, applied }: \
+                this tool also asks the app for the open document's path (not its content) to compare. Returns { ok, editId, diff, candidates, matchCount, applied }: \
                 `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
@@ -4084,7 +4084,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running.",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).",
         "mimeType": "text/markdown"
     })];
 
@@ -4096,7 +4096,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
         "description": ([
             "Semantic + full-text search across your vault. Read as text://vault-search?q={query}, adding &limit=N (1 to 200, default 50) for the most results, &vault={directory} to search that folder on disk when the app is not running, and &semantic=false (or true) to force grep (or semantic) search. Uses Ollama nomic-embed-text embeddings with grep fallback, like the search_vault tool. Returns JSON: ",
             VAULT_SEARCH_RESOURCE_FIELDS,
-            ", shaped as search_vault's reply; `note` says in words when semantic search or the app's own search was unavailable, `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
+            ", shaped as search_vault's reply; `note` says in words when semantic search was tried but unavailable (so the results are keyword hits), when semantic results leave out documents whose embedding failed (saying how many), when vault files could not be read and so were not searched (how many, the first three by path with the reason), when the app could not be reached or refused this server's token and the `vault` folder was searched on disk, or when the app's own search refused or failed, quoting its reason; `vault` is the folder searched on disk, and `truncated` (with `depthCut` when folders were too deeply nested) says some vault files were not searched."
         ].concat()),
         "mimeType": "application/json"
     }));
@@ -4107,7 +4107,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4122,7 +4122,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
                 for f in files {
                     if let Some(p) = f["path"].as_str() {
                         resources.push(json!({
-                            "uri": format!("file://{p}"),
+                            "uri": file_uri(p),
                             "name": f["name"].as_str().unwrap_or(p),
                             "mimeType": "text/markdown"
                         }));
@@ -4230,7 +4230,8 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// The live document's text for `mdopener://current` and the prompts, or the
 /// JSON-RPC error: `-32002` when no document is open (the app answers
 /// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
-/// `-32000` when the app cannot be reached. An open document that is empty
+/// `-32000` when the app cannot be reached or refuses this server's token
+/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]). An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
 /// prompts already refused it. The app opens only files, so `path: null` is
@@ -4447,9 +4448,10 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             Some(_) => &raw["localhost".len()..],
             None => raw,
         };
-        // resources/list advertises `file://<path>` unencoded, but clients
-        // percent-encode URIs (`My%20Notes.md`). The decoded path is what
-        // must be advertised: the scope check runs after decoding, so
+        // resources/list advertises `file://` URIs percent-encoded
+        // ([`file_uri`]); it used to list them unencoded, and clients may
+        // still send that form, which is tried first. The decoded path is
+        // what must be advertised: the scope check runs after decoding, so
         // encoding cannot name a file outside the vault.
         // The vault listing is fetched once. When the app cannot be reached
         // nothing is advertised, and that used to be answered "not in vault",
@@ -4462,12 +4464,14 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
             // A malformed escape (`%ZZ`, a lone `%`) or one that decodes to
             // invalid UTF-8 (`%FF`) used to be answered "not in vault", as if
             // the file were the problem.
-            match percent_decode_path(raw) {
+            let found = percent_decode_path(raw)
+                .map(|d| uri_path_candidates(&d).find(|c| c != raw && advertised(c)));
+            match found {
                 Err(e) => {
                     return Response::err(id, -32602, format!("Invalid `file://` URI {uri}: {e}"))
                 }
-                Ok(d) if d != raw && advertised(&d) => d,
-                Ok(_) => {
+                Ok(Some(c)) => c,
+                Ok(None) => {
                     return match &listing {
                         Err(e) => Response::err(
                             id,
@@ -4512,6 +4516,55 @@ pub fn handle_resource_read(id: Value, uri: &str, ipc: &dyn IpcClient) -> Respon
         };
     }
     Response::err(id, -32602, unknown_resource_msg(uri))
+}
+
+/// The `file://` URI resources/list gives a path the app lists, with the
+/// path percent-encoded as RFC 3986 and RFC 8089 require: every byte but an
+/// unreserved character, a sub-delimiter, `:`, `@` and the `/` separator is
+/// `%XX`, so a space is `%20`, a `%` is `%25` and `é` is `%C3%A9`. A Windows
+/// path (`C:\notes\a.md`) is `file:///C:/notes/a.md`, and a share
+/// (`\\srv\share\a.md`) `file:////srv/share/a.md`. The URI used to be
+/// `file://` and the path as is, which is not a valid URI when the path has
+/// a space; [`handle_resource_read`] still takes that form.
+pub fn file_uri(path: &str) -> String {
+    let (lead, path) = if path.starts_with('/') {
+        ("", std::borrow::Cow::Borrowed(path))
+    } else {
+        let path = path.replace('\\', "/");
+        // A share (`\\srv\share`) is `file:////srv/share` (RFC 8089 E.3.2).
+        let lead = if path.starts_with("//") { "" } else { "/" };
+        (lead, std::borrow::Cow::Owned(path))
+    };
+    let mut uri = format!("file://{lead}");
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&b) {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri
+}
+
+/// The paths a decoded `file://` URI path `d` may name: `d` itself; for
+/// `/C:/notes/a.md` (the form [`file_uri`] gives a Windows path) the drive
+/// path with forward slashes and with backslashes; and for
+/// `//server/share/a.md` (a Windows share) `\\server\share\a.md`. Only a
+/// candidate the app advertises is read.
+fn uri_path_candidates(d: &str) -> impl Iterator<Item = String> {
+    let b = d.as_bytes();
+    let drive = (b.len() >= 4
+        && b[0] == b'/'
+        && b[1].is_ascii_alphabetic()
+        && b[2] == b':'
+        && b[3] == b'/')
+        .then(|| d[1..].to_string());
+    let backslashed = drive.as_ref().map(|p| p.replace('/', "\\"));
+    let share = d.starts_with("//").then(|| d.replace('/', "\\"));
+    std::iter::once(d.to_string())
+        .chain(drive)
+        .chain(backslashed)
+        .chain(share)
 }
 
 /// Percent-decode the path of a `file://` URI, refusing a `%` that is not
@@ -5779,6 +5832,50 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 
 // ── list_recent_documents resource handler ────────────────────────────────────
 
+/// A document's title: the text of its first `# ` heading line, `None` when
+/// it has none. Lines of a leading YAML front matter block and of fenced
+/// code blocks (```` ``` ```` or `~~~`, closed by a fence of the same
+/// character at least as long) are not headings: the first such line used
+/// to be the title, so a front matter `# comment` or a shell comment in a
+/// code block named the document. A fence left open runs to the end, as in
+/// CommonMark.
+pub fn document_title(content: &str) -> Option<String> {
+    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
+    let mut fence: Option<(char, usize)> = None;
+    for line in content.lines().skip(skip) {
+        let run = code_fence(line);
+        match (fence, run) {
+            (Some((c, n)), Some((rc, rn, rest)))
+                if rc == c && rn >= n && rest.trim().is_empty() =>
+            {
+                fence = None;
+            }
+            (Some(_), _) => {}
+            (None, Some((rc, rn, _))) => fence = Some((rc, rn)),
+            (None, None) => {
+                if let Some(title) = line.strip_prefix("# ") {
+                    return Some(title.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The fence character, its run length and the rest of the line when `line`
+/// is a code fence: at most three spaces, then three or more backticks or
+/// tildes (a backtick fence's info string has no backtick).
+fn code_fence(line: &str) -> Option<(char, usize, &str)> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let c = body.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let n = body.chars().take_while(|&x| x == c).count();
+    let rest = &body[n..];
+    (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+}
+
 /// Build the `mdopener://recent-documents` resource response.
 ///
 /// Queries the app's `/vault` IPC endpoint for `recents` (a string array of
@@ -5788,8 +5885,9 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// { "path": "...", "title": "...", "mtimeMs": 1234567890, "preview": "..." }
 /// ```
 ///
-/// `title` is derived from the first `# Heading` line if present, otherwise
-/// the file's base name without extension.  `preview` is the first 200 chars
+/// `title` is [`document_title`] (the first `# Heading` line outside front
+/// matter and fenced code) if present, otherwise the file's base name
+/// without extension.  `preview` is the first 200 chars
 /// of raw content (including front-matter).  Recents that cannot be listed
 /// are left out, and `skipped` counts them by reason: `missing` (no longer
 /// on disk), `notDocument` (not a Markdown non-dotfile regular file),
@@ -5848,16 +5946,12 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
             .unwrap_or(0);
 
         // Derive title: first `# ...` heading line, else stem of the file name.
-        let title = content
-            .lines()
-            .find(|l| l.starts_with("# "))
-            .map(|l| l.trim_start_matches("# ").trim().to_string())
-            .unwrap_or_else(|| {
-                std::path::Path::new(path)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.clone())
-            });
+        let title = document_title(&content).unwrap_or_else(|| {
+            std::path::Path::new(path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone())
+        });
 
         // Preview: first 200 chars of raw content.
         let preview: String = content.chars().take(200).collect();
@@ -7351,14 +7445,27 @@ fn default_preview_lines() -> u32 {
 /// reports as a mismatch, as it should).
 pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
     let want = agent_path(raw);
-    let open = ipc
-        .get("/content")
-        .ok()
-        .and_then(|v| v["path"].as_str().map(str::to_string));
-    match open {
+    match open_document_path(ipc) {
         Some(open) if open == want || agent_path(&open) == want => open,
         _ => want,
     }
+}
+
+/// The app route that answers the open document's path alone.
+pub const OPEN_PATH_ROUTE: &str = "/content/path";
+
+/// The open document's path, `None` when none is open or the app cannot be
+/// asked. It is read from [`OPEN_PATH_ROUTE`]: `/content`, which it used to
+/// be read from, sends the whole document (up to 16 MiB) to compare one
+/// path. An app from before that route answers 404, and is asked `/content`.
+fn open_document_path(ipc: &dyn IpcClient) -> Option<String> {
+    let answer = match ipc.get(OPEN_PATH_ROUTE) {
+        Err(e) if e.starts_with("IPC server returned HTTP 404") => ipc.get("/content"),
+        answer => answer,
+    };
+    answer
+        .ok()
+        .and_then(|v| v["path"].as_str().map(str::to_string))
 }
 
 /// Preview a find/replace edit as a unified diff before committing.
