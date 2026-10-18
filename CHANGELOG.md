@@ -47,6 +47,28 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`mdopen` and `stream_edit_apply` name the right next step.** The `mdopen`
+  CLI's HTTP 401 text, "IPC auth failed (stale ~/.mdopener/ipc-token)", gave
+  no next step; it now says the token is stale or belongs to another Ashlr MD
+  instance, and to quit every Ashlr MD window and start it again. With the
+  app closed, the MCP `stream_edit_apply` said to call `open_file` and then
+  call it again, but the `editId` of a preview from before the app started no
+  longer exists; it now says to start the app, then call `stream_edit` again
+  for a fresh preview.
+- **MCP: `search_vault` after a refused token says why and how to fix it.**
+  Results grepped on disk after an HTTP 401 had a `note` quoting the raw
+  "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token". The
+  `note` now gives the cause and the fix of the shared refused-token message
+  (quit every Ashlr MD window, start the app again, then search again). With
+  `vault`, a 401 now searches that folder on disk (mode `grep-disk`), as an
+  unreachable app does, instead of failing.
+- **MCP: `open_file` does not launch past a refused token.** An app that
+  answered HTTP 401 (a stale `~/.mdopener/ipc-token`, or another Ashlr MD
+  instance on the port) was not read as a refusal, so `open_file` fell
+  through to the `mdopener://` URL launch, and a launch that failed said "the
+  app is not running (IPC auth failed...)" though an app had answered. It now
+  returns the shared refused-token message (quit every Ashlr MD window, start
+  the app again, then retry) and launches nothing.
 - **"Explain changes" ends like a sidebar chat turn.** The change banner's
   answer streams into the AI sidebar, but the sidebar's Stop button could not
   stop it (the banner kept no controller the sidebar could reach), a stop was

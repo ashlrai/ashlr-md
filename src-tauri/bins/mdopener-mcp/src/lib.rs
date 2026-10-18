@@ -982,7 +982,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "search_vault",
-            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached, pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, query?, note?, vault?, truncated?, depthCut? }; `query` (mode 'grep' only) is the query as the app searched it, `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
+            description: "Semantic + full-text search across the user's vault (the watched folder) and recently opened files. Uses Ollama nomic-embed-text embeddings when available, otherwise grep. Needs the Ashlr MD app (it supplies the vault file list); when the app cannot be reached or refuses this server's token (HTTP 401), pass `vault` to search the Markdown files under that directory on disk instead (mode 'grep-disk', or 'semantic', with `vault` and a `note` saying so), otherwise this is an error. Returns { results, mode, query?, note?, vault?, truncated?, depthCut? }; `query` (mode 'grep' only) is the query as the app searched it, `truncated: true` says the vault file list was cut short, so some files were not searched, and `depthCut: true` that the walk listing them skipped folders nested too deeply (the app enters folders at most 8 levels down, and the on-disk `vault` walk at most 16), rather than only stopping in a folder too large to read in full. `note` says in words when semantic search was tried but unavailable, so the results are keyword hits, when semantic results leave out documents whose embedding failed (saying how many), or when the app's own search refused or failed, quoting its reason. In mode 'semantic', 'grep-local' (the app's own search failed, so the vault files were grepped on disk) or 'grep-disk' results are [{ path, snippet, lineNumber, score }] sorted by score; in mode 'grep' (answered by the running app) they are [{ path, fileName, matches: [{ lineNo, snippet }] }]. Also readable as the MCP resource text://vault-search?q={query}.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2027,6 +2027,10 @@ pub fn tool_open_file_with(
             return tool_error(id, window_refusal(&resp, "open", &abs))
         }
         Ok(resp) => return tool_result(id, json!({ "opened": abs, "response": resp })),
+        // The app answered but refused this server's token (HTTP 401). The
+        // URL scheme would reach the same app, and a launch that failed used
+        // to report it as "not running", so say why and what fixes it.
+        Err(e) if app_auth_failed(&e) => return tool_error(id, APP_AUTH_FAILED_MSG.to_string()),
         // The app is running and refused the request: say why, and do not
         // retry it through the URL scheme.
         Err(e) if app_refused(&e) => return tool_error(id, e),
@@ -2899,6 +2903,14 @@ macro_rules! app_auth_failed_cause {
          another Ashlr MD instance."
     };
 }
+/// What fixes an HTTP 401, shared by [`APP_AUTH_FAILED_MSG`],
+/// [`ANNOTATIONS_APP_AUTH_FAILED_NOTE`] and `search_vault`'s notes.
+macro_rules! app_auth_failed_fix {
+    () => {
+        "quit every Ashlr MD window fully and start the app again, which writes a new \
+         ipc-port and ipc-token"
+    };
+}
 /// The `note` of a `get_user_annotations` result read from disk because the
 /// app answered HTTP 401 (`appAuthFailed: true`).
 pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = concat!(
@@ -2906,9 +2918,9 @@ pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = concat!(
     " So this was read from the \
 file on disk, and `verdict` and `comments` are null because the review, if there is one, is \
 held by the app this server could not read: null here does not mean that no review was \
-given. To fix it, ask the user to quit every Ashlr MD window fully and start the app again, \
-which writes a new ipc-port and ipc-token, then call get_user_annotations again. `tasks` \
-are the checkboxes saved in the file."
+given. To fix it, ask the user to ",
+    app_auth_failed_fix!(),
+    ", then call get_user_annotations again. `tasks` are the checkboxes saved in the file."
 );
 
 /// The error of every app tool (other than `get_user_annotations`, which
@@ -2917,9 +2929,21 @@ are the checkboxes saved in the file."
 /// which named neither the cause nor a next step.
 pub const APP_AUTH_FAILED_MSG: &str = concat!(
     app_auth_failed_cause!(),
-    " Ask the user to quit every Ashlr MD window fully and start the app again, which \
-     writes a new ipc-port and ipc-token, then retry this call."
+    " Ask the user to ",
+    app_auth_failed_fix!(),
+    ", then retry this call."
 );
+
+/// The end of a `search_vault` note for results read from disk because the
+/// app answered HTTP 401: the cause and the fix of [`APP_AUTH_FAILED_MSG`],
+/// not the raw "IPC auth failed: token mismatch ..." text it used to quote.
+fn search_auth_failed_fix() -> &'static str {
+    concat!(
+        "To fix it, ask the user to ",
+        app_auth_failed_fix!(),
+        ", then search again to use Ashlr MD's own search."
+    )
+}
 
 /// True when the app's port answered HTTP 401: the token this server read
 /// from `~/.mdopener/ipc-token` is not the one the listener expects.
@@ -3104,8 +3128,8 @@ pub fn search_vault_with(
     search_vault_in(query, limit, use_semantic, None, ipc, embed)
 }
 
-/// [`search_vault_with`] that, when the app cannot be reached (not when it
-/// refuses), searches the Markdown files under `vault` on disk instead: a
+/// [`search_vault_with`] that, when the app cannot be reached or refuses this
+/// server's token (not when it refuses the request), searches the Markdown files under `vault` on disk instead: a
 /// directory already checked by [`disk_vault_dir`]. Results from disk carry
 /// mode `grep-disk` (or `semantic`), the `vault` searched, and a `note`.
 pub fn search_vault_in(
@@ -3208,10 +3232,19 @@ pub fn search_vault_in(
                 Ok(f) => {
                     let results = grep_paths(query, limit, &f.paths);
                     let verb = if refused { "refused" } else { "failed" };
-                    let search_note = format!(
-                        "Ashlr MD's own search {verb} ({ipc_err}), so these results \
-                         come from grepping the vault files on disk."
-                    );
+                    let search_note = if app_auth_failed(&ipc_err) {
+                        format!(
+                            "{} So Ashlr MD's own search was not used, and these results \
+                             come from grepping the vault files on disk. {}",
+                            app_auth_failed_cause!(),
+                            search_auth_failed_fix()
+                        )
+                    } else {
+                        format!(
+                            "Ashlr MD's own search {verb} ({ipc_err}), so these results \
+                             come from grepping the vault files on disk."
+                        )
+                    };
                     let note = [semantic_note, Some(search_note), f.disk_note()]
                         .into_iter()
                         .flatten()
@@ -3443,12 +3476,20 @@ impl VaultFiles {
                 )
             });
         };
-        let mut note = format!(
-            "Ashlr MD could not be reached ({}), so these results come from searching \
-             the {} Markdown files under {dir} on disk.",
-            self.app_error,
-            self.paths.len()
-        );
+        let n = self.paths.len();
+        let mut note = if app_auth_failed(&self.app_error) {
+            format!(
+                "{} So these results come from searching the {n} Markdown files under \
+                 {dir} on disk.",
+                app_auth_failed_cause!()
+            )
+        } else {
+            format!(
+                "Ashlr MD could not be reached ({}), so these results come from searching \
+                 the {n} Markdown files under {dir} on disk.",
+                self.app_error
+            )
+        };
         if self.disk_file_cap {
             note.push_str(&format!(
                 " Only the first {DISK_VAULT_MAX_FILES} files were searched."
@@ -3459,6 +3500,10 @@ impl VaultFiles {
                 " Folders more than {DISK_VAULT_MAX_DEPTH} levels below it were not \
                  searched."
             ));
+        }
+        if app_auth_failed(&self.app_error) {
+            note.push(' ');
+            note.push_str(search_auth_failed_fix());
         }
         Some(note)
     }
@@ -3494,7 +3539,10 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
             depth_cut: listing.depth_cut,
             disk_file_cap: false,
         }),
-        (Err(e), Some(dir)) if app_unreachable(&e) => {
+        // An app that refused this server's token (HTTP 401) holds the vault
+        // list this server cannot read, so `vault` is searched on disk too,
+        // as get_user_annotations reads the disk then.
+        (Err(e), Some(dir)) if app_unreachable(&e) || app_auth_failed(&e) => {
             let scan = disk_vault_scan(dir);
             Ok(VaultFiles {
                 paths: scan.paths,
@@ -5388,7 +5436,27 @@ pub fn app_not_running_msg_for(err: &str, path: Option<&str>) -> String {
     not_running_msg(err, path)
 }
 
+/// [`app_not_running_msg_for`] for `stream_edit_apply`. Its next step is a
+/// fresh `stream_edit` preview, not the call itself: a preview from before
+/// the app started belonged to the app that closed, and the document it was
+/// made from may have changed (an unsaved buffer is gone). It used to say to
+/// call `open_file`, then this tool again.
+pub fn stream_edit_apply_not_running_msg(err: &str, path: Option<&str>) -> String {
+    not_running_msg_then(err, path, Some(STREAM_EDIT_APPLY_AFTER_START))
+}
+
+/// What `stream_edit_apply` says to do once the closed app is started.
+const STREAM_EDIT_APPLY_AFTER_START: &str = "then call stream_edit again for a fresh preview \
+before stream_edit_apply: the editId of a preview from before the app started no longer \
+exists, and the document may have changed since.";
+
 fn not_running_msg(err: &str, path: Option<&str>) -> String {
+    not_running_msg_then(err, path, None)
+}
+
+/// [`not_running_msg`] with the step after starting the app, `then`, in
+/// place of "then call this tool again".
+fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> String {
     // The app refused this server's token: say why and what fixes it.
     if app_auth_failed(err) {
         return APP_AUTH_FAILED_MSG.to_string();
@@ -5399,14 +5467,21 @@ fn not_running_msg(err: &str, path: Option<&str>) -> String {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
-        let next = match path {
-            Some(p) => format!(
+        let next = match (path, then) {
+            (Some(p), None) => format!(
                 "Call open_file with {}, which starts it with this document, then call \
                  this tool again.",
                 json!({ "path": p })
             ),
-            None => {
+            (Some(p), Some(then)) => format!(
+                "Call open_file with {}, which starts it with this document, {then}",
+                json!({ "path": p })
+            ),
+            (None, None) => {
                 "Launch it first, or use open_file which can start it automatically.".to_string()
+            }
+            (None, Some(then)) => {
+                format!("Launch it first, or use open_file which can start it, {then}")
             }
         };
         format!(
@@ -7119,7 +7194,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
             }
             tool_result(id, v)
         }
-        Err(e) => tool_error(id, app_not_running_msg_for(&e, path.as_deref())),
+        Err(e) => tool_error(id, stream_edit_apply_not_running_msg(&e, path.as_deref())),
     }
 }
 
