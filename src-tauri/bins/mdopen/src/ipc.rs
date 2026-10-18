@@ -25,6 +25,13 @@ const IO_TIMEOUT: Duration = Duration::from_secs(6);
 /// applies to each read, not the whole answer) grew memory without bound.
 const MAX_REPLY_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Why an empty `~/.mdopener/ipc-token` stops the open, and what to do. It
+/// used to stop at "is empty", with no next step. Same wording as `mdopener-mcp`'s
+/// `IPC_TOKEN_EMPTY`, without its final period (the caller ends the sentence).
+const TOKEN_EMPTY: &str = "~/.mdopener/ipc-token is empty, so Ashlr MD has not finished \
+     starting. Retry once it has finished launching, or restart Ashlr MD if the token \
+     stays empty";
+
 /// The user's home directory, as the app (via `dirs::home_dir`) sees it.
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -74,7 +81,7 @@ fn send_open(
         .trim()
         .to_string();
     if token.is_empty() {
-        return Err("~/.mdopener/ipc-token is empty".to_string());
+        return Err(TOKEN_EMPTY.to_string());
     }
 
     let body = serde_json::json!({ "path": abs_path, "mode": mode }).to_string();
@@ -296,6 +303,26 @@ mod tests {
             matches!(&err, Failure::Unreachable(m) if m.contains("empty")),
             "{err:?}"
         );
+    }
+
+    /// An empty token used to stop at "~/.mdopener/ipc-token is empty", with
+    /// no next step; it now says the app is still starting and what to do,
+    /// as `mdopener-mcp` does.
+    #[test]
+    fn an_empty_token_names_the_next_step() {
+        let s = Scratch::new("empty-token");
+        s.write("ipc-port", "1");
+        s.write("ipc-token", " \n");
+        let Err(Failure::Unreachable(msg)) = open(&s.0, "/a.md", None) else {
+            panic!("expected an unreachable app");
+        };
+        assert!(msg.contains("ipc-token is empty"), "{msg}");
+        assert!(
+            msg.contains("Retry once it has finished launching"),
+            "{msg}"
+        );
+        assert!(msg.contains("restart Ashlr MD"), "{msg}");
+        assert!(!msg.ends_with('.'), "{msg}");
     }
 
     #[test]

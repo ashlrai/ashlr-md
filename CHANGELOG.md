@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **mdopen: an empty IPC token says what to do.** When
+  `~/.mdopener/ipc-token` was empty, `mdopen` reported only that it was
+  empty. It now says Ashlr MD has not finished starting and to retry once
+  it has finished launching, or restart it if the token stays empty, as
+  `mdopener-mcp` does.
 - **An IME Escape no longer dismisses a review.** Pressing Escape to end
   an input-method composition (or close its candidate list) while typing
   a comment in the review panel bubbled up to the panel, which recorded
