@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { isDismissEscape } from "../../lib/keymap";
 import { useReviewStore } from "../../store/reviewStore";
 import "../../styles/review.css";
 
@@ -50,7 +51,7 @@ export function ReviewPanel() {
         // Escape that ends an IME composition (or cancels a candidate) in the
         // comment box is the input method's, not a dismissal: it used to
         // record `dismissed` for the agent and drop the comment being typed.
-        if (e.key === "Escape" && !e.nativeEvent.isComposing) {
+        if (isDismissEscape(e)) {
           e.stopPropagation();
           dismiss();
         }

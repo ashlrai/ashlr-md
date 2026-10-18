@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FileSearchResult, searchFiles } from "../../lib/crossSearch";
+import { isDismissEscape } from "../../lib/keymap";
 import { useActivityStore } from "../../store/activityStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useRecentStore } from "../../store/recentStore";
@@ -91,7 +92,8 @@ export function SearchPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") close();
+            // Not an Escape that ends an IME composition (isDismissEscape).
+            if (isDismissEscape(e)) close();
           }}
         />
       </div>

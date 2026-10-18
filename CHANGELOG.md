@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer closes a dialog.** Pressing Escape to end an
+  input-method composition (or close its candidate list) while typing in
+  Preferences, the Export dialog, the command palette, the search panel,
+  or the find bar closed it and dropped what was being typed. They now
+  ignore an Escape that belongs to a composition, as the review panel
+  does, through one shared check that also covers WebKit's composition
+  Escape (`keyCode` 229); a plain Escape still closes.
 - **mdopen: an empty IPC token says what to do.** When
   `~/.mdopener/ipc-token` was empty, `mdopen` reported only that it was
   empty. It now says Ashlr MD has not finished starting and to retry once

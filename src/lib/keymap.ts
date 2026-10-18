@@ -127,3 +127,21 @@ function formatKey(key: string): string {
       return key.length === 1 ? key.toUpperCase() : key;
   }
 }
+
+/**
+ * Whether `e` is an Escape that should close or dismiss something: Escape,
+ * and not one that belongs to an input-method composition. Pressing Escape
+ * to end a composition (or close its candidate list) while typing in a
+ * dialog's field used to close the dialog and drop what was being typed.
+ * `isComposing` covers most engines; WebKit reports the Escape that ends a
+ * composition with `isComposing` false but `keyCode` 229.
+ *
+ * Takes a DOM `KeyboardEvent` or a React keyboard event.
+ */
+export function isDismissEscape(
+  e: KeyboardEvent | { key: string; nativeEvent: KeyboardEvent },
+): boolean {
+  if (e.key !== "Escape") return false;
+  const native = "nativeEvent" in e ? e.nativeEvent : e;
+  return !native.isComposing && native.keyCode !== 229;
+}

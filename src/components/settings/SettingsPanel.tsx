@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isDismissEscape } from "../../lib/keymap";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useUiStore } from "../../store/uiStore";
 import {
@@ -53,10 +54,11 @@ export function SettingsPanel() {
   const close = useUiStore((s) => s.closeSettings);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape (capture phase so it beats inner key handlers).
+  // Close on Escape (capture phase so it beats inner key handlers), but not
+  // on one that ends an IME composition in a field (see isDismissEscape).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (isDismissEscape(e)) {
         e.stopPropagation();
         close();
       }
