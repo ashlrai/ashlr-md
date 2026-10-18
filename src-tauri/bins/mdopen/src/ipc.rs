@@ -48,6 +48,13 @@ pub fn open(home: &Path, abs_path: &str, mode: Option<&str>) -> Result<(), Failu
     send_open(home, abs_path, mode).map_err(Failure::Unreachable)?
 }
 
+/// The app's port answered HTTP 401: the token in `~/.mdopener/ipc-token`
+/// is stale, or another Ashlr MD instance holds the port. Restarting the app
+/// writes a new port and token.
+pub const AUTH_FAILED: &str = "IPC auth failed: Ashlr MD refused the token in \
+~/.mdopener/ipc-token (HTTP 401), which is stale or belongs to another Ashlr MD instance; quit \
+every Ashlr MD window and start it again, which writes a new token";
+
 /// Why [`open`] did not open the file.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Failure {
@@ -155,7 +162,9 @@ fn send_open(
             ))),
             _ => Ok(Ok(())),
         },
-        401 => Err("IPC auth failed (stale ~/.mdopener/ipc-token)".to_string()),
+        // It used to stop at "IPC auth failed (stale ~/.mdopener/ipc-token)",
+        // with no next step.
+        401 => Err(AUTH_FAILED.to_string()),
         code @ 400..=499 => {
             // The app's error bodies are `{"error": "<reason>"}`.
             let reason = reply()
@@ -295,6 +304,12 @@ mod tests {
             matches!(&err, Failure::Unreachable(m) if m.contains("auth")),
             "{err:?}"
         );
+        // It says what to do, not only that the token is stale.
+        let Failure::Unreachable(msg) = &err else {
+            unreachable!()
+        };
+        assert!(msg.contains("quit every Ashlr MD window"), "{msg}");
+        assert!(msg.contains("start it again"), "{msg}");
         app.join().unwrap();
 
         s.write("ipc-token", "");

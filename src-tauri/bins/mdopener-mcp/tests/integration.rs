@@ -662,6 +662,24 @@ fn open_file_reports_the_windows_failure() {
     assert!(text.contains("Permission denied"), "{text}");
 }
 
+/// An HTTP 401 (a stale ~/.mdopener/ipc-token, or another instance on the
+/// port) was not read as a refusal, so open_file fell through to the URL
+/// scheme, and a launch that failed said "the app is not running (IPC auth
+/// failed...)" though an app had answered. It is now the shared message, and
+/// nothing is launched.
+#[test]
+fn open_file_on_a_refused_token_says_how_to_fix_it_and_does_not_launch() {
+    let (_dir, notes) = existing_notes();
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new().on_post("/open", Err(auth));
+    let resp = tool_open_file_with(id(1), &json!({ "path": notes }), &ipc, &|url: &str| {
+        panic!("must not fall back to the URL scheme: {url}")
+    });
+    let err = tool_error_text(&resp);
+    assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG);
+    assert!(!err.contains("not running"), "{err}");
+}
+
 #[test]
 fn open_file_mode_read_forwarded_in_post_body() {
     let ipc = MockIpc::new().on_post("/open", Ok(json!({ "ok": true })));
@@ -2589,14 +2607,6 @@ fn app_tools_given_a_path_name_the_open_file_call_when_the_app_is_closed() {
                 &ipc,
             ),
         ),
-        (
-            "stream_edit_apply",
-            tool_stream_edit_apply(
-                id(1),
-                &json!({ "edit_id": "e1", "find": "a", "replace": "b", "path": doc }),
-                &ipc,
-            ),
-        ),
     ];
     for (tool, resp) in calls {
         let err = tool_error_text(&resp);
@@ -2615,6 +2625,47 @@ fn app_tools_given_a_path_name_the_open_file_call_when_the_app_is_closed() {
     let err = tool_error_text(&resp);
     assert!(err.contains("use open_file which can start it"), "{err}");
     assert!(!err.contains("\"path\""), "{err}");
+}
+
+/// With the app closed, stream_edit_apply said to call open_file and then
+/// call it again, but the editId of a preview made before the app started
+/// no longer exists, and the document may have changed. It now says to run
+/// stream_edit again for a fresh preview, with or without `path`.
+#[test]
+fn stream_edit_apply_with_the_app_closed_asks_for_a_fresh_preview() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("plan.md");
+    std::fs::write(&doc, "# Plan\n").unwrap();
+    let canonical = std::fs::canonicalize(&doc).unwrap();
+    let canonical = canonical.to_str().unwrap();
+    let down = "~/.mdopener/ipc-port not found";
+    let ipc = MockIpc::new().on_post("/", Err(down.into()));
+    let args = json!({ "edit_id": "e1", "find": "a", "replace": "b", "path": doc });
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(
+        err,
+        format!(
+            "Ashlr MD does not appear to be running ({down}). Call open_file with {}, which \
+             starts it with this document, then call stream_edit again for a fresh preview \
+             before stream_edit_apply: the editId of a preview from before the app started no \
+             longer exists, and the document may have changed since. If it is not installed, \
+             ask the user to install it from https://github.com/ashlrai/ashlr-md/releases.",
+            json!({ "path": canonical })
+        )
+    );
+    let args = json!({ "edit_id": "e1", "find": "a", "replace": "b" });
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert!(err.contains("use open_file which can start it"), "{err}");
+    assert!(
+        err.contains("call stream_edit again for a fresh preview"),
+        "{err}"
+    );
+    assert!(!err.contains("call this tool again"), "{err}");
+    // A refused token is still the shared message.
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let ipc = MockIpc::new().on_post("/", Err(auth));
+    let err = tool_error_text(&tool_stream_edit_apply(id(1), &args, &ipc));
+    assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG);
 }
 
 /// A path with a quote or backslash is written as JSON, so the call still
@@ -3846,6 +3897,58 @@ fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
     let bad = json!({ "query": "target", "vault": dir.path().join("a.md") });
     let msg = tool_error_text(&tool_search_vault(id(3), &bad, &ipc));
     assert!(msg.contains("not a directory"), "{msg}");
+}
+
+/// A `search_vault` that fell back to the disk after an HTTP 401 quoted the
+/// raw "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token" in
+/// its `note`, with no next step; it now gives the cause and the fix of the
+/// shared refused-token message. With `vault`, a 401 searches it on disk, as
+/// an unreachable app does (the app holds the vault list it would not give).
+#[test]
+fn search_vault_on_a_refused_token_says_why_and_how_to_fix_it() {
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let cause = mdopener_mcp::APP_AUTH_FAILED_MSG
+        .split(" Ask the user")
+        .next()
+        .unwrap();
+    let says_the_fix = |note: &str| {
+        assert!(note.contains(cause), "{note}");
+        assert!(note.contains("quit every Ashlr MD window"), "{note}");
+        assert!(note.contains("start the app again"), "{note}");
+        assert!(!note.contains("IPC auth failed"), "{note}");
+        assert!(!note.contains("could not be reached"), "{note}");
+    };
+
+    // The app listed the vault but refused the search.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "the target topic\n").unwrap();
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": doc.to_str().unwrap() }], "recents": [] })),
+        )
+        .on_get("/search", Err(auth.clone()));
+    let v = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "target", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(v["mode"], "grep-local", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    says_the_fix(v["note"].as_str().unwrap());
+
+    // The app refused everything, and `vault` names a folder on disk.
+    let ipc = MockIpc::new()
+        .on_get("/", Err(auth.clone()))
+        .on_post("/", Err(auth));
+    let args = json!({ "query": "target", "semantic": false, "vault": dir.path() });
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    says_the_fix(note);
+    assert!(note.contains("on disk"), "{note}");
 }
 
 /// The on-disk `vault` walk does not enter folders more than 16 levels down.
