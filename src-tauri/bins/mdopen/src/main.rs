@@ -45,8 +45,7 @@ fn main() {
     // Asked-for help wins over every other flag, `--hook` included, so
     // `mdopen --hook --help` prints the help instead of waiting on stdin.
     if wants_help(&args) {
-        print!("{HELP}");
-        process::exit(0);
+        process::exit(print_stdout(HELP));
     }
 
     // Hook mode: read the Claude Code PostToolUse JSON from stdin and open the
@@ -72,12 +71,10 @@ fn main() {
     let (mode, target) = match parse_args(&args) {
         Ok(Cli::Help) => {
             // Asked-for help is the command's output: stdout, exit 0.
-            print!("{HELP}");
-            process::exit(0);
+            process::exit(print_stdout(HELP));
         }
         Ok(Cli::Version) => {
-            println!("{}", version_line());
-            process::exit(0);
+            process::exit(print_stdout(&format!("{}\n", version_line())));
         }
         Ok(Cli::Usage) => {
             // No file to open is bad usage: a script that ran `mdopen` with an
@@ -119,6 +116,24 @@ fn main() {
             }
             eprintln!("mdopen: {msg}");
             process::exit(1);
+        }
+    }
+}
+
+/// Write `text` to stdout and return the exit status. `print!` panicked
+/// when stdout could not be written (exit 101 and a backtrace): a reader
+/// that closed early (`mdopen --help | head -1`) is not an error, so that
+/// exits 0 in silence, and any other failure (a full disk) is reported on
+/// stderr with exit 1.
+fn print_stdout(text: &str) -> i32 {
+    use std::io::Write as _;
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => 0,
+        Err(e) => {
+            eprintln!("mdopen: cannot write to stdout: {e}");
+            1
         }
     }
 }
@@ -745,7 +760,9 @@ EXIT STATUS:
        1 when the running app answered with a server error or did not
        answer within 6s: the open is not retried through the URL scheme
        (the app may still open the file, so a `-` temp file is kept).
-       With no arguments at all, this help is printed on stderr.
+       With no arguments at all, this help is printed on stderr. Also 1
+       when --help or --version cannot write to stdout (a reader that
+       closed early, as with `| head -1`, is not an error).
     --hook exits 0 and prints nothing (run with a terminal on stdin, it
        prints a hint on stderr instead of waiting for a payload); any other
        argument with it is bad usage (exit 1), as the payload comes on

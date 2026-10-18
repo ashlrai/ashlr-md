@@ -59,6 +59,45 @@ fn help_wins_over_hook() {
     }
 }
 
+/// `--help` and `--version` printed with `print!`, which panics when stdout
+/// cannot be written: exit 101 and a backtrace for `mdopen --help | head -1`
+/// once the reader had closed, or for a full disk. A closed reader now exits
+/// 0 in silence, and a failed write says so on stderr with exit 1.
+#[cfg(target_os = "linux")]
+#[test]
+fn help_and_version_to_an_unwritable_stdout_do_not_panic() {
+    for flag in ["--help", "--version"] {
+        let full = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopen"))
+            .arg(flag)
+            .stdout(full)
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{flag}: {stderr}");
+        assert!(
+            stderr.starts_with("mdopen: cannot write to stdout:"),
+            "{flag}: {stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "{flag}: {stderr}");
+
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopen"))
+            .arg(flag)
+            .stdout(writer)
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{flag}: {out:?}");
+        assert!(out.stderr.is_empty(), "{flag}: {out:?}");
+    }
+}
+
 /// With no arguments there is nothing to open: the help goes to stderr and
 /// the exit is 1, so a script that passed an empty variable sees a failure.
 #[test]
