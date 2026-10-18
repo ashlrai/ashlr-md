@@ -1373,7 +1373,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
                 mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
                 headings tree (level + text for \
-                every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
+                every ATX heading outside front matter and fenced code), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
@@ -2985,6 +2985,10 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
+
+// The front matter and code fence rule every Markdown scanner here uses.
+#[path = "../../../src/markdown_lines.rs"]
+mod markdown_lines;
 
 // The task-checkbox parser is shared with the app's `/annotations`.
 #[path = "../../../src/task_list.rs"]
@@ -6089,40 +6093,9 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// code block named the document. A fence left open runs to the end, as in
 /// CommonMark.
 pub fn document_title(content: &str) -> Option<String> {
-    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let mut fence: Option<(char, usize)> = None;
-    for line in content.lines().skip(skip) {
-        let run = code_fence(line);
-        match (fence, run) {
-            (Some((c, n)), Some((rc, rn, rest)))
-                if rc == c && rn >= n && rest.trim().is_empty() =>
-            {
-                fence = None;
-            }
-            (Some(_), _) => {}
-            (None, Some((rc, rn, _))) => fence = Some((rc, rn)),
-            (None, None) => {
-                if let Some(title) = line.strip_prefix("# ") {
-                    return Some(title.trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// The fence character, its run length and the rest of the line when `line`
-/// is a code fence: at most three spaces, then three or more backticks or
-/// tildes (a backtick fence's info string has no backtick).
-fn code_fence(line: &str) -> Option<(char, usize, &str)> {
-    let body = line.trim_start_matches(' ');
-    if line.len() - body.len() > 3 {
-        return None;
-    }
-    let c = body.chars().next().filter(|c| matches!(c, '`' | '~'))?;
-    let n = body.chars().take_while(|&x| x == c).count();
-    let rest = &body[n..];
-    (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+    markdown_lines::text_lines(content)
+        .find_map(|line| line.strip_prefix("# "))
+        .map(|title| title.trim().to_string())
 }
 
 /// Build the `mdopener://recent-documents` resource response.
@@ -8407,19 +8380,9 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// that is never closed is a thematic break, not front-matter, so the rest
 /// of the document is not swallowed.
 fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
-    let mut lines = content.lines();
-    if lines.next()?.trim() != "---" {
-        return None;
-    }
-    let mut fm_lines = Vec::new();
-    for line in lines {
-        let t = line.trim();
-        if t == "---" || t == "..." {
-            return Some(fm_lines);
-        }
-        fm_lines.push(line);
-    }
-    None
+    // The block `markdown_lines` skips, without its two delimiters.
+    let len = markdown_lines::front_matter_len(content);
+    (len > 0).then(|| content.lines().skip(1).take(len - 2).collect())
 }
 
 /// Extract YAML front-matter from the start of a Markdown document.
@@ -8814,18 +8777,15 @@ fn without_closing_hashes(text: &str) -> &str {
 /// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
 ///
 /// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
+/// Lines of a leading YAML front matter block and of fenced code are not
+/// headings, by the rule [`document_title`] uses ([`markdown_lines`]). Any
+/// line starting with ```` ``` ```` or `~~~` used to flip an "in code" flag,
+/// so a `~~~` line ended a backtick block, and a front matter `# comment`
+/// was a heading.
 pub fn extract_headings(content: &str) -> Vec<Value> {
     let mut headings = Vec::new();
-    let mut in_code_block = false;
-    for line in content.lines() {
+    for line in markdown_lines::text_lines(content) {
         let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_code_block = !in_code_block;
-            continue;
-        }
-        if in_code_block {
-            continue;
-        }
         if trimmed.starts_with('#') {
             let level = trimmed.chars().take_while(|&c| c == '#').count();
             let rest = &trimmed[level..];

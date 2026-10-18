@@ -7973,6 +7973,73 @@ fn heading_closing_hashes_are_not_heading_text() {
     assert_eq!(strip_markdown("## Learn C#").trim(), "Learn C#");
 }
 
+/// export_metadata's headings took a front matter `# comment` as a heading,
+/// and any line starting with ``` or ~~~ flipped "in code", so a `~~~` line
+/// or a shorter fence ended a block early and its `# comment` lines became
+/// headings. Headings now use document_title's rule: front matter is
+/// skipped, a fence closes only on the same character at least as long, and
+/// an open fence runs to the end.
+#[test]
+fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let cases: [(&str, &[&str]); 8] = [
+        ("---\n# generated\ntitle: x\n---\n# Real\n", &["Real"]),
+        ("---\n# generated\n...\n## Real\n", &["Real"]),
+        // An unclosed `---` is a thematic break, not front matter.
+        ("---\n# Real\n", &["Real"]),
+        ("```sh\n~~~\n# not\n```\n# Real\n", &["Real"]),
+        ("````\n```\n# not\n````\n# Real\n", &["Real"]),
+        ("~~~~\n~~~\n# not\n~~~~\n# Real\n", &["Real"]),
+        // A fence left open runs to the end.
+        ("# Real\n```\n# not\n", &["Real"]),
+        // A closing fence has nothing after it.
+        ("```\n``` sh\n# not\n```\n# Real\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(texts(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.md");
+    std::fs::write(
+        &path,
+        "---\n# generated\n---\n# Plan\n```\n~~~\n# step\n```\n",
+    )
+    .unwrap();
+    let resp = tool_export_metadata(
+        id(1),
+        &json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    );
+    let text = resp.result.unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["headings"], json!([{ "level": 1, "text": "Plan" }]));
+    let tools = mdopener_mcp::tool_list();
+    let tool = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "export_metadata")
+        .unwrap();
+    let d = tool["description"].as_str().unwrap();
+    assert!(
+        d.contains("every ATX heading outside front matter and fenced code"),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains(
+        "for every ATX heading outside a leading YAML front matter block and fenced code"
+    ));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_metadata` headings skip front matter and code.** A
+  `# comment` in YAML front matter was listed as a heading, and any line
+  starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line
+  or a shorter fence inside a block ended it early and the shell comments
+  after it became headings. Headings now follow the rule a recent
+  document's `title` uses: a leading front matter block is skipped, a
+  fence is closed only by the same character at least as long with
+  nothing after it, and a fence left open runs to the end. Both use one
+  shared helper.
 - **MCP: the current document says what any other HTTP error is.**
   `mdopener://current`, `mdopener://recent-documents` and the prompts
   answer `-32000`, with the app's reason as the message, when the app
