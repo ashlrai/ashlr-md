@@ -1,12 +1,13 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ActionId } from "../../ai/actions";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
+import { isDismissEscape } from "../../lib/keymap";
 import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
 import { buildSnippetExtension } from "../../lib/snippets";
 import { setSourceView } from "../../lib/sourceSearchBridge";
@@ -214,17 +215,22 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
                 return true;
               },
             },
-            {
-              key: "Escape",
-              run: () => {
-                if (abortRef.current) {
-                  abortRef.current.abort();
-                  return true;
-                }
-                return false;
-              },
-            },
           ]),
+          // Esc cancels a running transform, but not an Escape that ends an
+          // IME composition (isDismissEscape). A keymap "Escape" binding
+          // used to take that one too and cancel the rewrite (the WYSIWYG
+          // editor already made this check). Highest precedence, so the
+          // search panel's Escape does not run first.
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown: (event) => {
+                if (!isDismissEscape(event) || !abortRef.current) return false;
+                event.preventDefault();
+                abortRef.current.abort();
+                return true;
+              },
+            }),
+          ),
           // Native find/replace panel (Mod-f, Mod-Alt-f) anchored at the top.
           search({ top: true }),
           highlightSelectionMatches(),

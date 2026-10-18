@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer cancels an inline AI rewrite in the source
+  editor.** Pressing Escape to end an input-method composition (or close its
+  candidate list) while a ⌘I rewrite was streaming cancelled the rewrite and
+  restored the original text. The source editor now uses the same
+  composition check as the WYSIWYG editor; a plain Escape still cancels.
 - **On a Mac, the AI sidebar says why the on-device model is missing.** With
   no AI provider, the sidebar offered only Ollama and an Anthropic key, though
   the README promises a zero-install on-device model on macOS 26+. On a Mac
