@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `search_vault` after a refused token says why and how to fix it.**
+  Results grepped on disk after an HTTP 401 had a `note` quoting the raw
+  "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token". The
+  `note` now gives the cause and the fix of the shared refused-token message
+  (quit every Ashlr MD window, start the app again, then search again). With
+  `vault`, a 401 now searches that folder on disk (mode `grep-disk`), as an
+  unreachable app does, instead of failing.
 - **MCP: `open_file` does not launch past a refused token.** An app that
   answered HTTP 401 (a stale `~/.mdopener/ipc-token`, or another Ashlr MD
   instance on the port) was not read as a refusal, so `open_file` fell

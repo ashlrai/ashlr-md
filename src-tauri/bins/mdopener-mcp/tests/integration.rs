@@ -3866,6 +3866,58 @@ fn search_vault_greps_the_named_vault_only_when_the_app_is_unreachable() {
     assert!(msg.contains("not a directory"), "{msg}");
 }
 
+/// A `search_vault` that fell back to the disk after an HTTP 401 quoted the
+/// raw "IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token" in
+/// its `note`, with no next step; it now gives the cause and the fix of the
+/// shared refused-token message. With `vault`, a 401 searches it on disk, as
+/// an unreachable app does (the app holds the vault list it would not give).
+#[test]
+fn search_vault_on_a_refused_token_says_why_and_how_to_fix_it() {
+    let auth = mdopener_mcp::parse_http_body(b"HTTP/1.0 401 Unauthorized\r\n\r\n{}").unwrap_err();
+    let cause = mdopener_mcp::APP_AUTH_FAILED_MSG
+        .split(" Ask the user")
+        .next()
+        .unwrap();
+    let says_the_fix = |note: &str| {
+        assert!(note.contains(cause), "{note}");
+        assert!(note.contains("quit every Ashlr MD window"), "{note}");
+        assert!(note.contains("start the app again"), "{note}");
+        assert!(!note.contains("IPC auth failed"), "{note}");
+        assert!(!note.contains("could not be reached"), "{note}");
+    };
+
+    // The app listed the vault but refused the search.
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    let doc = dir.path().join("a.md");
+    std::fs::write(&doc, "the target topic\n").unwrap();
+    let ipc = MockIpc::new()
+        .on_get(
+            "/vault",
+            Ok(json!({ "files": [{ "path": doc.to_str().unwrap() }], "recents": [] })),
+        )
+        .on_get("/search", Err(auth.clone()));
+    let v = content_text(&tool_search_vault(
+        id(1),
+        &json!({ "query": "target", "semantic": false }),
+        &ipc,
+    ));
+    assert_eq!(v["mode"], "grep-local", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    says_the_fix(v["note"].as_str().unwrap());
+
+    // The app refused everything, and `vault` names a folder on disk.
+    let ipc = MockIpc::new()
+        .on_get("/", Err(auth.clone()))
+        .on_post("/", Err(auth));
+    let args = json!({ "query": "target", "semantic": false, "vault": dir.path() });
+    let v = content_text(&tool_search_vault(id(2), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    says_the_fix(note);
+    assert!(note.contains("on disk"), "{note}");
+}
+
 /// The on-disk `vault` walk does not enter folders more than 16 levels down.
 /// It used to skip them silently, so a search presented the rest as the whole
 /// vault; it now says so with `depthCut` (and `truncated`) and a note.
