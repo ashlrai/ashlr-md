@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: every path parameter says it takes `~/`.** Every path argument
+  expands a leading `~` for the home directory, but the descriptions of
+  `path`, `path_a`, `path_b`, `vault` and `cited_docs` said only "absolute,
+  or relative to this server's working directory", and `output_path` said
+  only how a relative path resolves. Each now says "absolute, `~/...` for the
+  home directory, or relative to this server's working directory".
 - **MCP: a `stream_edit` refusal that did not search has no `matchCount`.**
   With no document open, a `path` that is not the open document, or an
   exception in the window, the window sent `matchCount: 0`, so the tool's

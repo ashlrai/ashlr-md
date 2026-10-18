@@ -829,7 +829,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file to open (absolute, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
+                        "description": "Path to the Markdown file to open (absolute, `~/...` for the home directory, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
                     },
                     "mode": {
                         "type": "string",
@@ -901,7 +901,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "output_path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
+                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub): absolute, `~/...` for the home directory, or relative to this server's working directory. The directory must exist."
                     }
                 },
                 "required": ["format"]
@@ -921,7 +921,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
                     "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty or whitespace-only string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
@@ -945,7 +945,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -967,7 +967,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -989,7 +989,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
-                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
+                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, `~/...` for the home directory, or relative to this server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -1008,7 +1008,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, `~/...` for the home directory, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -1094,7 +1094,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, `~/...` for the home directory, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1114,8 +1114,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
-                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
+                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -1143,7 +1143,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
+                        "description": "Path to the .canvas file to edit (absolute, `~/...` for the home directory, or relative to this server's working directory)."
                     },
                     "ops": {
                         "type": "array",
@@ -1255,7 +1255,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1319,7 +1319,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional path assertion: errors if a different file is open; absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional path assertion: errors if a different file is open; absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1351,7 +1351,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1383,7 +1383,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),

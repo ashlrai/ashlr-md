@@ -9044,6 +9044,50 @@ fn every_path_argument_says_what_a_relative_path_resolves_against() {
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
+/// Every path argument expands a leading `~` (expand_home), but the path
+/// descriptions said only "absolute, or relative to this server's working
+/// directory", and `output_path` said only how a relative path resolves.
+/// Each one, `cited_docs` included, names all three forms in one wording.
+#[test]
+fn every_path_description_names_all_accepted_forms() {
+    const FORMS: &str =
+        "absolute, `~/...` for the home directory, or relative to this server's working directory";
+    let mut checked = Vec::new();
+    let mut missing = Vec::new();
+    for def in tool_registry() {
+        let Some(props) = def.input_schema["properties"].as_object() else {
+            continue;
+        };
+        for (name, prop) in props {
+            if !(name == "path"
+                || name.starts_with("path_")
+                || name == "vault"
+                || name.ends_with("_path")
+                || name == "cited_docs")
+            {
+                continue;
+            }
+            checked.push(format!("{}.{name}", def.name));
+            let desc = prop["description"].as_str().unwrap_or("");
+            if !desc.contains(FORMS) {
+                missing.push(format!("{}.{name}: {desc}", def.name));
+            }
+        }
+    }
+    for want in [
+        "open_file.path",
+        "export.output_path",
+        "search_vault.vault",
+        "save_conversation_message.cited_docs",
+        "diff_documents.path_a",
+        "stream_edit.path",
+        "stream_edit_apply.path",
+    ] {
+        assert!(checked.iter().any(|c| c == want), "{want} not checked: {checked:?}");
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it
