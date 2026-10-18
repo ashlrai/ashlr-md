@@ -6729,6 +6729,45 @@ fn request_review_returns_pending_before_client_timeouts_and_resumes() {
     );
 }
 
+/// The app going quiet while a review was being waited on came back as
+/// "App unreachable during review: ..." with no review id and no next step,
+/// so the agent could neither resume nor tell it from a review never made.
+#[test]
+fn request_review_that_loses_the_app_names_the_review_and_how_to_resume() {
+    use mdopener_mcp::tool_request_review_with;
+    use std::time::Duration;
+    let ipc = MockIpc::new()
+        .on_post("/review", Ok(json!({ "ok": true })))
+        .on_get(
+            "/review/result",
+            Err("Could not connect to IPC server at 127.0.0.1:1: Connection refused".into()),
+        );
+    let resp = tool_request_review_with(
+        id(1),
+        &json!({ "content": "plan", "wait_ms": 1000 }),
+        &ipc,
+        Duration::from_millis(10),
+    );
+    let err = tool_error_text(&resp);
+    let review_id = ipc
+        .calls()
+        .iter()
+        .find_map(|(m, _, body)| (m == "POST").then(|| body.clone()).flatten())
+        .and_then(|b| b["reviewId"].as_str().map(str::to_string))
+        .expect("the review was registered");
+    assert!(
+        err.starts_with(&format!(
+            "Lost contact with Ashlr MD while waiting on review `{review_id}`: Could not connect"
+        )),
+        "{err}"
+    );
+    assert!(
+        err.contains(&format!("call request_review with review_id `{review_id}`")),
+        "{err}"
+    );
+    assert!(err.ends_with("request a new one."), "{err}");
+}
+
 /// A resumed call with `blocking: false` used to wait up to `wait_ms` like a
 /// blocking one; it now reads the review's state once and returns it.
 #[test]

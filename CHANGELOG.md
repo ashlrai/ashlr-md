@@ -36,6 +36,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`request_review` that loses the app mid-wait names the review.** When
+  Ashlr MD stopped answering while a review was being waited on, the error
+  read `App unreachable during review: ...`, with no review id and no next
+  step, so the agent could neither keep waiting nor tell it from a review
+  never made. It now names the review and says to call `request_review`
+  with that `review_id` if the app is still open, or to request a new one
+  if it was closed.
 - **`mdopen --hook` refuses other arguments.** `mdopen --hook extra.md`
   ignored `extra.md` in silence and read the payload from stdin, hiding a
   mistaken hook command. Any argument besides `--hook` is now a usage

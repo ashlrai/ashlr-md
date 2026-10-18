@@ -2676,7 +2676,20 @@ pub fn tool_request_review_with(
             std::thread::sleep(poll.min(deadline - now));
         }
         match ipc.get(&endpoint) {
-            Err(e) => return tool_error(id, format!("App unreachable during review: {e}")),
+            // The review is registered: the reply has to carry its id, or an
+            // agent whose app answered late, or was briefly unreachable, can
+            // neither keep waiting nor tell this from a review never made.
+            Err(e) => {
+                return tool_error(
+                    id,
+                    format!(
+                        "Lost contact with Ashlr MD while waiting on review `{review_id}`: {e}. \
+                         If the app is still open, call request_review with review_id \
+                         `{review_id}` to keep waiting; if it was closed, the review is gone, \
+                         so request a new one."
+                    ),
+                )
+            }
             Ok(resp) => match resp["status"].as_str().unwrap_or("") {
                 "pending" if check_once => {
                     let closed = review_window_end_ms(&review_id)
