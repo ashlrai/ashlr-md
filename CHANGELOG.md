@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_canvas` on a missing file names it and what to do.** It answered
+  `Failed to read missing.canvas: No such file or directory (os error 2)`,
+  with the path as passed and no next step. It now names the absolute path,
+  says the file does not exist, and that `edit_canvas` edits an existing
+  canvas and does not create one.
 - **`request_review` that loses the app mid-wait names the review.** When
   Ashlr MD stopped answering while a review was being waited on, the error
   read `App unreachable during review: ...`, with no review id and no next

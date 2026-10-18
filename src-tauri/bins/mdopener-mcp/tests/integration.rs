@@ -5895,6 +5895,32 @@ fn edit_canvas_refuses_empty_ops_before_reading_or_writing() {
     assert_eq!(param_error(&resp), "`ops` must not be empty");
 }
 
+/// A missing canvas answered "Failed to read missing.canvas: No such file or
+/// directory (os error 2)", with the relative path as given and no next
+/// step. It now names the absolute path and says the canvas must exist.
+#[test]
+fn edit_canvas_on_a_missing_file_names_it_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.canvas");
+    let resp = mdopener_mcp::tool_edit_canvas(
+        id(1),
+        &json!({
+            "path": missing.to_string_lossy(),
+            "ops": [{ "type": "delete_node", "id": "n1" }]
+        }),
+    );
+    let err = tool_error_text(&resp);
+    assert_eq!(
+        err,
+        format!(
+            "Cannot read '{}': the file does not exist. edit_canvas edits an existing \
+             .canvas file and does not create one: pass the path of a canvas that exists.",
+            missing.display()
+        )
+    );
+    assert!(!missing.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn edit_canvas_refuses_a_canvas_symlink_to_a_non_canvas_file() {

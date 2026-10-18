@@ -5700,7 +5700,20 @@ pub fn tool_edit_canvas(id: Value, args: &Value) -> Response {
     // ── Read file ────────────────────────────────────────────────────────────
     let raw_content = match read_document_file(&path) {
         Ok(c) => c,
-        Err(e) => return tool_error(id, format!("Failed to read {path}: {e}")),
+        // "Failed to read missing.canvas: No such file or directory (os
+        // error 2)" named neither where it looked nor that the tool only
+        // edits an existing canvas.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return tool_error(
+                id,
+                format!(
+                    "{} edit_canvas edits an existing .canvas file and does not create \
+                     one: pass the path of a canvas that exists.",
+                    cannot_read("", &agent_path(&path), &e)
+                ),
+            )
+        }
+        Err(e) => return tool_error(id, cannot_read("", &agent_path(&path), &e)),
     };
 
     // ── Parse ────────────────────────────────────────────────────────────────
