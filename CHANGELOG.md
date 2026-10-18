@@ -36,6 +36,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The release runbook names what the bundler writes and what to publish.**
+  docs/RELEASING.md said the workflow produces `Ashlr_MD_X.Y.Z_amd64.deb` and
+  the like, but the Tauri bundler writes `Ashlr MD_X.Y.Z_amd64.deb` and
+  `Ashlr MD-X.Y.Z-1.x86_64.rpm` (space included), the workflow uploads them
+  as built, and the `.rpm` was not listed at all. The published `Ashlr_MD_`
+  names the install guide and packaging templates download come from renaming
+  the files by hand, a step the runbook never gave; uploaded as built, GitHub
+  turns the space into a `.` and every link 404s. The runbook now lists both
+  names for each bundle and says to rename before attaching, and a doc facts
+  test ties both to `productName` and to `release.yml`.
 - **The uninstall table has a `.rpm` row.** The install guide documents the
   Fedora / RHEL `.rpm` but said only how to remove the `.deb`. It now gives
   `sudo dnf remove ashlr-md`, the package name Tauri writes into the `.rpm`

@@ -48,12 +48,23 @@ build matrix and **uploads each platform's bundles as workflow artifacts**.
 
 ## 3. What the Workflow Produces
 
-| Platform | Runner | Artifacts |
-|---|---|---|
-| macOS arm64 | `macos-14` | `Ashlr_MD_X.Y.Z_aarch64.dmg` + updater `.sig` |
-| macOS x86_64 | `macos-13` | `Ashlr_MD_X.Y.Z_x64.dmg` + updater `.sig` |
-| Linux x86_64 | `ubuntu-22.04` | `Ashlr_MD_X.Y.Z_amd64.deb`, `Ashlr_MD_X.Y.Z_amd64.AppImage` + `.sig` files |
-| Windows x86_64 | `windows-latest` | `Ashlr_MD_X.Y.Z_x64-setup.exe` (NSIS), `Ashlr_MD_X.Y.Z_x64_en-US.msi` + `.sig` files |
+The Tauri bundler names each file after `productName` (`Ashlr MD`), space
+included, and the workflow uploads them under those names. The release
+publishes them under the names in the last column, which the install guide,
+the Homebrew cask, the winget manifest and the AUR PKGBUILD download (see §4,
+step 4).
+
+| Platform | Runner | Bundler output | Publish as |
+|---|---|---|---|
+| macOS arm64 | `macos-14` | `Ashlr MD_X.Y.Z_aarch64.dmg` | `Ashlr_MD_X.Y.Z_aarch64.dmg` |
+| macOS x86_64 | `macos-13` | `Ashlr MD_X.Y.Z_x64.dmg` | `Ashlr_MD_X.Y.Z_x64.dmg` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.deb` | `Ashlr_MD_X.Y.Z_amd64.deb` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD-X.Y.Z-1.x86_64.rpm` | `Ashlr_MD_X.Y.Z_x86_64.rpm` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.AppImage` | `Ashlr_MD_X.Y.Z_amd64.AppImage` |
+| Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64-setup.exe` (NSIS) | `Ashlr_MD_X.Y.Z_x64-setup.exe` |
+| Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64_en-US.msi` | `Ashlr_MD_X.Y.Z_x64_en-US.msi` |
+
+Each bundle comes with its updater `.sig` file where the updater signs it.
 
 Each leg uploads a platform-specific entry to the Tauri updater manifest.
 After all four legs complete, `latest.json` in the release contains aggregated
@@ -89,11 +100,16 @@ yourself with your own credentials:
 2. **Assemble `latest.json`** by merging the per-platform updater entries from
    every leg into one manifest (`version`, `pub_date`, and a `platforms` map of
    `{ signature, url }` per target). The `url` of each entry must point at the
-   asset you upload in step 4.
+   renamed asset you upload in step 5.
 3. Create a new Release at **github.com/ashlrai/ashlr-md/releases/new** for the
    `vX.Y.Z` tag (mark it pre-release for hyphenated tags). Paste the matching
    `CHANGELOG.md` section as the notes.
-4. Attach all platform bundles **and** the assembled `latest.json` as release
+4. **Rename each bundle to its "Publish as" name in §3** (the space in
+   `Ashlr MD` becomes `_`, and the `.rpm` becomes `Ashlr_MD_X.Y.Z_x86_64.rpm`),
+   and each `.sig` to match. Uploaded as built, GitHub turns the space into a
+   `.` (`Ashlr.MD_X.Y.Z_amd64.deb`), and every download link in the docs and
+   packaging templates 404s.
+5. Attach all renamed bundles **and** the assembled `latest.json` as release
    assets, then **Publish**.
 
 Publishing makes `latest.json` live at the updater endpoint; existing installs
@@ -253,7 +269,7 @@ git commit -m "chore: regenerate app icons"
 - [ ] Version bump commit on `main`
 - [ ] Tag `vX.Y.Z` pushed; workflow fires
 - [ ] All four workflow legs green
-- [ ] CI artifacts downloaded, `latest.json` assembled, Release published (§4)
+- [ ] CI artifacts downloaded and renamed, `latest.json` assembled, Release published (§4)
 - [ ] Homebrew tap cask updated (version + sha256)
 - [ ] winget manifest PR submitted to `microsoft/winget-pkgs`
 - [ ] AUR PKGBUILD updated and pushed
