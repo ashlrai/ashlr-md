@@ -116,6 +116,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   in Ashlr MD; open one first (open_file)." before it applies anything. The
   descriptions now say that, and that a failed save is the error that says
   the content was replaced but not saved.
+- **MCP: the find/replace edits refuse a buffer with no file, and no longer
+  promise "applied but not saved" for one.** The `edit_document` and
+  `stream_edit_apply` descriptions said that with `save: true` "a document
+  with no file yet" is an error saying the edit was applied but not saved.
+  The app opens only files, so a state with no path is its welcome screen,
+  but the window refused it only when its buffer was also empty: an edit to
+  a buffer with no file that was not empty was applied out of sight.
+  `edit_document`, `stream_edit` and `stream_edit_apply` now refuse any state
+  with no file as "No document is open in Ashlr MD; open one first
+  (open_file).", as `set_content` does, and the descriptions say so.
+  `stream_edit` with `preview: false` says the edit is not written to disk
+  instead of "unsaved".
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

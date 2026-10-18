@@ -10225,6 +10225,36 @@ fn whole_document_tools_do_not_promise_an_unsaved_document() {
     }
 }
 
+/// edit_document and stream_edit_apply promised, as set_content did, that
+/// "a document with no file yet" would come back "applied but not saved".
+/// The app opens only files, and the window refuses any state with no file
+/// as "No document is open" before it applies anything. stream_edit said
+/// "unsaved" for an edit not written to disk.
+#[test]
+fn find_replace_tools_do_not_promise_an_unsaved_document() {
+    let desc = |tool: &str| {
+        tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description
+    };
+    for tool in ["edit_document", "stream_edit_apply"] {
+        let d = desc(tool);
+        assert!(!d.contains("no file yet"), "{tool}: {d}");
+        for want in [
+            "No document is open in Ashlr MD; open one first (open_file).",
+            "every document it shows has one",
+            "a failed save is an error saying the edit was applied but not saved",
+        ] {
+            assert!(d.contains(want), "{tool} missing {want:?}: {d}");
+        }
+    }
+    let d = desc("stream_edit");
+    assert!(!d.contains("unsaved"), "{d}");
+    assert!(d.contains("not written to disk"), "{d}");
+}
+
 /// stream_edit's description said it returns diffs but not the fields, and
 /// docs/AGENTS.md said "the app's diff preview". The named shape is the
 /// reply the app's `/stream-edit` sends, with the tool's own `applied`.

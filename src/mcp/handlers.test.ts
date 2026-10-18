@@ -434,19 +434,52 @@ describe("handlers integration — edits with save: true", () => {
     expect(String(r.error)).toContain("Permission denied");
   });
 
-  it("edit: save on a document with no file is not reported as ok", async () => {
-    useDocumentStore.setState({ path: null } as Parameters<
+  it("edit, stream-edit and stream-edit-apply: a buffer with no file is refused", async () => {
+    // The app opens only files, so a state with no path is the welcome
+    // screen whatever its buffer holds. The edits refused it only when the
+    // buffer was also empty, so an edit was applied out of sight and, with
+    // `save: true`, reported as "applied but not saved".
+    const want = "No document is open in Ashlr MD; open one first (open_file).";
+    useDocumentStore.setState({ path: null, content: "hello world" } as Parameters<
       typeof useDocumentStore.setState
     >[0]);
-    await fireEvent("mcp://edit", {
-      editId: "e1",
+    for (const save of [false, true]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://edit", { editId: "e1", find: "hello", replace: "hi", save });
+      expect(reply("mcp_edit_result")).toMatchObject({
+        editId: "e1",
+        ok: false,
+        replaced: 0,
+        error: want,
+      });
+    }
+    for (const preview of [true, false]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://stream-edit", {
+        editId: "s1",
+        find: "hello",
+        replace: "hi",
+        preview,
+        previewLines: 5,
+      });
+      expect(reply("mcp_stream_edit_preview")).toMatchObject({ ok: false, error: want });
+    }
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "a1",
       find: "hello",
       replace: "hi",
       save: true,
     });
-    const r = reply("mcp_edit_result");
-    expect(r.ok).toBe(false);
-    expect(String(r.error)).toContain("not saved");
+    expect(reply("mcp_stream_edit_apply_result")).toMatchObject({
+      ok: false,
+      replaced: 0,
+      error: want,
+    });
+    expect(useDocumentStore.getState().content).toBe("hello world");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      false,
+    );
   });
 
   it("edit: with no document open says so, not that `find` is missing", async () => {

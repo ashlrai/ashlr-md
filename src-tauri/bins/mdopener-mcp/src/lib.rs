@@ -960,7 +960,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the edit was applied but not saved.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1213,7 +1213,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
-                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
+                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
@@ -1276,9 +1276,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 answer within 4 s, when two edits are already waiting on the app (retry in a moment), or when \
                 `edit_id` names no pending preview of the open document with this find/replace (one \
                 already applied, made before the app started, or of another document: call stream_edit \
-                again for a fresh preview); \
-                with `save: true`, a failed save, or a document with no file yet, is an error saying the \
-                edit was applied but not saved.",
+                again for a fresh preview); the app opens only files, so every document it shows has \
+                one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
