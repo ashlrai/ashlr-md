@@ -140,13 +140,13 @@ xdg-mime query default text/markdown
 
 ## Auto-Updates
 
-Ashlr MD checks for updates automatically on launch (all platforms) using
-the Tauri updater. When a new version is available, you'll see an in-app
-prompt. Click **Update** to download and install; the app relaunches into
-the new version.
+Ashlr MD checks for updates a few seconds after each launch (all platforms)
+using the Tauri updater. When a new version is available, it asks whether to
+install it. Click **Install** to download and install; the app relaunches into
+the new version. **Later** dismisses the prompt until the next launch.
 
-To check for updates manually: **Help → Check for Updates** (menu varies
-by platform).
+There is no menu command to check by hand: quit and reopen the app to check
+again. A failed check (offline, for example) is silent.
 
 ---
 

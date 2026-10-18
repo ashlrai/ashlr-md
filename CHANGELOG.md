@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The install guide describes the update prompt the app shows.** It
+  said to click **Update** and offered **Help → Check for Updates**, which
+  does not exist. The prompt's buttons are **Install** and **Later**, and
+  the check runs a few seconds after each launch; the guide now says so,
+  and that reopening the app is how to check again.
 - **The README and CONTRIBUTING open a file in `tauri dev` correctly.** They
   said `bun run tauri dev -- file.md`, but the Tauri CLI hands arguments
   after the first `--` to `cargo run`, which stops with an unexpected
