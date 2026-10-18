@@ -61,6 +61,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   UTF-16) and says to convert the file to UTF-8. `get_user_annotations`'
   `tasksNote` also ran a reason without a full stop into "Its tasks were not
   read."; it is two sentences now.
+- **MCP: a request larger than the app reads is refused before it is sent.**
+  The app reads at most 16 MiB of one request; past that it answers 413 and
+  closes the connection, so `set_content`, `replace_document`,
+  `edit_document`, `stream_edit`, `stream_edit_apply` and `request_review`
+  with a larger text reported "IPC write error: Connection reset by peer",
+  which read as a crashed app. They now refuse it with `-32602` before
+  sending anything (the size is counted with JSON escapes), saying what to
+  do instead: change part of the document with `edit_document`, split the
+  edit, or pass the review text as a file's `path`.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale

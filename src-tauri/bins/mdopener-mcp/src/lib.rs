@@ -2139,7 +2139,16 @@ pub fn tool_set_content(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// once the window has replaced the document, and saved it when `save` is
 /// set, so a refusal (`ok: false`) is the agent's to see as a tool error.
 fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Response {
-    match ipc.post("/content", json!({ "content": content, "save": save })) {
+    let body = json!({ "content": content, "save": save });
+    if let Some(msg) = oversized_request(
+        &body,
+        "`content` is",
+        "The document is unchanged. Change part of it with edit_document instead, or send a \
+         smaller document.",
+    ) {
+        return Response::err(id, -32602, msg);
+    }
+    match ipc.post("/content", body) {
         Ok(v) if v["ok"].as_bool() == Some(false) => {
             let msg = v["error"]
                 .as_str()
@@ -2150,6 +2159,45 @@ fn post_content(id: Value, content: &str, save: bool, ipc: &dyn IpcClient) -> Re
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
+
+/// Largest request body the app reads: its `MAX_BODY` (src-tauri/src/ipc.rs),
+/// the [`MAX_DOCUMENT_BYTES`] it accepts in one IPC request.
+pub const MAX_IPC_REQUEST_BYTES: u64 = MAX_DOCUMENT_BYTES;
+
+/// The `-32602` message for an IPC request body larger than the app reads, or
+/// `None` when `body` fits. The app answers such a body with HTTP 413 after
+/// reading its first 16 MiB and closes the connection, so the agent used to
+/// see "IPC write error: Connection reset by peer", which reads as an app
+/// that crashed, and was given no next step. `args` names the arguments that
+/// made it large, and `next` says what to do instead.
+fn oversized_request(body: &Value, args: &str, next: &str) -> Option<String> {
+    /// Counts the bytes written, so the body is measured without a copy.
+    struct Count(u64);
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len() as u64;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, body).ok()?;
+    (count.0 > MAX_IPC_REQUEST_BYTES).then(|| {
+        format!(
+            "{args} too large: the request would be {:.1} MiB (JSON-escaped), more than the \
+             {} MiB Ashlr MD accepts in one request, so nothing was sent. {next}",
+            count.0 as f64 / (1024.0 * 1024.0),
+            MAX_IPC_REQUEST_BYTES / (1024 * 1024)
+        )
+    })
+}
+
+/// What `edit_document`, `stream_edit` and `stream_edit_apply` say after
+/// [`oversized_request`].
+const OVERSIZED_EDIT_NEXT: &str = "The document is unchanged. Split the change into \
+smaller edits, each with a shorter `find` and `replace`.";
 
 /// Largest `limit` `list_recent` accepts: the cap `search_vault` and
 /// `get_conversation_context` hold their `limit` to. The app keeps far fewer
@@ -2708,6 +2756,14 @@ pub fn tool_request_review_with(
                 "content": content,
                 "timeoutMs": timeout_ms,
             });
+            if let Some(msg) = oversized_request(
+                &post_body,
+                "`content` is",
+                "No review was requested. Write the text to a Markdown file and pass its \
+                 `path` instead.",
+            ) {
+                return Response::err(id, -32602, msg);
+            }
             match ipc.post("/review", post_body) {
                 // The app opens `path` before it registers the review, and
                 // answers `ok: false` with the window's reason when it could
@@ -3047,6 +3103,9 @@ pub fn tool_edit_document(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respo
         body["path"] = json!(p);
     }
 
+    if let Some(msg) = oversized_request(&body, "`find` and `replace` are", OVERSIZED_EDIT_NEXT) {
+        return Response::err(id, -32602, msg);
+    }
     match ipc.post("/edit", body) {
         Ok(v) => {
             if v["ok"].as_bool() == Some(false) {
@@ -7186,6 +7245,9 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         "path": path,
     });
 
+    if let Some(msg) = oversized_request(&body, "`find` and `replace` are", OVERSIZED_EDIT_NEXT) {
+        return Response::err(id, -32602, msg);
+    }
     match ipc.post("/stream-edit", body) {
         Ok(mut v) => {
             if v["ok"].as_bool() == Some(false) {
@@ -7253,6 +7315,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         "path": path,
     });
 
+    if let Some(msg) = oversized_request(&body, "`find` and `replace` are", OVERSIZED_EDIT_NEXT) {
+        return Response::err(id, -32602, msg);
+    }
     match ipc.post("/stream-edit-apply", body) {
         Ok(v) => {
             if v["ok"].as_bool() == Some(false) {

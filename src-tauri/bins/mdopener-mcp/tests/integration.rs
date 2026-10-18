@@ -1125,6 +1125,85 @@ fn set_content_large_content_not_truncated() {
     assert_eq!(sent.len(), 11 * 1024 * 1024, "large content was truncated");
 }
 
+/// The app reads at most 16 MiB of a request body: past that it answers 413
+/// and closes the connection, so the agent saw "IPC write error: Connection
+/// reset by peer", which reads as an app that crashed, with no next step.
+/// Every tool that sends text to the app now refuses such a request first,
+/// measured as sent (JSON-escaped), and says what to do instead.
+#[test]
+fn a_request_larger_than_the_app_reads_is_refused_before_it_is_sent() {
+    let big = "x".repeat(17 * 1024 * 1024);
+    // Under 16 MiB as text, but each newline is two bytes once escaped.
+    let escaped = "\n".repeat(9 * 1024 * 1024);
+    let ok = Ok(json!({ "ok": true }));
+    for (tool, args, next) in [
+        (
+            "set_content",
+            json!({ "content": big }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "set_content",
+            json!({ "content": escaped }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "replace_document",
+            json!({ "content": big }),
+            "Change part of it with edit_document",
+        ),
+        (
+            "edit_document",
+            json!({ "find": "a", "replace": big }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "stream_edit",
+            json!({ "find": big, "replace": "b" }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "stream_edit_apply",
+            json!({ "find": "a", "replace": big }),
+            "Split the change into smaller edits",
+        ),
+        (
+            "request_review",
+            json!({ "content": big, "blocking": false }),
+            "pass its `path` instead",
+        ),
+    ] {
+        let ipc = MockIpc::new()
+            .on_post("/", ok.clone())
+            .on_get("/", Ok(json!({ "path": null, "content": "" })));
+        let resp = dispatch(
+            dispatch_req("tools/call", json!({ "name": tool, "arguments": args })),
+            &ipc,
+        )
+        .unwrap();
+        let err = resp
+            .error
+            .unwrap_or_else(|| panic!("{tool}: {:?}", resp.result));
+        assert_eq!(err.code, -32602, "{tool}: {}", err.message);
+        assert!(
+            err.message.contains(
+                "more than the 16 MiB Ashlr MD accepts in one request, so nothing was sent."
+            ),
+            "{tool}: {}",
+            err.message
+        );
+        assert!(err.message.contains(next), "{tool}: {}", err.message);
+        assert!(
+            ipc.calls().iter().all(|(m, _, _)| m != "POST"),
+            "{tool}: nothing is sent: {:?}",
+            ipc.calls()
+                .iter()
+                .map(|(m, p, _)| (m, p))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
 /// The app answers `/content` once the window has replaced the document (and
 /// saved it when asked). A refusal must reach the agent as a tool error, not
 /// as a success carrying `ok: false`.
