@@ -12723,7 +12723,7 @@ fn present_document_says_zen_mode_not_full_screen() {
 
 /// export_text and export_metadata said they operate on disk and return the
 /// path of "the file read", but without `path` they read the app's copy of
-/// the open document (GET /content), unsaved edits included. Both say so,
+/// the open document (GET /content), edits not yet saved included. Both say so,
 /// and the result's text comes from the app, not the file.
 #[test]
 fn export_text_without_path_says_it_reads_the_window_not_the_file() {
@@ -12736,7 +12736,9 @@ fn export_text_without_path_says_it_reads_the_window_not_the_file() {
         assert!(!d.contains("the file read"), "{tool}: {d}");
         assert!(!d.contains("Operates directly"), "{tool}: {d}");
         assert!(
-            d.contains("as the window holds it (unsaved edits included, not the file on disk)"),
+            d.contains(
+                "as the window holds it (edits not yet saved included, not the file on disk)"
+            ),
             "{tool}: {d}"
         );
     }

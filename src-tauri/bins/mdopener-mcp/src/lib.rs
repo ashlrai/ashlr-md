@@ -1344,7 +1344,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 path of the document (with `path` omitted, the open document's file). \
                 With `path` it reads that file directly on disk; no running app \
                 required. When `path` is omitted it reads the currently open document from the app, \
-                as the window holds it (unsaved edits included, not the file on disk); with nothing \
+                as the window holds it (edits not yet saved included, not the file on disk); with nothing \
                 open, or the app not running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
@@ -1378,7 +1378,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 `path` the document's absolute path: with `path` omitted, the open document's file). \
                 With `path` it reads that file directly on disk; no running app required. When `path` \
                 is omitted it reads the currently open document from the app, as the window holds it \
-                (unsaved edits included, not the file on disk); with nothing open, or the app not \
+                (edits not yet saved included, not the file on disk); with nothing open, or the app not \
                 running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
