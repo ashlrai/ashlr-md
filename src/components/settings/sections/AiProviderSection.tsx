@@ -65,12 +65,10 @@ export function AiProviderSection() {
 
       {hostedToken ? (
         <div className="settings-cli-row">
-          <span className="settings-label" style={{ flex: 1 }}>
-            Token:{" "}
-            <code style={{ opacity: 0.7 }}>
-              {hostedToken.slice(0, 6)}
-              {"•".repeat(Math.min(hostedToken.length - 6, 24))}
-            </code>
+          {/* Says only that a token is saved, never any of it (as the
+              Anthropic key section does). */}
+          <span className="settings-label settings-ai-key-state" style={{ flex: 1 }}>
+            A token is saved.
           </span>
           <button
             type="button"

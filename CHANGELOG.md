@@ -35,7 +35,26 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   muted text (notably in Sepia); and motion is calmed under
   `prefers-reduced-motion`.
 
+### Security
+- **HTML in an AI answer is shown as text.** The AI sidebar's markdown
+  renderer escaped only code spans, so HTML a model wrote in plain text
+  (an `<img src=x onerror=...>`, a `<script>`, an `<a href="javascript:...">`)
+  went into the app window as-is, where it could run script. The renderer now
+  escapes all of an answer before applying its bold, italics, code, list and
+  link formatting, and it builds a link only for an `http`, `https` or
+  `mailto` URL; any other link keeps its text and drops the URL. Links open
+  outside the app. Provider errors, the selection popover and the editors'
+  inline AI already showed their text as text.
+
 ### Fixed
+- **The selection popover says when no AI provider is found.** If the
+  provider went away after the AI sidebar opened (say Ollama stopped), an
+  action from the selection popover opened the sidebar and stopped without a
+  word. The sidebar now shows your request and the message the editors'
+  inline AI gives, "No AI provider. Set one up in the AI sidebar."
+- **Preferences no longer shows part of the hosted AI token.** The Hosted AI
+  section showed the first 6 characters of the saved token followed by dots.
+  It now says only "A token is saved.", as the Anthropic key section does.
 - **Stop and Retry in the AI sidebar leave a clean chat.** Stopping before
   any text arrived left an empty "Assistant" bubble with no word that it was
   stopped; a stopped answer now shows a "Stopped" note instead (also for a

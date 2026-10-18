@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ActionId, AI_ACTIONS } from "../../ai/actions";
-import { describeAIError } from "../../ai/errors";
+import { describeAIError, NO_PROVIDER_MESSAGE } from "../../ai/errors";
 import {
   detectProvider,
   NOOP_PROVIDER_ID,
@@ -134,19 +134,30 @@ export function SelectionPopover() {
 
     // Resolve provider (may be cached).
     let provider = null;
+    let detectDetail = "";
     try {
       provider = await detectProvider();
-    } catch {
-      return;
+    } catch (e) {
+      detectDetail = describeAIError(e).detail;
     }
-    if (!provider || provider.id === NOOP_PROVIDER_ID) return;
-
-    const msgs = action.buildMessages(selectedText);
 
     pushMessage({
       role: "user",
       content: `${action.label}: "${selectedText.slice(0, 80)}${selectedText.length > 80 ? "…" : ""}"`,
     });
+
+    // No provider: say so in the sidebar with the next step, as the editors'
+    // inline AI does, instead of stopping without a word.
+    if (!provider || provider.id === NOOP_PROVIDER_ID) {
+      pushMessage({
+        role: "assistant",
+        content: "",
+        error: { message: NO_PROVIDER_MESSAGE, detail: detectDetail },
+      });
+      return;
+    }
+
+    const msgs = action.buildMessages(selectedText);
     pushMessage({ role: "assistant", content: "", streaming: true });
     setBusy(true);
 

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import type { ActionId } from "../../ai/actions";
-import { aiErrorLine, describeAIError } from "../../ai/errors";
+import { aiErrorLine, describeAIError, NO_PROVIDER_MESSAGE } from "../../ai/errors";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import {
   buildLinkMarkdown,
@@ -228,7 +228,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         } else if (e instanceof NoProviderError) {
           setPhase({
             kind: "error",
-            message: "No AI provider. Set one up in the AI sidebar.",
+            message: NO_PROVIDER_MESSAGE,
             retryFn: null,
           });
         } else {
