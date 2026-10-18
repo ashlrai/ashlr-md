@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getAction } from "../../ai/actions";
-import { noProviderSetupHint } from "../../ai/errors";
+import { describeAIError, NO_PROVIDER_EXPLAIN_MESSAGE } from "../../ai/errors";
 import {
   detectProvider,
   NOOP_PROVIDER_ID,
@@ -21,6 +21,8 @@ export function ExternalChangeBanner() {
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
+  const setProvider = useAIStore((s) => s.setProvider);
+  const clearProvider = useAIStore((s) => s.clearProvider);
 
   const [explaining, setExplaining] = useState(false);
 
@@ -35,16 +37,29 @@ export function ExternalChangeBanner() {
     openAI();
 
     let provider = null;
+    let detectDetail = "";
     try {
       provider = await detectProvider();
-    } catch {
-      provider = null;
+    } catch (e) {
+      detectDetail = describeAIError(e).detail;
     }
 
+    // No provider: record it as a failed turn, which the sidebar's setup
+    // panel shows on top of its options. It used to be plain chat text,
+    // which that panel hides, so the user saw the panel and no reason.
+    // Recording the provider state switches a sidebar that still showed the
+    // chat to the panel.
     if (!provider || provider.id === NOOP_PROVIDER_ID) {
+      if (provider) setProvider(provider.id, provider.capabilities);
+      else clearProvider();
+      pushMessage({
+        role: "user",
+        content: "Explain how the file changed on disk vs. my current edits.",
+      });
       pushMessage({
         role: "assistant",
-        content: `*No AI provider is available to explain the changes. ${noProviderSetupHint()}*`,
+        content: "",
+        error: { message: NO_PROVIDER_EXPLAIN_MESSAGE, detail: detectDetail },
       });
       setExplaining(false);
       return;

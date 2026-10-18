@@ -5,8 +5,10 @@
  * promised "No account, no API key" on every platform, which is untrue on
  * Windows and Linux. All three now say what is true for the platform, from
  * one source (noProviderSetupHint in errors.ts) where the code can share it.
+ * The banner's note is now a failed turn the sidebar's setup panel shows on
+ * top, and the panel says what is true for the platform.
  */
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import readme from "../../README.md?raw";
@@ -18,10 +20,15 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
+import { AISidebar } from "../components/ai/AISidebar";
 import { ExternalChangeBanner } from "../components/layout/ExternalChangeBanner";
 import { useAIStore } from "../store/aiStore";
 import { useDocumentStore } from "../store/documentStore";
-import { noProviderAnswer, noProviderSetupHint } from "./errors";
+import {
+  NO_PROVIDER_EXPLAIN_MESSAGE,
+  noProviderAnswer,
+  noProviderSetupHint,
+} from "./errors";
 import { detectProvider, NOOP_PROVIDER_ID } from "./registry";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -105,6 +112,8 @@ describe("the change banner's Explain changes with no provider", () => {
       apiKey: null,
       hostedToken: null,
       preferredTier: null,
+      providerId: null,
+      provider: null,
     });
     useDocumentStore.setState({ content: "mine", pendingDisk: "theirs" });
   });
@@ -114,30 +123,57 @@ describe("the change banner's Explain changes with no provider", () => {
     host.remove();
   });
 
-  async function explainMessage(): Promise<string> {
-    await act(async () => root.render(createElement(ExternalChangeBanner)));
+  /** Renders the banner beside the AI sidebar and clicks Explain changes. */
+  async function explain(): Promise<void> {
+    await act(async () =>
+      root.render(
+        createElement(
+          Fragment,
+          null,
+          createElement(AISidebar),
+          createElement(ExternalChangeBanner),
+        ),
+      ),
+    );
     const btn = [...host.querySelectorAll("button")].find(
       (b) => b.textContent === "Explain changes",
     );
     expect(btn).toBeDefined();
     await act(async () => btn!.click());
-    const last = useAIStore
-      .getState()
-      .messages.filter((m) => m.role === "assistant")
-      .at(-1);
-    return last?.content ?? "";
+    await act(async () => {});
   }
 
-  it("on a Mac, names the on-device model's needs", async () => {
-    onPlatform("MacIntel");
-    const text = await explainMessage();
-    expect(text).toContain(noProviderSetupHint(true));
+  // The note used to be plain chat text, which the sidebar's setup panel
+  // hides, so the user saw the panel and no reason. It is now a failed turn,
+  // which the panel shows on top of its options.
+  it("records a failed turn the setup panel shows", async () => {
+    onPlatform("Linux x86_64");
+    await explain();
+    const last = useAIStore.getState().messages.at(-1);
+    expect(last?.role).toBe("assistant");
+    expect(last?.content).toBe("");
+    expect(last?.error?.message).toBe(NO_PROVIDER_EXPLAIN_MESSAGE);
+    const nudge = host.querySelector(".ai-setup-nudge");
+    expect(nudge, "the sidebar shows its setup panel").not.toBeNull();
+    const notice = nudge!.querySelector(".ai-setup-nudge__notice [role='alert']");
+    expect(notice, "the panel shows why nothing was explained").not.toBeNull();
+    expect(notice!.textContent).toContain(NO_PROVIDER_EXPLAIN_MESSAGE);
+    expect(nudge!.querySelector(".ai-key-form")).not.toBeNull();
   });
 
-  it("elsewhere, offers Ollama and a key only", async () => {
+  it("on a Mac, the panel names the on-device model's needs", async () => {
+    onPlatform("MacIntel");
+    await explain();
+    const body = host.querySelector(".ai-setup-nudge__body")?.textContent ?? "";
+    expect(body).toContain("Apple Intelligence");
+    expect(body).toContain("macOS 26");
+  });
+
+  it("elsewhere, the panel offers Ollama and a key only", async () => {
     onPlatform("Linux x86_64");
-    const text = await explainMessage();
-    expect(text).toContain(noProviderSetupHint(false));
-    expect(text).not.toContain("Apple");
+    await explain();
+    const body = host.querySelector(".ai-setup-nudge__body")?.textContent ?? "";
+    expect(body).toContain("Ollama");
+    expect(body).not.toContain("Apple");
   });
 });

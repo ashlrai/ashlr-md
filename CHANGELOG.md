@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **"Explain changes" with no provider shows why on the setup panel.** The
+  change banner's note that no AI provider was found was written as plain
+  chat text, which the AI sidebar's setup panel hides, so the user saw the
+  panel and no reason. It is now recorded as a failed turn, which the panel
+  shows on top of its setup options, as the selection popover's is, and it
+  says to click Explain changes again once a provider is set up.
 - **MCP: `get_user_annotations` answers when the app is not running.** Its
   description said tasks fall back to the file on disk, but with Ashlr MD
   closed the call failed and told the agent to start the app. It now reads
