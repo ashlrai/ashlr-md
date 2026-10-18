@@ -20,6 +20,13 @@ import {
 	TAbstractFile,
 	TFile,
 } from "obsidian";
+import {
+	buildUrl,
+	EDIT_MODE_SETTING_DESC,
+	isOpenableInAshlr,
+	OPEN_COMMAND_NAME,
+	OPEN_EDIT_COMMAND_NAME,
+} from "./links.ts";
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
@@ -33,21 +40,6 @@ const DEFAULT_SETTINGS: AshlrMdSettings = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** The extensions Ashlr MD opens from a link (`MD_EXTENSIONS` in the app). */
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd", "mdx"]);
-
-/**
- * Whether Ashlr MD opens `file` from a link: a Markdown document that is not
- * a dotfile. The app ignores any other link without a word, so offering it
- * for a PDF, an image or a `.canvas` used to do nothing when clicked.
- */
-function isOpenableInAshlr(file: TFile): boolean {
-	return (
-		MARKDOWN_EXTENSIONS.has(file.extension.toLowerCase()) &&
-		!file.name.startsWith(".")
-	);
-}
 
 /**
  * Returns the absolute on-disk path for a vault-relative TFile path.
@@ -65,16 +57,6 @@ function getAbsolutePath(app: App, file: TFile): string | null {
 	}
 	// basePath does not have a trailing slash; file.path is always forward-slash.
 	return `${adapter.getBasePath()}/${file.path}`;
-}
-
-/**
- * Builds the `mdopener://open` URL for the given absolute path and mode.
- * The path is percent-encoded so spaces and special characters are safe.
- */
-function buildUrl(absolutePath: string, mode?: "read" | "edit"): string {
-	const encodedPath = encodeURIComponent(absolutePath);
-	const modeParam = mode ? `&mode=${mode}` : "";
-	return `mdopener://open?path=${encodedPath}${modeParam}`;
 }
 
 /**
@@ -112,7 +94,7 @@ export default class AshlrMdPlugin extends Plugin {
 		// Command 1: open with the user's default mode preference.
 		this.addCommand({
 			id: "open-current",
-			name: "Open current note in Ashlr MD",
+			name: OPEN_COMMAND_NAME,
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file || !isOpenableInAshlr(file)) return false;
@@ -124,7 +106,7 @@ export default class AshlrMdPlugin extends Plugin {
 		// Command 2: always open in edit mode, regardless of the setting.
 		this.addCommand({
 			id: "open-current-edit",
-			name: "Open current note in Ashlr MD (edit mode)",
+			name: OPEN_EDIT_COMMAND_NAME,
 			checkCallback: (checking: boolean) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file || !isOpenableInAshlr(file)) return false;
@@ -255,11 +237,7 @@ class AshlrMdSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Open in edit mode by default")
-			.setDesc(
-				"When enabled, notes are opened in Ashlr MD's WYSIWYG editor " +
-					"instead of read view. You can still use the dedicated " +
-					'"Open in edit mode" command to force edit mode on a per-note basis.'
-			)
+			.setDesc(EDIT_MODE_SETTING_DESC)
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.openInEditMode)

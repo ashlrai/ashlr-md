@@ -16,5 +16,5 @@
     "noUnusedParameters": true,
     "lib": ["ES2018", "DOM"]
   },
-  "include": ["main.ts"]
+  "include": ["main.ts", "links.ts", "links.test.ts"]
 }

@@ -47,6 +47,8 @@ npm install
 npm run build      # produces main.js (minified, CJS)
 # or for watch/dev mode:
 npm run dev
+npm test           # the pure helpers in links.ts, under node:test
+npm run typecheck  # tsc --noEmit
 ```
 
 ---
@@ -97,6 +99,7 @@ plugin toolchain.  Source entry point: `main.ts`.
 ```
 integrations/obsidian/
 ├── main.ts           ← plugin source
+├── links.ts          ← pure helpers and strings (tested by links.test.ts)
 ├── styles.css        ← minimal CSS (Obsidian design tokens)
 ├── manifest.json     ← plugin metadata
 ├── versions.json     ← minAppVersion map

@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Obsidian: the edit-mode setting names the real command.** Its
+  description said to use the "Open in edit mode" command, a name the
+  command palette does not list; the command is "Open current note in
+  Ashlr MD (edit mode)", and the description now says so. The plugin's
+  pure helpers moved to `links.ts`, with `npm test` (Node's `node:test`)
+  and `npm run typecheck` scripts.
 - **VS Code: a failed `mdopen` fallback says why.** When the deep link did
   not open and `mdopen` ran but could not open the file, the extension
   still said to install Ashlr MD or set `ashlr-md.cliPath`, and dropped
