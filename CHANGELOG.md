@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`mdopen` reports a refused token even when the URL scheme opens the
+  file.** On an HTTP 401 from the running app, the CLI falls back to the
+  `mdopener://` URL, and when that launch succeeded the stale
+  `~/.mdopener/ipc-token` was never mentioned. The open still exits 0, but
+  the refused-token text and its fix (quit every Ashlr MD window and start it
+  again) now go to stderr, the way an unconfirmed launch is reported.
+  `--hook` stays silent.
 - **`stream_edit_apply` checks the preview's `editId`.** The app forwarded
   the `editId` to the window without looking at it, so a stale preview
   re-found `find` in whatever document was open now, perhaps another one.

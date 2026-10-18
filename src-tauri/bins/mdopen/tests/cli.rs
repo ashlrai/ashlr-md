@@ -297,6 +297,62 @@ fn opens_through_the_running_app_without_a_url_launcher() {
     assert_eq!(body["mode"], "edit");
 }
 
+/// A running app that refuses the token (HTTP 401) sends the open to the
+/// URL scheme. When that launch succeeded, the stale token went unreported,
+/// so every later open took the slower route in silence. It is now a warning
+/// on stderr naming the fix; the open still exits 0.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_refused_token_is_reported_even_when_the_url_scheme_opens_the_file() {
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::fs::PermissionsExt as _;
+    let s = Scratch::new("stale-token");
+    let file = s.0.join("plan.md");
+    std::fs::write(&file, "# plan\n").unwrap();
+    // A URL launcher that takes the URL and exits 0.
+    let launcher = s.sub("bin").join("xdg-open");
+    std::fs::write(&launcher, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dot = s.sub("home").join(".mdopener");
+    std::fs::create_dir_all(&dot).unwrap();
+    std::fs::write(
+        dot.join("ipc-port"),
+        listener.local_addr().unwrap().port().to_string(),
+    )
+    .unwrap();
+    std::fs::write(dot.join("ipc-token"), "stale-token").unwrap();
+    let app = std::thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let mut buf = [0u8; 8192];
+        let mut req = Vec::new();
+        while !String::from_utf8_lossy(&req).contains("}") {
+            let n = sock.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            req.extend_from_slice(&buf[..n]);
+        }
+        sock.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\n\r\n{}")
+            .unwrap();
+    });
+    // `/bin/sh` for the launcher script, nothing else on PATH.
+    let path = format!("{}:/bin:/usr/bin", s.sub("bin").display());
+    let out = headless(&s).env("PATH", path).arg(&file).output().unwrap();
+    app.join().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(
+        err,
+        "mdopen: IPC auth failed: Ashlr MD refused the token in ~/.mdopener/ipc-token \
+         (HTTP 401), which is stale or belongs to another Ashlr MD instance; quit every \
+         Ashlr MD window and start it again, which writes a new token. The file was opened \
+         through the mdopener:// URL instead.\n"
+    );
+}
+
 /// `mdopen --hook` run by hand with a terminal on stdin read it to EOF, so it
 /// waited in silence until Ctrl+D. It now prints a hint and exits 0 at once.
 /// Needs util-linux `script` for a pseudo-terminal; skipped without it.

@@ -104,8 +104,16 @@ fn main() {
     };
 
     match open_in_app(&resolved.to_string_lossy(), mode, CLI_DEADLINE, true) {
-        Ok(Opened::Confirmed) => {}
-        Ok(Opened::Unconfirmed(note)) => eprintln!("mdopen: {note}"),
+        Ok(OpenOutcome { opened, warning }) => {
+            // Reported like an unconfirmed open: on stderr, exit 0, since
+            // the file did reach the launcher.
+            if let Some(w) = warning {
+                eprintln!("mdopen: {w}");
+            }
+            if let Opened::Unconfirmed(note) = opened {
+                eprintln!("mdopen: {note}");
+            }
+        }
         Err(NotOpened { msg, maybe_later }) => {
             // Nothing will ever read the piped content: do not leave it behind
             // in the temp dir. Unless the app may still open it (it was
@@ -540,6 +548,34 @@ enum Opened {
     Unconfirmed(String),
 }
 
+/// An open [`open_in_app`] handed off, and a problem it still has to report.
+#[derive(Debug, PartialEq, Eq)]
+struct OpenOutcome {
+    opened: Opened,
+    /// Set when the running app refused the token (HTTP 401) and the URL
+    /// scheme opened the file instead: the stale token would otherwise go
+    /// unreported, and every later open would take the slower route.
+    warning: Option<String>,
+}
+
+impl From<Opened> for OpenOutcome {
+    fn from(opened: Opened) -> Self {
+        OpenOutcome {
+            opened,
+            warning: None,
+        }
+    }
+}
+
+/// The warning for an open the URL scheme took after the running app
+/// refused the token.
+fn stale_token_warning() -> String {
+    format!(
+        "{}. The file was opened through the mdopener:// URL instead.",
+        ipc::AUTH_FAILED
+    )
+}
+
 /// Why [`open_in_app`] did not confirm an open.
 #[derive(Debug, PartialEq, Eq)]
 struct NotOpened {
@@ -566,10 +602,10 @@ fn open_in_app(
     mode: Option<&str>,
     deadline: Duration,
     inherit_stderr: bool,
-) -> Result<Opened, NotOpened> {
+) -> Result<OpenOutcome, NotOpened> {
     let ipc_error = match ipc::home_dir() {
         Some(home) => match ipc::open(&home, abs_path, mode) {
-            Ok(()) => return Ok(Opened::Confirmed),
+            Ok(()) => return Ok(Opened::Confirmed.into()),
             // The running app said no; the URL scheme would only reach it again.
             Err(ipc::Failure::Refused(reason)) => return Err(NotOpened::no(reason)),
             // Reached but failed or slow: it may still open the file, so a
@@ -591,9 +627,11 @@ fn open_in_app(
         url.push_str(&format!("&mode={m}"));
     }
     let outcome = launch::launch_url(&url, deadline, inherit_stderr);
+    let warning = (ipc_error == ipc::AUTH_FAILED).then(stale_token_warning);
+    let handed_off = |opened| Ok(OpenOutcome { opened, warning });
     match &outcome {
-        launch::Launch::Opened { .. } => Ok(Opened::Confirmed),
-        launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
+        launch::Launch::Opened { .. } => handed_off(Opened::Confirmed),
+        launch::Launch::Pending { .. } => handed_off(Opened::Unconfirmed(outcome.describe())),
         // Both routes failed: say what each one hit, then what to do. Before,
         // this was `<launcher error> (<ipc error>)` with no next step.
         _ => Err(NotOpened::no(not_opened_message(

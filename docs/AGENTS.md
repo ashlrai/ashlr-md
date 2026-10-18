@@ -697,7 +697,14 @@ with the app's reason on stderr without trying the URL scheme. It also exits
 `1` without trying the URL scheme when the running app was reached but
 failed: it answered with a server error, the connection broke, or it did not
 answer within 6 s. The app may still open the file then, so for `mdopen -`
-the temp file is kept. `mdopen -` also
+the temp file is kept. When the running app refuses the token (HTTP 401),
+`mdopen` still tries the `mdopener://` URL, and if that opens the file it
+exits `0` but prints the stale-token problem and its fix to stderr ("IPC auth
+failed: Ashlr MD refused the token in ~/.mdopener/ipc-token (HTTP 401), ...;
+quit every Ashlr MD window and start it again, which writes a new token. The
+file was opened through the mdopener:// URL instead."), as it reports an
+unconfirmed launch; it used to say nothing, so the stale token went unnoticed.
+`--hook` stays silent. `mdopen -` also
 exits `1`, opening nothing, when stdin is empty or only whitespace, or longer
 than the 16 MiB a document may be (it stops reading there and writes no temp
 file). Run with a
