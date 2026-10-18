@@ -24,6 +24,7 @@ import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
+import { READ_VIEW_REQUIRED } from "./exportErrors";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
 import { findProfile, findTemplate } from "./exportTemplates";
 
@@ -157,7 +158,7 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
 function captureMarkdownBody(): string {
   const el = document.querySelector(".markdown-body");
   if (!el) {
-    throw "Switch to Read view before exporting.";
+    throw READ_VIEW_REQUIRED;
   }
   return cloneWithoutInjectedChrome(el).outerHTML;
 }
@@ -548,7 +549,7 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   // children of the parse container.
   const el = document.querySelector(".markdown-body");
   if (!el) {
-    throw "Switch to Read view before exporting.";
+    throw READ_VIEW_REQUIRED;
   }
   const bodyHtml = cloneWithoutInjectedChrome(el).innerHTML;
 

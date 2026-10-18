@@ -261,7 +261,24 @@ describe("handlers integration — smoke tests per module", () => {
       editId: "export_2",
       ok: false,
       replaced: 0,
-      error: "Export failed in the app: Switch to Read view before exporting.",
+      // The app's own message names a toggle the agent cannot click; the
+      // agent is told the call that switches the view.
+      error:
+        'Export failed in the app: the document is not in Read view, which a headless export renders. Call open_file with its path and mode "read", then retry.',
+    });
+
+    vi.mocked(exportHtml).mockRejectedValueOnce("Disk full");
+    invokeMock.mockClear();
+    await fireEvent("mcp://export", {
+      editId: "export_2b",
+      format: "html",
+      outputPath: "/out/doc.html",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_edit_result", {
+      editId: "export_2b",
+      ok: false,
+      replaced: 0,
+      error: "Export failed in the app: Disk full",
     });
 
     useDocumentStore.setState({ path: null } as Parameters<

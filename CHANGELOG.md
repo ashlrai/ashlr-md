@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A headless `export` from Edit view tells the agent how to fix it.** An
+  `export` with `output_path` while the document was in Edit or Source view
+  failed with "Switch to Read view before exporting.", the app's message for
+  the human, naming a toggle the agent cannot click. The agent is now told
+  to call `open_file` with the document's path and `mode: "read"`, then
+  retry, and the `export` description and docs/AGENTS.md row say so.
 - **A window that does not answer says what to do next.** When the window
   gave no answer within 4 s, `edit_document`, `stream_edit`,
   `stream_edit_apply`, `set_content`, `replace_document`, `open_file`,
