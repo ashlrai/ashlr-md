@@ -7541,6 +7541,28 @@ fn edit_canvas_op_fields_of_the_wrong_type_name_the_op_and_field() {
         "{msg}"
     );
     assert!(msg.ends_with("Did you mean `color`?"), "{msg}");
+    // An op named under another key (`op`, `action`) points at `type`, the
+    // field whose values it holds, not at `id`, one edit from `op`.
+    for key in ["op", "action", "kind"] {
+        let msg = refused_before_the_tool(
+            "edit_canvas",
+            json!({ "path": path, "ops": [{ key: "move_node", "id": "a", "x": 1, "y": 2 }] }),
+        );
+        assert!(
+            msg.starts_with(&format!("Unknown field `{key}` in `ops[0]`: it takes ")),
+            "{msg}"
+        );
+        assert!(msg.ends_with("Did you mean `type`?"), "{key}: {msg}");
+    }
+    // Not a value of any enum: the near spelling still wins, or no hint.
+    let msg = refused_before_the_tool(
+        "edit_canvas",
+        json!({ "path": path, "ops": [{ "type": "move_node", "id": "a", "op": "nope" }] }),
+    );
+    assert!(msg.ends_with("Did you mean `id`?"), "{msg}");
+    // The same at the top level: `export` with the format under `kind`.
+    let msg = refused_before_the_tool("export", json!({ "kind": "html" }));
+    assert!(msg.ends_with("Did you mean `format`?"), "{msg}");
     // null still means "not given": set_node_color without a colour clears it.
     let def = tool_registry()
         .into_iter()

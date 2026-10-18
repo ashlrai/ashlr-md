@@ -36,6 +36,45 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`mdopen` names the flag a misspelled one was meant to be.** An
+  unknown flag was refused with only "unknown flag", so a hook command
+  with `--hok` failed on every tool call with nothing to go on. A near
+  miss (`--hok`, `-edit`, `--Edit`) now says which flag it was probably
+  meant to be, and a file name starting with `-` (`-notes.md`) is told to
+  pass it after `--`.
+- **An unknown MCP argument whose value belongs to another argument points
+  at that argument.** An `edit_canvas` op written as `{"op": "move_node"}`
+  was refused with "Did you mean `id`?", the declared field one letter from
+  `op`, when the op is named by `type`. The hint now names the declared
+  field whose allowed values include the given one (`type` here, `format`
+  for `export` called with `"kind": "html"`), and falls back to the nearest
+  spelling otherwise.
+- **The install guide describes the update prompt the app shows.** It
+  said to click **Update** and offered **Help → Check for Updates**, which
+  does not exist. The prompt's buttons are **Install** and **Later**, and
+  the check runs a few seconds after each launch; the guide now says so,
+  and that reopening the app is how to check again.
+- **The README and CONTRIBUTING open a file in `tauri dev` correctly.** They
+  said `bun run tauri dev -- file.md`, but the Tauri CLI hands arguments
+  after the first `--` to `cargo run`, which stops with an unexpected
+  argument error. The app's arguments go after a second `--`:
+  `bun run tauri dev -- -- file.md`.
+- **The Linux install guide's default-app commands name the real desktop
+  entry.** `docs/INSTALL.md` told you to run `xdg-mime default
+  app.mdopener.desktop.desktop text/markdown`, a file the `.deb` and `.rpm`
+  do not install, so Markdown files never opened in Ashlr MD. It now names
+  `"Ashlr MD.desktop"` (quoted, for the space) and points at **Preferences →
+  Default Markdown app**. It also said `--appimage-extract-and-run` creates
+  a desktop entry and icons; that flag only runs the AppImage. The guide now
+  says what the AppImage does register on its first run (the `mdopener://`
+  scheme) and what it does not.
+- **`mdopen --hook` opens only what a write tool wrote.** It opened the
+  `tool_input.file_path` of any payload, so a hand-written hook wired as
+  `PreToolUse` opened the file before the tool changed it, and a broad
+  matcher opened every Markdown file the agent merely read. A payload whose
+  `hook_event_name` is not `PostToolUse`, or whose `tool_name` is not
+  `Write`, `Edit` or `MultiEdit`, now opens nothing (still silently, exit
+  `0`). The installed hook is unaffected.
 - **The VS Code extension offers Ashlr MD for `.mdx` files and opens in
   edit mode on request.** Its title-bar button and command appeared only for
   files in the Markdown language mode, so an `.mdx` file (or another

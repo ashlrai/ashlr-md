@@ -217,7 +217,7 @@ On Linux, install `build-essential` (Debian/Ubuntu) or equivalent, plus the
 ```bash
 bun install
 bun run tauri dev        # hot-reloading desktop app
-bun run tauri dev -- file.md   # open a file on launch
+bun run tauri dev -- -- file.md   # open a file on launch
 ```
 
 Quality gates (all green in CI):
