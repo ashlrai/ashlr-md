@@ -826,7 +826,7 @@ describe("handlers integration — stream-edit failures are replied", () => {
 // edit handlers carry no answer for a document with no file
 // ════════════════════════════════════════════════════════════════════════════
 
-describe("handlers integration — no fallback for a document with no file", () => {
+describe("handlers integration: no fallback for a document with no file", () => {
   // Every edit refuses a state with no file ("No document is open") before
   // it saves or checks a preview, so the "has no file yet" save reason and
   // the "an unsaved document" names in a stale-preview refusal could not be
