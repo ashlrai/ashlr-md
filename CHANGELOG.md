@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **A disabled Connect button says how to enable it.** When Claude Code,
+  Cursor or Codex was not detected, its button was disabled with only a
+  tooltip, "Claude Code CLI not found", "Cursor not detected" or "Codex CLI
+  not found". The tooltip and a note under the buttons now say how to
+  install the tool and to reopen Preferences, which detects it again.
 - **docs/AGENTS.md names the hook button the app shows.** It told readers
   to click **Install auto-open hook**, a button Preferences does not have;
   the button is **Auto-open agent Markdown**. A doc-facts test now checks

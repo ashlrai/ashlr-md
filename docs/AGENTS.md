@@ -63,8 +63,10 @@ Open **Ashlr MD → Preferences → AI agents (MCP)** and click:
   `.md` files open in Ashlr MD automatically (see [Auto-open hook](#auto-open-hook)).
 
 The **Connect** buttons are only enabled for tools detected on your machine
-(`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For any
-other agent, copy the command with the **Copy** button and paste it in a terminal.
+(`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For a
+tool that is not detected, a note under the buttons says how to install it;
+detection runs again when you reopen Preferences. For any other agent, copy
+the command with the **Copy** button and paste it in a terminal.
 
 When Claude Code or Codex already has an `ashlr-md` server, the Connect button
 asks it (`mcp get`) which program it runs. A registration for a program that no
