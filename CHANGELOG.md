@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Escape no longer leaves Zen mode or cancels AI work.** The
+  Escape that ends an input-method composition also left Zen mode, hid
+  the AI selection toolbar, cancelled editing the hosted AI token, and
+  aborted a running AI rewrite in the WYSIWYG editor. All four now use the
+  same composition check as the dialogs (the token field's Enter too), and
+  a test fails on any new raw Escape comparison outside that check.
 - **An IME Enter no longer runs a command or jumps to a match.** Pressing
   Enter to commit an input-method composition in the command palette ran
   the selected command, and in the find bar it jumped to the next match.

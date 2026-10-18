@@ -4,6 +4,7 @@
 // The token is stored in the OS keychain via aiStore.setHostedToken().
 
 import { useRef, useState } from "react";
+import { isActionEnter, isDismissEscape } from "../../../lib/keymap";
 import { useAIStore } from "../../../store/aiStore";
 
 type SaveStatus = "idle" | "saved" | "error";
@@ -49,8 +50,9 @@ export function AiProviderSection() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") saveToken();
-    if (e.key === "Escape") cancelEdit();
+    // Not a key that commits or ends an IME composition (see keymap.ts).
+    if (isActionEnter(e)) saveToken();
+    if (isDismissEscape(e)) cancelEdit();
   }
 
   return (

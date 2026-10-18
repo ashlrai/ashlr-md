@@ -15,6 +15,7 @@ import {
   isUrl,
 } from "../../lib/editorShortcuts";
 import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
+import { isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
@@ -667,7 +668,9 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           e.preventDefault();
           void runTransformRef.current("rewrite", "Rewriting");
         }
-      } else if (e.key === "Escape" && abortRef.current) {
+      } else if (isDismissEscape(e) && abortRef.current) {
+        // Not an Escape that ends an IME composition (isDismissEscape),
+        // which used to cancel the running AI rewrite.
         e.preventDefault();
         abortRef.current.abort();
       }
