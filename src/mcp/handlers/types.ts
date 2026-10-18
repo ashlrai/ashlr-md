@@ -67,6 +67,8 @@ export interface StreamEditPayload {
 
 export interface StreamEditApplyPayload {
   editId: string;
+  /** The `editId` of the `stream_edit` preview the agent is applying ("" when it gave none). */
+  originalEditId?: string;
   matchIndex?: number;
   save?: boolean;
   path?: string;

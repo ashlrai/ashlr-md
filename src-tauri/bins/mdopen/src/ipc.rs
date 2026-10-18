@@ -42,7 +42,8 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// Ask the running app to open `abs_path`. `Err` says why it could not: the
 /// app is not running or the token was refused (the caller then falls back to
-/// the URL scheme), the app refused the file, or the app was reached but
+/// the URL scheme, and after a refused token still reports it), the app
+/// refused the file, or the app was reached but
 /// failed or did not answer in time.
 pub fn open(home: &Path, abs_path: &str, mode: Option<&str>) -> Result<(), Failure> {
     send_open(home, abs_path, mode).map_err(Failure::Unreachable)?

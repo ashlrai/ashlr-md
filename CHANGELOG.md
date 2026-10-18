@@ -47,6 +47,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`mdopen` reports a refused token even when the URL scheme opens the
+  file.** On an HTTP 401 from the running app, the CLI falls back to the
+  `mdopener://` URL, and when that launch succeeded the stale
+  `~/.mdopener/ipc-token` was never mentioned. The open still exits 0, but
+  the refused-token text and its fix (quit every Ashlr MD window and start it
+  again) now go to stderr, the way an unconfirmed launch is reported.
+  `--hook` stays silent.
+- **`stream_edit_apply` checks the preview's `editId`.** The app forwarded
+  the `editId` to the window without looking at it, so a stale preview
+  re-found `find` in whatever document was open now, perhaps another one.
+  The window now remembers its pending previews: an `editId` it has no
+  pending preview for (already applied, made before the app last started,
+  or never made), a preview of another document, or a `find`/`replace` that
+  is not the preview's is refused with the reason and "Call stream_edit
+  again for a fresh preview, then stream_edit_apply with its editId.", and
+  the document is unchanged. A preview applies once. An apply without
+  `edit_id` re-finds `find` as before.
+- **MCP: `search_vault` without `vault` after a refused token names `vault`.**
+  On an HTTP 401 with no `vault` argument, `search_vault` returned only the
+  shared refused-token message, so the agent could do nothing but wait for
+  the user to restart the app. It now adds "To search without the app, pass
+  `vault`: the directory of Markdown files to grep on disk.", as it does when
+  the app is not running; a 401 with `vault` already searched that folder.
 - **`mdopen` and `stream_edit_apply` name the right next step.** The `mdopen`
   CLI's HTTP 401 text, "IPC auth failed (stale ~/.mdopener/ipc-token)", gave
   no next step; it now says the token is stale or belongs to another Ashlr MD
