@@ -941,7 +941,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_user_annotations",
-            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, note? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty. Works without the app: when Ashlr MD is not running the tasks are read from the file on disk, `verdict` and `comments` are null (the app holds reviews only while it runs), and the result adds `appRunning: false` and a `note` saying so.",
+            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, appAuthFailed?, note? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty. Works without the app: when Ashlr MD is not running the tasks are read from the file on disk, `verdict` and `comments` are null (the app holds reviews only while it runs), and the result adds `appRunning: false` and a `note` saying so. When the app refuses this server's token (HTTP 401: a stale ~/.mdopener/ipc-token, or another instance on the port), the tasks are read from disk the same way and the result has `appAuthFailed: true` and a `note` saying how to fix it.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1331,7 +1331,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 path of the file read (absent for an unsaved open document). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC (with nothing open, an error saying to pass `path`).",
+                document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1363,7 +1363,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
                 `path` absent for an unsaved open document). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC (with nothing open, an error saying to pass `path`).",
+                reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2851,6 +2851,18 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         // This used to be an error telling the agent to start the app,
         // although the description said tasks fall back to the file.
         Err(e) if app_unreachable(&e) => tool_result(id, disk_annotations(&path)),
+        // Something answered on the app's port but refused the token in
+        // ~/.mdopener/ipc-token. That was the bare "IPC auth failed" error,
+        // with no tasks and no next step; the tasks are on disk all the same.
+        Err(e) if app_auth_failed(&e) => {
+            let mut body = disk_annotations(&path);
+            if let Some(o) = body.as_object_mut() {
+                o.remove("appRunning");
+                o.insert("appAuthFailed".into(), json!(true));
+                o.insert("note".into(), json!(ANNOTATIONS_APP_AUTH_FAILED_NOTE));
+            }
+            tool_result(id, body)
+        }
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
 }
@@ -2865,6 +2877,23 @@ read from the file on disk. `verdict` and `comments` are null because the app ke
 in memory only while it runs: a review given before it quit cannot be read, so null here \
 does not mean that no review was given. To ask for one, call request_review (open_file \
 starts the app). `tasks` are the checkboxes saved in the file.";
+
+/// The `note` of a `get_user_annotations` result read from disk because the
+/// app answered HTTP 401 (`appAuthFailed: true`).
+pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = "Ashlr MD answered on the port in \
+~/.mdopener/ipc-port but refused the token in ~/.mdopener/ipc-token (HTTP 401): the token \
+file is stale, or the port belongs to another Ashlr MD instance. So this was read from the \
+file on disk, and `verdict` and `comments` are null because the review, if there is one, is \
+held by the app this server could not read: null here does not mean that no review was \
+given. To fix it, ask the user to quit every Ashlr MD window fully and start the app again, \
+which writes a new ipc-port and ipc-token, then call get_user_annotations again. `tasks` \
+are the checkboxes saved in the file.";
+
+/// True when the app's port answered HTTP 401: the token this server read
+/// from `~/.mdopener/ipc-token` is not the one the listener expects.
+fn app_auth_failed(err: &str) -> bool {
+    err.starts_with("IPC auth failed")
+}
 
 /// What `get_user_annotations` can say about `path` with the app closed: no
 /// review (the app held them), and the task checkboxes of the Markdown file
@@ -7496,7 +7525,15 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
             Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
-    let v = ipc.get("/content").map_err(|e| app_not_running_msg(&e))?;
+    // With the app closed the error said only to launch it, although these
+    // tools read any Markdown file on disk without it.
+    let v = ipc.get("/content").map_err(|e| {
+        if app_unreachable(&e) {
+            format!("{} {NO_APP_PASS_PATH}", app_not_running_msg(&e))
+        } else {
+            app_not_running_msg(&e)
+        }
+    })?;
     let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     let path = v["path"].as_str().map(str::to_string);
     if path.is_none() && content.is_empty() {
@@ -7509,6 +7546,12 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
 /// document is open. Unlike [`NO_DOCUMENT_OPEN`] it names `path`, which these
 /// tools take; `get_current_content`'s description quotes both.
 const NO_DOCUMENT_TO_READ: &str = "No document is open in Ashlr MD; pass `path` to read a file.";
+
+/// What `export_text` and `export_metadata` add, without `path`, to the
+/// error for an app that cannot be reached: they need the app only to read
+/// the open document.
+pub const NO_APP_PASS_PATH: &str = "To read a file without the app, pass `path`: the \
+Markdown file to read from disk.";
 
 /// `content` without a leading UTF-8 byte order mark. Editors on Windows
 /// (Notepad among them) save one; it hid a document's front-matter from

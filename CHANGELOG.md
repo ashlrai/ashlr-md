@@ -47,6 +47,25 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **"Explain changes" ends like a sidebar chat turn.** The change banner's
+  answer streams into the AI sidebar, but the sidebar's Stop button could not
+  stop it (the banner kept no controller the sidebar could reach), a stop was
+  not marked as stopped, and a failure was appended to the answer as
+  `*Error: ...*` text. Stop now aborts it and marks the turn stopped, and a
+  failure is a failed turn with the same mapped message the sidebar shows
+  for its own requests.
+- **MCP: `get_user_annotations` reads the file on disk when the app refuses
+  the token.** An app that answered HTTP 401 (a stale
+  `~/.mdopener/ipc-token`, or another Ashlr MD instance on the port) gave the
+  bare "IPC auth failed" error, with no tasks and no next step, while a
+  closed app got the disk fallback. It now reads the task checkboxes from
+  disk too, with `verdict` and `comments` `null`, `appAuthFailed: true`, and a
+  `note` naming the token and saying to quit and restart Ashlr MD.
+- **MCP: `export_text` and `export_metadata` without `path` say to pass it
+  when the app is closed.** Both read any Markdown file on disk without the
+  app, but called without `path` while Ashlr MD was not running they said
+  only to launch it. The error now ends "To read a file without the app,
+  pass `path`: the Markdown file to read from disk."
 - **Provider detection that fails shows the setup panel.** When finding an
   AI provider threw an error, rather than finding none, a selection popover
   action left its "Set one up here" message in the AI sidebar's chat, which
