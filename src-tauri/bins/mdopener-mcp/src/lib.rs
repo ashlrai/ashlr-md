@@ -4955,6 +4955,14 @@ pub fn read_ipc_port() -> Result<u16, String> {
         .map_err(|e| format!("Invalid port in ipc-port file: {e}"))
 }
 
+/// The error when `~/.mdopener/ipc-token` exists but holds no token: the
+/// app writes it while launching. It used to ask "Has Ashlr MD finished
+/// starting?" and stop there; like [`app_not_running_msg`] it now names the
+/// next step.
+pub const IPC_TOKEN_EMPTY: &str = "~/.mdopener/ipc-token is empty, so Ashlr MD has not \
+    finished starting. Retry once it has finished launching, or restart Ashlr MD if the \
+    token stays empty.";
+
 /// Read the per-session auth token written by the running app.
 pub fn read_ipc_token() -> Result<String, String> {
     let path = dirs::home_dir()
@@ -4965,7 +4973,7 @@ pub fn read_ipc_token() -> Result<String, String> {
         .and_then(|s| {
             let t = s.trim().to_string();
             if t.is_empty() {
-                Err("~/.mdopener/ipc-token is empty. Has Ashlr MD finished starting?".to_string())
+                Err(IPC_TOKEN_EMPTY.to_string())
             } else {
                 Ok(t)
             }

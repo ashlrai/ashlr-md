@@ -375,6 +375,37 @@ fn not_running_errors_and_help_have_no_em_or_en_dashes() {
     assert!(!has_dash(&help), "{help}");
 }
 
+/// An empty `ipc-token` asked "Has Ashlr MD finished starting?" and gave no
+/// next step. The tool error says to retry once the app has launched, or
+/// to restart it, as the not-running error says to launch it.
+#[test]
+fn empty_ipc_token_error_names_the_next_step() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = home.path().join(".mdopener");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ipc-port"), "9").unwrap();
+    std::fs::write(dir.join("ipc-token"), "\n").unwrap();
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"get_current_content","arguments":{}}});
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    writeln!(child.stdin.as_mut().unwrap(), "{call}").unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("ipc-token is empty"), "{text}");
+    assert!(text.contains("Retry once it has finished launching"), "{text}");
+    assert!(text.contains("restart Ashlr MD"), "{text}");
+    assert!(!text.contains('?'), "{text}");
+}
+
 /// An argument that is not valid UTF-8 used to panic in `std::env::args`
 /// before the server read a request (exit 101). It is ignored and named on
 /// stderr like any unknown argument, and the server answers.

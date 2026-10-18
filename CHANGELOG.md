@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An empty IPC token says what to do next.** When
+  `~/.mdopener/ipc-token` existed but was empty, every app-backed tool
+  failed with `~/.mdopener/ipc-token is empty. Has Ashlr MD finished
+  starting?` and no next step. It now says the app has not finished
+  starting, and to retry once it has finished launching or restart Ashlr
+  MD if the token stays empty, as the not-running error says to launch it.
 - **`export_text` says `char_count` counts characters.** Its description
   called the field a "character count" without saying whether that meant
   bytes, and a non-ASCII document has more bytes than characters. It now
