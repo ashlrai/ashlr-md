@@ -47,8 +47,12 @@ The `initialize` result carries `instructions`, which clients may give the
 model: the tools to start with (`open_file`, `present_document`,
 `request_review`, `get_current_content`, `edit_document`), that only
 `open_file` starts the app, what to do when Ashlr MD is not installed (ask the
-user to install it from the releases page), and the tools that work on files
-on disk without the app.
+user to install it from the releases page), and the tools that work without
+the app: `export_text` and `export_metadata` (with `path`), `diff_documents`
+and `edit_canvas`, `search_vault` (with `vault`), `get_user_annotations` (task
+checkboxes only), `list_ai_actions` and the two conversation tools. The text
+used to say they all work "on files on disk" and to pass `path` to
+`diff_documents`, which takes `path_a` and `path_b`.
 
 ---
 

@@ -2095,6 +2095,62 @@ fn get_user_annotations_is_described_as_working_without_the_app() {
     assert!(mdopener_mcp::SERVER_INSTRUCTIONS.contains("get_user_annotations"));
 }
 
+/// The instructions said the tools that work without the app all work "on
+/// files on disk" (list_ai_actions reads none) and to pass `path` to
+/// diff_documents, which takes `path_a` and `path_b`. Every tool the
+/// sentence names now answers with no app to reach, given the argument it
+/// says to pass.
+#[test]
+fn instructions_name_the_tools_that_work_without_the_app() {
+    let text = mdopener_mcp::SERVER_INSTRUCTIONS;
+    assert!(!text.contains("diff_documents (pass `path`)"), "{text}");
+    assert!(!text.contains("files on disk"), "{text}");
+    let tail = text
+        .split("Without the app these still work: ")
+        .nth(1)
+        .expect("instructions list the tools that work without the app");
+    let listed: Vec<&str> = tail
+        .split(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+        .filter(|w| w.contains('_'))
+        .collect();
+    // Not a dot-named folder: search_vault does not search hidden ones.
+    let dir = tempfile::Builder::new().prefix("notes").tempdir().unwrap();
+    let md = dir.path().join("a.md");
+    std::fs::write(&md, "# A\n\n- [ ] task\n").unwrap();
+    let canvas = dir.path().join("b.canvas");
+    std::fs::write(&canvas, r#"{"nodes":[],"edges":[]}"#).unwrap();
+    let sess = unique_session();
+    let node =
+        json!({ "id": "n", "type": "text", "text": "t", "x": 0, "y": 0, "width": 9, "height": 9 });
+    let mut checked = Vec::new();
+    for tool in listed {
+        let args = match tool {
+            "export_text" | "export_metadata" | "get_user_annotations" => json!({ "path": md }),
+            "diff_documents" => json!({ "path_a": md, "path_b": md }),
+            "edit_canvas" => {
+                json!({ "path": canvas, "ops": [{ "type": "add_node", "node": node }], "save": false })
+            }
+            "search_vault" => json!({ "query": "task", "vault": dir.path(), "semantic": false }),
+            "list_ai_actions" => json!({}),
+            "get_conversation_context" => json!({ "session_id": sess }),
+            "save_conversation_message" => {
+                json!({ "session_id": sess, "role": "agent", "content": "hi" })
+            }
+            other => panic!("instructions say {other} works without the app; add it here"),
+        };
+        // Every request to the app fails as it does with the app closed.
+        let down = "Could not connect to IPC server at 127.0.0.1:1: Connection refused";
+        let ipc = MockIpc::new()
+            .on_get("/", Err(down.into()))
+            .on_post("/", Err(down.into()));
+        let resp = call(tool, args, &ipc);
+        assert!(resp.error.is_none(), "{tool}: {:?}", resp.error);
+        assert!(!is_error(&resp), "{tool}: {resp:?}");
+        checked.push(tool);
+    }
+    assert_eq!(checked.len(), 9, "{checked:?}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // dispatch() — top-level JSON-RPC routing
 // ════════════════════════════════════════════════════════════════════════════

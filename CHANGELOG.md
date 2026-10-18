@@ -47,6 +47,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: the server instructions name the no-app tools correctly.** They
+  said the tools that work without the app all work "on files on disk",
+  but `list_ai_actions` and the conversation tools read no file you name,
+  and to pass `path` to `diff_documents`, which takes `path_a` and
+  `path_b`. They now say `path` for `export_text` and `export_metadata`,
+  that `diff_documents` and `edit_canvas` work on the files they are given,
+  and list the rest as tools that work without the app.
 - **AI: "Explain selection" said it explained a selection.** The
   `doc-explain-selection` action has scope `document`, and the AI sidebar
   sends it the document (its first 8,000 characters), never a selection, but
