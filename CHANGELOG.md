@@ -47,6 +47,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` and `export_metadata` say what they read without
+  `path`.** Their descriptions said they operate on disk and return the
+  path of "the file read", but without `path` they read the open document
+  from the app as the window holds it, unsaved edits included, not its file
+  on disk. They now say so; with `path` they still read the file on disk.
 - **MCP: `present_document` no longer promises a full-screen view.** Its
   description and the server instructions said it switched the app into a
   "full-screen" presentation, but the window only enters Zen mode (Read

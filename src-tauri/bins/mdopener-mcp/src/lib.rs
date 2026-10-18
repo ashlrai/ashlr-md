@@ -1341,10 +1341,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
-                path of the file read (with `path` omitted, the open document's file). \
-                Operates directly on disk; no running app \
-                required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
+                path of the document (with `path` omitted, the open document's file). \
+                With `path` it reads that file directly on disk; no running app \
+                required. When `path` is omitted it reads the currently open document from the app, \
+                as the window holds it (unsaved edits included, not the file on disk); with nothing \
+                open, or the app not running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1374,9 +1375,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
-                `path` the file read: with `path` omitted, the open document's file). Operates directly \
-                on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
+                `path` the document's absolute path: with `path` omitted, the open document's file). \
+                With `path` it reads that file directly on disk; no running app required. When `path` \
+                is omitted it reads the currently open document from the app, as the window holds it \
+                (unsaved edits included, not the file on disk); with nothing open, or the app not \
+                running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

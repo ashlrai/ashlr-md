@@ -12720,3 +12720,36 @@ fn present_document_says_zen_mode_not_full_screen() {
         mdopener_mcp::SERVER_INSTRUCTIONS
     );
 }
+
+/// export_text and export_metadata said they operate on disk and return the
+/// path of "the file read", but without `path` they read the app's copy of
+/// the open document (GET /content), unsaved edits included. Both say so,
+/// and the result's text comes from the app, not the file.
+#[test]
+fn export_text_without_path_says_it_reads_the_window_not_the_file() {
+    for tool in ["export_text", "export_metadata"] {
+        let d = tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description;
+        assert!(!d.contains("the file read"), "{tool}: {d}");
+        assert!(!d.contains("Operates directly"), "{tool}: {d}");
+        assert!(
+            d.contains("as the window holds it (unsaved edits included, not the file on disk)"),
+            "{tool}: {d}"
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    std::fs::write(&file, "on disk\n").unwrap();
+    let path = file.to_string_lossy().to_string();
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": path, "content": "unsaved words\n" })),
+    );
+    let resp = call("export_text", json!({}), &ipc);
+    let r = content_text(&resp);
+    assert_eq!(r["text"].as_str().unwrap().trim(), "unsaved words", "{r}");
+    assert_eq!(r["path"], json!(path));
+}
