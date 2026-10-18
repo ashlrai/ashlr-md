@@ -283,7 +283,12 @@ pub struct StreamEditPreviewOutcome {
     pub ok: bool,
     pub diff: String,
     pub candidates: Option<Vec<StreamEditCandidate>>,
-    pub match_count: u32,
+    /// The occurrences of `find` the window counted, sent only when it
+    /// searched (a preview, or a refusal from the search); `None` when it
+    /// did not search (a `path` that is not the open document, no document
+    /// open, an exception) or predates the field. It used to be a `u32`
+    /// the window filled with a made-up `0` for those refusals.
+    pub match_count: Option<u32>,
     pub error: Option<String>,
 }
 
@@ -298,6 +303,10 @@ pub struct StreamEditApplyOutcome {
     pub replaced: u32,
     pub match_index: u32,
     pub error: Option<String>,
+    /// The occurrences of `find` the window counted, sent only with a
+    /// refusal that searched for it (not found, or `matchIndex` past the
+    /// last one); `None` when it did not search or predates the field.
+    pub match_count: Option<u32>,
 }
 
 /// In-flight `/stream-edit-apply` round-trips.
@@ -428,7 +437,7 @@ pub fn mcp_stream_edit_preview(
     ok: bool,
     diff: String,
     candidates: Option<Vec<StreamEditCandidate>>,
-    match_count: u32,
+    match_count: Option<u32>,
     #[allow(unused_variables)]
     preview_lines: u32,
     error: Option<String>,
@@ -449,11 +458,12 @@ pub fn mcp_stream_edit_apply_result(
     replaced: u32,
     match_index: u32,
     error: Option<String>,
+    match_count: Option<u32>,
     pending: tauri::State<PendingStreamEditsApply>,
 ) {
     let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
-        let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error });
+        let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error, match_count });
     }
 }
 
@@ -2130,13 +2140,16 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
-            send_json(req, serde_json::json!({
+            let mut reply = serde_json::json!({
                 "ok": true,
                 "editId": edit_id,
                 "diff": outcome.diff,
                 "candidates": outcome.candidates,
-                "matchCount": outcome.match_count,
-            }));
+            });
+            if let Some(n) = outcome.match_count {
+                reply["matchCount"] = serde_json::json!(n);
+            }
+            send_json(req, reply);
         }
         Ok(outcome) => send_json(req, stream_edit_refusal(outcome)),
         Err(_) => {
@@ -2153,12 +2166,18 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 }
 
 /// The `/stream-edit` reply when the window refused the edit. It carries the
-/// window's `matchCount` beside `ok` and `error`, which used to drop it, so
-/// the server can pass on how many times `find` occurs (0 when it is not
-/// found, or when the window did not search, as with no document open).
+/// window's `matchCount` beside `ok` and `error` when the window sent one (a
+/// refusal that searched, `0` when `find` is not found), and no `matchCount`
+/// when it did not search (no document open, a `path` that is not the open
+/// document, an exception), so a count is never made up. Those refusals
+/// used to carry a `0`.
 fn stream_edit_refusal(outcome: StreamEditPreviewOutcome) -> serde_json::Value {
     let msg = outcome.error.unwrap_or_else(|| "stream-edit preview failed.".into());
-    serde_json::json!({ "ok": false, "error": msg, "matchCount": outcome.match_count })
+    let mut reply = serde_json::json!({ "ok": false, "error": msg });
+    if let Some(n) = outcome.match_count {
+        reply["matchCount"] = serde_json::json!(n);
+    }
+    reply
 }
 
 /// POST /stream-edit-apply — atomically apply a previously previewed stream edit.
@@ -2237,10 +2256,7 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
                 "matchIndex": outcome.match_index,
             }));
         }
-        Ok(outcome) => {
-            let msg = outcome.error.unwrap_or_else(|| "stream-edit-apply failed.".into());
-            send_json(req, serde_json::json!({ "ok": false, "error": msg }));
-        }
+        Ok(outcome) => send_json(req, stream_edit_apply_refusal(outcome)),
         Err(_) => {
             app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
             send_json(req, serde_json::json!({
@@ -2249,6 +2265,19 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
             }));
         }
     }
+}
+
+/// The `/stream-edit-apply` reply when the window refused the apply. It
+/// carries the window's `matchCount` beside `ok` and `error` when the window
+/// sent one (a refusal that searched for `find`), and no `matchCount`
+/// otherwise, so a count is never made up. It used to carry none.
+fn stream_edit_apply_refusal(outcome: StreamEditApplyOutcome) -> serde_json::Value {
+    let msg = outcome.error.unwrap_or_else(|| "stream-edit-apply failed.".into());
+    let mut reply = serde_json::json!({ "ok": false, "error": msg });
+    if let Some(n) = outcome.match_count {
+        reply["matchCount"] = serde_json::json!(n);
+    }
+    reply
 }
 
 /// POST /present — open a document (if a path is given) and put the app into a
@@ -2398,9 +2427,9 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         add_unread, annotation_tasks, app_export_path, apply_unique_edit, parse_tasks,
-        review_timeout, same_path, search_body, searchable_documents, stream_edit_refusal,
-        InflightEdit, StreamEditPreviewOutcome, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
-        SEARCH_UNREAD_LISTED,
+        review_timeout, same_path, search_body, searchable_documents, stream_edit_apply_refusal,
+        stream_edit_refusal, InflightEdit, StreamEditApplyOutcome, StreamEditPreviewOutcome,
+        EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS, SEARCH_UNREAD_LISTED,
     };
     use std::sync::atomic::Ordering;
 
@@ -2411,16 +2440,51 @@ mod tests {
         let error = "`find` string is not unique (3 matches): include more surrounding context to disambiguate.";
         let v = stream_edit_refusal(StreamEditPreviewOutcome {
             ok: false,
-            match_count: 3,
+            match_count: Some(3),
             error: Some(error.into()),
             ..Default::default()
         });
         assert_eq!(v, serde_json::json!({ "ok": false, "error": error, "matchCount": 3 }));
+        // A real search that found nothing keeps its 0.
+        let v = stream_edit_refusal(StreamEditPreviewOutcome {
+            match_count: Some(0),
+            error: Some("not found".into()),
+            ..Default::default()
+        });
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": "not found", "matchCount": 0 }));
+    }
+
+    /// A refusal that did not search (no document open, a `path` that is not
+    /// the open document, an exception) used to carry a made-up
+    /// `matchCount: 0`. With no count from the window it carries none.
+    #[test]
+    fn stream_edit_refusal_without_a_search_carries_no_count() {
         let v = stream_edit_refusal(StreamEditPreviewOutcome::default());
-        assert_eq!(
-            v,
-            serde_json::json!({ "ok": false, "error": "stream-edit preview failed.", "matchCount": 0 })
-        );
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": "stream-edit preview failed." }));
+        let v = stream_edit_refusal(StreamEditPreviewOutcome {
+            error: Some("Path mismatch".into()),
+            ..Default::default()
+        });
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": "Path mismatch" }));
+    }
+
+    /// A refused stream-edit apply answered `{ ok: false, error }` with no
+    /// count. It carries the window's `matchCount` when the window sent one
+    /// (a refusal that searched), and still none when it did not.
+    #[test]
+    fn stream_edit_apply_refusal_carries_a_count_only_when_sent() {
+        let error = "matchIndex 5 out of bounds: document has 2 occurrence(s).";
+        let v = stream_edit_apply_refusal(StreamEditApplyOutcome {
+            error: Some(error.into()),
+            match_count: Some(2),
+            ..Default::default()
+        });
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": error, "matchCount": 2 }));
+        let v = stream_edit_apply_refusal(StreamEditApplyOutcome {
+            error: Some("Path mismatch".into()),
+            ..Default::default()
+        });
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": "Path mismatch" }));
     }
 
     /// `/search` said nothing when the vault list was cut short, so an agent
@@ -3356,8 +3420,13 @@ mod tests {
         std::fs::write(&other, "y").unwrap();
         assert!(!names_open_document(other.to_str().unwrap(), open_s));
         assert!(!names_open_document(open_s, ""));
-        // Unsaved buffers have no path to resolve; only an exact match counts.
-        assert!(names_open_document("Untitled", "Untitled"));
+        // A path that does not resolve (the open file was deleted or moved
+        // since it was opened) is compared as given: only an exact match
+        // counts. The app opens only files, so every open document has one.
+        let gone = d.0.join("gone.md");
+        let gone_s = gone.to_str().unwrap();
+        assert!(names_open_document(gone_s, gone_s));
+        assert!(!names_open_document(&format!("{}/./gone.md", d.0.display()), gone_s));
     }
 
     #[test]

@@ -47,6 +47,36 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` and `export_metadata` say what they read without
+  `path`.** Their descriptions said they operate on disk and return the
+  path of "the file read", but without `path` they read the open document
+  from the app as the window holds it, edits not yet saved included, not its file
+  on disk. They now say so; with `path` they still read the file on disk.
+- **MCP: `present_document` no longer promises a full-screen view.** Its
+  description and the server instructions said it switched the app into a
+  "full-screen" presentation, but the window only enters Zen mode (Read
+  view with the title bar, tabs, status bar and side panels hidden) and
+  keeps its size. They now say that, and that Escape leaves it.
+- **Lint: `biome check src` reports no errors again.** CI's Check (Linux)
+  job runs it, and it failed on formatting in `src/mcp/handlers.test.ts`,
+  `src/mcp/bridge.test.ts` and `src/mcp/handlers/edit.ts` and on the import
+  order of `src/docFacts.test.ts`. Those are formatted, and the `src/mcp`
+  warnings and infos (a `void` in a union type, string concatenation where
+  a template literal reads better) are fixed too. No behaviour changes.
+- **MCP: every path parameter says it takes `~/`.** Every path argument
+  expands a leading `~` for the home directory, but the descriptions of
+  `path`, `path_a`, `path_b`, `vault` and `cited_docs` said only "absolute,
+  or relative to this server's working directory", and `output_path` said
+  only how a relative path resolves. Each now says "absolute, `~/...` for the
+  home directory, or relative to this server's working directory".
+- **MCP: a `stream_edit` refusal that did not search has no `matchCount`.**
+  With no document open, a `path` that is not the open document, or an
+  exception in the window, the window sent `matchCount: 0`, so the tool's
+  error said `find` occurs nowhere although nothing was searched. Those
+  refusals now carry no `matchCount`; a search that found nothing still
+  says `0`. The app's `StreamEditPreviewOutcome.match_count` is optional,
+  and the `stream_edit` description and docs/AGENTS.md say which refusals
+  carry a count.
 - **MCP: a path may start with `~/`.** No shell expands `~` inside a JSON
   argument, so `~/notes/plan.md` was resolved as a folder named `~` in the
   server's working directory, and every path tool said the file did not
@@ -143,6 +173,47 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   now carries `matchCount` too, and the tool's error result has it beside
   `content` and `isError`; the error text and the rest of the result are as
   they were.
+- **MCP edits: no answer for a document with no file is left in the
+  window.** Every edit now refuses a state with no file ("No document is
+  open") before it saves or checks a preview, so the save reason "the
+  document has no file yet" and the name "an unsaved document" in a
+  stale-preview refusal could no longer be given. They are removed, and a
+  preview's file is typed as a path, never `null`. No reply changes.
+- **MCP: the reads treat `path: null` as no document, whatever its
+  content.** `get_current_content`, `mdopener://current`, the prompts and
+  `export_text` / `export_metadata` without `path` refused the app's
+  `path: null` answer only when its content was also empty, so a buffer
+  with no file and some text read as a document (and the exports gave no
+  `path`), while the edit tools refuse that state. Each now gives its own
+  "no document open" error for any `path: null` answer, with the text it
+  had, and the exports' result always has `path`.
+- **MCP: a `stream_edit_apply` refused by its search says how many
+  matches there are.** When `find` was no longer in the document or
+  `match_index` was past its last occurrence, the result had only the error
+  text (the out-of-bounds one names the count in words). The window now
+  sends its count, the app's `/stream-edit-apply` reply passes it on, and
+  the tool's error result has `matchCount` beside `content` and `isError`.
+  A refusal that did not search (no document open, a `path` that is not
+  the open document, a stale `edit_id`, a busy app, a window that does not
+  answer) has no count, and neither does an older app; no count is made
+  up. The Rust-side `/stream-edit` refusals (an empty `find`, a `path`
+  mismatch, a busy app, a timeout) are not searched either, so they still
+  carry none.
+- **App IPC: a test comment no longer describes an unsaved document.** A
+  comment in `src-tauri/src/ipc.rs` said "Unsaved buffers have no path to
+  resolve" and its check compared `Untitled` with itself, although the app
+  opens only files. It now describes the real case, a file deleted or moved
+  since it was opened, and checks that path; a doc-facts test keeps
+  `ipc.rs` and the edit handlers from naming an unsaved document again.
+- **MCP: the edit descriptions no longer say a late window changed
+  nothing.** `set_content`, `replace_document`, `edit_document`,
+  `stream_edit_apply` and `stream_edit` with `preview: false` listed "the
+  window does not answer within 4 s" among the refusals that leave the
+  document unchanged, and docs/AGENTS.md said the same, but the app's
+  timeout error says the window may still apply the edit and to check with
+  `get_current_content` before retrying. The descriptions and rows now say
+  that. A `stream_edit` preview applies nothing, so its timeout is still
+  listed as a refusal.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

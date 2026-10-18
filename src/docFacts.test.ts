@@ -19,6 +19,7 @@ import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
 import agentSetup from "../src-tauri/src/agent_setup.rs?raw";
+import appIpc from "../src-tauri/src/ipc.rs?raw";
 import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import linuxConf from "../src-tauri/tauri.linux.conf.json?raw";
@@ -194,6 +195,43 @@ describe(`doc facts: ${AGENTS}`, () => {
       // the next line's leading whitespace dropped.
       const text = desc?.replace(/\\\n\s*/g, "").replaceAll('\\"', '"');
       expect(text, `${tool}'s description`).toContain(msg);
+    }
+  });
+
+  it("the app's IPC and edit handlers name no unsaved document", () => {
+    // The app opens only files (with none it shows its welcome screen), so
+    // there is no unsaved or "Untitled" document; an ipc.rs test comment
+    // still described one after the code stopped allowing it.
+    for (const [file, src] of [
+      ["src-tauri/src/ipc.rs", appIpc],
+      ["src/mcp/handlers/edit.ts", mcpEditHandlers],
+    ] as const) {
+      for (const claim of [/unsaved (buffer|document)/i, /\bUntitled\b/]) {
+        expect(
+          src,
+          `${where(file, src, claim)} names a document with no file`,
+        ).not.toMatch(claim);
+      }
+    }
+  });
+
+  it("edit rows say a window that answers late may still apply the edit", () => {
+    // The app's timeout error says the window may still apply it; these rows
+    // used to count a late window among the refusals that change nothing.
+    for (const tool of [
+      "set_content",
+      "edit_document",
+      "stream_edit",
+      "stream_edit_apply",
+    ]) {
+      const row =
+        agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
+      expect(row, `${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`).toMatch(
+        /may still apply the (edit|content)/,
+      );
+      expect(row).not.toMatch(
+        /as do a window that does not answer|so does a window that/,
+      );
     }
   });
 

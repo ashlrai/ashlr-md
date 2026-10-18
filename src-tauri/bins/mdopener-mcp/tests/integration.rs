@@ -1012,19 +1012,58 @@ fn get_current_content_no_doc_open_is_a_tool_error() {
     }
 }
 
-/// An unsaved document with text, and a saved document that is empty, are
-/// still successes: only a null path with no content means nothing is open.
+/// A saved document that is empty is still a success.
 #[test]
-fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
-    for (path, content) in [(Value::Null, "# Draft"), (json!("/docs/empty.md"), "")] {
-        let ipc =
-            MockIpc::new().on_get("/content", Ok(json!({ "path": path, "content": content })));
-        let resp = tool_get_content(id(1), &ipc);
-        assert!(resp.error.is_none());
-        assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
-        let text = content_text(&resp);
-        assert_eq!(text["path"], path);
-        assert_eq!(text["content"], content);
+fn get_current_content_empty_saved_document_is_a_success() {
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/empty.md", "content": "" })),
+    );
+    let resp = tool_get_content(id(1), &ipc);
+    assert!(resp.error.is_none());
+    assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
+    let text = content_text(&resp);
+    assert_eq!(text["path"], "/docs/empty.md");
+    assert_eq!(text["content"], "");
+}
+
+/// The app opens only files, so `path: null` is no document whatever
+/// `content` holds, as the edit tools treat it. These reads refused it only
+/// with empty content, so a path-less buffer with text read as a document.
+/// Each now gives its own "no document open" error, with its text unchanged.
+#[test]
+fn reads_refuse_a_null_path_whatever_the_content() {
+    let ipc = || {
+        MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": null, "content": "# Draft\n" })),
+        )
+    };
+    let err = tool_error_text(&tool_get_content(id(1), &ipc()));
+    assert_eq!(
+        err,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    let resp = handle_resource_read(id(1), "mdopener://current", &ipc());
+    let e = resp.error.expect("mdopener://current is an error");
+    assert_eq!(e.code, -32002);
+    assert_eq!(
+        e.message,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    let e = handle_prompt_get(id(1), "summarize", &ipc()).error.unwrap();
+    assert_eq!(e.code, -32002);
+    assert_eq!(
+        e.message,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    for tool in ["export_text", "export_metadata"] {
+        let resp = call(tool, json!({}), &ipc());
+        assert_eq!(
+            tool_error_text(&resp),
+            "No document is open in Ashlr MD; pass `path` to read a file.",
+            "{tool}"
+        );
     }
 }
 
@@ -9005,6 +9044,53 @@ fn every_path_argument_says_what_a_relative_path_resolves_against() {
     assert!(missing.is_empty(), "{}", missing.join("\n"));
 }
 
+/// Every path argument expands a leading `~` (expand_home), but the path
+/// descriptions said only "absolute, or relative to this server's working
+/// directory", and `output_path` said only how a relative path resolves.
+/// Each one, `cited_docs` included, names all three forms in one wording.
+#[test]
+fn every_path_description_names_all_accepted_forms() {
+    const FORMS: &str =
+        "absolute, `~/...` for the home directory, or relative to this server's working directory";
+    let mut checked = Vec::new();
+    let mut missing = Vec::new();
+    for def in tool_registry() {
+        let Some(props) = def.input_schema["properties"].as_object() else {
+            continue;
+        };
+        for (name, prop) in props {
+            if !(name == "path"
+                || name.starts_with("path_")
+                || name == "vault"
+                || name.ends_with("_path")
+                || name == "cited_docs")
+            {
+                continue;
+            }
+            checked.push(format!("{}.{name}", def.name));
+            let desc = prop["description"].as_str().unwrap_or("");
+            if !desc.contains(FORMS) {
+                missing.push(format!("{}.{name}: {desc}", def.name));
+            }
+        }
+    }
+    for want in [
+        "open_file.path",
+        "export.output_path",
+        "search_vault.vault",
+        "save_conversation_message.cited_docs",
+        "diff_documents.path_a",
+        "stream_edit.path",
+        "stream_edit_apply.path",
+    ] {
+        assert!(
+            checked.iter().any(|c| c == want),
+            "{want} not checked: {checked:?}"
+        );
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it
@@ -10369,6 +10455,118 @@ fn stream_edit_refusal_carries_the_match_count() {
     );
 }
 
+/// A stream_edit refusal that did not search (no document open, a `path`
+/// that is not the open document, an exception in the window) used to carry
+/// a made-up `matchCount: 0`, and the description said so. Now the app sends
+/// no count for them and the tool adds no field, while a real search that
+/// found nothing keeps its `0`.
+#[test]
+fn stream_edit_refusal_without_a_search_has_no_match_count() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(!d.contains("or when it did not search"), "{d}");
+    assert!(d.contains("did not search, and have none"), "{d}");
+    let missing = "`find` string not found in the document.";
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit",
+        Ok(json!({ "ok": false, "error": missing, "matchCount": 0 })),
+    );
+    let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+    assert_eq!(resp.result.as_ref().unwrap()["matchCount"], 0);
+    let none = "No document is open in Ashlr MD; open one first (open_file).";
+    for reply in [
+        json!({ "ok": false, "error": none }),
+        json!({ "ok": false, "error": none, "matchCount": null }),
+    ] {
+        let ipc = MockIpc::new().on_post("/stream-edit", Ok(reply));
+        let resp = call("stream_edit", json!({ "find": "a", "replace": "b" }), &ipc);
+        let r = resp.result.as_ref().unwrap();
+        assert!(r.get("matchCount").is_none(), "{r}");
+        assert_eq!(tool_error_text(&resp), none);
+    }
+}
+
+/// The edit descriptions listed "the window does not answer within 4 s"
+/// among the refusals that leave the document unchanged, but the app's
+/// timeout error says the window may still apply the edit (or content) and
+/// to check with get_current_content. Each says that now; a stream_edit
+/// preview applies nothing, so its timeout stays a refusal.
+#[test]
+fn edit_descriptions_say_a_late_window_may_still_apply() {
+    for tool in [
+        "set_content",
+        "replace_document",
+        "edit_document",
+        "stream_edit",
+        "stream_edit_apply",
+    ] {
+        let d = tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description;
+        assert!(
+            d.contains("does not answer within 4 s is an error too, but it may still apply"),
+            "{tool}: {d}"
+        );
+        assert!(
+            d.contains("call get_current_content to see whether it did before retrying"),
+            "{tool}: {d}"
+        );
+        assert!(
+            !d.contains("when the window does not answer within 4 s"),
+            "{tool}: {d}"
+        );
+    }
+}
+
+/// A stream_edit_apply refusal from the window's search carries its
+/// `matchCount` beside `content` and `isError`, which the tool did not pass
+/// on; a refusal without one (it did not search, or an older app) adds no
+/// field, so the result is as it was.
+#[test]
+fn stream_edit_apply_refusal_carries_the_match_count_when_sent() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "stream_edit_apply")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains("also has `matchCount` beside `content` and `isError`"),
+        "{d}"
+    );
+    assert!(
+        d.contains("The other refusals did not search, and have none."),
+        "{d}"
+    );
+    let refusal = "matchIndex 5 out of bounds: document has 2 occurrence(s). Use a match_index \
+                   from 0 to 1, or call stream_edit again to see the candidates.";
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": false, "error": refusal, "matchCount": 2 })),
+    );
+    let args = json!({ "find": "a", "replace": "b", "match_index": 5 });
+    let resp = call("stream_edit_apply", args.clone(), &ipc);
+    let r = resp.result.as_ref().unwrap();
+    assert_eq!(
+        r,
+        &json!({ "content": [{ "type": "text", "text": refusal }], "isError": true, "matchCount": 2 })
+    );
+    let ipc = MockIpc::new().on_post(
+        "/stream-edit-apply",
+        Ok(json!({ "ok": false, "error": refusal })),
+    );
+    let resp = call("stream_edit_apply", args, &ipc);
+    let r = resp.result.as_ref().unwrap();
+    assert_eq!(
+        r,
+        &json!({ "content": [{ "type": "text", "text": refusal }], "isError": true })
+    );
+}
+
 /// export's description said when the call returns but not what it
 /// returns, though docs/AGENTS.md gave both shapes. The named shapes are the
 /// tool's own results, for a written file and for the dialog.
@@ -10423,12 +10621,12 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
     for (tool, shape, keys) in [
         (
             "export_text",
-            "{ text, word_count, char_count, path? }",
+            "{ text, word_count, char_count, path }",
             &["char_count", "path", "text", "word_count"][..],
         ),
         (
             "export_metadata",
-            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? }",
+            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path }",
             &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
         ),
     ] {
@@ -10444,14 +10642,14 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
             assert_eq!(v["wikilinks"], json!(["A", "B"]));
         }
     }
-    // Without `path`, an unsaved open document gives no `path`.
+    // Without `path`, the result names the open document's file.
     for tool in ["export_text", "export_metadata"] {
         let ipc = MockIpc::new().on_get(
             "/content",
-            Ok(json!({ "path": null, "content": "# Draft\n" })),
+            Ok(json!({ "path": "/docs/draft.md", "content": "# Draft\n" })),
         );
         let v = content_text(&call(tool, json!({}), &ipc));
-        assert!(v.get("path").is_none(), "{tool}: {v}");
+        assert_eq!(v["path"], "/docs/draft.md", "{tool}: {v}");
     }
 }
 
@@ -12497,4 +12695,63 @@ fn edit_canvas_not_found_caps_the_id_list() {
     assert!(msg.contains("`n0`, `n1`"), "{msg}");
     assert!(msg.contains("`n19` and 5 more."), "{msg}");
     assert!(!msg.contains("`n20`"), "{msg}");
+}
+
+/// present_document and the server instructions promised a "full-screen"
+/// presentation, but the window only enters Zen mode (Read view with the
+/// title bar, tabs, status bar and side panels hidden) and keeps its size.
+/// They say what it does now.
+#[test]
+fn present_document_says_zen_mode_not_full_screen() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "present_document")
+        .unwrap()
+        .description;
+    assert!(!d.contains("full-screen"), "{d}");
+    assert!(d.contains("Read view in Zen mode"), "{d}");
+    assert!(
+        d.contains("the window keeps its size, and Escape leaves it"),
+        "{d}"
+    );
+    assert!(
+        !mdopener_mcp::SERVER_INSTRUCTIONS.contains("full-screen"),
+        "{}",
+        mdopener_mcp::SERVER_INSTRUCTIONS
+    );
+}
+
+/// export_text and export_metadata said they operate on disk and return the
+/// path of "the file read", but without `path` they read the app's copy of
+/// the open document (GET /content), edits not yet saved included. Both say so,
+/// and the result's text comes from the app, not the file.
+#[test]
+fn export_text_without_path_says_it_reads_the_window_not_the_file() {
+    for tool in ["export_text", "export_metadata"] {
+        let d = tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description;
+        assert!(!d.contains("the file read"), "{tool}: {d}");
+        assert!(!d.contains("Operates directly"), "{tool}: {d}");
+        assert!(
+            d.contains(
+                "as the window holds it (edits not yet saved included, not the file on disk)"
+            ),
+            "{tool}: {d}"
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    std::fs::write(&file, "on disk\n").unwrap();
+    let path = file.to_string_lossy().to_string();
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": path, "content": "unsaved words\n" })),
+    );
+    let resp = call("export_text", json!({}), &ipc);
+    let r = content_text(&resp);
+    assert_eq!(r["text"].as_str().unwrap().trim(), "unsaved words", "{r}");
+    assert_eq!(r["path"], json!(path));
 }

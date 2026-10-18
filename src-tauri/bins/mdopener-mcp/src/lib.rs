@@ -225,7 +225,7 @@ pub const DEFAULT_PROTOCOL: &str = "2025-06-18";
 pub const SERVER_INSTRUCTIONS: &str = "Ashlr MD is a Markdown viewer and editor on the \
 user's desktop. These tools show Markdown documents to the human in its window, ask for \
 their sign-off, and edit the open document. Start with: open_file to show a file (the only \
-tool that starts the app), present_document for a full-screen reading view of a finished \
+tool that starts the app), present_document for a distraction-free reading view of a finished \
 result, request_review to wait for the human to Approve, Request changes or Dismiss, \
 get_current_content to read the open document, and edit_document for an exact, unique \
 find and replace in it (prefer it to replace_document and set_content, which replace the \
@@ -829,7 +829,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file to open (absolute, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
+                        "description": "Path to the Markdown file to open (absolute, `~/...` for the home directory, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path."
                     },
                     "mode": {
                         "type": "string",
@@ -901,7 +901,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "output_path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub). Relative paths resolve against this server's working directory; the directory must exist."
+                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub): absolute, `~/...` for the home directory, or relative to this server's working directory. The directory must exist."
                     }
                 },
                 "required": ["format"]
@@ -921,7 +921,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, or relative to this server's working directory)." },
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
                     "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty or whitespace-only string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
                     "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
@@ -945,7 +945,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, or relative to this server's working directory)." }
+                    "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory)." }
                 },
                 "required": ["path"]
             }),
@@ -960,14 +960,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved. A window that does not answer within 4 s is an error too, but it may still apply the edit: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
-                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
                 },
                 "required": ["find", "replace"]
             }),
@@ -989,7 +989,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
                     "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
-                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, or relative to the server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
+                    "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, `~/...` for the home directory, or relative to this server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
                 "required": ["query"]
             }),
@@ -1004,11 +1004,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free reading presentation (Read view in Zen mode: the title bar, tabs, status bar and side panels are hidden, the window keeps its size, and Escape leaves it), ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, or relative to this server's working directory). Omit to present the current document." }
+                    "path": { "type": "string", "minLength": 1, "description": "Optional path to the Markdown file to open before presenting (absolute, `~/...` for the home directory, or relative to this server's working directory). Omit to present the current document." }
                 }
             }),
             annotations: Some(json!({
@@ -1094,7 +1094,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "cited_docs": {
                         "type": "array",
                         "items": { "type": "string", "minLength": 1 },
-                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
+                        "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, `~/...` for the home directory, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once."
                     }
                 },
                 "required": ["session_id", "role", "content"]
@@ -1114,8 +1114,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, or relative to this server's working directory)." },
-                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, or relative to this server's working directory)." },
+                    "path_a": { "type": "string", "minLength": 1, "description": "Path to the first (original) document (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
+                    "path_b": { "type": "string", "minLength": 1, "description": "Path to the second (modified) document (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
                     "context_lines": {
                         "type": "integer",
                         "minimum": 0,
@@ -1143,7 +1143,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the .canvas file to edit (absolute, or relative to this server's working directory)."
+                        "description": "Path to the .canvas file to edit (absolute, `~/...` for the home directory, or relative to this server's working directory)."
                     },
                     "ops": {
                         "type": "array",
@@ -1222,11 +1222,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 Refused (isError, document unchanged) when no document is open \
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \
                 when `find` is not found, when `path` is not the open \
-                document, with preview=false when `find` is not unique, when the window does not answer \
-                within 4 s, or when two edits are already waiting on the app (retry in a moment). \
-                A refusal from the window also has `matchCount` beside `content` and `isError`: the \
-                occurrences of `find` it counted (0 when not found, or when it did not search, as with \
-                no document open).",
+                document, with preview=false when `find` is not unique, when a preview's window does not \
+                answer within 4 s, or when two edits are already waiting on the app (retry in a moment). \
+                With preview=false a window that does not answer within 4 s is an error too, but it may \
+                still apply the edit: call get_current_content to see whether it did before retrying. \
+                A refusal from the window's search also has `matchCount` beside `content` and `isError`: the \
+                occurrences of `find` it counted (0 when not found). The other refusals (no document \
+                open, a `path` that is not the open document, a busy app, a window that does not \
+                answer or fails) did not search, and have none.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1252,7 +1255,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1275,12 +1278,17 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 it to disk, with `save: true`). Refused (isError, document unchanged) when no document \
                 is open (\"No document is open in Ashlr MD; open one first (open_file).\", as \
                 edit_document says), when `find` is no longer in the live document, when `match_index` is past its last occurrence (the error \
-                says how many there are), when `path` is not the open document, when the window does not \
-                answer within 4 s, when two edits are already waiting on the app (retry in a moment), or when \
+                says how many there are), when `path` is not the open document, when two edits are already \
+                waiting on the app (retry in a moment), or when \
                 `edit_id` names no pending preview of the open document with this find/replace (one \
                 already applied, made before the app started, or of another document: call stream_edit \
                 again for a fresh preview); the app opens only files, so every document it shows has \
-                one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
+                one. With `save: true`, a failed save is an error saying the edit was applied but not saved. \
+                A window that does not answer within 4 s is an error too, but it may still apply the edit: \
+                call get_current_content to see whether it did before retrying. \
+                A refusal because `find` is not found or `match_index` is past its last occurrence also \
+                has `matchCount` beside `content` and `isError`: the occurrences of `find` the window \
+                counted. The other refusals did not search, and have none.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1311,7 +1319,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Optional path assertion: errors if a different file is open; absolute, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
+                        "description": "Optional path assertion: errors if a different file is open; absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check."
                     }
                 },
                 "required": ["find", "replace"]
@@ -1331,19 +1339,20 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
-                { text, word_count, char_count, path? }: the extracted text, its word count, its length \
+                { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
-                path of the file read (with `path` omitted, the open document's file). \
-                Operates directly on disk; no running app \
-                required. Accepts an optional path override; when omitted, reads the currently open \
-                document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
+                path of the document (with `path` omitted, the open document's file). \
+                With `path` it reads that file directly on disk; no running app \
+                required. When `path` is omitted it reads the currently open document from the app, \
+                as the window holds it (edits not yet saved included, not the file on disk); with nothing \
+                open, or the app not running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1364,18 +1373,20 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
-                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
+                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
-                `path` the file read: with `path` omitted, the open document's file). Operates directly \
-                on disk; no running app required. Accepts an optional path override; when omitted, \
-                reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
+                `path` the document's absolute path: with `path` omitted, the open document's file). \
+                With `path` it reads that file directly on disk; no running app required. When `path` \
+                is omitted it reads the currently open document from the app, as the window holds it \
+                (edits not yet saved included, not the file on disk); with nothing open, or the app not \
+                running, it is an error saying to pass `path`.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Path to the Markdown file (absolute, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
+                        "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used."
                     }
                 }
             }),
@@ -1390,7 +1401,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved. A window that does not answer within 4 s is an error too, but it may still apply the content: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1410,7 +1421,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved. A window that does not answer within 4 s is an error too, but it may still apply the content: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2113,12 +2124,11 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
 /// this tool used to return as a success, so an agent could not tell "nothing
 /// open" from an empty document. It is an error now, the one
 /// `mdopener://current` and `export_text` give. The app opens only files,
-/// so `path: null` is its welcome screen.
+/// so `path: null` is its welcome screen whatever `content` holds, as the
+/// edit tools treat it; it used to be an error only with empty content.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
-        Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
-            tool_error(id, NO_DOCUMENT_OPEN.to_string())
-        }
+        Ok(v) if v["path"].is_null() => tool_error(id, NO_DOCUMENT_OPEN.to_string()),
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
@@ -4221,16 +4231,19 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// `-32000` when the app cannot be reached. An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
-/// prompts already refused it.
+/// prompts already refused it. The app opens only files, so `path: null` is
+/// no document whatever `content` holds, as the edit tools treat it; it used
+/// to be refused only with empty content.
 fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
     let v = ipc
         .get("/content")
         .map_err(|e| (-32000, app_not_running_msg(&e)))?;
-    let no_document = v["path"].is_null();
+    if v["path"].is_null() {
+        return Err((-32002, NO_DOCUMENT_OPEN.to_string()));
+    }
     match v["content"].as_str() {
-        Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
-        _ if no_document => Err((-32002, NO_DOCUMENT_OPEN.to_string())),
-        _ => Err((
+        Some(c) => Ok(c.to_string()),
+        None => Err((
             -32002,
             "Ashlr MD did not return the current document's content.".to_string(),
         )),
@@ -7481,7 +7494,14 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
         Ok(v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit-apply failed.");
-                return tool_error(id, msg.to_string());
+                let mut resp = tool_error(id, msg.to_string());
+                // The window's count of `find`, sent only with a refusal that
+                // searched for it (an app that predates it, or a refusal that
+                // did not search, sends none), beside `content` and `isError`.
+                if let (Some(n), Some(r)) = (v["matchCount"].as_u64(), resp.result.as_mut()) {
+                    r["matchCount"] = json!(n);
+                }
+                return resp;
             }
             tool_result(id, v)
         }
@@ -7940,17 +7960,20 @@ pub fn count_words(text: &str) -> usize {
 /// When `args["path"]` is provided, reads that file directly from disk.
 /// When omitted, fetches the current document's content via IPC.
 ///
-/// Returns `{ text, word_count, char_count, path? }`.
+/// Returns `{ text, word_count, char_count, path }`.
 /// The Markdown `export_text` and `export_metadata` work on, with its path:
 /// the file `path` names (read from disk), else the document open in the app.
 /// With neither a path nor an open document there is nothing to read, which
-/// is an error rather than an empty document.
-fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
+/// is an error rather than an empty document. The app opens only files, so a
+/// `/content` answer with no `path` is no document whatever its `content`, as
+/// the edit tools treat it; it used to be refused only with empty content,
+/// and the result then had no `path`.
+fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, String), String> {
     if let Some(raw) = args["path"].as_str() {
         let doc = checked_document(&agent_path(raw), "path")?;
         let abs = doc.path.clone();
         return match doc.read() {
-            Ok(c) => Ok((without_bom(c), Some(abs))),
+            Ok(c) => Ok((without_bom(c), abs)),
             Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
@@ -7963,11 +7986,10 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
             app_not_running_msg(&e)
         }
     })?;
-    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
-    let path = v["path"].as_str().map(str::to_string);
-    if path.is_none() && content.is_empty() {
+    let Some(path) = v["path"].as_str().map(str::to_string) else {
         return Err(NO_DOCUMENT_TO_READ.to_string());
-    }
+    };
+    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     Ok((content, path))
 }
 
@@ -8011,9 +8033,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         "word_count": word_count,
         "char_count": char_count,
     });
-    if let Some(p) = path_used {
-        result["path"] = json!(p);
-    }
+    result["path"] = json!(path_used);
     tool_result(id, result)
 }
 
@@ -8578,8 +8598,6 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         "embedded_image_count": embedded_image_count,
         "word_count": word_count,
     });
-    if let Some(p) = path_used {
-        result["path"] = json!(p);
-    }
+    result["path"] = json!(path_used);
     tool_result(id, result)
 }
