@@ -853,7 +853,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_current_content",
-            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is null for an unsaved document. With no document open this is an error (isError: true, \"No document is open in Ashlr MD. Open one first (open_file).\"), as for mdopener://current (-32002 there, same message); export_text and export_metadata without `path` are errors too, but theirs says to pass `path` instead (\"No document is open in Ashlr MD; pass `path` to read a file.\"). The app reports an unsaved document that is still empty the same way, so an error here never hides content.",
+            description: "Return the path and full Markdown content of the document currently open in Ashlr MD, as { path, content }. `path` is the absolute path of the document's file: the app opens only files, so it answers `path: null` only when no document is open (its welcome screen, with empty content). With no document open this is an error (isError: true, \"No document is open in Ashlr MD. Open one first (open_file).\"), as for mdopener://current (-32002 there, same message); export_text and export_metadata without `path` are errors too, but theirs says to pass `path` instead (\"No document is open in Ashlr MD; pass `path` to read a file.\").",
             input_schema: json!({ "type": "object", "properties": {} }),
             annotations: Some(json!({
                 "title": "Get Current Content",
@@ -960,7 +960,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the edit was applied but not saved.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1213,7 +1213,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 lines of context (default 5) so the agent can verify the change before applying. \
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
-                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (unsaved; \
+                stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
                 the find string must match exactly once) and the result has applied: true, so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document for large files or when the agent needs to \
                 confirm correctness before committing. Returns { ok, editId, diff, candidates, matchCount, applied }: \
@@ -1223,7 +1223,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \
                 when `find` is not found, when `path` is not the open \
                 document, with preview=false when `find` is not unique, when the window does not answer \
-                within 4 s, or when two edits are already waiting on the app (retry in a moment).",
+                within 4 s, or when two edits are already waiting on the app (retry in a moment). \
+                A refusal from the window also has `matchCount` beside `content` and `isError`: the \
+                occurrences of `find` it counted (0 when not found, or when it did not search, as with \
+                no document open).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1276,9 +1279,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 answer within 4 s, when two edits are already waiting on the app (retry in a moment), or when \
                 `edit_id` names no pending preview of the open document with this find/replace (one \
                 already applied, made before the app started, or of another document: call stream_edit \
-                again for a fresh preview); \
-                with `save: true`, a failed save, or a document with no file yet, is an error saying the \
-                edit was applied but not saved.",
+                again for a fresh preview); the app opens only files, so every document it shows has \
+                one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1331,7 +1333,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
                 { text, word_count, char_count, path? }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
-                path of the file read (absent for an unsaved open document). \
+                path of the file read (with `path` omitted, the open document's file). \
                 Operates directly on disk; no running app \
                 required. Accepts an optional path override; when omitted, reads the currently open \
                 document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
@@ -1364,7 +1366,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
-                `path` absent for an unsaved open document). Operates directly \
+                `path` the file read: with `path` omitted, the open document's file). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
                 reads the currently open document via IPC (with nothing open, or the app not running, an error saying to pass `path`).",
             input_schema: json!({
@@ -2110,8 +2112,8 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
 /// no document open the app answers `{ "path": null, "content": "" }`, which
 /// this tool used to return as a success, so an agent could not tell "nothing
 /// open" from an empty document. It is an error now, the one
-/// `mdopener://current` and `export_text` give; an empty unsaved document
-/// reads the same at the IPC and is reported the same way.
+/// `mdopener://current` and `export_text` give. The app opens only files,
+/// so `path: null` is its welcome screen.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
         Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
@@ -7351,7 +7353,8 @@ pub fn stream_edit_path(raw: &str, ipc: &dyn IpcClient) -> String {
 ///  - `matchCount` — total occurrences of find in the document
 ///  - `editId`     — the app's id for this preview
 ///  - `applied`    — true only when `preview` was false (the edit is applied)
-///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error
+///  - `ok`         — true; a refusal (find not found, path mismatch) is a tool error,
+///    with the window's `matchCount` beside `content` when the app sent one
 pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Response {
     let find = match args["find"].as_str() {
         Some(f) if !f.is_empty() => f.to_string(),
@@ -7401,7 +7404,14 @@ pub fn tool_stream_edit(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         Ok(mut v) => {
             if v["ok"].as_bool() == Some(false) {
                 let msg = v["error"].as_str().unwrap_or("stream-edit preview failed.");
-                return tool_error(id, msg.to_string());
+                let mut resp = tool_error(id, msg.to_string());
+                // The app's count of `find` (an app that predates it sends
+                // none), beside `content` and `isError`, which stay as they
+                // were. It used to be dropped.
+                if let (Some(n), Some(r)) = (v["matchCount"].as_u64(), resp.result.as_mut()) {
+                    r["matchCount"] = json!(n);
+                }
+                return resp;
             }
             // Without a preview the app has already applied the edit (unsaved);
             // calling stream_edit_apply on top would apply it a second time.

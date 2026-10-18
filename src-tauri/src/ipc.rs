@@ -2138,10 +2138,7 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
                 "matchCount": outcome.match_count,
             }));
         }
-        Ok(outcome) => {
-            let msg = outcome.error.unwrap_or_else(|| "stream-edit preview failed.".into());
-            send_json(req, serde_json::json!({ "ok": false, "error": msg }));
-        }
+        Ok(outcome) => send_json(req, stream_edit_refusal(outcome)),
         Err(_) => {
             app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
             send_json(req, serde_json::json!({
@@ -2153,6 +2150,15 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
             }));
         }
     }
+}
+
+/// The `/stream-edit` reply when the window refused the edit. It carries the
+/// window's `matchCount` beside `ok` and `error`, which used to drop it, so
+/// the server can pass on how many times `find` occurs (0 when it is not
+/// found, or when the window did not search, as with no document open).
+fn stream_edit_refusal(outcome: StreamEditPreviewOutcome) -> serde_json::Value {
+    let msg = outcome.error.unwrap_or_else(|| "stream-edit preview failed.".into());
+    serde_json::json!({ "ok": false, "error": msg, "matchCount": outcome.match_count })
 }
 
 /// POST /stream-edit-apply — atomically apply a previously previewed stream edit.
@@ -2392,10 +2398,30 @@ fn read_json_from<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::{
         add_unread, annotation_tasks, app_export_path, apply_unique_edit, parse_tasks,
-        review_timeout, same_path, search_body, searchable_documents, InflightEdit, EDIT_SLOTS,
-        EXPORT_SLOTS, MAX_INFLIGHT_EDITS, SEARCH_UNREAD_LISTED,
+        review_timeout, same_path, search_body, searchable_documents, stream_edit_refusal,
+        InflightEdit, StreamEditPreviewOutcome, EDIT_SLOTS, EXPORT_SLOTS, MAX_INFLIGHT_EDITS,
+        SEARCH_UNREAD_LISTED,
     };
     use std::sync::atomic::Ordering;
+
+    /// A refused stream edit answered `{ ok: false, error }` and dropped the
+    /// window's `matchCount`. It is carried beside them; the error is as it was.
+    #[test]
+    fn stream_edit_refusal_carries_the_match_count() {
+        let error = "`find` string is not unique (3 matches): include more surrounding context to disambiguate.";
+        let v = stream_edit_refusal(StreamEditPreviewOutcome {
+            ok: false,
+            match_count: 3,
+            error: Some(error.into()),
+            ..Default::default()
+        });
+        assert_eq!(v, serde_json::json!({ "ok": false, "error": error, "matchCount": 3 }));
+        let v = stream_edit_refusal(StreamEditPreviewOutcome::default());
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": "stream-edit preview failed.", "matchCount": 0 })
+        );
+    }
 
     /// `/search` said nothing when the vault list was cut short, so an agent
     /// read "no hits" as "not in the folder". The number it states is the

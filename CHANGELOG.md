@@ -116,6 +116,33 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   in Ashlr MD; open one first (open_file)." before it applies anything. The
   descriptions now say that, and that a failed save is the error that says
   the content was replaced but not saved.
+- **MCP: the find/replace edits refuse a buffer with no file, and no longer
+  promise "applied but not saved" for one.** The `edit_document` and
+  `stream_edit_apply` descriptions said that with `save: true` "a document
+  with no file yet" is an error saying the edit was applied but not saved.
+  The app opens only files, so a state with no path is its welcome screen,
+  but the window refused it only when its buffer was also empty: an edit to
+  a buffer with no file that was not empty was applied out of sight.
+  `edit_document`, `stream_edit` and `stream_edit_apply` now refuse any state
+  with no file as "No document is open in Ashlr MD; open one first
+  (open_file).", as `set_content` does, and the descriptions say so.
+  `stream_edit` with `preview: false` says the edit is not written to disk
+  instead of "unsaved".
+- **MCP: `get_current_content` says what a null `path` means.** Its
+  description said "`path` is null for an unsaved document", and
+  `export_text` and `export_metadata` that `path` is "absent for an unsaved
+  open document". The app opens only files, so it has no unsaved document:
+  it answers `path: null` only when no document is open (its welcome
+  screen, with empty content), which these tools report as an error. The
+  descriptions and docs/AGENTS.md now say that, and that `path` is the open
+  document's file.
+- **MCP: a refused `stream_edit` keeps the window's match count.** When
+  the window refused a stream edit (a `find` that is not found, or with
+  `preview: false` not unique), it sent its `matchCount`, but the app's
+  `/stream-edit` reply was `{ ok: false, error }` and dropped it. The reply
+  now carries `matchCount` too, and the tool's error result has it beside
+  `content` and `isError`; the error text and the rest of the result are as
+  they were.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

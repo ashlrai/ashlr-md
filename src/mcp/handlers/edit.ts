@@ -56,13 +56,16 @@ function pathMismatch(path: string): string {
 const NO_DOCUMENT_OPEN = "No document is open in Ashlr MD; open one first (open_file).";
 
 /**
- * The welcome screen: no file and an empty buffer. The find/replace edits
- * check this, so the agent is told to open a document rather than that its
- * `find` text was not found.
+ * No document is open: the window shows its welcome screen. The app opens
+ * only files, so a state with no path has no document, whatever its buffer
+ * holds; set-content refuses it the same way. The find/replace edits check
+ * this, so the agent is told to open a document rather than that its `find`
+ * text was not found. It used to refuse a path-less buffer only when it was
+ * also empty, so an edit to one was applied out of sight and, with `save:
+ * true`, reported as "applied but not saved".
  */
 function noDocumentOpen(): boolean {
-  const { path, content } = useDocumentStore.getState();
-  return !path && content === "";
+  return !useDocumentStore.getState().path;
 }
 
 // ── stream_edit previews ──────────────────────────────────────────────────────
