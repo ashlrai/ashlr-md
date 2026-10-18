@@ -6,6 +6,7 @@ import {
   exportPdf,
   exportWithProfile,
 } from "../../lib/export";
+import { isDismissEscape } from "../../lib/keymap";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -207,10 +208,11 @@ export function ExportDialog() {
     setStatus({ kind: "idle" });
   }, []);
 
-  // Close on Escape.
+  // Close on Escape, but not on one that ends an IME composition (see
+  // isDismissEscape).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (isDismissEscape(e)) {
         e.stopPropagation();
         close();
       }

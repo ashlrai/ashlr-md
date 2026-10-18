@@ -1985,8 +1985,15 @@ pub fn tool_open_file_with(
         Err(e) if app_reached_but_failed(&e) => {
             return tool_error(
                 id,
-                format!("Ashlr MD is running but did not confirm opening {abs}: {e}"),
-            )
+                // It used to stop at the IPC error, leaving the agent to
+                // guess whether to retry (which may open the file twice).
+                format!(
+                    "Ashlr MD is running but did not confirm opening {abs}: {}. It may \
+                     still open it: call get_current_content to see which document is \
+                     open before calling open_file again, since a retry may open it twice.",
+                    e.trim_end_matches('.')
+                ),
+            );
         }
         Err(e) => e,
     };
@@ -2024,7 +2031,9 @@ pub fn tool_open_file_with(
         _ => tool_error(
             id,
             format!(
-                "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}.",
+                "Could not open {abs} in Ashlr MD: the app is not running ({ipc_error}) and {}. \
+                 Ask the user to start Ashlr MD (or install it from \
+                 https://github.com/ashlrai/ashlr-md/releases), then call open_file again.",
                 outcome.describe()
             ),
         ),
@@ -4659,6 +4668,14 @@ fn checked_document_for(raw: &str, arg: &str, why: Use) -> Result<CheckedDocumen
         .and_then(|e| e.to_str())
         .map(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
         .unwrap_or(false);
+    // A directory used to be refused as "only Markdown documents ... can be
+    // opened", which did not say what was wrong with it or what to pass.
+    if p.is_dir() {
+        return Err(format!(
+            "Refusing to {verb} `{arg}` '{abs}': it is a directory, not a file. \
+             Pass a Markdown file in it."
+        ));
+    }
     if hidden || !markdown {
         return Err(format!(
             "Refusing to {verb} `{arg}` '{abs}': only Markdown documents ({}) that are not \

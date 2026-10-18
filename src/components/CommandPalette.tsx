@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMMAND_GROUPS, type Command, getCommands } from "../lib/commands";
-import { formatShortcut } from "../lib/keymap";
+import { formatShortcut, isDismissEscape } from "../lib/keymap";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useUiStore } from "../store/uiStore";
@@ -180,7 +180,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
+    // An Escape that ends an IME composition in the query is the input
+    // method's; it used to close the palette (see isDismissEscape).
+    if (isDismissEscape(e)) {
       e.preventDefault();
       e.stopPropagation();
       onClose();

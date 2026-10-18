@@ -370,8 +370,10 @@ fn failed_open_names_the_file_both_routes_and_the_next_step() {
         "{err}"
     );
     assert!(
-        err.trim_end()
-            .ends_with("Start Ashlr MD, then run mdopen again."),
+        err.trim_end().ends_with(
+            "Start Ashlr MD (or install it from \
+             https://github.com/ashlrai/ashlr-md/releases), then run mdopen again."
+        ),
         "{err}"
     );
 }

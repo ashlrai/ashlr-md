@@ -368,6 +368,14 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
         } else {
             format!("{target:?}")
         };
+        // `.plan.md` used to be called "not a Markdown document" too, though
+        // its extension is; what stops it is the leading dot.
+        if has_markdown_extension(&p) {
+            return Err(format!(
+                "{what} is a dotfile: Ashlr MD does not open files whose names start \
+                 with \".\". Rename it without the leading dot to open it"
+            ));
+        }
         return Err(format!(
             "{what} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
             MD_EXTENSIONS.join(", .")
@@ -396,11 +404,16 @@ fn missing_or_unresolved(target: &str, e: &std::io::Error) -> String {
 /// extension and not a dotfile.
 fn is_markdown_document_name(p: &Path) -> bool {
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let markdown = Path::new(name)
+    has_markdown_extension(p) && !name.starts_with('.')
+}
+
+/// Whether the path's file name has a Markdown extension (dotfile or not).
+fn has_markdown_extension(p: &Path) -> bool {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
-    markdown && !name.starts_with('.')
+        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 /// Extensions the app opens (mirrors `MD_EXTENSIONS` in src-tauri/src/document.rs).
@@ -583,12 +596,26 @@ fn open_in_app(
         launch::Launch::Pending { .. } => Ok(Opened::Unconfirmed(outcome.describe())),
         // Both routes failed: say what each one hit, then what to do. Before,
         // this was `<launcher error> (<ipc error>)` with no next step.
-        _ => Err(NotOpened::no(format!(
-            "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
-             The mdopener:// URL: {}. Start Ashlr MD, then run mdopen again.",
-            outcome.describe()
+        _ => Err(NotOpened::no(not_opened_message(
+            abs_path,
+            &ipc_error,
+            &outcome.describe(),
         ))),
     }
+}
+
+/// Where to get Ashlr MD when it is not installed.
+const RELEASES_URL: &str = "https://github.com/ashlrai/ashlr-md/releases";
+
+/// The error for an open that neither the running app nor the URL launcher
+/// took: what each one hit, then what to do. It used to say only "Start
+/// Ashlr MD", which does not help when the app is not installed.
+fn not_opened_message(abs_path: &str, ipc_error: &str, launch: &str) -> String {
+    format!(
+        "could not open {abs_path} in Ashlr MD. The running app: {ipc_error}. \
+         The mdopener:// URL: {launch}. Start Ashlr MD (or install it from \
+         {RELEASES_URL}), then run mdopen again."
+    )
 }
 
 /// Claude Code `--hook` mode: parse the PostToolUse JSON from stdin and open the
@@ -1100,11 +1127,17 @@ mod tests {
         // The app opens only Markdown documents that are not dotfiles; handing
         // it anything else used to exit 0 with nothing opened.
         let s = Scratch::new("markdown-only");
-        for name in ["notes.txt", "Makefile", ".env.md"] {
+        for name in ["notes.txt", "Makefile", ".env"] {
             let f = s.file(name);
             let err = resolve_file(f.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{name}: {err}");
         }
+        // A Markdown dotfile is refused for its leading dot, not called "not
+        // a Markdown document".
+        let err = resolve_file(s.file(".env.md").to_str().unwrap()).unwrap_err();
+        assert!(err.contains("is a dotfile"), "{err}");
+        assert!(err.contains("Rename it without the leading dot"), "{err}");
+        assert!(!err.contains("not a Markdown document"), "{err}");
         assert!(resolve_file(s.file("Plan.MD").to_str().unwrap()).is_ok());
         #[cfg(unix)]
         {
@@ -1328,5 +1361,28 @@ mod tests {
                 Some(std::fs::canonicalize(&real).unwrap())
             );
         }
+    }
+
+    /// An open neither route took used to end "Start Ashlr MD, then run
+    /// mdopen again", no help when the app is not installed.
+    #[test]
+    fn a_failed_open_says_where_to_get_the_app() {
+        let failed = launch::Launch::Failed {
+            launcher: "xdg-open".into(),
+            code: Some(4),
+        };
+        let msg = not_opened_message(
+            "/notes/a.md",
+            "Ashlr MD is not running (no ~/.mdopener/ipc-port)",
+            &failed.describe(),
+        );
+        assert!(msg.contains("could not open /notes/a.md"), "{msg}");
+        assert!(msg.contains("may not be installed"), "{msg}");
+        assert!(
+            msg.contains("install it from https://github.com/ashlrai/ashlr-md/releases"),
+            "{msg}"
+        );
+        assert!(msg.ends_with("then run mdopen again."), "{msg}");
+        assert!(!msg.contains('?'), "{msg}");
     }
 }

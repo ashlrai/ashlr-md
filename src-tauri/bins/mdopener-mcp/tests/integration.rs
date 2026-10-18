@@ -692,6 +692,12 @@ fn open_file_does_not_retry_through_the_url_scheme_when_the_app_was_reached() {
         let text = tool_error_text(&resp);
         assert!(text.contains("did not confirm opening"), "{text}");
         assert!(text.contains(err), "{text}");
+        // What to do next: check before retrying, which may open it twice.
+        assert!(
+            text.contains("call get_current_content to see which document is open"),
+            "{text}"
+        );
+        assert!(text.ends_with("a retry may open it twice."), "{text}");
     }
 }
 
@@ -710,6 +716,35 @@ fn open_file_headless_reports_no_launcher_honestly() {
     assert!(err.contains("desktop session"), "{}", err);
 }
 
+/// A directory was refused as "only Markdown documents ... can be opened",
+/// which did not say what was wrong or what to pass instead.
+#[test]
+fn path_handing_tools_refuse_a_directory_as_a_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["notes", "archive.md"] {
+        let sub = dir.path().join(name);
+        std::fs::create_dir(&sub).unwrap();
+        let path = sub.to_string_lossy().into_owned();
+        let ipc = MockIpc::new();
+        let open = tool_open_file_with(id(1), &json!({ "path": path }), &ipc, &|url| {
+            panic!("must not launch: {url}")
+        });
+        let present = tool_present_document(id(2), &json!({ "path": path }), &ipc);
+        let review = tool_request_review(id(3), &json!({ "path": path, "blocking": false }), &ipc);
+        for (resp, verb) in [(open, "open"), (present, "present"), (review, "review")] {
+            let err = tool_error_text(&resp);
+            assert!(
+                err.starts_with(&format!("Refusing to {verb} `path` '")),
+                "{err}"
+            );
+            assert!(err.contains("it is a directory, not a file"), "{err}");
+            assert!(err.ends_with("Pass a Markdown file in it."), "{err}");
+            assert!(!err.contains("only Markdown documents"), "{err}");
+        }
+        assert!(ipc.calls().is_empty(), "{:?}", ipc.calls());
+    }
+}
+
 #[test]
 fn open_file_launcher_failure_is_an_error() {
     let (_dir, notes) = existing_notes();
@@ -722,6 +757,14 @@ fn open_file_launcher_failure_is_an_error() {
     });
     let err = tool_error_text(&resp);
     assert!(err.contains("status 4"), "{}", err);
+    // It used to end on a question, with no next step for the agent.
+    assert!(err.contains("may not be installed"), "{err}");
+    assert!(
+        err.contains("github.com/ashlrai/ashlr-md/releases"),
+        "{err}"
+    );
+    assert!(err.contains("call open_file again"), "{err}");
+    assert!(!err.contains('?'), "{err}");
 }
 
 #[test]
@@ -8422,7 +8465,6 @@ fn path_handing_tools_refuse_non_markdown_files() {
     let mut refused = vec![
         secret.to_string_lossy().into_owned(),
         dotfile.to_string_lossy().into_owned(),
-        dir.path().to_string_lossy().into_owned(),
     ];
     #[cfg(unix)]
     {

@@ -36,6 +36,45 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: an open the app did not confirm says what to do next.** When the
+  app was reached but failed or did not answer in time, `open_file` said
+  only that it "did not confirm opening" the file, with the IPC error. It
+  now says the app may still open it, and to call `get_current_content`
+  to see which document is open before calling `open_file` again, since a
+  retry may open it twice.
+- **MCP: a directory passed as a document is called a directory.** Giving
+  `open_file`, `present_document`, `request_review` or a tool that reads a
+  path a directory was refused with "only Markdown documents ... can be
+  opened", which did not say what was wrong. It now says the path is a
+  directory, not a file, and to pass a Markdown file in it, as `mdopen`
+  does.
+- **mdopen: a Markdown dotfile is refused for its dot.** `mdopen .plan.md`
+  said the file "is not a Markdown document", though its extension is.
+  It now says the file is a dotfile, which Ashlr MD does not open, and to
+  rename it without the leading dot.
+- **A missing Ashlr MD gets a next step from `mdopen` and `open_file`.**
+  When the app was not running and the `mdopener://` launcher failed, the
+  error ended on a question ("is Ashlr MD installed and a desktop session
+  available?"), `mdopen` said only to start the app, and the MCP
+  `open_file` tool gave the agent no next step at all. Both now say Ashlr
+  MD may not be installed or there is no desktop session, and to start it
+  (or install it from the GitHub releases page), then try again.
+- **The review countdown says what it counts.** A screen reader read the
+  review panel's countdown as a bare "4:59". It is now a timer labelled in
+  words ("Time left to review: 4 minutes 59 seconds"), still kept out of
+  live announcements so it does not speak every second.
+- **An IME Escape no longer closes a dialog.** Pressing Escape to end an
+  input-method composition (or close its candidate list) while typing in
+  Preferences, the Export dialog, the command palette, the search panel,
+  or the find bar closed it and dropped what was being typed. They now
+  ignore an Escape that belongs to a composition, as the review panel
+  does, through one shared check that also covers WebKit's composition
+  Escape (`keyCode` 229); a plain Escape still closes.
+- **mdopen: an empty IPC token says what to do.** When
+  `~/.mdopener/ipc-token` was empty, `mdopen` reported only that it was
+  empty. It now says Ashlr MD has not finished starting and to retry once
+  it has finished launching, or restart it if the token stays empty, as
+  `mdopener-mcp` does.
 - **An IME Escape no longer dismisses a review.** Pressing Escape to end
   an input-method composition (or close its candidate list) while typing
   a comment in the review panel bubbled up to the panel, which recorded
