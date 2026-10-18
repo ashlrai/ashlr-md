@@ -294,6 +294,7 @@ export function AISidebar() {
   const messages = useAIStore((s) => s.messages);
   const busy = useAIStore((s) => s.busy);
   const setProvider = useAIStore((s) => s.setProvider);
+  const clearProvider = useAIStore((s) => s.clearProvider);
   const pushMessage = useAIStore((s) => s.pushMessage);
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
@@ -341,16 +342,26 @@ export function AISidebar() {
     } else {
       setDetecting(true);
     }
-    detectProvider().then((p) => {
-      if (cancelled) return;
-      setResolvedProvider(p);
-      setProvider(p.id, p.capabilities);
-      setDetecting(false);
-    });
+    detectProvider().then(
+      (p) => {
+        if (cancelled) return;
+        setResolvedProvider(p);
+        setProvider(p.id, p.capabilities);
+        setDetecting(false);
+      },
+      () => {
+        // Detection threw: no provider is known, so show the setup panel
+        // rather than "Detecting..." forever or a cached provider's chat.
+        if (cancelled) return;
+        setResolvedProvider(null);
+        clearProvider();
+        setDetecting(false);
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [open, setProvider, hasApiKey]);
+  }, [open, setProvider, clearProvider, hasApiKey]);
 
   // Scroll to bottom when messages change.
   useEffect(() => {
@@ -677,11 +688,18 @@ export function AISidebar() {
           notice={unrunNotice(messages)}
           onKeySet={() => {
             setDetecting(true);
-            detectProvider().then((p) => {
-              setResolvedProvider(p);
-              setProvider(p.id, p.capabilities);
-              setDetecting(false);
-            });
+            detectProvider().then(
+              (p) => {
+                setResolvedProvider(p);
+                setProvider(p.id, p.capabilities);
+                setDetecting(false);
+              },
+              () => {
+                setResolvedProvider(null);
+                clearProvider();
+                setDetecting(false);
+              },
+            );
           }}
         />
       ) : (

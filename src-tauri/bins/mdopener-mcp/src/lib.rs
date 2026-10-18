@@ -234,7 +234,7 @@ the app is not running, call open_file. If open_file says the app could not be l
 Ashlr MD is probably not installed: ask the user to install it from \
 https://github.com/ashlrai/ashlr-md/releases. Without the app these still work on files on \
 disk: export_text, export_metadata and diff_documents (pass `path`), search_vault (pass \
-`vault`), edit_canvas, list_ai_actions, get_conversation_context and \
+`vault`), get_user_annotations (task checkboxes only), edit_canvas, list_ai_actions, get_conversation_context and \
 save_conversation_message.";
 
 pub fn handle_initialize(id: Value, params: Option<Value>) -> Response {
@@ -941,7 +941,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_user_annotations",
-            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty.",
+            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, note? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty. Works without the app: when Ashlr MD is not running the tasks are read from the file on disk, `verdict` and `comments` are null (the app holds reviews only while it runs), and the result adds `appRunning: false` and a `note` saying so.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -2847,8 +2847,50 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     let encoded = urlencoding::encode(&path);
     match ipc.get(&format!("/annotations?path={encoded}")) {
         Ok(v) => tool_result(id, v),
+        // The app is not running: the tasks are still in the file on disk.
+        // This used to be an error telling the agent to start the app,
+        // although the description said tasks fall back to the file.
+        Err(e) if app_unreachable(&e) => tool_result(id, disk_annotations(&path)),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
+}
+
+// The task-checkbox parser is shared with the app's `/annotations`.
+#[path = "../../../src/task_list.rs"]
+mod task_list;
+
+/// The `note` of a `get_user_annotations` result read from disk.
+pub const ANNOTATIONS_APP_NOT_RUNNING_NOTE: &str = "Ashlr MD is not running, so this was \
+read from the file on disk. `verdict` and `comments` are null because the app keeps reviews \
+in memory only while it runs: a review given before it quit cannot be read, so null here \
+does not mean that no review was given. To ask for one, call request_review (open_file \
+starts the app). `tasks` are the checkboxes saved in the file.";
+
+/// What `get_user_annotations` can say about `path` with the app closed: no
+/// review (the app held them), and the task checkboxes of the Markdown file
+/// on disk, read with the same checks as the other disk tools. A file that
+/// cannot be read has no tasks and a `tasksNote` saying why.
+fn disk_annotations(path: &str) -> Value {
+    let read = checked_document(path, "path").and_then(|doc| {
+        doc.read()
+            .map_err(|e| format!("The tasks of {} were not read: {e}.", doc.path))
+    });
+    let mut body = json!({
+        "path": path,
+        "verdict": null,
+        "comments": null,
+        "late": false,
+        "appRunning": false,
+        "note": ANNOTATIONS_APP_NOT_RUNNING_NOTE,
+    });
+    match read {
+        Ok(text) => body["tasks"] = json!(task_list::parse_tasks(&text)),
+        Err(e) => {
+            body["tasks"] = json!([]);
+            body["tasksNote"] = json!(e);
+        }
+    }
+    body
 }
 
 // ── Document edit / search / present tools ───────────────────────────────────

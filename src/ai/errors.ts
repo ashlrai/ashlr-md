@@ -31,6 +31,14 @@ export const NO_PROVIDER_MESSAGE = "No AI provider. Set one up in the AI sidebar
 export const NO_PROVIDER_RUN_MESSAGE =
   "No AI provider was found, so this did not run. Set one up here, then select the text and try again.";
 
+/**
+ * What the change banner's "Explain changes" leaves in the AI sidebar when
+ * no provider is found. Like NO_PROVIDER_RUN_MESSAGE it is shown on top of
+ * the sidebar's setup panel, whose options say how to get a provider here.
+ */
+export const NO_PROVIDER_EXPLAIN_MESSAGE =
+  "No AI provider was found, so the changes were not explained. Set one up here, then click Explain changes again.";
+
 /** Whether the app runs on macOS, read at call time. */
 export function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;

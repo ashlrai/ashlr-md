@@ -1782,9 +1782,93 @@ fn get_user_annotations_path_url_encoded_in_request() {
 
 #[test]
 fn get_user_annotations_ipc_error_propagated() {
-    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+    // An app that was reached but failed is still an error: its answer may
+    // hold a verdict the disk does not, so nothing is made up in its place.
+    let ipc = MockIpc::new().on_get(
+        "/annotations",
+        Err("IPC server returned HTTP 500: boom".into()),
+    );
     let resp = tool_get_annotations(id(1), &json!({ "path": "/x.md" }), &ipc);
-    tool_error_text(&resp);
+    let text = tool_error_text(&resp);
+    assert!(text.contains("boom"), "{text}");
+}
+
+/// With the app closed, the tasks still come from the file on disk, as the
+/// description says; it used to be an error telling the agent to start the
+/// app. The result says the app is not running and what null means then.
+#[test]
+fn get_user_annotations_reads_tasks_from_disk_when_the_app_is_not_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("plan.md");
+    std::fs::write(
+        &file,
+        "# Plan\n- [x] write it\n- [ ] test it\n* [X] ship it\n",
+    )
+    .unwrap();
+    for err in [
+        "ipc-port not found",
+        "Could not connect to IPC server: refused",
+    ] {
+        let ipc = MockIpc::new().on_get("/annotations", Err(err.into()));
+        let resp = tool_get_annotations(id(1), &json!({ "path": file.to_str().unwrap() }), &ipc);
+        assert!(!is_error(&resp), "{err}: {:?}", resp.result);
+        let v = content_text(&resp);
+        assert_eq!(
+            v["tasks"],
+            json!([
+                { "text": "write it", "checked": true },
+                { "text": "test it", "checked": false },
+                { "text": "ship it", "checked": true }
+            ]),
+            "{v}"
+        );
+        assert!(v["verdict"].is_null() && v["comments"].is_null(), "{v}");
+        assert_eq!(v["late"], false);
+        assert_eq!(v["appRunning"], false);
+        assert!(v.get("tasksNote").is_none(), "{v}");
+        assert_eq!(v["note"], mdopener_mcp::ANNOTATIONS_APP_NOT_RUNNING_NOTE);
+        let note = v["note"].as_str().unwrap();
+        assert!(note.contains("not running"), "{note}");
+        assert!(note.contains("request_review"), "{note}");
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        assert_eq!(v["path"], canonical.to_str().unwrap());
+    }
+}
+
+/// A file the disk read cannot take (missing, not Markdown) has no tasks, and
+/// `tasksNote` says why rather than an empty list reading as "no tasks".
+#[test]
+fn get_user_annotations_without_the_app_says_why_a_file_was_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join("secrets.txt");
+    std::fs::write(&env, "- [ ] not a task list").unwrap();
+    let missing = dir.path().join("gone.md");
+    for (p, why) in [(env, "only Markdown"), (missing, "were not read")] {
+        let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+        let resp = tool_get_annotations(id(1), &json!({ "path": p.to_str().unwrap() }), &ipc);
+        assert!(!is_error(&resp), "{:?}", resp.result);
+        let v = content_text(&resp);
+        assert_eq!(v["tasks"], json!([]), "{v}");
+        assert_eq!(v["appRunning"], false);
+        let note = v["tasksNote"].as_str().unwrap_or_default();
+        assert!(note.contains(why), "{p:?}: {note}");
+    }
+}
+
+/// The description and the initialize instructions say it works without the
+/// app, and how.
+#[test]
+fn get_user_annotations_is_described_as_working_without_the_app() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "get_user_annotations")
+        .unwrap();
+    assert!(
+        def.description.contains("appRunning: false"),
+        "{}",
+        def.description
+    );
+    assert!(mdopener_mcp::SERVER_INSTRUCTIONS.contains("get_user_annotations"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -9269,7 +9353,7 @@ fn tool_descriptions_name_their_result_shapes() {
         (
             "get_user_annotations",
             &[
-                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote? }",
+                "{ path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, note? }",
                 "null when no review",
             ][..],
         ),

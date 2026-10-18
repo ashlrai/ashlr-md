@@ -47,6 +47,27 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Provider detection that fails shows the setup panel.** When finding an
+  AI provider threw an error, rather than finding none, a selection popover
+  action left its "Set one up here" message in the AI sidebar's chat, which
+  stayed on screen with no setup controls; a sidebar opened then could also
+  stay on "Detecting AI" for good. Both now clear the provider, so the
+  sidebar shows its setup panel with the message on top.
+- **"Explain changes" with no provider shows why on the setup panel.** The
+  change banner's note that no AI provider was found was written as plain
+  chat text, which the AI sidebar's setup panel hides, so the user saw the
+  panel and no reason. It is now recorded as a failed turn, which the panel
+  shows on top of its setup options, as the selection popover's is, and it
+  says to click Explain changes again once a provider is set up.
+- **MCP: `get_user_annotations` answers when the app is not running.** Its
+  description said tasks fall back to the file on disk, but with Ashlr MD
+  closed the call failed and told the agent to start the app. It now reads
+  the task checkboxes from the Markdown file on disk (with the same checks
+  as the other disk tools), returns `verdict` and `comments` as `null`, and
+  adds `appRunning: false` and a `note` saying the app keeps reviews only
+  while it runs, so `null` does not mean no review was given. A file that
+  cannot be read has a `tasksNote` saying why. The app and the server now
+  share one task parser.
 - **MCP: `edit_canvas` names the ids that exist when one is not found.** A
   mistyped or stale node or edge id came back as "node `n2` not found", with
   no word on which ids the canvas has or whether anything was written, so an
