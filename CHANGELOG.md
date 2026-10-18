@@ -143,6 +143,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   now carries `matchCount` too, and the tool's error result has it beside
   `content` and `isError`; the error text and the rest of the result are as
   they were.
+- **MCP edits: no answer for a document with no file is left in the
+  window.** Every edit now refuses a state with no file ("No document is
+  open") before it saves or checks a preview, so the save reason "the
+  document has no file yet" and the name "an unsaved document" in a
+  stale-preview refusal could no longer be given. They are removed, and a
+  preview's file is typed as a path, never `null`. No reply changes.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

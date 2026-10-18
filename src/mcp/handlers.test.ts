@@ -89,6 +89,7 @@ import { useDocumentStore } from "../store/documentStore";
 import { useReviewStore } from "../store/reviewStore";
 import { useUiStore } from "../store/uiStore";
 import { useMcpBridge } from "./bridge";
+import editHandlersSrc from "./handlers/edit.ts?raw";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -818,5 +819,24 @@ describe("handlers integration — stream-edit failures are replied", () => {
     const r = call![1] as Record<string, unknown>;
     expect(r).toMatchObject({ editId: "s1", ok: false });
     expect(String(r.error)).toContain("editor gone");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// edit handlers carry no answer for a document with no file
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("handlers integration — no fallback for a document with no file", () => {
+  // Every edit refuses a state with no file ("No document is open") before
+  // it saves or checks a preview, so the "has no file yet" save reason and
+  // the "an unsaved document" names in a stale-preview refusal could not be
+  // reached. They are gone, and the preview path is typed as a file
+  // (bridge.test.ts checks the stale-preview refusal names both files).
+  it("edit.ts has no answer for a document with no file", () => {
+    expect(editHandlersSrc).not.toContain("has no file yet");
+    expect(editHandlersSrc).not.toContain("an unsaved document");
+    expect(editHandlersSrc).toMatch(
+      /interface StreamEditPreview \{[^}]*\bpath: string;/,
+    );
   });
 });

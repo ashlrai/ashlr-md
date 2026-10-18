@@ -26,12 +26,13 @@ import type {
 /**
  * Save the open document for an edit that asked for `save: true`. Returns
  * `null` when it reached disk, or the reason it did not. `save()` reports a
- * failed write only through a toast and `error`, and does nothing for a
- * document with no file, so its success is read back from `diskContent`.
+ * failed write only through a toast and `error`, so its success is read
+ * back from `diskContent`. Every caller has already refused a state with no
+ * file (see `openDocumentPath`), so there is always a file to write: the
+ * reason this used to give for a document with no file was never reached.
  */
 async function saveForAgent(): Promise<string | null> {
   const doc = useDocumentStore.getState();
-  if (!doc.path) return "the document has no file yet; save it from the app first";
   const target = doc.content;
   await doc.save();
   const after = useDocumentStore.getState();
@@ -56,23 +57,25 @@ function pathMismatch(path: string): string {
 const NO_DOCUMENT_OPEN = "No document is open in Ashlr MD; open one first (open_file).";
 
 /**
- * No document is open: the window shows its welcome screen. The app opens
- * only files, so a state with no path has no document, whatever its buffer
- * holds; set-content refuses it the same way. The find/replace edits check
- * this, so the agent is told to open a document rather than that its `find`
- * text was not found. It used to refuse a path-less buffer only when it was
- * also empty, so an edit to one was applied out of sight and, with `save:
- * true`, reported as "applied but not saved".
+ * The open document's file, or `null` when no document is open: the window
+ * shows its welcome screen. The app opens only files, so a state with no
+ * path has no document, whatever its buffer holds. set-content and the
+ * find/replace edits refuse it with `NO_DOCUMENT_OPEN`, so the agent is
+ * told to open a document rather than that its `find` text was not found.
+ * They used to refuse a path-less buffer only when it was also empty, so an
+ * edit to one was applied out of sight and, with `save: true`, reported as
+ * "applied but not saved".
  */
-function noDocumentOpen(): boolean {
-  return !useDocumentStore.getState().path;
+function openDocumentPath(): string | null {
+  return useDocumentStore.getState().path || null;
 }
 
 // ── stream_edit previews ──────────────────────────────────────────────────────
 
 /** What a `stream_edit` preview was made from, keyed by its `editId`. */
 interface StreamEditPreview {
-  path: string | null;
+  /** Always a file: a stream edit with no document open is refused first. */
+  path: string;
   find: string;
   replace: string;
 }
@@ -100,14 +103,18 @@ const FRESH_PREVIEW =
   "Call stream_edit again for a fresh preview, then stream_edit_apply with its editId.";
 
 /**
- * Why the preview `originalEditId` names cannot be applied to the open
- * document, or `null` when it can. An omitted editId is not checked: the
- * apply then re-finds `find` in the open document, as it always did.
+ * Why the preview `originalEditId` names cannot be applied to the document
+ * open at `openPath`, or `null` when it can. An omitted editId is not
+ * checked: the apply then re-finds `find` in the open document, as it always
+ * did. Both paths are files (a preview is made, and an apply checked, only
+ * with a document open), so the name this used to put in for a document
+ * with no file was never reached.
  */
 function stalePreview(
   originalEditId: string | undefined,
   find: string,
   replace: string,
+  openPath: string,
 ): string | null {
   if (!originalEditId) return null;
   const preview = streamEditPreviews.get(originalEditId);
@@ -118,13 +125,10 @@ function stalePreview(
       `last started, or was never made). ${FRESH_PREVIEW}`
     );
   }
-  const openPath = useDocumentStore.getState().path;
   if (preview.path !== openPath) {
-    const was = preview.path ?? "an unsaved document";
-    const now = openPath ?? "an unsaved document";
     return (
-      `Stale editId '${originalEditId}': it previews '${was}', but the open document is ` +
-      `now '${now}'. ${FRESH_PREVIEW}`
+      `Stale editId '${originalEditId}': it previews '${preview.path}', but the open document is ` +
+      `now '${openPath}'. ${FRESH_PREVIEW}`
     );
   }
   if (preview.find !== find || preview.replace !== replace) {
@@ -146,7 +150,7 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
   return listen<SetContentPayload>("mcp://set-content", async (e) => {
     const { editId, content, save } = e.payload;
     let error: string | null = null;
-    if (!useDocumentStore.getState().path) {
+    if (openDocumentPath() === null) {
       // With no document open the window shows its welcome screen, so the
       // content would land in a buffer nobody sees and still read as ok.
       error = NO_DOCUMENT_OPEN;
@@ -182,7 +186,7 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
     let reply: { ok: boolean; replaced: number; error: string | null };
     try {
       const liveContent = useDocumentStore.getState().content;
-      if (noDocumentOpen()) {
+      if (openDocumentPath() === null) {
         // The edit used to be refused as "`find` string not found", which
         // sent the agent looking for its text instead of opening a document.
         reply = { ok: false, replaced: 0, error: NO_DOCUMENT_OPEN };
@@ -245,7 +249,8 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
       }
     }
 
-    if (noDocumentOpen()) {
+    const docPath = openDocumentPath();
+    if (docPath === null) {
       await invoke("mcp_stream_edit_preview", {
         editId,
         ok: false,
@@ -287,18 +292,17 @@ export function handleStreamEdit(syncNow: () => void): Promise<UnlistenFn> {
         return;
       }
 
-      const label = useDocumentStore.getState().path ?? "document";
       const result = computeStreamEditDiff(
         liveContent,
         find,
         replace,
         previewLines,
-        label,
+        docPath,
       );
 
       if (result.ok) {
         rememberPreview(editId, {
-          path: useDocumentStore.getState().path,
+          path: docPath,
           find,
           replace,
         });
@@ -382,7 +386,8 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
       return;
     }
 
-    if (noDocumentOpen()) {
+    const docPath = openDocumentPath();
+    if (docPath === null) {
       await invoke("mcp_stream_edit_apply_result", {
         editId,
         ok: false,
@@ -395,7 +400,7 @@ export function handleStreamEditApply(syncNow: () => void): Promise<UnlistenFn> 
       return;
     }
 
-    const stale = stalePreview(applyPayload.originalEditId, find, replace);
+    const stale = stalePreview(applyPayload.originalEditId, find, replace, docPath);
     if (stale !== null) {
       await invoke("mcp_stream_edit_apply_result", {
         editId,
