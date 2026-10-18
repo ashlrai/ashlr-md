@@ -3,6 +3,7 @@ import {
   type EmbedStatus,
   embedIndex,
   embedStatus,
+  indexUnreadNotice,
   invalidateEmbedAvailable,
 } from "../../../lib/embedSearch";
 import { useActivityStore } from "../../../store/activityStore";
@@ -13,6 +14,8 @@ import { SpinnerIcon } from "../icons";
 export function EmbedSection() {
   const [status, setStatus] = useState<EmbedStatus | null>(null);
   const [indexing, setIndexing] = useState(false);
+  // Which files the last reindex could not read (null when it read them all).
+  const [unreadNotice, setUnreadNotice] = useState<string | null>(null);
 
   useEffect(() => {
     embedStatus().then(setStatus);
@@ -25,7 +28,8 @@ export function EmbedSection() {
       const paths = new Set<string>();
       for (const r of useRecentStore.getState().recents) paths.add(r.path);
       for (const f of useActivityStore.getState().files) paths.add(f.path);
-      await embedIndex(Array.from(paths), true); // full reindex — prune stale files
+      const result = await embedIndex(Array.from(paths), true); // full reindex — prune stale files
+      setUnreadNotice(indexUnreadNotice(result));
       setStatus(await embedStatus());
     } finally {
       setIndexing(false);
@@ -69,6 +73,11 @@ export function EmbedSection() {
           {status.chunkCount} chunks · {status.fileCount} files
         </span>
       </div>
+      {unreadNotice && (
+        <p className="settings-description settings-description-muted" role="status">
+          {unreadNotice}
+        </p>
+      )}
     </div>
   );
 }

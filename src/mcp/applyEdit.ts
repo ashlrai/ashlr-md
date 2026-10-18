@@ -46,6 +46,15 @@ function countOccurrences(haystack: string, needle: string): number {
 }
 
 /**
+ * What an edit answers when `find` is not in the live document. It used to
+ * stop at "not found", with no next step, so an agent retried the same text;
+ * the usual cause is text copied with other whitespace or line breaks, or a
+ * document that changed since it was read.
+ */
+export const FIND_NOT_FOUND =
+  "`find` string not found in the current document. It must match the document exactly, whitespace and line breaks included: read the live text with get_current_content and copy `find` from it.";
+
+/**
  * Apply a single exact find→replace requiring `find` to appear EXACTLY once.
  * Returns the new content on success, or a human-readable error otherwise.
  * Pure — does not touch any store.
@@ -63,7 +72,7 @@ export function applyUniqueEdit(
     return {
       ok: false,
       replaced: 0,
-      error: "`find` string not found in the current document.",
+      error: FIND_NOT_FOUND,
     };
   }
   if (n > 1) {
@@ -239,7 +248,7 @@ export function computeStreamEditDiff(
     return {
       ok: false,
       matchCount: 0,
-      error: "`find` string not found in the document.",
+      error: FIND_NOT_FOUND,
     };
   }
 
@@ -297,7 +306,7 @@ export function applyEditAtOccurrence(
     return {
       ok: false,
       replaced: 0,
-      error: "`find` string not found in the document.",
+      error: FIND_NOT_FOUND,
     };
   }
 
@@ -305,7 +314,9 @@ export function applyEditAtOccurrence(
     return {
       ok: false,
       replaced: 0,
-      error: `matchIndex ${matchIndex} out of bounds: document has ${offsets.length} occurrence(s).`,
+      error:
+        `matchIndex ${matchIndex} out of bounds: document has ${offsets.length} occurrence(s). ` +
+        `Use a match_index from 0 to ${offsets.length - 1}, or call stream_edit again to see the candidates.`,
     };
   }
 

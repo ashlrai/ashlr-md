@@ -26,6 +26,15 @@ pub struct FileSearchResult {
     pub matches: Vec<SearchMatch>,
 }
 
+/// A listed file the search could not read, with the reason ("it is not
+/// UTF-8 text (byte 5 is not valid UTF-8, on line 2). ..."), so `/search`
+/// can tell an agent it was not searched instead of dropping it in silence.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct UnreadFile {
+    pub path: String,
+    pub reason: String,
+}
+
 /// Per-file match cap so one huge file can't dominate the result list.
 const MAX_MATCHES_PER_FILE: usize = 8;
 /// Characters of context to keep on each side of a match in the snippet.
@@ -47,49 +56,66 @@ pub fn search_files(
         query,
         limit,
         |p| p.as_str(),
-        |p| read_document_following(Path::new(p), MAX_DOCUMENT_BYTES).ok(),
+        |p| read_document_following(Path::new(p), MAX_DOCUMENT_BYTES),
     )
+    .0
 }
 
 /// [`search_files`] for an agent (`/search`): each document is read only if
 /// it is still the file its path check saw, so a link swapped in after the
-/// check is not followed (see [`crate::doc_read`]).
+/// check is not followed (see [`crate::doc_read`]). Also returns the
+/// documents it could not read (not UTF-8, over 16 MiB, refused), each with
+/// the reason: they used to be dropped in silence, so a word in one came back
+/// as no hits.
 pub(crate) fn search_checked(
     docs: Vec<CheckedDocument>,
     query: String,
     limit: Option<usize>,
-) -> Vec<FileSearchResult> {
+) -> (Vec<FileSearchResult>, Vec<UnreadFile>) {
     search_with(
         docs,
         query,
         limit,
         |d| d.path.as_str(),
-        |d| d.read_capped(MAX_DOCUMENT_BYTES).ok(),
+        |d| d.read_capped(MAX_DOCUMENT_BYTES),
     )
 }
 
-/// The search itself: `read` gives an item's text, or `None` to skip it
-/// (moved, deleted, binary or refused).
+/// The search itself: `read` gives an item's text, or why it could not be
+/// read. An item that no longer exists (moved or deleted since it was
+/// listed) is skipped in silence; any other unread item is returned with its
+/// reason.
 fn search_with<T>(
     items: Vec<T>,
     query: String,
     limit: Option<usize>,
     path_of: impl Fn(&T) -> &str,
-    read: impl Fn(&T) -> Option<String>,
-) -> Vec<FileSearchResult> {
+    read: impl Fn(&T) -> Result<String, String>,
+) -> (Vec<FileSearchResult>, Vec<UnreadFile>) {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let cap = limit.unwrap_or(200);
     let mut results = Vec::new();
+    let mut unread = Vec::new();
 
     for item in items {
         if results.len() >= cap {
             break;
         }
-        let Some(content) = read(&item) else {
-            continue; // moved/deleted/binary — skip silently
+        let content = match read(&item) {
+            Ok(content) => content,
+            Err(reason) => {
+                let path = path_of(&item);
+                if std::fs::symlink_metadata(path).is_ok() {
+                    unread.push(UnreadFile {
+                        path: path.to_string(),
+                        reason,
+                    });
+                }
+                continue;
+            }
         };
 
         let mut matches = Vec::new();
@@ -120,7 +146,7 @@ fn search_with<T>(
         }
     }
 
-    results
+    (results, unread)
 }
 
 /// Build a snippet of `line` centered on the first case-insensitive occurrence

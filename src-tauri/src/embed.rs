@@ -79,6 +79,10 @@ pub struct IndexResult {
     pub removed: usize,
     pub total: usize,
     pub busy: bool,
+    /// Library files that could not be read (not UTF-8, over 16 MiB, not a
+    /// regular file), each with the reason: they are left out of the index,
+    /// and used to be left out in silence.
+    pub unread: Vec<crate::search::UnreadFile>,
 }
 
 #[derive(Serialize)]
@@ -183,9 +187,9 @@ fn is_markdown(path: &std::path::Path) -> bool {
 /// The text of a library file to index, or `None` to skip it: a regular
 /// file of at most 16 MiB, opened without blocking. A FIFO named `x.md` in the
 /// watched folder hung the indexing, and a huge file (or a `notes.md` link to
-/// `/dev/zero`) was read whole into memory.
-fn index_source(path: &std::path::Path) -> Option<String> {
-    crate::doc_read::read_document_following(path, crate::doc_read::MAX_DOCUMENT_BYTES).ok()
+/// `/dev/zero`) was read whole into memory. `Err` gives the reason.
+fn index_source(path: &std::path::Path) -> Result<String, String> {
+    crate::doc_read::read_document_following(path, crate::doc_read::MAX_DOCUMENT_BYTES)
 }
 
 fn mtime_ms(path: &std::path::Path) -> u64 {
@@ -335,6 +339,7 @@ pub async fn embed_index(
                 removed: 0,
                 total,
                 busy: true,
+                unread: Vec::new(),
             });
         }
         *indexing = true;
@@ -362,6 +367,7 @@ async fn embed_index_inner(
             removed: 0,
             total,
             busy: false,
+            unread: Vec::new(),
         });
     };
 
@@ -381,6 +387,7 @@ async fn embed_index_inner(
 
     let mut indexed = 0usize;
     let mut skipped = 0usize;
+    let mut unread = Vec::new();
     let mut fresh_chunks: Vec<ChunkEntry> = Vec::new();
     // Only files we actually (re)embedded this run — drives replacement + mtime.
     let mut new_mtimes: HashMap<String, u64> = HashMap::new();
@@ -393,8 +400,18 @@ async fn embed_index_inner(
             skipped += 1;
             continue;
         }
-        let Some(content) = index_source(p) else {
-            continue;
+        let content = match index_source(p) {
+            Ok(content) => content,
+            Err(reason) => {
+                // A file gone since it was listed is not worth a word.
+                if std::fs::symlink_metadata(p).is_ok() {
+                    unread.push(crate::search::UnreadFile {
+                        path: path.clone(),
+                        reason,
+                    });
+                }
+                continue;
+            }
         };
         let chunks = chunk_markdown(&content);
         let file_name = p
@@ -468,13 +485,17 @@ async fn embed_index_inner(
         let total = idx.chunks.len();
         let json = serde_json::to_string(&*idx).ok();
         // Stash counts to return after the lock is dropped.
-        (json, IndexResult {
-            indexed,
-            skipped,
-            removed,
-            total,
-            busy: false,
-        })
+        (
+            json,
+            IndexResult {
+                indexed,
+                skipped,
+                removed,
+                total,
+                busy: false,
+                unread,
+            },
+        )
     };
     let (json, result) = json;
     if let Some(j) = json {
@@ -598,7 +619,20 @@ mod tests {
         let got = rx
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("indexing blocked on a FIFO");
-        assert_eq!(got, vec![None, None, None, Some("# ok".to_string())]);
+        let reasons: Vec<_> = got
+            .iter()
+            .map(|r| r.as_ref().err().map(String::as_str))
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![
+                Some("it is not a regular file"),
+                Some("it is not a regular file"),
+                Some("it is 16.0 MiB, more than the 16 MiB a document may be"),
+                None,
+            ]
+        );
+        assert_eq!(got[3].as_deref(), Ok("# ok"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
