@@ -121,7 +121,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         title: `Open recent: ${r.fileName}`,
         hint: r.path,
         group: RECENTS_GROUP,
-        run: () => openPath(r.path),
+        run: async () => {
+          await openPath(r.path);
+        },
       }));
       const commandRows = available.map(commandToRow).sort(byGroupOrder);
       return [...recentRows, ...commandRows];
@@ -142,7 +144,9 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             title: `Open recent: ${r.fileName}`,
             hint: r.path,
             group: RECENTS_GROUP,
-            run: () => openPath(r.path),
+            run: async () => {
+              await openPath(r.path);
+            },
           },
           score: score + 1, // gentle nudge so a matching recent ranks well
         });

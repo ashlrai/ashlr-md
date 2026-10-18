@@ -1296,7 +1296,11 @@ fn export_refusal(format: &str, open: Option<&str>) -> Option<String> {
         ));
     }
     open.is_none()
-        .then(|| "No document is open; open one before exporting.".to_string())
+        .then(|| {
+            "No document is open to export. Call open_file with the document's `path` and \
+             mode \"read\", then retry."
+                .to_string()
+        })
 }
 
 // ── Review handlers ───────────────────────────────────────────────────────────
@@ -2269,6 +2273,11 @@ fn handle_present(mut req: Request, app: &AppHandle) {
     send_json(req, reply);
 }
 
+/// `/present` without `path` and no open document. It names the next step,
+/// as the window's own reply does.
+const NO_DOCUMENT_TO_PRESENT: &str = "No document is open to present. Pass `path` to \
+     present_document, or call open_file with the document's `path` first.";
+
 /// The document `/present` shows: the requested one (checked like `/open`),
 /// else the open document. With neither, the window has nothing to present
 /// and would ignore the request, so it is an error.
@@ -2276,7 +2285,7 @@ fn present_target(requested: Option<&str>, open: Option<&str>) -> Result<String,
     match (requested, open) {
         (Some(p), _) => checked_agent_path(p),
         (None, Some(o)) => Ok(o.to_string()),
-        (None, None) => Err("No document is open; pass `path` to present a document.".to_string()),
+        (None, None) => Err(NO_DOCUMENT_TO_PRESENT.to_string()),
     }
 }
 
@@ -2767,6 +2776,12 @@ mod tests {
         // The window would only toast "Open a document" and export nothing.
         let err = export_refusal("docx", None).unwrap();
         assert!(err.contains("No document is open"), "{err}");
+        // It names the tool that opens one, as the window's own reply does.
+        assert_eq!(
+            err,
+            "No document is open to export. Call open_file with the document's `path` and \
+             mode \"read\", then retry."
+        );
         // The frontend treats anything it does not know as html.
         let err = export_refusal("rtf", Some("/notes/a.md")).unwrap();
         assert!(err.contains("rtf"), "{err}");
@@ -2791,7 +2806,11 @@ mod tests {
         );
         // Nothing to present: the window would do nothing, so say so.
         let err = present_target(None, None).unwrap_err();
-        assert!(err.contains("No document is open"), "{err}");
+        assert_eq!(
+            err,
+            "No document is open to present. Pass `path` to present_document, or call \
+             open_file with the document's `path` first."
+        );
     }
 
     // ── Request bodies ───────────────────────────────────────────────────────

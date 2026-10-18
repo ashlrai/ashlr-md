@@ -13,16 +13,20 @@ import type { OpenPayload, PresentPayload } from "./types";
 
 /**
  * Open `path` for an agent. Returns `null` once it is open, or the reason it
- * is not. `openPath()` never rejects: it clears `error` before reading and
- * reports a failed read only by setting it (leaving the previous document
- * open), so the outcome is read back from the store.
+ * is not, as `openPath()` resolves it. The outcome used to be read back from
+ * the store (`error` set and another document open), so a failed read of the
+ * path that was already open counted as opened.
  */
 async function openForAgent(path: string): Promise<string | null> {
-  await useDocumentStore.getState().openPath(path);
-  const after = useDocumentStore.getState();
-  if (after.error !== null && after.path !== path) return after.error;
-  return null;
+  return useDocumentStore.getState().openPath(path);
 }
+
+/**
+ * What `present_document` without `path` answers when no document is open.
+ * It used to stop at "No document is open to present." with no next step.
+ */
+export const NO_DOCUMENT_TO_PRESENT =
+  "No document is open to present. Pass `path` to present_document, or call open_file with the document's `path` first.";
 
 /**
  * Report an open or present to the IPC round-trip waiting on
@@ -76,9 +80,7 @@ export function handlePresent(): Promise<UnlistenFn> {
       if (path) {
         error = await openForAgent(path);
       } else {
-        error = useDocumentStore.getState().path
-          ? null
-          : "No document is open to present.";
+        error = useDocumentStore.getState().path ? null : NO_DOCUMENT_TO_PRESENT;
       }
       if (error === null) {
         useDocumentStore.getState().setViewMode("read");

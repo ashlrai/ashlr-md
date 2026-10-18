@@ -1388,7 +1388,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1408,7 +1408,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError) when no document is open, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save, or a document with no file yet, is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

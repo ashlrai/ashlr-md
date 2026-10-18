@@ -29,12 +29,19 @@ import type { ExportPayload } from "./types";
 export const NOT_IN_READ_VIEW =
   'Export failed in the app: the document is not in Read view, which a headless export renders. Call open_file with its path and mode "read", then retry.';
 
+/**
+ * The agent's reply when no document is open. It used to say "open one
+ * before exporting" without the tool that does it.
+ */
+export const NO_DOCUMENT_TO_EXPORT =
+  'No document is open to export. Call open_file with the document\'s `path` and mode "read", then retry.';
+
 export function handleExportPayload(): Promise<UnlistenFn> {
   return listen<ExportPayload>("mcp://export", async (e) => {
     const { editId, format, outputPath } = e.payload;
     if (!useDocumentStore.getState().path) {
       toast.info("Open a document before exporting.");
-      await replyToExport(editId, "No document is open; open one before exporting.");
+      await replyToExport(editId, NO_DOCUMENT_TO_EXPORT);
       return;
     }
 
