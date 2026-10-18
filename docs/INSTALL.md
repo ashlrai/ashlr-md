@@ -36,7 +36,8 @@ There are no Homebrew, winget or AUR packages yet.
 
 1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
 2. Download `Ashlr_MD_X.Y.Z_x64-setup.exe`.
-3. Run the installer. It installs to `%LOCALAPPDATA%\Programs\Ashlr MD\` by default.
+3. Run the installer. It installs for the current user to `%LOCALAPPDATA%\Ashlr MD\`
+   by default.
 4. If Windows Defender SmartScreen appears, click **More info → Run anyway**.
    (This warning appears for unsigned installers. It will disappear once the
    app is code-signed with an EV/OV certificate.)

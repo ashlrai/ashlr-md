@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The docs name the folder the Windows installer uses.** The install
+  guide and the Phantom detection paths said `%LOCALAPPDATA%\Programs\Ashlr MD\`,
+  while the README, docs/AGENTS.md and the Settings copy command said
+  `%LOCALAPPDATA%\Ashlr MD\`. The per-user NSIS installer installs to
+  `%LOCALAPPDATA%\Ashlr MD\`, so the two docs now say that, and a test
+  fails when a doc or the Settings placeholder names another folder.
 - **Shortcut hints show Ctrl on Windows and Linux, and the right key.**
   Tooltips and hints (the title bar buttons, "Unsaved (⌘S to save)", the
   welcome screen, the drawer, outline and table toolbar close and format

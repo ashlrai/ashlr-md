@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
+import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
@@ -13,6 +14,8 @@ import roadmap from "../ROADMAP.md?raw";
 import mdopenIpc from "../src-tauri/bins/mdopen/src/ipc.rs?raw";
 import mdopenMain from "../src-tauri/bins/mdopen/src/main.rs?raw";
 import mcpLib from "../src-tauri/bins/mdopener-mcp/src/lib.rs?raw";
+import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
+import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
 
@@ -235,6 +238,50 @@ describe(`doc facts: ${ROADMAP}`, () => {
       sorted(all(/`([a-z_]+)`/g, m?.[1] ?? "")),
       `fix the prompt list at ${at}`,
     ).toEqual(sorted(prompts));
+  });
+});
+
+// ── Windows install folder ────────────────────────────────────────────────────
+// The NSIS installer (the recommended Windows download) installs per user to
+// $LOCALAPPDATA\<productName> unless bundle.windows.nsis.installMode says
+// otherwise (Tauri v2's installer template). The docs once disagreed: two said
+// %LOCALAPPDATA%\Programs\Ashlr MD\, a folder the installer never uses.
+
+describe("doc facts: Windows install folder", () => {
+  const conf = JSON.parse(tauriConf) as {
+    productName: string;
+    bundle?: { windows?: { nsis?: { installMode?: string } } };
+  };
+  const product = conf.productName;
+  const docs: [string, string][] = [
+    ["README.md", readme],
+    [AGENTS, agentsDoc],
+    ["docs/INSTALL.md", installDoc],
+    ["docs/PHANTOM.md", phantomDoc],
+  ];
+  const LOCAL =
+    /(%LOCALAPPDATA%|\$env:LOCALAPPDATA|AppData\\{1,2}Local)((?:\\{1,2}[^\\`"\n]+)+)/g;
+
+  it("the NSIS installer installs per user", () => {
+    expect(product).toBe("Ashlr MD");
+    const mode = conf.bundle?.windows?.nsis?.installMode ?? "currentUser";
+    expect(mode).toBe("currentUser");
+  });
+
+  it("every doc names %LOCALAPPDATA%\\<productName>", () => {
+    let seen = 0;
+    for (const [file, doc] of docs) {
+      for (const m of doc.matchAll(LOCAL)) {
+        seen++;
+        const folder = m[2].split(/\\+/).filter(Boolean)[0];
+        expect(folder, `${where(file, doc, m[0])}: ${m[0]}`).toBe(product);
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(4);
+  });
+
+  it("the Settings placeholder in sidecar_path.rs uses the same folder", () => {
+    expect(sidecarPath).toContain(`"{base}\\\\${product}\\\\{}"`);
   });
 });
 
