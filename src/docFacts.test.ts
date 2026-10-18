@@ -615,7 +615,9 @@ describe("doc facts: Claude Code re-connect", () => {
     expect(section, `${at}: still says "treated as success"`).not.toMatch(
       /treated as\s+success/,
     );
-    expect(section, `${at}: name the get command`).toContain(`claude ${cliArgs("get")}`);
+    expect(section, `${at}: name the get command`).toContain(
+      `claude ${cliArgs("get")}`,
+    );
     expect(section, `${at}: name the remove command`).toContain(
       `claude ${cliArgs("remove")}`,
     );
