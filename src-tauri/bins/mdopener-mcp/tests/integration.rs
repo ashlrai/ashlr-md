@@ -1012,19 +1012,58 @@ fn get_current_content_no_doc_open_is_a_tool_error() {
     }
 }
 
-/// An unsaved document with text, and a saved document that is empty, are
-/// still successes: only a null path with no content means nothing is open.
+/// A saved document that is empty is still a success.
 #[test]
-fn get_current_content_unsaved_or_empty_saved_document_is_a_success() {
-    for (path, content) in [(Value::Null, "# Draft"), (json!("/docs/empty.md"), "")] {
-        let ipc =
-            MockIpc::new().on_get("/content", Ok(json!({ "path": path, "content": content })));
-        let resp = tool_get_content(id(1), &ipc);
-        assert!(resp.error.is_none());
-        assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
-        let text = content_text(&resp);
-        assert_eq!(text["path"], path);
-        assert_eq!(text["content"], content);
+fn get_current_content_empty_saved_document_is_a_success() {
+    let ipc = MockIpc::new().on_get(
+        "/content",
+        Ok(json!({ "path": "/docs/empty.md", "content": "" })),
+    );
+    let resp = tool_get_content(id(1), &ipc);
+    assert!(resp.error.is_none());
+    assert_ne!(resp.result.as_ref().unwrap()["isError"], true);
+    let text = content_text(&resp);
+    assert_eq!(text["path"], "/docs/empty.md");
+    assert_eq!(text["content"], "");
+}
+
+/// The app opens only files, so `path: null` is no document whatever
+/// `content` holds, as the edit tools treat it. These reads refused it only
+/// with empty content, so a path-less buffer with text read as a document.
+/// Each now gives its own "no document open" error, with its text unchanged.
+#[test]
+fn reads_refuse_a_null_path_whatever_the_content() {
+    let ipc = || {
+        MockIpc::new().on_get(
+            "/content",
+            Ok(json!({ "path": null, "content": "# Draft\n" })),
+        )
+    };
+    let err = tool_error_text(&tool_get_content(id(1), &ipc()));
+    assert_eq!(
+        err,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    let resp = handle_resource_read(id(1), "mdopener://current", &ipc());
+    let e = resp.error.expect("mdopener://current is an error");
+    assert_eq!(e.code, -32002);
+    assert_eq!(
+        e.message,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    let e = handle_prompt_get(id(1), "summarize", &ipc()).error.unwrap();
+    assert_eq!(e.code, -32002);
+    assert_eq!(
+        e.message,
+        "No document is open in Ashlr MD. Open one first (open_file)."
+    );
+    for tool in ["export_text", "export_metadata"] {
+        let resp = call(tool, json!({}), &ipc());
+        assert_eq!(
+            tool_error_text(&resp),
+            "No document is open in Ashlr MD; pass `path` to read a file.",
+            "{tool}"
+        );
     }
 }
 
@@ -10423,12 +10462,12 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
     for (tool, shape, keys) in [
         (
             "export_text",
-            "{ text, word_count, char_count, path? }",
+            "{ text, word_count, char_count, path }",
             &["char_count", "path", "text", "word_count"][..],
         ),
         (
             "export_metadata",
-            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? }",
+            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path }",
             &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
         ),
     ] {
@@ -10444,14 +10483,14 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
             assert_eq!(v["wikilinks"], json!(["A", "B"]));
         }
     }
-    // Without `path`, an unsaved open document gives no `path`.
+    // Without `path`, the result names the open document's file.
     for tool in ["export_text", "export_metadata"] {
         let ipc = MockIpc::new().on_get(
             "/content",
-            Ok(json!({ "path": null, "content": "# Draft\n" })),
+            Ok(json!({ "path": "/docs/draft.md", "content": "# Draft\n" })),
         );
         let v = content_text(&call(tool, json!({}), &ipc));
-        assert!(v.get("path").is_none(), "{tool}: {v}");
+        assert_eq!(v["path"], "/docs/draft.md", "{tool}: {v}");
     }
 }
 

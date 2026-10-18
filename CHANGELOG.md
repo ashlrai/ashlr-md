@@ -149,6 +149,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   document has no file yet" and the name "an unsaved document" in a
   stale-preview refusal could no longer be given. They are removed, and a
   preview's file is typed as a path, never `null`. No reply changes.
+- **MCP: the reads treat `path: null` as no document, whatever its
+  content.** `get_current_content`, `mdopener://current`, the prompts and
+  `export_text` / `export_metadata` without `path` refused the app's
+  `path: null` answer only when its content was also empty, so a buffer
+  with no file and some text read as a document (and the exports gave no
+  `path`), while the edit tools refuse that state. Each now gives its own
+  "no document open" error for any `path: null` answer, with the text it
+  had, and the exports' result always has `path`.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

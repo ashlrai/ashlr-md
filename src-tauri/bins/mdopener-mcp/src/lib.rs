@@ -1331,7 +1331,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
                 stripped while code block contents are preserved as-is. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
-                { text, word_count, char_count, path? }: the extracted text, its word count, its length \
+                { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
                 path of the file read (with `path` omitted, the open document's file). \
                 Operates directly on disk; no running app \
@@ -1364,7 +1364,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 headings tree (level + text for \
                 every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
-                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path? } \
+                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
                 `path` the file read: with `path` omitted, the open document's file). Operates directly \
                 on disk; no running app required. Accepts an optional path override; when omitted, \
@@ -2113,12 +2113,11 @@ fn window_refusal(resp: &Value, doing: &str, what: &str) -> String {
 /// this tool used to return as a success, so an agent could not tell "nothing
 /// open" from an empty document. It is an error now, the one
 /// `mdopener://current` and `export_text` give. The app opens only files,
-/// so `path: null` is its welcome screen.
+/// so `path: null` is its welcome screen whatever `content` holds, as the
+/// edit tools treat it; it used to be an error only with empty content.
 pub fn tool_get_content(id: Value, ipc: &dyn IpcClient) -> Response {
     match ipc.get("/content") {
-        Ok(v) if v["path"].is_null() && v["content"].as_str().is_none_or(str::is_empty) => {
-            tool_error(id, NO_DOCUMENT_OPEN.to_string())
-        }
+        Ok(v) if v["path"].is_null() => tool_error(id, NO_DOCUMENT_OPEN.to_string()),
         Ok(v) => tool_result(id, v),
         Err(e) => tool_error(id, app_not_running_msg(&e)),
     }
@@ -4221,16 +4220,19 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// `-32000` when the app cannot be reached. An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
-/// prompts already refused it.
+/// prompts already refused it. The app opens only files, so `path: null` is
+/// no document whatever `content` holds, as the edit tools treat it; it used
+/// to be refused only with empty content.
 fn current_document(ipc: &dyn IpcClient) -> Result<String, (i32, String)> {
     let v = ipc
         .get("/content")
         .map_err(|e| (-32000, app_not_running_msg(&e)))?;
-    let no_document = v["path"].is_null();
+    if v["path"].is_null() {
+        return Err((-32002, NO_DOCUMENT_OPEN.to_string()));
+    }
     match v["content"].as_str() {
-        Some(c) if !(c.is_empty() && no_document) => Ok(c.to_string()),
-        _ if no_document => Err((-32002, NO_DOCUMENT_OPEN.to_string())),
-        _ => Err((
+        Some(c) => Ok(c.to_string()),
+        None => Err((
             -32002,
             "Ashlr MD did not return the current document's content.".to_string(),
         )),
@@ -7940,17 +7942,20 @@ pub fn count_words(text: &str) -> usize {
 /// When `args["path"]` is provided, reads that file directly from disk.
 /// When omitted, fetches the current document's content via IPC.
 ///
-/// Returns `{ text, word_count, char_count, path? }`.
+/// Returns `{ text, word_count, char_count, path }`.
 /// The Markdown `export_text` and `export_metadata` work on, with its path:
 /// the file `path` names (read from disk), else the document open in the app.
 /// With neither a path nor an open document there is nothing to read, which
-/// is an error rather than an empty document.
-fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<String>), String> {
+/// is an error rather than an empty document. The app opens only files, so a
+/// `/content` answer with no `path` is no document whatever its `content`, as
+/// the edit tools treat it; it used to be refused only with empty content,
+/// and the result then had no `path`.
+fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, String), String> {
     if let Some(raw) = args["path"].as_str() {
         let doc = checked_document(&agent_path(raw), "path")?;
         let abs = doc.path.clone();
         return match doc.read() {
-            Ok(c) => Ok((without_bom(c), Some(abs))),
+            Ok(c) => Ok((without_bom(c), abs)),
             Err(e) => Err(cannot_read("", &abs, &e)),
         };
     }
@@ -7963,11 +7968,10 @@ fn source_document(args: &Value, ipc: &dyn IpcClient) -> Result<(String, Option<
             app_not_running_msg(&e)
         }
     })?;
-    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
-    let path = v["path"].as_str().map(str::to_string);
-    if path.is_none() && content.is_empty() {
+    let Some(path) = v["path"].as_str().map(str::to_string) else {
         return Err(NO_DOCUMENT_TO_READ.to_string());
-    }
+    };
+    let content = without_bom(v["content"].as_str().unwrap_or("").to_string());
     Ok((content, path))
 }
 
@@ -8011,9 +8015,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
         "word_count": word_count,
         "char_count": char_count,
     });
-    if let Some(p) = path_used {
-        result["path"] = json!(p);
-    }
+    result["path"] = json!(path_used);
     tool_result(id, result)
 }
 
@@ -8578,8 +8580,6 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         "embedded_image_count": embedded_image_count,
         "word_count": word_count,
     });
-    if let Some(p) = path_used {
-        result["path"] = json!(p);
-    }
+    result["path"] = json!(path_used);
     tool_result(id, result)
 }
