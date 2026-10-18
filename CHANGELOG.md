@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: `initialize` tells an agent where to start.** It sent no
+  `instructions`, so an agent saw 20 tools with no word on which to use
+  first, that only `open_file` starts the app, or what to do when Ashlr MD
+  is not installed. The result now carries `instructions` naming the five
+  tools to start with, the install page for a missing app, and the tools
+  that work on disk without it.
 - **The docs name the folder the Windows installer uses.** The install
   guide and the Phantom detection paths said `%LOCALAPPDATA%\Programs\Ashlr MD\`,
   while the README, docs/AGENTS.md and the Settings copy command said

@@ -163,6 +163,12 @@ fn an_agent_works_a_vault_from_disk_without_the_app() {
         init["result"]["capabilities"]["tools"].is_object(),
         "{init}"
     );
+    assert!(
+        init["result"]["instructions"]
+            .as_str()
+            .is_some_and(|t| t.contains("open_file")),
+        "{init}"
+    );
     c.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
 
     let list = c.request("tools/list", json!({}));

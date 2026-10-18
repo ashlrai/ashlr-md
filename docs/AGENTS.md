@@ -43,6 +43,13 @@ A message whose `jsonrpc` is not `"2.0"`, whose `params` is not an object, or
 whose `id` is not a string or an integer (MCP never allows `null`) is answered
 `-32600` Invalid Request.
 
+The `initialize` result carries `instructions`, which clients may give the
+model: the tools to start with (`open_file`, `present_document`,
+`request_review`, `get_current_content`, `edit_document`), that only
+`open_file` starts the app, what to do when Ashlr MD is not installed (ask the
+user to install it from the releases page), and the tools that work on files
+on disk without the app.
+
 ---
 
 ## Quick start: one-click setup (in-app)

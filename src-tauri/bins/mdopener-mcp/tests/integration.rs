@@ -186,6 +186,47 @@ fn initialize_capabilities_advertised() {
     assert!(caps["prompts"].is_object());
 }
 
+#[test]
+fn initialize_instructions_name_the_first_tools_and_a_missing_app() {
+    // No `instructions` used to be sent, so an agent saw 20 tools and no word
+    // on which to start with, that only open_file starts the app, or what to
+    // do when Ashlr MD is not installed.
+    let resp = handle_initialize(id(1), None);
+    let text = resp.result.as_ref().unwrap()["instructions"]
+        .as_str()
+        .expect("initialize sends instructions");
+    assert_eq!(text, mdopener_mcp::SERVER_INSTRUCTIONS);
+    for tool in [
+        "open_file",
+        "present_document",
+        "request_review",
+        "get_current_content",
+        "edit_document",
+    ] {
+        assert!(text.contains(tool), "instructions must name {tool}: {text}");
+    }
+    assert!(text.contains("the only tool that starts the app"), "{text}");
+    assert!(text.contains("not installed"), "{text}");
+    assert!(
+        text.contains("https://github.com/ashlrai/ashlr-md/releases"),
+        "{text}"
+    );
+    // Every snake_case word that looks like a tool is a real one.
+    let names: Vec<&str> = tool_registry().iter().map(|t| t.name).collect();
+    for word in text.split(|c: char| !(c.is_ascii_lowercase() || c == '_')) {
+        if word.contains('_') {
+            assert!(
+                names.contains(&word),
+                "instructions name unknown tool {word}"
+            );
+        }
+    }
+    assert!(
+        !text.contains('\u{2014}') && !text.contains('\u{2013}'),
+        "{text}"
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Tool list — count, membership, and ALL_TOOL_NAMES consistency
 // ════════════════════════════════════════════════════════════════════════════
