@@ -590,6 +590,46 @@ describe("doc facts: one-click setup buttons", () => {
   });
 });
 
+// ── Claude Code re-connect ────────────────────────────────────────────────────
+// The Claude Code one-click section said re-running Connect when the server
+// already exists "is treated as success". agent_setup.rs asks `claude mcp get`
+// which program the registration runs, repoints a stale one and keeps another
+// program's registration with a message naming the remove command.
+
+describe("doc facts: Claude Code re-connect", () => {
+  const section =
+    agentsDoc.split("\n## Claude Code\n")[1]?.split("### Manual")[0] ?? "";
+  const cliArgs = (field: string) => {
+    const block = agentSetup.split("const CLAUDE_CLI: AgentCli")[1] ?? "";
+    const m = block.match(new RegExp(`${field}: &\\[(?:&\\[)?([^\\]]+)\\]`));
+    return [...(m?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((x) => x[1]).join(" ");
+  };
+
+  it("reads the get and remove commands from agent_setup.rs", () => {
+    expect(cliArgs("get")).toBe("mcp get ashlr-md");
+    expect(cliArgs("remove")).toBe("mcp remove --scope user ashlr-md");
+  });
+
+  it("describes what Connect does with an existing registration", () => {
+    const at = where(AGENTS, agentsDoc, "## Claude Code");
+    expect(section, `${at}: still says "treated as success"`).not.toMatch(
+      /treated as\s+success/,
+    );
+    expect(section, `${at}: name the get command`).toContain(`claude ${cliArgs("get")}`);
+    expect(section, `${at}: name the remove command`).toContain(
+      `claude ${cliArgs("remove")}`,
+    );
+    expect(section, `${at}: say a stale registration is repointed`).toMatch(
+      /no longer exists[\s\S]*removed and\s+added again/,
+    );
+    expect(section, `${at}: say another program's registration is kept`).toMatch(
+      /another program that still\s+exists is kept/,
+    );
+    expect(agentSetup).toContain("It was left as it is.");
+    expect(agentSetup).toMatch(/which no longer exists \(the/);
+  });
+});
+
 // ── Release asset names ───────────────────────────────────────────────────────
 // The Tauri bundler names each installer after productName, space included
 // (`Ashlr MD_0.4.0_amd64.deb`, `Ashlr MD-0.4.0-1.x86_64.rpm`), and

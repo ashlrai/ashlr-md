@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **docs/AGENTS.md says what re-running Connect to Claude Code does.** It
+  said re-running Connect when the server already exists "is treated as
+  success". The Claude Code section now says Connect asks `claude mcp get`
+  which program the registration runs, repoints one whose program no longer
+  exists, and keeps one that runs another program with a message naming the
+  remove command. A doc-facts test checks it against agent_setup.rs.
 - **An unreadable client config says what to check.** When **Connect to
   Cursor** or **Auto-open agent Markdown** could not read or write
   `~/.cursor/mcp.json` or `~/.claude/settings.json`, the message was the OS
