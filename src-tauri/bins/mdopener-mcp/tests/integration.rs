@@ -7921,6 +7921,64 @@ fn edit_canvas_description_says_what_saved_and_content_hold() {
     assert_ne!(std::fs::read_to_string(&path).unwrap(), raw);
 }
 
+/// diff_documents listed `hunks`, `added` and `removed` without saying they
+/// are counts (of hunks, and of lines), or what identical documents return.
+#[test]
+fn diff_documents_description_says_what_its_counts_are() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "diff_documents")
+        .unwrap();
+    assert!(
+        def.description.contains(
+            "`hunks` is the number of change hunks, `added` and `removed` the number of \
+             lines added and removed, `path_a` and `path_b` the absolute paths read, and \
+             `diff` an empty string (with all three counts 0) when the documents are identical."
+        ),
+        "{}",
+        def.description
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b, c) = (
+        dir.path().join("a.md"),
+        dir.path().join("b.md"),
+        dir.path().join("c.md"),
+    );
+    std::fs::write(&a, "one\ntwo\nthree\n").unwrap();
+    std::fs::write(&b, "one\ntwo\nthree\n").unwrap();
+    std::fs::write(&c, "one\n2\nthree\nfour\n").unwrap();
+    let ipc = MockIpc::new();
+    let same = content_text(&call(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": b }),
+        &ipc,
+    ));
+    assert_eq!(same["diff"], "");
+    assert_eq!(
+        (
+            same["hunks"].as_u64(),
+            same["added"].as_u64(),
+            same["removed"].as_u64()
+        ),
+        (Some(0), Some(0), Some(0))
+    );
+    let changed = content_text(&call(
+        "diff_documents",
+        json!({ "path_a": a, "path_b": c, "context_lines": 0 }),
+        &ipc,
+    ));
+    assert_eq!(changed["added"], 2, "{changed}");
+    assert_eq!(changed["removed"], 1, "{changed}");
+    assert_eq!(changed["hunks"], 2, "{changed}");
+    assert_eq!(
+        changed["path_a"],
+        std::fs::canonicalize(&a)
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+}
+
 // ── An unclosed leading `---` is not front-matter ─────────────────────────────
 
 /// A document that opens with `---` (a thematic break) and never closes it

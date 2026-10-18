@@ -1108,7 +1108,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "diff_documents",
-            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }. Only Markdown files (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles are read.",
+            description: "Compare two Markdown documents and return a unified diff with line numbers. Agents use this to review what changed in a file between edits, between vault versions, or to inspect the delta before applying a patch. Returns { diff, hunks, added, removed, path_a, path_b }: `hunks` is the number of change hunks, `added` and `removed` the number of lines added and removed, `path_a` and `path_b` the absolute paths read, and `diff` an empty string (with all three counts 0) when the documents are identical. Only Markdown files (.md, .markdown, .mdown, .mkd, .mdx) that are not dotfiles are read.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

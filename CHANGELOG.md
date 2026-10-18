@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`diff_documents` says what its counts are.** Its description listed
+  `hunks`, `added` and `removed` without saying they count change hunks
+  and added and removed lines, or that identical documents return an
+  empty `diff` with all three at `0`. It now says so, and that `path_a`
+  and `path_b` come back absolute.
 - **`edit_canvas` says what `saved` and `content` hold.** Its description
   listed them without a word on their meaning, and called each op atomic
   when the whole call is. It now says the ops apply all or nothing, that
