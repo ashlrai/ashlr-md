@@ -412,6 +412,18 @@ describe("handlers integration — edits with save: true", () => {
     expect(String(r.error)).toContain("not saved");
   });
 
+  it("edit: with no document open says so, not that `find` is missing", async () => {
+    useDocumentStore.setState({ path: null, content: "" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    await fireEvent("mcp://edit", { editId: "e1", find: "hello", replace: "hi" });
+    const r = reply("mcp_edit_result");
+    expect(r).toMatchObject({ editId: "e1", ok: false, replaced: 0 });
+    expect(r.error).toBe(
+      "No document is open in Ashlr MD; open one first (open_file).",
+    );
+  });
+
   it("set-content: reports the replaced content as ok", async () => {
     await fireEvent("mcp://set-content", { editId: "c1", content: "new body" });
     expect(useDocumentStore.getState().content).toBe("new body");

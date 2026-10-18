@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`edit_document` with no document open says so.** The window applied
+  the edit to the empty welcome buffer and answered "`find` string not
+  found in the current document.", so an agent went looking for its text
+  instead of opening a file. It now answers "No document is open in Ashlr
+  MD; open one first (open_file).", as `set_content` does, and the tool
+  description and docs/AGENTS.md row state the case.
 - **`tools/list` names the destructive tools last.** `set_content`, which
   replaces the whole document, was listed third, ahead of `edit_document`,
   so an agent reading the list top down met it first. `replace_document`

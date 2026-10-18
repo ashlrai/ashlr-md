@@ -18,6 +18,7 @@ import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
+import mcpEditHandlers from "./mcp/handlers/edit.ts?raw";
 
 const AGENTS = "docs/AGENTS.md";
 const ROADMAP = "ROADMAP.md";
@@ -157,6 +158,26 @@ describe(`doc facts: ${AGENTS}`, () => {
       `tool_registry() lists ${tools[tiers.findIndex((t, i) => i > first && t !== "Destructive")]} after a destructive tool`,
     ).toBe(true);
     expect(tools.indexOf("edit_document")).toBeLessThan(tools.indexOf("set_content"));
+  });
+
+  it("edit rows quote the app's no-document-open refusal", () => {
+    const msg = mcpEditHandlers.match(/const NO_DOCUMENT_OPEN = "([^"]+)"/)?.[1];
+    expect(
+      msg,
+      "src/mcp/handlers/edit.ts no longer defines NO_DOCUMENT_OPEN",
+    ).toBeTruthy();
+    for (const tool of ["set_content", "edit_document"]) {
+      const row =
+        agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
+      expect(
+        row,
+        `quote "${msg}" at ${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`,
+      ).toContain(msg);
+    }
+    const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
+      /name: "edit_document",\s*description: "((?:[^"\\]|\\.)*)"/,
+    )?.[1];
+    expect(desc?.replaceAll('\\"', '"'), "edit_document's description").toContain(msg);
   });
 
   it("export row lists the real formats", () => {
