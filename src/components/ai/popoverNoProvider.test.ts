@@ -145,6 +145,33 @@ describe("Selection popover with no provider", () => {
     expect(nudge!.querySelector(".ai-key-form")).not.toBeNull();
   });
 
+  // Detection that threw used to leave the sidebar on its chat, with the
+  // "Set one up here" message and no setup controls to act on.
+  it("an open chat switches to the setup panel when detection fails", async () => {
+    await clickExplain(() => detect.mockRejectedValue(new Error("keychain locked")));
+    await act(async () => {});
+    const nudge = host.querySelector(".ai-setup-nudge");
+    expect(nudge, "the sidebar shows its setup panel").not.toBeNull();
+    expect(nudge!.querySelector(".ai-setup-nudge__notice")?.textContent).toContain(
+      NO_PROVIDER_RUN_MESSAGE,
+    );
+    expect(nudge!.querySelector(".ai-key-form")).not.toBeNull();
+    expect(host.querySelector(".ai-input"), "the chat is not shown").toBeNull();
+  });
+
+  it("a sidebar the action opens fresh shows the panel when detection fails", async () => {
+    useAIStore.setState({ open: false });
+    detect.mockRejectedValue(new Error("keychain locked"));
+    await clickExplain();
+    await act(async () => {});
+    expect(useAIStore.getState().open).toBe(true);
+    const nudge = host.querySelector(".ai-setup-nudge");
+    expect(nudge, "the sidebar shows its setup panel").not.toBeNull();
+    expect(nudge!.querySelector(".ai-setup-nudge__notice")?.textContent).toContain(
+      NO_PROVIDER_RUN_MESSAGE,
+    );
+  });
+
   it("an open chat switches to the setup panel when the provider is gone", async () => {
     await clickExplain(() => detect.mockResolvedValue({ id: NOOP_PROVIDER_ID }));
     expect(host.querySelector(".ai-setup-nudge__notice")?.textContent).toContain(

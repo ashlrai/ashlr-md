@@ -44,6 +44,7 @@ export function SelectionPopover() {
   const setBusy = useAIStore((s) => s.setBusy);
   const setAbortController = useAIStore((s) => s.setAbortController);
   const setProvider = useAIStore((s) => s.setProvider);
+  const clearProvider = useAIStore((s) => s.clearProvider);
 
   /** Returns true if the selection's anchor node is inside `.markdown-body` */
   function isInsideMarkdownBody(sel: Selection): boolean {
@@ -152,8 +153,12 @@ export function SelectionPopover() {
     // provider makes a sidebar that still showed the chat switch to its setup
     // panel, which shows this message on top: the message used to sit in the
     // chat the panel hides, so a freshly opened sidebar showed no reason.
+    // Detection that threw leaves no provider known: clearing it switches
+    // the sidebar to the panel too, where it used to stay on the chat with
+    // a "Set one up here" message and no setup controls.
     if (!provider || provider.id === NOOP_PROVIDER_ID) {
       if (provider) setProvider(provider.id, provider.capabilities);
+      else clearProvider();
       pushMessage({
         role: "assistant",
         content: "",

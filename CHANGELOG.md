@@ -47,6 +47,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Provider detection that fails shows the setup panel.** When finding an
+  AI provider threw an error, rather than finding none, a selection popover
+  action left its "Set one up here" message in the AI sidebar's chat, which
+  stayed on screen with no setup controls; a sidebar opened then could also
+  stay on "Detecting AI" for good. Both now clear the provider, so the
+  sidebar shows its setup panel with the message on top.
 - **"Explain changes" with no provider shows why on the setup panel.** The
   change banner's note that no AI provider was found was written as plain
   chat text, which the AI sidebar's setup panel hides, so the user saw the
