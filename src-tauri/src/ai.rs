@@ -267,7 +267,12 @@ async fn stream_ollama(
                     }
                 }
                 if chunk_obj.done == Some(true) {
-                    let _ = app.emit("ai://done", DonePayload { request_id: request_id.clone() });
+                    let _ = app.emit(
+                        "ai://done",
+                        DonePayload {
+                            request_id: request_id.clone(),
+                        },
+                    );
                     return Ok(());
                 }
             }
@@ -357,7 +362,12 @@ async fn stream_anthropic(
         while let Some(line) = take_line(&mut buf) {
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
-                    let _ = app.emit("ai://done", DonePayload { request_id: request_id.clone() });
+                    let _ = app.emit(
+                        "ai://done",
+                        DonePayload {
+                            request_id: request_id.clone(),
+                        },
+                    );
                     return Ok(());
                 }
                 if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
@@ -382,7 +392,9 @@ async fn stream_anthropic(
                         "message_stop" => {
                             let _ = app.emit(
                                 "ai://done",
-                                DonePayload { request_id: request_id.clone() },
+                                DonePayload {
+                                    request_id: request_id.clone(),
+                                },
                             );
                             return Ok(());
                         }
