@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An unreadable client config says what to check.** When **Connect to
+  Cursor** or **Auto-open agent Markdown** could not read or write
+  `~/.cursor/mcp.json` or `~/.claude/settings.json`, the message was the OS
+  error alone ("Cannot read <path>: Is a directory"). It now says an
+  unreadable file was not changed and to check that it is a text file you
+  can read (or that you can write to it and its folder), then try again.
 - **A disabled Connect button says how to enable it.** When Claude Code,
   Cursor or Codex was not detected, its button was disabled with only a
   tooltip, "Claude Code CLI not found", "Cursor not detected" or "Codex CLI
