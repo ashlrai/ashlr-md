@@ -47,6 +47,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `get_user_annotations` answers when the app is not running.** Its
+  description said tasks fall back to the file on disk, but with Ashlr MD
+  closed the call failed and told the agent to start the app. It now reads
+  the task checkboxes from the Markdown file on disk (with the same checks
+  as the other disk tools), returns `verdict` and `comments` as `null`, and
+  adds `appRunning: false` and a `note` saying the app keeps reviews only
+  while it runs, so `null` does not mean no review was given. A file that
+  cannot be read has a `tasksNote` saying why. The app and the server now
+  share one task parser.
 - **MCP: `edit_canvas` names the ids that exist when one is not found.** A
   mistyped or stale node or edge id came back as "node `n2` not found", with
   no word on which ids the canvas has or whether anything was written, so an

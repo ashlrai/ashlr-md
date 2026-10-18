@@ -17,6 +17,7 @@ mod ipc;
 mod run;
 mod search;
 mod secrets;
+mod task_list;
 mod watcher;
 
 use std::sync::Mutex;

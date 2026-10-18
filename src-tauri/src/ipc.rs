@@ -1530,6 +1530,8 @@ fn same_path(a: &str, b: &str) -> bool {
 /// The file used to be read whole however large it was.
 const MAX_ANNOTATION_FILE_BYTES: u64 = crate::doc_read::MAX_DOCUMENT_BYTES;
 
+use crate::task_list::parse_tasks;
+
 /// The GFM task checkboxes of the file `requested`: from the live buffer when
 /// it is the open document, else read from disk when it is a Markdown file
 /// (not a dotfile, checked after resolving symlinks), else none. Never the
@@ -1558,29 +1560,6 @@ fn annotation_tasks(
             Some(format!("The tasks of {} were not read: {e}.", doc.path)),
         ),
     }
-}
-
-fn parse_tasks(content: &str) -> Vec<serde_json::Value> {
-    content
-        .lines()
-        .filter_map(|line| {
-            let t = line.trim_start();
-            let rest = t
-                .strip_prefix("- ")
-                .or_else(|| t.strip_prefix("* "))
-                .or_else(|| t.strip_prefix("+ "))?
-                .trim_start();
-            let checked = if rest.starts_with("[ ]") {
-                false
-            } else if rest.starts_with("[x]") || rest.starts_with("[X]") {
-                true
-            } else {
-                return None;
-            };
-            let text = rest[3..].trim().to_string();
-            Some(serde_json::json!({ "text": text, "checked": checked }))
-        })
-        .collect()
 }
 
 /// The `path` `/annotations` reports on. Without one there is no file to
