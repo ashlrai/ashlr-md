@@ -138,10 +138,32 @@ function formatKey(key: string): string {
  *
  * Takes a DOM `KeyboardEvent` or a React keyboard event.
  */
-export function isDismissEscape(
-  e: KeyboardEvent | { key: string; nativeEvent: KeyboardEvent },
-): boolean {
-  if (e.key !== "Escape") return false;
+export function isDismissEscape(e: KeyEventLike): boolean {
+  return e.key === "Escape" && !isImeKey(e);
+}
+
+/**
+ * Whether `e` is an Enter that should run or submit something: Enter, and
+ * not one that commits an input-method composition. Pressing Enter to
+ * accept a composition's text in the command palette or find bar used to
+ * run the selected command or jump to the next match as well. Same
+ * composition check as `isDismissEscape`.
+ *
+ * Takes a DOM `KeyboardEvent` or a React keyboard event.
+ */
+export function isActionEnter(e: KeyEventLike): boolean {
+  return e.key === "Enter" && !isImeKey(e);
+}
+
+/** A DOM `KeyboardEvent` or a React keyboard event. */
+type KeyEventLike = KeyboardEvent | { key: string; nativeEvent: KeyboardEvent };
+
+/**
+ * True when the key belongs to an input-method composition. `isComposing`
+ * covers most engines; WebKit reports the key that ends a composition with
+ * `isComposing` false but `keyCode` 229.
+ */
+function isImeKey(e: KeyEventLike): boolean {
   const native = "nativeEvent" in e ? e.nativeEvent : e;
-  return !native.isComposing && native.keyCode !== 229;
+  return native.isComposing || native.keyCode === 229;
 }

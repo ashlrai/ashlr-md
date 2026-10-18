@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **An IME Enter no longer runs a command or jumps to a match.** Pressing
+  Enter to commit an input-method composition in the command palette ran
+  the selected command, and in the find bar it jumped to the next match.
+  Both now ignore an Enter that belongs to a composition, with the same
+  check the dialogs use for Escape; a plain Enter still runs or steps.
 - **MCP: an open the app did not confirm says what to do next.** When the
   app was reached but failed or did not answer in time, `open_file` said
   only that it "did not confirm opening" the file, with the IPC error. It
