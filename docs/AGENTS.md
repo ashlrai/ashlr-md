@@ -294,7 +294,10 @@ A document a tool reads from disk must be UTF-8 text. One that is not (a
 Latin-1 or UTF-16 file, as some Windows editors save) is `isError: true`
 naming the first byte that is not valid UTF-8 and its line (or saying it is
 UTF-16), and saying to convert the file to UTF-8; it used to say only "stream
-did not contain valid UTF-8".
+did not contain valid UTF-8". The app gives the same reason when it reads
+the file itself, so `open_file`, `present_document` and `request_review` (with
+`path`) of such a file fail with it too, and so does the window's own open
+and a patch the human applies to the file.
 
 The app reads at most 16 MiB of one request. A call that would send it more
 (`set_content` or `replace_document` with a larger `content`, `edit_document`,

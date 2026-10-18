@@ -78,6 +78,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   first three with the reason (`/v/latin.md (not UTF-8 text (byte 4 is not
   valid UTF-8, on line 1))`), counts the rest, and says to convert a file
   that is not UTF-8.
+- **The app says where a document is not UTF-8, and what to do.** Opening a
+  Latin-1 or UTF-16 file in the window, or through `open_file`,
+  `present_document` or `request_review`, and applying a patch to one, failed
+  with the bare "stream did not contain valid UTF-8". The app now gives the
+  reason mdopener-mcp gives: the first byte that is not valid UTF-8 and its
+  line (or that the file is UTF-16), and to convert the file to UTF-8.
 - **`mdopen` reports a refused token even when the URL scheme opens the
   file.** On an HTTP 401 from the running app, the CLI falls back to the
   `mdopener://` URL, and when that launch succeeded the stale
