@@ -4107,7 +4107,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -5780,6 +5780,50 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 
 // ── list_recent_documents resource handler ────────────────────────────────────
 
+/// A document's title: the text of its first `# ` heading line, `None` when
+/// it has none. Lines of a leading YAML front matter block and of fenced
+/// code blocks (```` ``` ```` or `~~~`, closed by a fence of the same
+/// character at least as long) are not headings: the first such line used
+/// to be the title, so a front matter `# comment` or a shell comment in a
+/// code block named the document. A fence left open runs to the end, as in
+/// CommonMark.
+pub fn document_title(content: &str) -> Option<String> {
+    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
+    let mut fence: Option<(char, usize)> = None;
+    for line in content.lines().skip(skip) {
+        let run = code_fence(line);
+        match (fence, run) {
+            (Some((c, n)), Some((rc, rn, rest)))
+                if rc == c && rn >= n && rest.trim().is_empty() =>
+            {
+                fence = None;
+            }
+            (Some(_), _) => {}
+            (None, Some((rc, rn, _))) => fence = Some((rc, rn)),
+            (None, None) => {
+                if let Some(title) = line.strip_prefix("# ") {
+                    return Some(title.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The fence character, its run length and the rest of the line when `line`
+/// is a code fence: at most three spaces, then three or more backticks or
+/// tildes (a backtick fence's info string has no backtick).
+fn code_fence(line: &str) -> Option<(char, usize, &str)> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let c = body.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let n = body.chars().take_while(|&x| x == c).count();
+    let rest = &body[n..];
+    (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+}
+
 /// Build the `mdopener://recent-documents` resource response.
 ///
 /// Queries the app's `/vault` IPC endpoint for `recents` (a string array of
@@ -5789,8 +5833,9 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// { "path": "...", "title": "...", "mtimeMs": 1234567890, "preview": "..." }
 /// ```
 ///
-/// `title` is derived from the first `# Heading` line if present, otherwise
-/// the file's base name without extension.  `preview` is the first 200 chars
+/// `title` is [`document_title`] (the first `# Heading` line outside front
+/// matter and fenced code) if present, otherwise the file's base name
+/// without extension.  `preview` is the first 200 chars
 /// of raw content (including front-matter).  Recents that cannot be listed
 /// are left out, and `skipped` counts them by reason: `missing` (no longer
 /// on disk), `notDocument` (not a Markdown non-dotfile regular file),
@@ -5849,16 +5894,12 @@ pub fn handle_recent_documents_resource(id: Value, ipc: &dyn IpcClient) -> Respo
             .unwrap_or(0);
 
         // Derive title: first `# ...` heading line, else stem of the file name.
-        let title = content
-            .lines()
-            .find(|l| l.starts_with("# "))
-            .map(|l| l.trim_start_matches("# ").trim().to_string())
-            .unwrap_or_else(|| {
-                std::path::Path::new(path)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.clone())
-            });
+        let title = document_title(&content).unwrap_or_else(|| {
+            std::path::Path::new(path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone())
+        });
 
         // Preview: first 200 chars of raw content.
         let preview: String = content.chars().take(200).collect();

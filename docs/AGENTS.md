@@ -456,6 +456,9 @@ names the same parameters, `&limit=` included (it used to leave `limit` out).
 - **`mdopener://recent-documents`**: recently opened files that still exist,
   each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
   (`mimeType: application/json`), as `{ documents, count, skipped }`.
+  `title` is the first `# ` heading outside YAML front matter and fenced
+  code blocks, else the file name without its extension (a `# ` line in
+  front matter or a code block used to be taken as the title).
   Recents that cannot be listed are left out and counted in `skipped` by
   reason: `missing` (no longer on disk), `notDocument` (a dotfile, not
   Markdown, or not a regular file), `tooLarge` (past 16 MiB) and

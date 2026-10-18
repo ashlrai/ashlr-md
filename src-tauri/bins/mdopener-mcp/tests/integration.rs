@@ -4589,6 +4589,65 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// The recent-documents `title` was the first line starting with `# `,
+/// even one inside YAML front matter or a fenced code block, so a front
+/// matter comment or a shell comment named the document. Those lines are
+/// now skipped.
+#[test]
+fn document_title_skips_front_matter_and_fenced_code() {
+    use mdopener_mcp::document_title;
+    let cases = [
+        ("# Plan\n", Some("Plan")),
+        (
+            "---\n# a yaml comment\ntitle: x\n---\n# Real\n",
+            Some("Real"),
+        ),
+        ("---\n# only front matter\n...\nbody\n", None),
+        ("```sh\n# install\n```\n# Real\n", Some("Real")),
+        ("~~~\n# not\n~~~\n# Real\n", Some("Real")),
+        // A shorter or other-character fence does not close the block.
+        ("````\n```\n# not\n````\n# Real\n", Some("Real")),
+        ("```\n~~~\n# not\n```\n# Real\n", Some("Real")),
+        ("   ```\n# not\n   ```\n# Real\n", Some("Real")),
+        // A fence left open runs to the end.
+        ("```\n# not\n", None),
+        // Four spaces is indented code, not a fence, and `` `a` `` is text.
+        ("    ```\n# Real\n", Some("Real")),
+        ("``a`` b\n# Real\n", Some("Real")),
+        // An unclosed `---` is a thematic break, not front matter.
+        ("---\n# Real\n", Some("Real")),
+        ("## Two\n#tag\n", None),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(document_title(doc).as_deref(), want, "{doc:?}");
+    }
+}
+
+/// `mdopener://recent-documents` takes its `title` with [`document_title`]:
+/// a front matter comment and a fenced shell comment are not the title.
+#[test]
+fn recent_documents_title_skips_front_matter_and_fenced_code() {
+    use mdopener_mcp::handle_resource_read;
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let fm = root.join("fm.md");
+    std::fs::write(&fm, "---\n# generated\ntags: [a]\n---\n# Front Title\n").unwrap();
+    let code = root.join("setup-notes.md");
+    std::fs::write(&code, "Intro.\n\n```sh\n# install it\n```\n").unwrap();
+    let paths = [fm, code].map(|p| p.to_string_lossy().into_owned());
+    let ipc = MockIpc::new().on_get("/vault", Ok(json!({ "files": [], "recents": paths })));
+    let resp = handle_resource_read(id(1), "mdopener://recent-documents", &ipc);
+    let result = resp.result.unwrap();
+    let v: Value = serde_json::from_str(result["contents"][0]["text"].as_str().unwrap()).unwrap();
+    let titles: Vec<&str> = v["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Front Title", "setup-notes"]);
+}
+
 /// The vault-search resources/list entry said `note` reports only an
 /// unavailable semantic search or app search, but it also reports documents
 /// whose embedding failed, vault files that could not be read, and a search

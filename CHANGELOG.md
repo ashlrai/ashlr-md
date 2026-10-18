@@ -47,6 +47,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a recent document's `title` skips front matter and code.** The
+  `mdopener://recent-documents` `title` was the first line starting with
+  `# `, even inside YAML front matter or a fenced code block, so a front
+  matter comment or a shell comment such as `# install it` named the
+  document. Lines of a leading front matter block and of fenced code
+  (```` ``` ```` or `~~~`, closed by the same fence at least as long) are
+  now skipped; with no other `# ` heading the title is the file name, as
+  before.
 - **MCP: the vault-search resource entry names every `note`.** The
   `resources/list` entry for `text://vault-search` said `note` reports
   only that semantic search or the app's own search was unavailable. It
