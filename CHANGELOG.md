@@ -36,6 +36,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`search_vault` with a missing `vault` says what to do.** A `vault`
+  folder that does not exist was refused with the raw OS text (`No such
+  file or directory (os error 2)`). It now says the folder does not exist
+  and to name an existing folder of Markdown files, or start Ashlr MD to
+  search its vault; the `text://vault-search` resource says the same.
 - **`edit_canvas` on a missing file names it and what to do.** It answered
   `Failed to read missing.canvas: No such file or directory (os error 2)`,
   with the path as passed and no next step. It now names the absolute path,

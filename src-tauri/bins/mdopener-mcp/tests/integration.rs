@@ -3383,6 +3383,25 @@ fn search_vault_on_disk_says_when_folders_were_too_deep() {
     assert_eq!(v["depthCut"], true, "{v}");
 }
 
+/// A `vault` that does not exist was refused with the raw OS text
+/// ("No such file or directory (os error 2)") and no next step.
+#[test]
+fn search_vault_names_a_missing_vault_folder_and_the_next_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope");
+    let err = mdopener_mcp::disk_vault_dir(missing.to_str().unwrap())
+        .expect_err("a missing vault is refused");
+    assert_eq!(
+        err,
+        format!(
+            "`vault` '{}' does not exist: name an existing folder of Markdown files to \
+             search, or start Ashlr MD to search its vault.",
+            missing.display()
+        )
+    );
+    assert!(!err.contains("os error"), "{err}");
+}
+
 /// A `vault` that is itself a hidden folder (`.git`, `.obsidian`) was walked,
 /// though the walk skips hidden folders below a vault: its own notes were
 /// read and grepped. It is now refused, as the hidden subfolders are skipped.

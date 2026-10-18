@@ -3070,8 +3070,20 @@ pub const DISK_VAULT_MAX_DEPTH: usize = 16;
 /// walk would skip below a vault. Only the documents [`disk_vault_files`]
 /// finds under it are read. Errors are for `isError`.
 pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
-    let dir =
-        std::fs::canonicalize(raw).map_err(|e| format!("`vault` '{}': {e}", agent_path(raw)))?;
+    // A missing folder used to come back as the raw OS text ("No such file
+    // or directory (os error 2)"), which read like a fault and gave no next
+    // step.
+    let dir = std::fs::canonicalize(raw).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "`vault` '{}' does not exist: name an existing folder of Markdown files to \
+                 search, or start Ashlr MD to search its vault.",
+                agent_path(raw)
+            )
+        } else {
+            format!("`vault` '{}': {e}", agent_path(raw))
+        }
+    })?;
     if !dir.is_dir() {
         return Err(format!(
             "`vault` '{}' is not a directory: name the folder of Markdown files to search.",
