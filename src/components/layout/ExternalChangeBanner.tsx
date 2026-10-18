@@ -20,6 +20,9 @@ export function ExternalChangeBanner() {
   const pushMessage = useAIStore((s) => s.pushMessage);
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
+  const failLast = useAIStore((s) => s.failLastAssistantMessage);
+  const stopLast = useAIStore((s) => s.stopLastAssistantMessage);
+  const setAbortController = useAIStore((s) => s.setAbortController);
   const setBusy = useAIStore((s) => s.setBusy);
   const setProvider = useAIStore((s) => s.setProvider);
   const clearProvider = useAIStore((s) => s.clearProvider);
@@ -75,14 +78,30 @@ export function ExternalChangeBanner() {
     pushMessage({ role: "assistant", content: "", streaming: true });
     setBusy(true);
 
+    // A sidebar chat turn in all but name: registered in the store so the
+    // sidebar's Stop button aborts it, a stop marked as stopped, and a failure
+    // recorded as a failed turn. It used to hold no controller (Stop did
+    // nothing) and to append the raw error to the answer as chat text.
+    const controller = new AbortController();
+    setAbortController(controller);
+
     try {
-      await runSelectionAction(provider, messages, (delta) => updateLast(delta));
+      await runSelectionAction(
+        provider,
+        messages,
+        (delta) => updateLast(delta),
+        controller.signal,
+      );
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      if (m !== "Aborted") updateLast(`\n\n*Error: ${m}*`);
+      const aborted =
+        m === "Aborted" || (e instanceof DOMException && e.name === "AbortError");
+      if (aborted) stopLast();
+      else failLast(describeAIError(e));
     } finally {
       finalizeLast();
       setBusy(false);
+      setAbortController(null);
       setExplaining(false);
     }
   }
