@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **MCP: a directory passed as a document is called a directory.** Giving
+  `open_file`, `present_document`, `request_review` or a tool that reads a
+  path a directory was refused with "only Markdown documents ... can be
+  opened", which did not say what was wrong. It now says the path is a
+  directory, not a file, and to pass a Markdown file in it, as `mdopen`
+  does.
 - **mdopen: a Markdown dotfile is refused for its dot.** `mdopen .plan.md`
   said the file "is not a Markdown document", though its extension is.
   It now says the file is a dotfile, which Ashlr MD does not open, and to

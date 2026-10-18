@@ -4661,6 +4661,14 @@ fn checked_document_for(raw: &str, arg: &str, why: Use) -> Result<CheckedDocumen
         .and_then(|e| e.to_str())
         .map(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
         .unwrap_or(false);
+    // A directory used to be refused as "only Markdown documents ... can be
+    // opened", which did not say what was wrong with it or what to pass.
+    if p.is_dir() {
+        return Err(format!(
+            "Refusing to {verb} `{arg}` '{abs}': it is a directory, not a file. \
+             Pass a Markdown file in it."
+        ));
+    }
     if hidden || !markdown {
         return Err(format!(
             "Refusing to {verb} `{arg}` '{abs}': only Markdown documents ({}) that are not \
