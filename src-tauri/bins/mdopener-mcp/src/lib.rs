@@ -2993,10 +2993,11 @@ fn disk_annotations(path: &str) -> Value {
     // fault: it is worded as the other disk tools word it.
     let read = checked_document(path, "path").and_then(|doc| {
         doc.read().map_err(|e| {
-            format!(
-                "{} Its tasks were not read.",
-                cannot_read("", &doc.path, &e)
-            )
+            // The reason does not always end a sentence ("...: it is 17.0
+            // MiB, more than ..."), and the note ran on into "Its".
+            let why = cannot_read("", &doc.path, &e);
+            let stop = if why.ends_with('.') { "" } else { "." };
+            format!("{why}{stop} Its tasks were not read.")
         })
     });
     let mut body = json!({
@@ -4849,13 +4850,36 @@ fn read_document_at(
     if meta.len() > MAX_DOCUMENT_BYTES {
         return Err(too_large(meta.len()));
     }
-    let mut text = String::new();
-    file.take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_string(&mut text)?;
-    if text.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(too_large(text.len() as u64));
+    let mut bytes = Vec::new();
+    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(too_large(bytes.len() as u64));
     }
-    Ok(text)
+    String::from_utf8(bytes).map_err(|e| not_utf8(e.as_bytes(), e.utf8_error().valid_up_to()))
+}
+
+/// The error for a document that is not UTF-8 text. `read_to_string` said
+/// only "stream did not contain valid UTF-8", which named neither where the
+/// problem was nor what to do about it, so a Latin-1 or UTF-16 file (as some
+/// Windows editors save) looked like a fault in the tool.
+fn not_utf8(bytes: &[u8], valid_up_to: usize) -> std::io::Error {
+    let what = if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        "it is UTF-16 text, not UTF-8".to_string()
+    } else {
+        let line = bytes[..valid_up_to].iter().filter(|&&b| b == b'\n').count() + 1;
+        format!(
+            "it is not UTF-8 text (byte {} is not valid UTF-8, on line {line})",
+            valid_up_to + 1
+        )
+    };
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!(
+            "{what}. Ashlr MD reads documents as UTF-8: convert the file to UTF-8 (for \
+             example `iconv -f WINDOWS-1252 -t UTF-8`, or save it as UTF-8 in its \
+             editor), then try again."
+        ),
+    )
 }
 
 /// Markdown extensions a path-taking read tool may open. Mirrors the app's

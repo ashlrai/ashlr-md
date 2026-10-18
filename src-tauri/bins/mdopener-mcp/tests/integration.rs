@@ -11224,6 +11224,68 @@ fn document_reads_refuse_a_file_larger_than_16_mib() {
     );
 }
 
+/// A document that is not UTF-8 (a Latin-1 or UTF-16 file, as some Windows
+/// editors save) was refused with the bare "stream did not contain valid
+/// UTF-8", which named neither where the problem was nor what to do, and
+/// `get_user_annotations`' `tasksNote` ran it on into "Its tasks were not
+/// read." with no full stop. The reason now says where and how to convert it.
+#[test]
+fn a_document_that_is_not_utf8_is_refused_with_where_and_what_to_do() {
+    let dir = tempfile::Builder::new().prefix("enc-").tempdir().unwrap();
+    let latin = dir.path().join("latin.md");
+    std::fs::write(&latin, b"# Menu\n\ncaf\xe9 au lait\n").unwrap();
+    let utf16 = dir.path().join("utf16.md");
+    std::fs::write(&utf16, b"\xff\xfe#\x00 \x00H\x00i\x00").unwrap();
+    let ok = dir.path().join("ok.md");
+    std::fs::write(&ok, "# ok\n").unwrap();
+    let canvas = dir.path().join("board.canvas");
+    std::fs::write(&canvas, b"{\"nodes\": [], \"edges\": [], \"t\": \"\xe9\"}").unwrap();
+
+    let convert = "Ashlr MD reads documents as UTF-8: convert the file to UTF-8";
+    for (tool, args) in [
+        ("export_text", json!({ "path": latin })),
+        ("export_metadata", json!({ "path": latin })),
+        ("diff_documents", json!({ "path_a": ok, "path_b": latin })),
+    ] {
+        let msg = tool_error_text(&call_tool(tool, args));
+        assert!(
+            msg.contains("it is not UTF-8 text (byte 12 is not valid UTF-8, on line 3)"),
+            "{tool}: {msg}"
+        );
+        assert!(msg.contains(convert), "{tool}: {msg}");
+        assert!(!msg.contains("stream did not contain"), "{tool}: {msg}");
+    }
+    let msg = tool_error_text(&call_tool("export_text", json!({ "path": utf16 })));
+    assert!(msg.contains("it is UTF-16 text, not UTF-8"), "{msg}");
+    assert!(msg.contains(convert), "{msg}");
+    let msg = tool_error_text(&call_tool(
+        "edit_canvas",
+        json!({ "path": canvas, "ops": [{ "type": "delete_node", "id": "a" }] }),
+    ));
+    assert!(
+        msg.contains("it is not UTF-8 text (byte 34 is not valid UTF-8, on line 1)"),
+        "{msg}"
+    );
+
+    // Read from disk with the app closed: the note is two sentences.
+    let ipc = MockIpc::new().on_get(
+        "/annotations",
+        Err("~/.mdopener/ipc-port not found".to_string()),
+    );
+    let out = content_text(&tool_get_annotations(
+        id(1),
+        &json!({ "path": latin }),
+        &ipc,
+    ));
+    assert_eq!(out["tasks"], json!([]), "{out}");
+    let note = out["tasksNote"].as_str().unwrap();
+    assert!(note.contains(convert), "{note}");
+    assert!(
+        note.ends_with("then try again. Its tasks were not read."),
+        "{note}"
+    );
+}
+
 /// A tool checked a path (`checked_document_path` resolves it and judges the
 /// canonical name) and then opened it again to read it, so a final or an
 /// intermediate component swapped for a symlink in between was followed:
