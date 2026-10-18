@@ -215,6 +215,26 @@ describe(`doc facts: ${AGENTS}`, () => {
     }
   });
 
+  it("edit rows say a window that answers late may still apply the edit", () => {
+    // The app's timeout error says the window may still apply it; these rows
+    // used to count a late window among the refusals that change nothing.
+    for (const tool of [
+      "set_content",
+      "edit_document",
+      "stream_edit",
+      "stream_edit_apply",
+    ]) {
+      const row =
+        agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
+      expect(row, `${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`).toMatch(
+        /may still apply the (edit|content)/,
+      );
+      expect(row).not.toMatch(
+        /as do a window that does not answer|so does a window that/,
+      );
+    }
+  });
+
   it("export row lists the real formats", () => {
     const row = agentsDoc.split("\n").find((l) => l.startsWith("| `export` |")) ?? "";
     const listed = all(/"([a-z]+)"/g, row.match(/`format: ([^`]*)`/)?.[1] ?? "");

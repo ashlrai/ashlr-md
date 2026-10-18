@@ -960,7 +960,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_document",
-            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved.",
+            description: "Make a precise edit to the currently open document by replacing an EXACT substring. The `find` string must occur exactly once: include enough surrounding context to make it unique, or the edit is refused. Prefer this over replace_document for targeted changes. Returns { ok: true, replaced: 1 } once the window has applied the edit (and written it to disk, with `save: true`). Refused (isError, document unchanged) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\", as set_content says), when `find` is not found, when it is not unique (the error gives the match count), when `path` is not the open document, or when two edits are already waiting on the app (retry in a moment); the app opens only files, so every document it shows has one. With `save: true`, a failed save is an error saying the edit was applied but not saved. A window that does not answer within 4 s is an error too, but it may still apply the edit: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1222,8 +1222,10 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 Refused (isError, document unchanged) when no document is open \
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \
                 when `find` is not found, when `path` is not the open \
-                document, with preview=false when `find` is not unique, when the window does not answer \
-                within 4 s, or when two edits are already waiting on the app (retry in a moment). \
+                document, with preview=false when `find` is not unique, when a preview's window does not \
+                answer within 4 s, or when two edits are already waiting on the app (retry in a moment). \
+                With preview=false a window that does not answer within 4 s is an error too, but it may \
+                still apply the edit: call get_current_content to see whether it did before retrying. \
                 A refusal from the window also has `matchCount` beside `content` and `isError`: the \
                 occurrences of `find` it counted (0 when not found, or when it did not search, as with \
                 no document open).",
@@ -1275,12 +1277,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 it to disk, with `save: true`). Refused (isError, document unchanged) when no document \
                 is open (\"No document is open in Ashlr MD; open one first (open_file).\", as \
                 edit_document says), when `find` is no longer in the live document, when `match_index` is past its last occurrence (the error \
-                says how many there are), when `path` is not the open document, when the window does not \
-                answer within 4 s, when two edits are already waiting on the app (retry in a moment), or when \
+                says how many there are), when `path` is not the open document, when two edits are already \
+                waiting on the app (retry in a moment), or when \
                 `edit_id` names no pending preview of the open document with this find/replace (one \
                 already applied, made before the app started, or of another document: call stream_edit \
                 again for a fresh preview); the app opens only files, so every document it shows has \
                 one. With `save: true`, a failed save is an error saying the edit was applied but not saved. \
+                A window that does not answer within 4 s is an error too, but it may still apply the edit: \
+                call get_current_content to see whether it did before retrying. \
                 A refusal because `find` is not found or `match_index` is past its last occurrence also \
                 has `matchCount` beside `content` and `isError`: the occurrences of `find` the window \
                 counted. The other refusals did not search, and have none.",
@@ -1393,7 +1397,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "replace_document",
-            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved. A window that does not answer within 4 s is an error too, but it may still apply the content: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1413,7 +1417,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_content",
-            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), when the window does not answer within 4 s, or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved.",
+            description: "Replace the ENTIRE content of the currently open document in Ashlr MD (the same operation as replace_document). Use edit_document for targeted changes. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved. A window that does not answer within 4 s is an error too, but it may still apply the content: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

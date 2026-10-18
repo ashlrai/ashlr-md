@@ -175,6 +175,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   opens only files. It now describes the real case, a file deleted or moved
   since it was opened, and checks that path; a doc-facts test keeps
   `ipc.rs` and the edit handlers from naming an unsaved document again.
+- **MCP: the edit descriptions no longer say a late window changed
+  nothing.** `set_content`, `replace_document`, `edit_document`,
+  `stream_edit_apply` and `stream_edit` with `preview: false` listed "the
+  window does not answer within 4 s" among the refusals that leave the
+  document unchanged, and docs/AGENTS.md said the same, but the app's
+  timeout error says the window may still apply the edit and to check with
+  `get_current_content` before retrying. The descriptions and rows now say
+  that. A `stream_edit` preview applies nothing, so its timeout is still
+  listed as a refusal.
 - **MCP: `export` and `present_document` with no document open name the
   next step.** They answered "No document is open; open one before
   exporting." and "No document is open to present.", without the tool that

@@ -10408,6 +10408,40 @@ fn stream_edit_refusal_carries_the_match_count() {
     );
 }
 
+/// The edit descriptions listed "the window does not answer within 4 s"
+/// among the refusals that leave the document unchanged, but the app's
+/// timeout error says the window may still apply the edit (or content) and
+/// to check with get_current_content. Each says that now; a stream_edit
+/// preview applies nothing, so its timeout stays a refusal.
+#[test]
+fn edit_descriptions_say_a_late_window_may_still_apply() {
+    for tool in [
+        "set_content",
+        "replace_document",
+        "edit_document",
+        "stream_edit",
+        "stream_edit_apply",
+    ] {
+        let d = tool_registry()
+            .into_iter()
+            .find(|d| d.name == tool)
+            .unwrap()
+            .description;
+        assert!(
+            d.contains("does not answer within 4 s is an error too, but it may still apply"),
+            "{tool}: {d}"
+        );
+        assert!(
+            d.contains("call get_current_content to see whether it did before retrying"),
+            "{tool}: {d}"
+        );
+        assert!(
+            !d.contains("when the window does not answer within 4 s"),
+            "{tool}: {d}"
+        );
+    }
+}
+
 /// A stream_edit_apply refusal from the window's search carries its
 /// `matchCount` beside `content` and `isError`, which the tool did not pass
 /// on; a refusal without one (it did not search, or an older app) adds no
