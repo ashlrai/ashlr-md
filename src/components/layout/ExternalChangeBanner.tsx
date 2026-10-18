@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getAction } from "../../ai/actions";
+import { noProviderSetupHint } from "../../ai/errors";
 import {
   detectProvider,
   NOOP_PROVIDER_ID,
@@ -43,9 +44,7 @@ export function ExternalChangeBanner() {
     if (!provider || provider.id === NOOP_PROVIDER_ID) {
       pushMessage({
         role: "assistant",
-        content:
-          "*No AI provider is available to explain the changes. " +
-          "Install Ollama or add an Anthropic API key in AI settings.*",
+        content: `*No AI provider is available to explain the changes. ${noProviderSetupHint()}*`,
       });
       setExplaining(false);
       return;

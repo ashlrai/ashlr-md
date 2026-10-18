@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
-import { type AIErrorInfo, describeAIError } from "../../ai/errors";
+import { type AIErrorInfo, describeAIError, isMacPlatform } from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -160,11 +160,6 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 // API key entry form (shown when no provider is found)
 // ---------------------------------------------------------------------------
 
-/** Whether the app runs on macOS, read when the nudge renders. */
-function onMac(): boolean {
-  return /Mac/.test(navigator.platform || navigator.userAgent || "");
-}
-
 function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
   const setApiKey = useAIStore((s) => s.setApiKey);
   const [draft, setDraft] = useState("");
@@ -186,7 +181,7 @@ function SetupNudge({ onKeySet }: { onKeySet: () => void }) {
         {/* The README promises a zero-install on-device model on macOS 26+;
             the nudge used to offer only Ollama and a key, with no word on why
             that model was not found. Ashlr MD checks for it once per launch. */}
-        {onMac() && (
+        {isMacPlatform() && (
           <>
             On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device
             model needs Apple Intelligence: turn it on in System Settings → Apple
