@@ -368,6 +368,14 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
         } else {
             format!("{target:?}")
         };
+        // `.plan.md` used to be called "not a Markdown document" too, though
+        // its extension is; what stops it is the leading dot.
+        if has_markdown_extension(&p) {
+            return Err(format!(
+                "{what} is a dotfile: Ashlr MD does not open files whose names start \
+                 with \".\". Rename it without the leading dot to open it"
+            ));
+        }
         return Err(format!(
             "{what} is not a Markdown document: Ashlr MD opens .{} files that are not dotfiles",
             MD_EXTENSIONS.join(", .")
@@ -396,11 +404,16 @@ fn missing_or_unresolved(target: &str, e: &std::io::Error) -> String {
 /// extension and not a dotfile.
 fn is_markdown_document_name(p: &Path) -> bool {
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let markdown = Path::new(name)
+    has_markdown_extension(p) && !name.starts_with('.')
+}
+
+/// Whether the path's file name has a Markdown extension (dotfile or not).
+fn has_markdown_extension(p: &Path) -> bool {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
-    markdown && !name.starts_with('.')
+        .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 /// Extensions the app opens (mirrors `MD_EXTENSIONS` in src-tauri/src/document.rs).
@@ -1114,11 +1127,17 @@ mod tests {
         // The app opens only Markdown documents that are not dotfiles; handing
         // it anything else used to exit 0 with nothing opened.
         let s = Scratch::new("markdown-only");
-        for name in ["notes.txt", "Makefile", ".env.md"] {
+        for name in ["notes.txt", "Makefile", ".env"] {
             let f = s.file(name);
             let err = resolve_file(f.to_str().unwrap()).unwrap_err();
             assert!(err.contains("not a Markdown document"), "{name}: {err}");
         }
+        // A Markdown dotfile is refused for its leading dot, not called "not
+        // a Markdown document".
+        let err = resolve_file(s.file(".env.md").to_str().unwrap()).unwrap_err();
+        assert!(err.contains("is a dotfile"), "{err}");
+        assert!(err.contains("Rename it without the leading dot"), "{err}");
+        assert!(!err.contains("not a Markdown document"), "{err}");
         assert!(resolve_file(s.file("Plan.MD").to_str().unwrap()).is_ok());
         #[cfg(unix)]
         {

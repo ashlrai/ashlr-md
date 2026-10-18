@@ -36,6 +36,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **mdopen: a Markdown dotfile is refused for its dot.** `mdopen .plan.md`
+  said the file "is not a Markdown document", though its extension is.
+  It now says the file is a dotfile, which Ashlr MD does not open, and to
+  rename it without the leading dot.
 - **A missing Ashlr MD gets a next step from `mdopen` and `open_file`.**
   When the app was not running and the `mdopener://` launcher failed, the
   error ended on a question ("is Ashlr MD installed and a desktop session
