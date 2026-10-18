@@ -12696,3 +12696,27 @@ fn edit_canvas_not_found_caps_the_id_list() {
     assert!(msg.contains("`n19` and 5 more."), "{msg}");
     assert!(!msg.contains("`n20`"), "{msg}");
 }
+
+/// present_document and the server instructions promised a "full-screen"
+/// presentation, but the window only enters Zen mode (Read view with the
+/// title bar, tabs, status bar and side panels hidden) and keeps its size.
+/// They say what it does now.
+#[test]
+fn present_document_says_zen_mode_not_full_screen() {
+    let d = tool_registry()
+        .into_iter()
+        .find(|d| d.name == "present_document")
+        .unwrap()
+        .description;
+    assert!(!d.contains("full-screen"), "{d}");
+    assert!(d.contains("Read view in Zen mode"), "{d}");
+    assert!(
+        d.contains("the window keeps its size, and Escape leaves it"),
+        "{d}"
+    );
+    assert!(
+        !mdopener_mcp::SERVER_INSTRUCTIONS.contains("full-screen"),
+        "{}",
+        mdopener_mcp::SERVER_INSTRUCTIONS
+    );
+}

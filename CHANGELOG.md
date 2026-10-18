@@ -47,6 +47,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `present_document` no longer promises a full-screen view.** Its
+  description and the server instructions said it switched the app into a
+  "full-screen" presentation, but the window only enters Zen mode (Read
+  view with the title bar, tabs, status bar and side panels hidden) and
+  keeps its size. They now say that, and that Escape leaves it.
 - **Lint: `biome check src` reports no errors again.** CI's Check (Linux)
   job runs it, and it failed on formatting in `src/mcp/handlers.test.ts`,
   `src/mcp/bridge.test.ts` and `src/mcp/handlers/edit.ts` and on the import

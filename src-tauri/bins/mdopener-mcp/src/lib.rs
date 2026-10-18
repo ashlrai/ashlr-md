@@ -225,7 +225,7 @@ pub const DEFAULT_PROTOCOL: &str = "2025-06-18";
 pub const SERVER_INSTRUCTIONS: &str = "Ashlr MD is a Markdown viewer and editor on the \
 user's desktop. These tools show Markdown documents to the human in its window, ask for \
 their sign-off, and edit the open document. Start with: open_file to show a file (the only \
-tool that starts the app), present_document for a full-screen reading view of a finished \
+tool that starts the app), present_document for a distraction-free reading view of a finished \
 result, request_review to wait for the human to Approve, Request changes or Dismiss, \
 get_current_content to read the open document, and edit_document for an exact, unique \
 find and replace in it (prefer it to replace_document and set_content, which replace the \
@@ -1004,7 +1004,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "present_document",
-            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free, full-screen reading presentation, ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
+            description: "Open a document (if a path is given) and switch Ashlr MD into a distraction-free reading presentation (Read view in Zen mode: the title bar, tabs, status bar and side panels are hidden, the window keeps its size, and Escape leaves it), ideal for showing the human a finished result. Returns { ok, path } once the window has presented it. A `path` must be a Markdown document that is not a dotfile, and one that does not exist is refused; without `path` the open document is presented, an error when none is open. Needs Ashlr MD running: this tool does not start it, so with the app closed call open_file first.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
