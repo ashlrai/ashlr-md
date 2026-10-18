@@ -96,6 +96,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The outline, embeds, previews and wikilinks agree with the MCP
+  server.** The Outline panel listed a tab-indented `# x` (indented code)
+  and showed `## ##` as `#`, and its fence rule took a tab-indented
+  ```` ``` ```` or a backtick fence with a backtick in its info string as
+  a fence. A `![[note#Heading]]` embed and a link preview found headings
+  inside fenced code and front matter, and an embed did not find
+  `## Goals ##` by `Goals`. All of them now read headings by the ATX and
+  fence rules of `export_metadata`. A wikilink or an embed in the read
+  view, and in the "wikilink targets exist" lint, now ends on its own
+  line, so an unclosed `[[` no longer pairs with a `]]` lines later.
 - **MCP: a wikilink or an embed is one line.** `export_metadata` looked
   for the `]]` that closes a `[[` across newlines, so an unclosed `[[`
   took the text up to a `]]` many lines later as its target and hid the

@@ -16,8 +16,11 @@
 import type { Root, Text } from "mdast";
 import { visit } from "unist-util-visit";
 
-// bang? + [[ target (no ] | #) (#heading)? (|alias)? ]]
-const WIKILINK_RE = /(!)?\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]/g;
+// bang? + [[ target (no ] | #) (#heading)? (|alias)? ]], on one line. A
+// paragraph's text node holds its soft line breaks, so an unclosed `[[`
+// used to pair with a `]]` lines later; Obsidian and mdopener-mcp's
+// `export_metadata` end a link on its own line.
+const WIKILINK_RE = /(!)?\[\[([^\]|#\r\n]+)(?:#([^\]|\r\n]+))?(?:\|([^\]\r\n]+))?\]\]/g;
 
 export function remarkWikilinks() {
   return (tree: Root) => {

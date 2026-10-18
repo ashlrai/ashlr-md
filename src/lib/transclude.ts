@@ -9,7 +9,7 @@
  * the embed still shows something useful.
  */
 
-const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
+import { atxHeadings } from "./outline";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -45,28 +45,18 @@ export function extractSection(content: string, fragment: string): string {
       .trim();
   }
 
-  // Heading reference.
+  // Heading reference. Headings are read as the outline reads them
+  // (atxHeadings): a `# comment` in front matter or fenced code, or one
+  // indented as code, used to be a heading here, and `## Goals ##` did not
+  // match `Goals`.
   const wanted = fragment.trim().toLowerCase();
-  let startIdx = -1;
-  let level = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const m = HEADING_RE.exec(lines[i]);
-    if (m && m[2].trim().toLowerCase() === wanted) {
-      startIdx = i;
-      level = m[1].length;
-      break;
-    }
-  }
-  if (startIdx < 0) return content;
-
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const m = HEADING_RE.exec(lines[i]);
-    if (m && m[1].length <= level) {
-      endIdx = i;
-      break;
-    }
-  }
+  const headings = atxHeadings(content);
+  const at = headings.findIndex((h) => h.text.toLowerCase() === wanted);
+  if (at < 0) return content;
+  const startIdx = headings[at].line - 1;
+  const level = headings[at].depth;
+  const next = headings.slice(at + 1).find((h) => h.depth <= level);
+  const endIdx = next ? next.line - 1 : lines.length;
   return lines.slice(startIdx, endIdx).join("\n").trim();
 }
 

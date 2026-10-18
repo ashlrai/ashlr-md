@@ -236,6 +236,13 @@ describe("extractPreviewSnippet — content extraction", () => {
     const nonEmpty = result.split("\n").filter((l) => l.trim() !== "");
     expect(nonEmpty).toHaveLength(10);
   });
+
+  it("takes the heading by the outline's rule", () => {
+    const fenced = "```sh\n# install\n```\n\n## Real\n\nBody.";
+    expect(extractPreviewSnippet(fenced)).toBe("## Real\n\nBody.");
+    expect(extractPreviewSnippet("  # Title\n\nBody.")).toBe("  # Title\n\nBody.");
+    expect(extractPreviewSnippet("#\tTabbed\n\nBody.")).toBe("#\tTabbed\n\nBody.");
+  });
 });
 
 // ===========================================================================

@@ -417,6 +417,14 @@ describe("rule:wikilink-targets-exist", () => {
     ).toHaveLength(0);
   });
 
+  it("reads a wikilink on one line, as Obsidian does", () => {
+    const doc = "See [[Gone|an alias\nthat runs on]] and [[Note]].\n";
+    const knownTargets = new Set(["Note"]);
+    expect(
+      lintDocument(doc, { rules: [ruleWikilinkTargetsExist], knownTargets }),
+    ).toHaveLength(0);
+  });
+
   it("handles wikilinks with heading anchors [[target#section]]", () => {
     const doc = "See [[Note#Introduction]].\n";
     const knownTargets = new Set(["Note"]);

@@ -228,7 +228,9 @@ export const ruleWikilinkTargetsExist: LintRule = {
   check({ doc, knownTargets }): LintViolation[] {
     if (!knownTargets) return []; // vault not indexed — skip
     const violations: LintViolation[] = [];
-    const WIKI_RE = /\[\[([^\]|#\n]+?)(?:[|#][^\]]*?)?\]\]/g;
+    // One line, as Obsidian reads a link: an alias or heading used to run
+    // across newlines to a `]]` lines later.
+    const WIKI_RE = /\[\[([^\]|#\r\n]+?)(?:[|#][^\]\r\n]*?)?\]\]/g;
     for (const m of doc.matchAll(WIKI_RE)) {
       const target = m[1].trim();
       if (!knownTargets.has(target) && !knownTargets.has(`${target}.md`)) {
