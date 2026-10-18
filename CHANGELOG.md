@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **`stream_edit` and `stream_edit_apply` with no document open say so.**
+  With the welcome screen showing, both answered "`find` string not found in
+  the document.", so an agent went looking for its text instead of opening a
+  file, the case `edit_document` already fixed. They now answer "No document
+  is open in Ashlr MD; open one first (open_file).", nothing is applied or
+  saved, and both tool descriptions and docs/AGENTS.md rows state the case.
 - **The agent guide gives an AppImage a server path that lasts.** For an
   AppImage, docs/AGENTS.md said to register the MCP server from "the resource
   dir inside the mount", but the AppImage mounts at a new `/tmp/.mount_*`

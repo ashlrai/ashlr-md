@@ -424,6 +424,39 @@ describe("handlers integration — edits with save: true", () => {
     );
   });
 
+  it("stream-edit and stream-edit-apply: with no document open say so", async () => {
+    // Both used to answer "`find` string not found in the document.", as
+    // edit did, which sent the agent looking for its text.
+    useDocumentStore.setState({ path: null, content: "" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    for (const preview of [true, false]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://stream-edit", {
+        editId: "s1",
+        find: "hello",
+        replace: "hi",
+        preview,
+        previewLines: 5,
+      });
+      const r = reply("mcp_stream_edit_preview");
+      expect(r).toMatchObject({ editId: "s1", ok: false, matchCount: 0 });
+      expect(r.error).toBe("No document is open in Ashlr MD; open one first (open_file).");
+    }
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "a1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    const r = reply("mcp_stream_edit_apply_result");
+    expect(r).toMatchObject({ editId: "a1", ok: false, replaced: 0 });
+    expect(r.error).toBe("No document is open in Ashlr MD; open one first (open_file).");
+    expect(useDocumentStore.getState().content).toBe("");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(false);
+  });
+
   it("set-content: reports the replaced content as ok", async () => {
     await fireEvent("mcp://set-content", { editId: "c1", content: "new body" });
     expect(useDocumentStore.getState().content).toBe("new body");

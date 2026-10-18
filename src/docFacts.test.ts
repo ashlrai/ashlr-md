@@ -172,7 +172,7 @@ describe(`doc facts: ${AGENTS}`, () => {
       msg,
       "src/mcp/handlers/edit.ts no longer defines NO_DOCUMENT_OPEN",
     ).toBeTruthy();
-    for (const tool of ["set_content", "edit_document"]) {
+    for (const tool of ["set_content", "edit_document", "stream_edit", "stream_edit_apply"]) {
       const row =
         agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
       expect(
@@ -180,10 +180,15 @@ describe(`doc facts: ${AGENTS}`, () => {
         `quote "${msg}" at ${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`,
       ).toContain(msg);
     }
-    const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
-      /name: "edit_document",\s*description: "((?:[^"\\]|\\.)*)"/,
-    )?.[1];
-    expect(desc?.replaceAll('\\"', '"'), "edit_document's description").toContain(msg);
+    for (const tool of ["edit_document", "stream_edit", "stream_edit_apply"]) {
+      const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
+        new RegExp(`name: "${tool}",\\s*description: "((?:[^"\\\\]|\\\\[\\s\\S])*)"`),
+      )?.[1];
+      // A `\` line continuation in the Rust literal joins its lines with
+      // the next line's leading whitespace dropped.
+      const text = desc?.replace(/\\\n\s*/g, "").replaceAll('\\"', '"');
+      expect(text, `${tool}'s description`).toContain(msg);
+    }
   });
 
   it("export row lists the real formats", () => {
