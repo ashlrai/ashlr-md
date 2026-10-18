@@ -1297,6 +1297,129 @@ describe("mcp://stream-edit-apply event — apply phase", () => {
   });
 });
 
+// The apply used to forward its editId without looking at it, so a stale
+// preview re-found `find` in whatever document was open now.
+describe("mcp://stream-edit-apply event: the preview's editId", () => {
+  const applyResult = () =>
+    invokeMock.mock.calls
+      .filter((c) => c[0] === "mcp_stream_edit_apply_result")
+      .at(-1)?.[1];
+
+  it("applies a pending preview of the open document, once", async () => {
+    resetDocumentStore({ path: "/a.md", content: "alpha beta\n" });
+    mountBridge();
+    await fireEvent("mcp://stream-edit", {
+      editId: "sedit_ok",
+      find: "beta",
+      replace: "gamma",
+    });
+    invokeMock.mockClear();
+    const apply = {
+      editId: "sapply_1",
+      originalEditId: "sedit_ok",
+      find: "beta",
+      replace: "gamma",
+    };
+    await fireEvent("mcp://stream-edit-apply", apply);
+    expect(applyResult()).toMatchObject({ ok: true, replaced: 1 });
+    expect(useDocumentStore.getState().content).toBe("alpha gamma\n");
+
+    // The same preview again would edit the document twice.
+    useDocumentStore.setState({ content: "alpha beta\n" });
+    await fireEvent("mcp://stream-edit-apply", { ...apply, editId: "sapply_2" });
+    expect(applyResult()).toMatchObject({ ok: false, replaced: 0 });
+    expect(applyResult().error).toContain("Unknown or stale editId 'sedit_ok'");
+    expect(applyResult().error).toContain("Call stream_edit again for a fresh preview");
+    expect(useDocumentStore.getState().content).toBe("alpha beta\n");
+  });
+
+  it("refuses an editId this window never previewed", async () => {
+    resetDocumentStore({ path: "/a.md", content: "alpha beta\n" });
+    mountBridge();
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sapply_3",
+      originalEditId: "sedit_from_before_restart",
+      find: "beta",
+      replace: "gamma",
+    });
+    expect(applyResult()).toMatchObject({ ok: false, replaced: 0 });
+    expect(applyResult().error).toBe(
+      "Unknown or stale editId 'sedit_from_before_restart': this Ashlr MD window has no " +
+        "pending stream_edit preview with that id (it was already applied, was made before " +
+        "the app last started, or was never made). Call stream_edit again for a fresh " +
+        "preview, then stream_edit_apply with its editId.",
+    );
+    expect(useDocumentStore.getState().content).toBe("alpha beta\n");
+  });
+
+  it("refuses a preview of another document", async () => {
+    resetDocumentStore({ path: "/a.md", content: "alpha beta\n" });
+    mountBridge();
+    await fireEvent("mcp://stream-edit", {
+      editId: "sedit_a",
+      find: "beta",
+      replace: "gamma",
+    });
+    // The user switches to another document that also has `find` in it.
+    useDocumentStore.setState({ path: "/b.md", content: "beta in b\n" });
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sapply_4",
+      originalEditId: "sedit_a",
+      find: "beta",
+      replace: "gamma",
+    });
+    expect(applyResult()).toMatchObject({ ok: false, replaced: 0 });
+    expect(applyResult().error).toBe(
+      "Stale editId 'sedit_a': it previews '/a.md', but the open document is now '/b.md'. " +
+        "Call stream_edit again for a fresh preview, then stream_edit_apply with its editId.",
+    );
+    expect(useDocumentStore.getState().content).toBe("beta in b\n");
+  });
+
+  it("refuses a find or replace that is not the preview's", async () => {
+    resetDocumentStore({ path: "/a.md", content: "alpha beta\n" });
+    mountBridge();
+    await fireEvent("mcp://stream-edit", {
+      editId: "sedit_fr",
+      find: "beta",
+      replace: "gamma",
+    });
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sapply_5",
+      originalEditId: "sedit_fr",
+      find: "alpha",
+      replace: "omega",
+    });
+    expect(applyResult()).toMatchObject({ ok: false, replaced: 0 });
+    expect(applyResult().error).toMatch(/previewed a different find or replace/);
+    expect(useDocumentStore.getState().content).toBe("alpha beta\n");
+  });
+
+  it("does not remember a stream_edit that applied without a preview", async () => {
+    resetDocumentStore({ path: "/a.md", content: "alpha beta\n" });
+    mountBridge();
+    await fireEvent("mcp://stream-edit", {
+      editId: "sedit_np",
+      find: "beta",
+      replace: "gamma",
+      preview: false,
+    });
+    expect(useDocumentStore.getState().content).toBe("alpha gamma\n");
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "sapply_6",
+      originalEditId: "sedit_np",
+      find: "gamma",
+      replace: "gamma",
+    });
+    expect(applyResult()).toMatchObject({ ok: false });
+    expect(applyResult().error).toContain("Unknown or stale editId");
+  });
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // stream-edit pure utility tests (computeStreamEditDiff, applyEditAtOccurrence)
 // ════════════════════════════════════════════════════════════════════════════

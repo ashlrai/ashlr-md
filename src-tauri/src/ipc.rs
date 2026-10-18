@@ -2131,7 +2131,9 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 /// POST /stream-edit-apply — atomically apply a previously previewed stream edit.
 ///
 /// Emits `mcp://stream-edit-apply` with find/replace/matchIndex. The frontend
-/// calls `applyEditAtOccurrence` and reports back via `mcp_stream_edit_apply_result`.
+/// keeps the previews it made, so it checks `originalEditId` against them
+/// (refusing an unknown or stale one), then calls `applyEditAtOccurrence` and
+/// reports back via `mcp_stream_edit_apply_result`.
 fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
     #[derive(Deserialize)]
     struct Body {

@@ -2541,7 +2541,19 @@ fn every_app_tool_explains_a_refused_token_and_how_to_fix_it() {
     ];
     for (tool, resp) in calls {
         let err = tool_error_text(&resp);
-        assert_eq!(err, mdopener_mcp::APP_AUTH_FAILED_MSG, "{tool}");
+        // search_vault can search `vault` on disk after a 401, as it can
+        // when the app is unreachable, so it names `vault` after the shared
+        // message (it used to be the bare message, which named no way on).
+        let want = if tool == "search_vault" {
+            format!(
+                "{} {}",
+                mdopener_mcp::APP_AUTH_FAILED_MSG,
+                mdopener_mcp::SEARCH_WITHOUT_APP_HINT
+            )
+        } else {
+            mdopener_mcp::APP_AUTH_FAILED_MSG.to_string()
+        };
+        assert_eq!(err, want, "{tool}");
     }
     let msg = mdopener_mcp::APP_AUTH_FAILED_MSG;
     for part in [
@@ -3949,6 +3961,19 @@ fn search_vault_on_a_refused_token_says_why_and_how_to_fix_it() {
     let note = v["note"].as_str().unwrap();
     says_the_fix(note);
     assert!(note.contains("on disk"), "{note}");
+
+    // Without `vault`, the error names it, as for an unreachable app: the
+    // bare refused-token message gave no way to search before a restart.
+    let args = json!({ "query": "target", "semantic": false });
+    let err = tool_error_text(&tool_search_vault(id(3), &args, &ipc));
+    assert_eq!(
+        err,
+        format!(
+            "{} To search without the app, pass `vault`: the directory of Markdown files \
+             to grep on disk.",
+            mdopener_mcp::APP_AUTH_FAILED_MSG
+        )
+    );
 }
 
 /// The on-disk `vault` walk does not enter folders more than 16 levels down.
