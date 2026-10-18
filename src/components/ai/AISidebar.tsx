@@ -124,7 +124,10 @@ function MessageError({ error }: { error: AIErrorInfo }) {
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === "system") return null;
-  const failedEmpty = msg.role === "assistant" && msg.error && !msg.content.trim();
+  // A failed or stopped turn with no text shows only its note, not an empty
+  // "Assistant" bubble.
+  const failedEmpty =
+    msg.role === "assistant" && (msg.error || msg.stopped) && !msg.content.trim();
   return (
     <div className={`ai-msg ai-msg--${msg.role}`}>
       <span className="ai-msg__label">{msg.role === "user" ? "You" : "Assistant"}</span>
@@ -141,6 +144,11 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         <div className="ai-msg__bubble">{msg.content}</div>
       )}
       {msg.error && <MessageError error={msg.error} />}
+      {msg.stopped && !msg.error && (
+        <p className="ai-msg__stopped">
+          {msg.content.trim() ? "Stopped." : "Stopped before any answer arrived."}
+        </p>
+      )}
     </div>
   );
 }
@@ -308,6 +316,8 @@ export function AISidebar() {
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
   const failLast = useAIStore((s) => s.failLastAssistantMessage);
+  const stopLast = useAIStore((s) => s.stopLastAssistantMessage);
+  const dropFailed = useAIStore((s) => s.dropFailedAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const libraryScope = useAIStore((s) => s.libraryScope);
   const setLibraryScope = useAIStore((s) => s.setLibraryScope);
@@ -433,6 +443,7 @@ export function AISidebar() {
           (e instanceof DOMException && e.name === "AbortError");
         if (isAbort) {
           recordAbort(resolvedProvider.id, resolvedProvider.capabilities.tier);
+          stopLast();
         } else {
           recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
           failLast(describeAIError(e));
@@ -440,7 +451,7 @@ export function AISidebar() {
         return false;
       }
     },
-    [resolvedProvider, updateLast, failLast],
+    [resolvedProvider, updateLast, failLast, stopLast],
   );
 
   // Send a chat message.
@@ -451,7 +462,10 @@ export function AISidebar() {
       // Clear any previous retry state when starting a fresh send.
       if (retryCount === 0) setRetryState(null);
 
-      pushMessage({ role: "user", content: text.trim() });
+      // A retry re-runs the same turn: replace the failed answer and keep the
+      // user's message once (it used to be added again on every retry).
+      if (retryCount === 0) pushMessage({ role: "user", content: text.trim() });
+      else dropFailed();
       // Placeholder streaming message.
       pushMessage({ role: "assistant", content: "", streaming: true });
       setBusy(true);
@@ -481,6 +495,7 @@ export function AISidebar() {
         }
         // The user may have hit Stop during retrieval — bail before generating.
         if (controller.signal.aborted) {
+          stopLast();
           finalizeLast();
           setBusy(false);
           abortRef.current = null;
@@ -534,6 +549,8 @@ export function AISidebar() {
       pushMessage,
       updateLast,
       finalizeLast,
+      stopLast,
+      dropFailed,
       setBusy,
       docContent,
       libraryScope,
@@ -562,7 +579,8 @@ export function AISidebar() {
             ...action.buildMessages(truncated),
           ]
         : action.buildMessages(truncated);
-      pushMessage({ role: "user", content: action.label });
+      if (retryCount === 0) pushMessage({ role: "user", content: action.label });
+      else dropFailed();
       pushMessage({ role: "assistant", content: "", streaming: true });
       setBusy(true);
       const controller = new AbortController();
@@ -597,6 +615,7 @@ export function AISidebar() {
       pushMessage,
       updateLast,
       finalizeLast,
+      dropFailed,
       setBusy,
       runGeneration,
     ],

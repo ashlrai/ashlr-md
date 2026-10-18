@@ -373,6 +373,14 @@
   overflow-y: auto;
 }
 
+/* Note under an answer the user stopped. */
+.ai-msg__stopped {
+  margin: 0;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
 /* Markdown rendered inside assistant bubbles */
 .ai-msg__bubble p {
   margin: 0 0 0.5em;

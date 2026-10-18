@@ -40,6 +40,7 @@ export function SelectionPopover() {
   const updateLast = useAIStore((s) => s.updateLastAssistantMessage);
   const finalizeLast = useAIStore((s) => s.finalizeLastAssistantMessage);
   const failLast = useAIStore((s) => s.failLastAssistantMessage);
+  const stopLast = useAIStore((s) => s.stopLastAssistantMessage);
   const setBusy = useAIStore((s) => s.setBusy);
   const setAbortController = useAIStore((s) => s.setAbortController);
 
@@ -165,7 +166,8 @@ export function SelectionPopover() {
       const m = e instanceof Error ? e.message : String(e);
       const aborted =
         m === "Aborted" || (e instanceof DOMException && e.name === "AbortError");
-      if (!aborted) failLast(describeAIError(e));
+      if (aborted) stopLast();
+      else failLast(describeAIError(e));
     } finally {
       finalizeLast();
       setBusy(false);

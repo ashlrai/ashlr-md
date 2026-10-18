@@ -36,6 +36,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Stop and Retry in the AI sidebar leave a clean chat.** Stopping before
+  any text arrived left an empty "Assistant" bubble with no word that it was
+  stopped; a stopped answer now shows a "Stopped" note instead (also for a
+  selection popover action). Each **Retry** after a failure added your
+  message to the chat again; a retry now keeps it once and replaces the
+  failed answer.
 - **AI errors say what to do next.** A failed request showed the provider's
   raw text in the answer, such as "Anthropic error 401 Unauthorized: {json}",
   "Ollama request failed: error sending request..." or "Hosted provider:
