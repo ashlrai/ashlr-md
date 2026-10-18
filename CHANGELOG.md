@@ -36,6 +36,36 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **The uninstall table has a `.rpm` row.** The install guide documents the
+  Fedora / RHEL `.rpm` but said only how to remove the `.deb`. It now gives
+  `sudo dnf remove ashlr-md`, the package name Tauri writes into the `.rpm`
+  (checked against a built package), and a test fails when the row is gone.
+- **The README quick start says how to get `mdopen`.** Step 2 said to run
+  `mdopen notes.md`, but no app installer puts `mdopen` on `PATH`, so a new
+  user got "command not found". It now names **Install mdopen** first, and
+  a doc facts test fails when the step drops it.
+- **`mdopener-mcp --help` says how to register the server.** It ended
+  "see docs/AGENTS.md", a file an installed server has nowhere near it,
+  and the hint printed when it is run by hand in a terminal said the same.
+  `--help` now shows a `claude mcp add` command and the in-app Connect
+  button, and both name the published guide's URL.
+- **The VS Code and Obsidian READMEs link the download to GitHub
+  Releases.** Their "download here" links went to md.ashlr.ai, the landing
+  page, while the README, the install guide and the landing page's own
+  Download button go to GitHub Releases, where the installers are. A doc
+  facts test now fails when a download link points anywhere else.
+- **`edit_document` with no document open says so.** The window applied
+  the edit to the empty welcome buffer and answered "`find` string not
+  found in the current document.", so an agent went looking for its text
+  instead of opening a file. It now answers "No document is open in Ashlr
+  MD; open one first (open_file).", as `set_content` does, and the tool
+  description and docs/AGENTS.md row state the case.
+- **`tools/list` names the destructive tools last.** `set_content`, which
+  replaces the whole document, was listed third, ahead of `edit_document`,
+  so an agent reading the list top down met it first. `replace_document`
+  and `set_content` now come after every other tool, the docs/AGENTS.md
+  tool table follows the same order, and tests fail when a tool is listed
+  after a destructive one or the table drifts from `tools/list`.
 - **The uninstall guide lists what an uninstall leaves behind.** It named
   only the preferences folder. `~/.mdopener/` (the IPC token and the
   conversation memory agents save) stays on every platform, and a deleted

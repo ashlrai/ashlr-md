@@ -34,7 +34,7 @@ picks it up instantly via its registered URL scheme.
 
 - **Obsidian desktop** on macOS, Windows or Linux (the plugin sets
   `isDesktopOnly: true`, so it does not load on mobile)
-- **Ashlr MD** installed: [download here](https://md.ashlr.ai)
+- **Ashlr MD** installed: [download here](https://github.com/ashlrai/ashlr-md/releases/latest)
 - Obsidian **1.4.0** or later
 
 ---
@@ -83,7 +83,7 @@ npm run typecheck  # tsc --noEmit
   plugin shows a "could not launch the app" notice where the operating
   system reports that no app handles the link (some Linux desktops report
   nothing, and then nothing opens). Install Ashlr MD from
-  [md.ashlr.ai](https://md.ashlr.ai).
+  [GitHub Releases](https://github.com/ashlrai/ashlr-md/releases/latest).
 - **Where `mdopener://` is registered.** The macOS app registers it on
   install; the Windows installers (`.msi`, `-setup.exe`) and the Linux
   `.deb`/`.rpm` packages register it too (through their desktop file on

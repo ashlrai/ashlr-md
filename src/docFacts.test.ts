@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
 import phantomDoc from "../docs/PHANTOM.md?raw";
+import obsidianReadme from "../integrations/obsidian/README.md?raw";
+import vscodeReadme from "../integrations/vscode/README.md?raw";
 import landingHtml from "../landing/index.html?raw";
 import readme from "../README.md?raw";
 import roadmap from "../ROADMAP.md?raw";
@@ -18,6 +20,7 @@ import sidecarPath from "../src-tauri/src/sidecar_path.rs?raw";
 import tauriConf from "../src-tauri/tauri.conf.json?raw";
 import markdownEditor from "./components/editor/MarkdownEditor.tsx?raw";
 import commandsSrc from "./lib/commands.ts?raw";
+import mcpEditHandlers from "./mcp/handlers/edit.ts?raw";
 
 const AGENTS = "docs/AGENTS.md";
 const ROADMAP = "ROADMAP.md";
@@ -132,6 +135,51 @@ describe(`doc facts: ${AGENTS}`, () => {
         `remove the \`${r}\` row at ${where(AGENTS, agentsDoc, `| \`${r}\` |`)}: not a registered tool`,
       ).toContain(r);
     }
+  });
+
+  it("tool table rows are in tools/list order", () => {
+    const section = agentsDoc.slice(agentsDoc.indexOf("## MCP tool reference"));
+    const table = section.slice(
+      0,
+      section.indexOf("\n\n", section.indexOf("| Tool |")),
+    );
+    expect(
+      all(/^\| `([a-z_]+)` \|/gm, table),
+      `put the tool table near ${where(AGENTS, agentsDoc, "| Tool |")} in tool_registry() order`,
+    ).toEqual(tools);
+  });
+
+  it("lists the destructive tools last in tools/list", () => {
+    const registry = rustBody(mcpLib, "pub fn tool_registry()");
+    const tiers = all(/tier: ToolTier::([A-Za-z]+)/g, registry);
+    expect(tiers.length).toBe(tools.length);
+    const first = tiers.indexOf("Destructive");
+    expect(first).toBeGreaterThan(0);
+    expect(
+      tiers.slice(first).every((t) => t === "Destructive"),
+      `tool_registry() lists ${tools[tiers.findIndex((t, i) => i > first && t !== "Destructive")]} after a destructive tool`,
+    ).toBe(true);
+    expect(tools.indexOf("edit_document")).toBeLessThan(tools.indexOf("set_content"));
+  });
+
+  it("edit rows quote the app's no-document-open refusal", () => {
+    const msg = mcpEditHandlers.match(/const NO_DOCUMENT_OPEN = "([^"]+)"/)?.[1];
+    expect(
+      msg,
+      "src/mcp/handlers/edit.ts no longer defines NO_DOCUMENT_OPEN",
+    ).toBeTruthy();
+    for (const tool of ["set_content", "edit_document"]) {
+      const row =
+        agentsDoc.split("\n").find((l) => l.startsWith(`| \`${tool}\` |`)) ?? "";
+      expect(
+        row,
+        `quote "${msg}" at ${where(AGENTS, agentsDoc, `| \`${tool}\` |`)}`,
+      ).toContain(msg);
+    }
+    const desc = rustBody(mcpLib, "pub fn tool_registry()").match(
+      /name: "edit_document",\s*description: "((?:[^"\\]|\\.)*)"/,
+    )?.[1];
+    expect(desc?.replaceAll('\\"', '"'), "edit_document's description").toContain(msg);
   });
 
   it("export row lists the real formats", () => {
@@ -344,6 +392,25 @@ describe("doc facts: Windows install folder", () => {
 });
 
 describe("doc facts: uninstalling", () => {
+  it("the uninstall table removes the .deb and .rpm by their package name", () => {
+    // The table had no .rpm row. Tauri names both packages after productName
+    // in kebab case ("Ashlr MD" is `ashlr-md`, checked against a built
+    // .deb's control file and .rpm's header).
+    const { productName } = JSON.parse(tauriConf) as { productName: string };
+    const pkg = productName.toLowerCase().replace(/\s+/g, "-");
+    expect(pkg).toBe("ashlr-md");
+    const section = installDoc.split("\n## Uninstalling")[1] ?? "";
+    for (const [row, cmd] of [
+      ["| Linux .deb |", `\`sudo apt remove ${pkg}\``],
+      ["| Linux .rpm |", `\`sudo dnf remove ${pkg}\``],
+    ]) {
+      const line = section.split("\n").find((l) => l.startsWith(row)) ?? "";
+      expect(line, `docs/INSTALL.md's uninstall table needs a "${row}" row`).toContain(
+        cmd,
+      );
+    }
+  });
+
   it("the uninstall section names what an uninstall leaves behind", () => {
     // It listed only the preferences folder, so ~/.mdopener (the IPC token
     // and agents' conversation memory) and an AppImage's scheme handler,
@@ -359,6 +426,53 @@ describe("doc facts: uninstalling", () => {
         `docs/INSTALL.md's Uninstalling section must name ${needle}`,
       ).toContain(needle);
     }
+  });
+});
+
+describe("doc facts: README quick start", () => {
+  it("says how mdopen gets on PATH before telling you to run it", () => {
+    // Step 2 said "run `mdopen notes.md`", but no installer puts mdopen on
+    // PATH, so a new user got "command not found".
+    const start = readme.split("## 30-second start")[1]?.split("\n## ")[0] ?? "";
+    const step = start.split("\n").find((l) => l.includes("`mdopen ")) ?? "";
+    expect(step, "README.md: the 30-second start no longer runs mdopen").not.toBe("");
+    expect(
+      step,
+      `name Install mdopen at ${where("README.md", readme, step)}`,
+    ).toContain("Install mdopen");
+  });
+});
+
+describe("doc facts: download links", () => {
+  // The VS Code and Obsidian READMEs sent "download here" to md.ashlr.ai,
+  // the landing page, while every other doc (and its own Download button)
+  // goes to GitHub Releases, where the installers are.
+  const RELEASES = "https://github.com/ashlrai/ashlr-md/releases";
+  const docs: [string, string][] = [
+    ["README.md", readme],
+    ["docs/INSTALL.md", installDoc],
+    ["integrations/obsidian/README.md", obsidianReadme],
+    ["integrations/vscode/README.md", vscodeReadme],
+  ];
+
+  it("the landing page's download button goes to GitHub Releases", () => {
+    const section = landingHtml.split('id="download"')[1] ?? "";
+    expect(section).toContain(`href="${RELEASES}`);
+  });
+
+  it("every download or install link goes to GitHub Releases", () => {
+    let seen = 0;
+    for (const [file, doc] of docs) {
+      for (const m of doc.matchAll(/([^\n]{0,40})\[([^\]]+)\]\((https?:[^)\s]+)\)/g)) {
+        const around = `${m[1]} ${m[2]}`;
+        if (!/download|install ashlr md from|releases/i.test(around)) continue;
+        seen++;
+        expect(m[3], `${where(file, doc, m[0])}: ${m[0]}`).toMatch(
+          new RegExp(`^${RELEASES.replaceAll(".", "\\.")}(/|$)`),
+        );
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(4);
   });
 });
 

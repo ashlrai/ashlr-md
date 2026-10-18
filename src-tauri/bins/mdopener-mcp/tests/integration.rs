@@ -257,13 +257,11 @@ fn tools_list_contains_all_16_tools() {
     let expected = [
         "open_file",
         "get_current_content",
-        "set_content",
         "list_recent",
         "export",
         "request_review",
         "get_user_annotations",
         "edit_document",
-        "replace_document",
         "search_vault",
         "present_document",
         "list_ai_actions",
@@ -275,6 +273,8 @@ fn tools_list_contains_all_16_tools() {
         "stream_edit_apply",
         "export_text",
         "export_metadata",
+        "replace_document",
+        "set_content",
     ];
     for name in &expected {
         assert!(names.contains(name), "tool_list missing: {name}");
@@ -303,6 +303,36 @@ fn all_tool_names_constant_matches_registry() {
         ALL_TOOL_NAMES.len(),
         registry_names.len()
     );
+}
+
+/// `tools/list` is read top down, and `set_content` (which replaces the whole
+/// document) used to be listed third, ahead of `edit_document`. Every
+/// destructive tool now comes after every other tool, and `ALL_TOOL_NAMES`
+/// follows the registry order.
+#[test]
+fn destructive_tools_are_listed_last() {
+    let registry = tool_registry();
+    let first_destructive = registry
+        .iter()
+        .position(|t| t.tier == ToolTier::Destructive)
+        .expect("the registry has destructive tools");
+    for t in &registry[first_destructive..] {
+        assert_eq!(
+            t.tier,
+            ToolTier::Destructive,
+            "{} is listed after a destructive tool; list it before them",
+            t.name
+        );
+    }
+    let names: Vec<&str> = registry.iter().map(|t| t.name).collect();
+    assert_eq!(
+        ALL_TOOL_NAMES,
+        names.as_slice(),
+        "ALL_TOOL_NAMES is not in registry order"
+    );
+    let pos = |n: &str| names.iter().position(|&x| x == n).unwrap();
+    assert!(pos("edit_document") < pos("set_content"));
+    assert!(pos("edit_document") < pos("replace_document"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

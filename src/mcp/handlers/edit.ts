@@ -42,6 +42,9 @@ function notSaved(reason: string, what = "Edit applied to"): string {
   return `${what} the open document but not saved: ${reason}`;
 }
 
+/** What set-content and edit answer when no document is open. */
+const NO_DOCUMENT_OPEN = "No document is open in Ashlr MD; open one first (open_file).";
+
 // ── mcp://set-content ─────────────────────────────────────────────────────────
 
 /**
@@ -55,7 +58,7 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
     if (!useDocumentStore.getState().path) {
       // With no document open the window shows its welcome screen, so the
       // content would land in a buffer nobody sees and still read as ok.
-      error = "No document is open in Ashlr MD; open one first (open_file).";
+      error = NO_DOCUMENT_OPEN;
     } else {
       try {
         useDocumentStore.getState().setContent(content);
@@ -87,21 +90,28 @@ export function handleAtomicEdit(syncNow: () => void): Promise<UnlistenFn> {
     const { editId, find, replace, save } = e.payload;
     let reply: { ok: boolean; replaced: number; error: string | null };
     try {
-      const liveContent = useDocumentStore.getState().content;
-      const outcome = applyUniqueEdit(liveContent, find, replace);
-      let saveError: string | null = null;
-      if (outcome.ok && outcome.content !== undefined) {
-        useDocumentStore.getState().setContent(outcome.content);
-        if (save) {
-          saveError = await saveForAgent();
+      const { path, content: liveContent } = useDocumentStore.getState();
+      if (!path && liveContent === "") {
+        // The welcome screen: the edit used to be refused as "`find` string
+        // not found", which sent the agent looking for its text instead of
+        // opening a document. An unsaved document with text is still edited.
+        reply = { ok: false, replaced: 0, error: NO_DOCUMENT_OPEN };
+      } else {
+        const outcome = applyUniqueEdit(liveContent, find, replace);
+        let saveError: string | null = null;
+        if (outcome.ok && outcome.content !== undefined) {
+          useDocumentStore.getState().setContent(outcome.content);
+          if (save) {
+            saveError = await saveForAgent();
+          }
+          syncNow();
         }
-        syncNow();
+        reply = {
+          ok: outcome.ok && saveError === null,
+          replaced: outcome.replaced,
+          error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
+        };
       }
-      reply = {
-        ok: outcome.ok && saveError === null,
-        replaced: outcome.replaced,
-        error: saveError !== null ? notSaved(saveError) : (outcome.error ?? null),
-      };
     } catch (err) {
       reply = { ok: false, replaced: 0, error: `Edit failed in app: ${String(err)}` };
     }
