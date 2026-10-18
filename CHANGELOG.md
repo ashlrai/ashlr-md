@@ -47,6 +47,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Preferences no longer shows part of the hosted AI token.** The Hosted AI
+  section showed the first 6 characters of the saved token followed by dots.
+  It now says only "A token is saved.", as the Anthropic key section does.
 - **Stop and Retry in the AI sidebar leave a clean chat.** Stopping before
   any text arrived left an empty "Assistant" bubble with no word that it was
   stopped; a stopped answer now shows a "Stopped" note instead (also for a
