@@ -25,6 +25,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::Manager;
 
+#[path = "appimage_sidecar.rs"]
+mod appimage_sidecar;
 #[path = "mcp_command.rs"]
 mod mcp_command;
 #[path = "path_search.rs"]
@@ -46,6 +48,11 @@ fn resolve_mcp_binary_path(app: &tauri::AppHandle) -> Result<String, String> {
 /// `mdopener-mcp`, `mdopen`), using the host's executable suffix so the
 /// lookup matches the platform resource map. Search order is documented on
 /// [`sidecar_path::resolve`].
+///
+/// From an AppImage the bundled binary is inside the per-launch
+/// `/tmp/.mount_*` mount, so the path returned is a stable copy in the app's
+/// local data dir, refreshed when the app changes (see [`appimage_sidecar`]).
+/// It used to be the in-mount path, which broke once the app quit.
 pub(crate) fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("Cannot determine app executable path: {e}"))?;
@@ -53,7 +60,33 @@ pub(crate) fn resolve_sidecar_binary(app: &tauri::AppHandle, bin: &str) -> Resul
         .parent()
         .ok_or("App executable has no parent directory")?;
     let resource_dir = app.path().resource_dir().ok();
-    sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())
+    let bundled = PathBuf::from(sidecar_path::resolve(bin, exe_dir, resource_dir.as_deref())?);
+
+    let stable_dir = app.path().app_local_data_dir().ok().map(|d| d.join("bin"));
+    let version = app.package_info().version.to_string();
+    let len = fs::metadata(&bundled).map(|m| m.len()).unwrap_or(0);
+    let stamp = appimage_sidecar::stamp_for(&version, len);
+    let (recorded, dest_exists) = match (&stable_dir, bundled.file_name()) {
+        (Some(dir), Some(name)) => {
+            let (dest, stamp_path) = appimage_sidecar::stable_paths(dir, name);
+            (appimage_sidecar::read_stamp(&stamp_path), dest.is_file())
+        }
+        _ => (None, false),
+    };
+    let appimage = std::env::var_os("APPIMAGE");
+    let plan = appimage_sidecar::plan(
+        std::env::consts::OS,
+        appimage.as_deref(),
+        &bundled,
+        stable_dir.as_deref(),
+        &stamp,
+        recorded.as_deref(),
+        dest_exists,
+    );
+    appimage_sidecar::apply(&bundled, plan)?
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{bin} path contains non-UTF-8 characters"))
 }
 
 // ── Agent detection ───────────────────────────────────────────────────────────

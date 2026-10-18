@@ -495,11 +495,17 @@ describe("doc facts: download links", () => {
 // The app's Connect and Copy resolve the server through Tauri's resource_dir,
 // which for an AppImage is $APPDIR/usr/lib/<productName>, inside that mount.
 // docs/AGENTS.md said to "use the resource dir inside the mount", a path that
-// stops working when the app quits; it now copies the server out once.
+// stops working when the app quits. Round 47 documented a manual extract
+// instead; the app now copies the sidecars to <app local data dir>/bin and
+// registers that copy, and the doc names that folder.
 
 describe("doc facts: AppImage MCP server path", () => {
-  const { productName } = JSON.parse(tauriConf) as { productName: string };
+  const { productName, identifier } = JSON.parse(tauriConf) as {
+    productName: string;
+    identifier: string;
+  };
   const inAppImage = `usr/lib/${productName}/mdopener-mcp`;
+  const stableDir = `~/.local/share/${identifier}/bin/`;
   const manual = agentsDoc.split("### Manual")[1]?.split("```")[1] ?? "";
 
   it("Connect resolves the server through the resource dir", () => {
@@ -507,13 +513,24 @@ describe("doc facts: AppImage MCP server path", () => {
     expect(agentSetup).toContain("app.path().resource_dir()");
   });
 
+  it("from an AppImage, Connect registers a copy in the app's local data dir", () => {
+    expect(agentSetup).toContain('std::env::var_os("APPIMAGE")');
+    expect(agentSetup).toContain(
+      'app.path().app_local_data_dir().ok().map(|d| d.join("bin"))',
+    );
+    expect(agentSetup).toContain("appimage_sidecar::apply(&bundled, plan)");
+  });
+
   it("never tells the reader to use a path inside the mount", () => {
     expect(agentsDoc, where(AGENTS, agentsDoc, /resource dir/)).not.toMatch(
       /resource dir(ectory)? inside the mount|AppImage resource directory/,
     );
+    expect(agentsDoc).not.toMatch(
+      /register that in-mount path|button writes the `mdopen` inside/,
+    );
   });
 
-  it("the manual steps copy the server out of the AppImage and register the copy", () => {
+  it("the manual fallback copies the server out of the AppImage and registers the copy", () => {
     const lines = manual.split("\n");
     const extract = lines.find((l) => l.includes("--appimage-extract")) ?? "";
     expect(extract, `${AGENTS}: no --appimage-extract step`).toContain(
@@ -527,11 +544,11 @@ describe("doc facts: AppImage MCP server path", () => {
     expect(add).toBe(`claude mcp add --scope user ashlr-md ${dest}`);
   });
 
-  it("says Connect, Copy and the hook button use the in-mount path", () => {
+  it("says Connect, Copy and the hook button register the stable copy", () => {
     const at = where(AGENTS, agentsDoc, "/tmp/.mount_");
-    expect(agentsDoc, at).toContain(`\`/tmp/.mount_*/${inAppImage}\``);
+    expect(agentsDoc, at).toContain(`\`${stableDir}\``);
     const hook = agentsDoc.split("### One-click install")[1]?.split("\n---")[0] ?? "";
-    expect(hook, `${AGENTS} One-click install`).toContain("/tmp/.mount_*");
+    expect(hook, `${AGENTS} One-click install`).toContain(`${stableDir}mdopen`);
   });
 });
 

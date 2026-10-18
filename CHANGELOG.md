@@ -36,6 +36,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Fixed
+- **Connecting an agent from the AppImage registers a path that lasts.**
+  An AppImage mounts itself at a new `/tmp/.mount_*` directory on every
+  launch, and the **Connect** buttons, the **Copy** command, **Install
+  auto-open hook** and **Install mdopen** all registered the `mdopener-mcp`
+  or `mdopen` inside that mount, which was gone once the app quit. When
+  `$APPIMAGE` is set on Linux they now copy the binary to
+  `~/.local/share/app.mdopener.desktop/bin/` and register the copy,
+  rewriting it when the app's version or the bundled binary changes.
+  docs/AGENTS.md says so and keeps the manual extract steps only for
+  registering the server without the app.
 - **A headless `export` from Edit view tells the agent how to fix it.** An
   `export` with `output_path` while the document was in Edit or Source view
   failed with "Switch to Read view before exporting.", the app's message for
