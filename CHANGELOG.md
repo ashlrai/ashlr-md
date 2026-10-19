@@ -6,6 +6,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Changed
+- **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
+  reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
+  rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,
+  and that `phm:` references are never resolved. It also covers LiteLLM: 1.83.0 or
+  newer, preferring a current release.
 - **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
   (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
   follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
