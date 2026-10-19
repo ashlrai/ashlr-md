@@ -16,6 +16,7 @@
 //!   "ai://error"  { requestId: String, error: String }   — hard error
 
 use futures_util::StreamExt;
+use crate::redact;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -110,13 +111,18 @@ const OLLAMA_PREFERRED: &[&str] = &["llama3.2", "llama3.1", "qwen2.5", "mistral"
 /// (by OLLAMA_PREFERRED order, then first installed), or None.
 #[tauri::command]
 pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
+    detect_ollama_at(&base_urls::ollama_base_url()).await
+}
+
+/// [`ai_detect_ollama`] against an explicit Ollama base URL.
+async fn detect_ollama_at(base: &str) -> Result<Option<String>, String> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .get(format!("{}/api/tags", base_urls::ollama_base_url()))
+        .get(format!("{base}/api/tags"))
         .send()
         .await
         .map_err(|_| "Ollama not reachable".to_string())?;
@@ -125,7 +131,7 @@ pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
         return Ok(None);
     }
 
-    let body: OllamaTagsResponse = resp.json().await.map_err(|e| e.to_string())?;
+    let body: OllamaTagsResponse = resp.json().await.map_err(|e| e.without_url().to_string())?;
     if body.models.is_empty() {
         return Ok(None);
     }
@@ -197,6 +203,58 @@ pub async fn ai_generate(
     Ok(())
 }
 
+/// POST a chat request to Ollama at `base` and return the response once it
+/// has a success status. An error never carries `base`'s credentials.
+async fn send_ollama_chat(
+    client: &Client,
+    base: &str,
+    body: &impl Serialize,
+) -> Result<reqwest::Response, String> {
+    let resp = client
+        .post(format!("{base}/api/chat"))
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama request failed: {}", e.without_url()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let body = redact::error_body(&text, &redact::url_secrets(base));
+        return Err(format!("Ollama error {status}: {body}"));
+    }
+    Ok(resp)
+}
+
+/// POST a messages request to Anthropic at `base` with `api_key` and return
+/// the response once it has a success status. An error never carries the key.
+async fn send_anthropic(
+    client: &Client,
+    base: &str,
+    api_key: &str,
+    body: &impl Serialize,
+) -> Result<reqwest::Response, String> {
+    let resp = client
+        .post(format!("{base}/v1/messages"))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", ANTHROPIC_VERSION)
+        .header("content-type", "application/json")
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("Anthropic request failed: {}", e.without_url()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let mut secrets = redact::url_secrets(base);
+        secrets.push(api_key.to_string());
+        let body = redact::error_body(&text, &secrets);
+        return Err(format!("Anthropic error {status}: {body}"));
+    }
+    Ok(resp)
+}
+
 /// Remove the first complete line from a streamed response's bytes and
 /// return it decoded and trimmed, or `None` until a newline has arrived.
 ///
@@ -237,24 +295,13 @@ async fn stream_ollama(
         stream: true,
     };
 
-    let resp = client
-        .post(format!("{}/api/chat", base_urls::ollama_base_url()))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Ollama request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Ollama error {status}: {text}"));
-    }
+    let resp = send_ollama_chat(&client, &base_urls::ollama_base_url(), &body).await?;
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
+        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e.without_url()))?;
         buf.extend_from_slice(&chunk);
 
         // NDJSON — process complete lines.
@@ -399,21 +446,7 @@ async fn stream_anthropic(
         stream: true,
     };
 
-    let resp = client
-        .post(format!("{base}/v1/messages"))
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Anthropic request failed: {}", e.without_url()))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Anthropic error {status}: {text}"));
-    }
+    let resp = send_anthropic(&client, &base, &api_key, &body).await?;
 
     // Anthropic streams SSE.  Lines look like:
     //   data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}
@@ -511,5 +544,128 @@ mod tests {
         assert_eq!(take_line(&mut buf).as_deref(), Some(""));
         assert_eq!(take_line(&mut buf), None);
         assert_eq!(buf, b"b");
+    }
+}
+
+/// No key, proxy token or URL credential reaches an error string (and so the
+/// `ai://error` event the UI shows), whatever the endpoint answers.
+#[cfg(test)]
+mod redaction_tests {
+    use super::{detect_ollama_at, send_anthropic, send_ollama_chat};
+    use crate::test_stub::{closed, leaked_windows, serve, Mode};
+    use reqwest::Client;
+
+    const KEY: &str = "sk-ant-CANARYq7X2w9Z4k3M8vB";
+    const PROXY_TOKEN: &str = "ptokCANARYh8J3k6L1z4X7cVb";
+    const OLLAMA_USER: &str = "ollauser";
+    const OLLAMA_PASS: &str = "pwCANARYn1M5q9W3e7R2tYu";
+
+    fn body() -> serde_json::Value {
+        serde_json::json!({ "model": "m", "messages": [] })
+    }
+
+    fn roots() -> Vec<(&'static str, String)> {
+        vec![
+            ("401 echoing the request", serve(Mode::Echo401)),
+            ("302 redirect", serve(Mode::Redirect)),
+            ("closed port", closed()),
+        ]
+    }
+
+    fn secrets() -> Vec<String> {
+        vec![
+            KEY.to_string(),
+            PROXY_TOKEN.to_string(),
+            OLLAMA_PASS.to_string(),
+            crate::redact::basic_credential(OLLAMA_USER, OLLAMA_PASS),
+        ]
+    }
+
+    const NAMES: [&str; 4] = ["api key", "proxy token", "URL password", "Basic credential"];
+
+    /// Each leak as "<case>: <secret> (<n> windows)"; empty when clean.
+    fn leaks(label: &str, err: &str) -> Vec<String> {
+        secrets()
+            .iter()
+            .zip(NAMES)
+            .filter_map(|(s, name)| {
+                let n = leaked_windows(err, s).len();
+                (n > 0).then(|| format!("{label}: {name} ({n} windows)"))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn anthropic_errors_never_carry_the_key_or_proxy_token() {
+        let client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let mut reached = false;
+        let mut found = Vec::new();
+        for (label, root) in roots() {
+            let base = format!("{root}/x/_phantom/{PROXY_TOKEN}");
+            let err = send_anthropic(&client, &base, KEY, &body()).await.expect_err(label);
+            if label.starts_with("401") {
+                assert!(err.contains("401"), "{label}: did not reach the stub");
+                reached = true;
+            }
+            found.extend(leaks(label, &err));
+        }
+        assert!(reached);
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn ollama_errors_never_carry_url_credentials_or_tokens() {
+        let client = Client::new();
+        let mut reached = false;
+        let mut found = Vec::new();
+        for (label, root) in roots() {
+            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
+            let err = send_ollama_chat(&client, &base, &body()).await.expect_err(label);
+            if label.starts_with("401") {
+                assert!(err.contains("401"), "{label}: did not reach the stub");
+                reached = true;
+            }
+            found.extend(leaks(label, &err));
+        }
+        assert!(reached);
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn ollama_detection_errors_never_carry_url_credentials_or_tokens() {
+        let mut found = Vec::new();
+        let mut cases = roots();
+        cases.push(("200 with a bad body", serve(Mode::EchoBadJson)));
+        for (label, root) in cases {
+            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
+            match detect_ollama_at(&base).await {
+                Err(err) => found.extend(leaks(label, &err)),
+                // A refused or non-2xx probe means "no Ollama", not an error.
+                Ok(v) => assert!(v.is_none() && !label.starts_with("200"), "{label}: expected a decode error"),
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn embedding_errors_never_carry_url_credentials_or_tokens() {
+        let client = Client::new();
+        let mut cases = roots();
+        cases.push(("200 with a bad body", serve(Mode::EchoBadJson)));
+        let mut found = Vec::new();
+        for (label, root) in cases {
+            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
+            let err = crate::embed::fetch_embeddings_at(&client, &base, "m", &["hello".to_string()])
+                .await
+                .expect_err(label);
+            found.extend(leaks(label, &err));
+        }
+        assert!(found.is_empty(), "{found:#?}");
     }
 }

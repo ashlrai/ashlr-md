@@ -6,6 +6,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Changed
+- **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
+  the endpoint's whole response body, so a gateway that names the rejected
+  `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
+  carried the base URL's path (where a proxy token can sit) through the HTTP
+  client's message, and an Ollama error body could quote the `Authorization: Basic`
+  value built from an `OLLAMA_HOST` user name and password. Error bodies are now
+  redacted (the key, and the credentials, path segments and query values of the
+  base URL) and cut to 300 characters, and client errors omit the URL. A new test
+  drives each of these calls against a 401 that echoes the request, a redirect, a
+  closed port and a malformed 200, and fails on any 8-character run of a secret.
 - **Docs: running under `phantom exec`.** `docs/PHANTOM.md` lists the settings Ashlr MD
   reads (`ANTHROPIC_BASE_URL`, `OLLAMA_HOST` for the app and the sidecar) and their
   rules. It notes that the Anthropic key comes from Settings, not `ANTHROPIC_API_KEY`,

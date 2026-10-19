@@ -273,27 +273,37 @@ async fn fetch_embeddings(
     model: &str,
     inputs: &[String],
 ) -> Result<Vec<Vec<f32>>, String> {
+    fetch_embeddings_at(client, &base_urls::ollama_base_url(), model, inputs).await
+}
+
+/// [`fetch_embeddings`] against an explicit Ollama base URL.
+pub(crate) async fn fetch_embeddings_at(
+    client: &Client,
+    base: &str,
+    model: &str,
+    inputs: &[String],
+) -> Result<Vec<Vec<f32>>, String> {
     let resp = client
-        .post(format!("{}/api/embed", base_urls::ollama_base_url()))
+        .post(format!("{base}/api/embed"))
         .json(&serde_json::json!({ "model": model, "input": inputs }))
         .send()
         .await
-        .map_err(|e| format!("embed request failed: {e}"))?;
+        .map_err(|e| format!("embed request failed: {}", e.without_url()))?;
 
     if resp.status().as_u16() == 404 {
         // Legacy endpoint — embed one at a time.
         let mut out = Vec::with_capacity(inputs.len());
         for input in inputs {
             let r = client
-                .post(format!("{}/api/embeddings", base_urls::ollama_base_url()))
+                .post(format!("{base}/api/embeddings"))
                 .json(&serde_json::json!({ "model": model, "prompt": input }))
                 .send()
                 .await
-                .map_err(|e| format!("legacy embed failed: {e}"))?;
+                .map_err(|e| format!("legacy embed failed: {}", e.without_url()))?;
             let body: EmbedSingleResponse = r
                 .json()
                 .await
-                .map_err(|e| format!("legacy embed decode failed: {e}"))?;
+                .map_err(|e| format!("legacy embed decode failed: {}", e.without_url()))?;
             out.push(body.embedding);
         }
         return Ok(out);
@@ -305,7 +315,7 @@ async fn fetch_embeddings(
     let body: EmbedBatchResponse = resp
         .json()
         .await
-        .map_err(|e| format!("embed decode failed: {e}"))?;
+        .map_err(|e| format!("embed decode failed: {}", e.without_url()))?;
     Ok(body.embeddings)
 }
 

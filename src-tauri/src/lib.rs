@@ -5,6 +5,7 @@ mod afm;
 mod agent_setup;
 mod ai;
 mod base_urls;
+mod redact;
 mod cli_install;
 mod deep_link;
 mod default_handler;
@@ -20,6 +21,8 @@ mod search;
 mod secrets;
 mod task_list;
 mod watcher;
+#[cfg(test)]
+mod test_stub;
 
 use std::sync::Mutex;
 
