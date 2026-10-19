@@ -219,6 +219,161 @@ pub fn ollama_base_url() -> String {
     ollama_base_url_from(std::env::var("OLLAMA_HOST").ok().as_deref())
 }
 
+/// Opt-in switch: `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` makes the app read the
+/// Anthropic key from `ANTHROPIC_API_KEY` instead of the key saved in
+/// Settings. Off (Settings only) unless the value is exactly `1`.
+pub const ANTHROPIC_KEY_FROM_ENV_VAR: &str = "ASHLR_MD_ANTHROPIC_KEY_FROM_ENV";
+
+/// What kind of value `ANTHROPIC_API_KEY` holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvKeyKind {
+    /// A `phm_` session placeholder from `phantom exec`.
+    Placeholder,
+    /// Anything else (a real key).
+    Plain,
+}
+
+/// The Anthropic key read from the environment. `Debug` never prints it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct EnvKey {
+    pub value: String,
+    pub kind: EnvKeyKind,
+}
+
+impl std::fmt::Debug for EnvKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvKey")
+            .field("value", &"<redacted>")
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
+/// Why the environment key cannot be used. Messages never echo a value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvKeyRefusal {
+    Unset,
+    Malformed,
+    Reference,
+    PlaceholderNeedsProxy,
+    BaseUrl(BaseUrlRefusal),
+}
+
+impl std::fmt::Display for EnvKeyRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unset => write!(
+                f,
+                "{ANTHROPIC_KEY_FROM_ENV_VAR}=1 but ANTHROPIC_API_KEY is not set. No request was sent."
+            ),
+            Self::Malformed => write!(
+                f,
+                "ANTHROPIC_API_KEY holds spaces or characters that cannot go in a request header. No request was sent."
+            ),
+            Self::Reference => write!(
+                f,
+                "ANTHROPIC_API_KEY is a phm: reference, which Ashlr MD does not resolve. Start the app under `phantom exec` so it holds a phm_ placeholder. No request was sent."
+            ),
+            Self::PlaceholderNeedsProxy => write!(
+                f,
+                "ANTHROPIC_API_KEY is a phm_ placeholder, but ANTHROPIC_BASE_URL does not point at this session's Phantom proxy (http://127.0.0.1 or http://[::1] on PHANTOM_PROXY_PORT). No request was sent."
+            ),
+            Self::BaseUrl(r) => r.fmt(f),
+        }
+    }
+}
+
+/// Host and port of a URL that already passed [`anthropic_base_url_checked_from`].
+fn checked_host_port(url: &str) -> (String, Option<u16>) {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let authority = &rest[..rest.find('/').unwrap_or(rest.len())];
+    if let Some(close) = authority.find(']') {
+        let port = authority[close + 1..]
+            .strip_prefix(':')
+            .and_then(|p| p.parse().ok());
+        (authority[..=close].to_string(), port)
+    } else {
+        match authority.rsplit_once(':') {
+            Some((h, p)) => (h.to_ascii_lowercase(), p.parse().ok()),
+            None => (authority.to_ascii_lowercase(), None),
+        }
+    }
+}
+
+/// Pick the Anthropic key from the environment, given the raw values of
+/// `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`
+/// and `PHANTOM_PROXY_PORT`.
+///
+/// `None` means the opt-in is off: use the Settings key, as always. When it is
+/// on, the environment key is the only one used (there is no silent fallback
+/// to Settings):
+/// - an unset or blank key, a `phm:` reference, or a value with whitespace or
+///   control characters is refused;
+/// - `ANTHROPIC_BASE_URL` must pass the usual rules;
+/// - a `phm_` placeholder additionally needs `ANTHROPIC_BASE_URL` set to the
+///   loopback literal `127.0.0.1` or `[::1]` with a port, and that port must be
+///   `PHANTOM_PROXY_PORT` when it is set, so a placeholder never goes to the
+///   real provider.
+pub fn anthropic_env_key_from(
+    opt_in: Option<&str>,
+    key: Option<&str>,
+    base_url: Option<&str>,
+    proxy_port: Option<&str>,
+) -> Option<Result<EnvKey, EnvKeyRefusal>> {
+    if opt_in.map(str::trim) != Some("1") {
+        return None;
+    }
+    Some((|| {
+        let value = key.map(str::trim).unwrap_or("");
+        if value.is_empty() {
+            return Err(EnvKeyRefusal::Unset);
+        }
+        if !value.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+            return Err(EnvKeyRefusal::Malformed);
+        }
+        if value.starts_with("phm:") {
+            return Err(EnvKeyRefusal::Reference);
+        }
+        let base = anthropic_base_url_checked_from(base_url).map_err(EnvKeyRefusal::BaseUrl)?;
+        let kind = if value.starts_with("phm_") {
+            EnvKeyKind::Placeholder
+        } else {
+            EnvKeyKind::Plain
+        };
+        if kind == EnvKeyKind::Placeholder {
+            if clean(base_url).is_none() {
+                return Err(EnvKeyRefusal::PlaceholderNeedsProxy);
+            }
+            let (host, port) = checked_host_port(&base);
+            let loopback = host == "127.0.0.1" || host == "[::1]";
+            let want = proxy_port.and_then(|p| p.trim().parse::<u16>().ok());
+            let port_ok = match (port, want) {
+                (Some(p), Some(w)) => p == w,
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            if !loopback || !port_ok {
+                return Err(EnvKeyRefusal::PlaceholderNeedsProxy);
+            }
+        }
+        Ok(EnvKey {
+            value: value.to_string(),
+            kind,
+        })
+    })())
+}
+
+/// [`anthropic_env_key_from`] on the process environment. Read at call time.
+pub fn anthropic_env_key() -> Option<Result<EnvKey, EnvKeyRefusal>> {
+    let get = |k: &str| std::env::var(k).ok();
+    anthropic_env_key_from(
+        get(ANTHROPIC_KEY_FROM_ENV_VAR).as_deref(),
+        get("ANTHROPIC_API_KEY").as_deref(),
+        get("ANTHROPIC_BASE_URL").as_deref(),
+        get("PHANTOM_PROXY_PORT").as_deref(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +548,127 @@ mod tests {
             "https://ollama.example.com"
         );
         assert_eq!(ollama_base_url_from(Some("HTTP://h:1")), "HTTP://h:1");
+    }
+
+    // ---- ANTHROPIC_API_KEY from the environment (opt-in) ----
+
+    const PROXY: &str = "http://127.0.0.1:41000/anthropic/_phantom/tok123";
+
+    fn env_key(
+        opt: Option<&str>,
+        key: Option<&str>,
+        base: Option<&str>,
+        port: Option<&str>,
+    ) -> Option<Result<EnvKey, EnvKeyRefusal>> {
+        anthropic_env_key_from(opt, key, base, port)
+    }
+
+    #[test]
+    fn env_key_is_off_unless_opted_in() {
+        for opt in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("true"),
+            Some("yes"),
+            Some("11"),
+        ] {
+            assert_eq!(
+                env_key(opt, Some("sk-ant-real"), None, None),
+                None,
+                "{opt:?}"
+            );
+        }
+        assert!(env_key(Some(" 1 "), Some("sk-ant-real"), None, None).is_some());
+    }
+
+    #[test]
+    fn env_key_plain_key_uses_the_checked_base() {
+        let k = env_key(Some("1"), Some(" sk-ant-real "), None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(k.value, "sk-ant-real");
+        assert_eq!(k.kind, EnvKeyKind::Plain);
+        assert_eq!(
+            env_key(
+                Some("1"),
+                Some("sk-ant-real"),
+                Some("http://gw.example.com"),
+                None
+            ),
+            Some(Err(EnvKeyRefusal::BaseUrl(BaseUrlRefusal::HttpNotLoopback)))
+        );
+    }
+
+    #[test]
+    fn env_key_placeholder_needs_the_session_proxy() {
+        let k = env_key(Some("1"), Some("phm_abc123"), Some(PROXY), Some("41000"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(k.kind, EnvKeyKind::Placeholder);
+        assert_eq!(k.value, "phm_abc123");
+        // No PHANTOM_PROXY_PORT: any loopback port is accepted.
+        assert!(env_key(Some("1"), Some("phm_abc123"), Some(PROXY), None)
+            .unwrap()
+            .is_ok());
+        assert!(env_key(
+            Some("1"),
+            Some("phm_abc123"),
+            Some("http://[::1]:41000/x"),
+            Some("41000")
+        )
+        .unwrap()
+        .is_ok());
+        for (base, port) in [
+            (None, Some("41000")),                     // default api.anthropic.com
+            (Some("https://api.anthropic.com"), None), // the real provider
+            (Some("https://gw.example.com:41000"), Some("41000")),
+            (Some(PROXY), Some("41001")), // another session
+            (Some("http://127.0.0.1/anthropic"), None), // no port
+        ] {
+            assert_eq!(
+                env_key(Some("1"), Some("phm_abc123"), base, port),
+                Some(Err(EnvKeyRefusal::PlaceholderNeedsProxy)),
+                "{base:?} {port:?}"
+            );
+        }
+        // A refused base URL is reported as such, before the placeholder rule.
+        assert_eq!(
+            env_key(
+                Some("1"),
+                Some("phm_abc123"),
+                Some("http://localhost:41000"),
+                None
+            ),
+            Some(Err(EnvKeyRefusal::BaseUrl(BaseUrlRefusal::HttpNotLoopback)))
+        );
+    }
+
+    #[test]
+    fn env_key_refusals_never_echo_values() {
+        let cases = [
+            (Some(""), EnvKeyRefusal::Unset),
+            (None, EnvKeyRefusal::Unset),
+            (Some("phm:ANTHROPIC_SECRETVALUE"), EnvKeyRefusal::Reference),
+            (Some("sk-ant SECRETVALUE"), EnvKeyRefusal::Malformed),
+            (Some("sk-ant-SECRETVALUE\r\nX: y"), EnvKeyRefusal::Malformed),
+        ];
+        for (key, want) in cases {
+            let got = env_key(Some("1"), key, None, None).unwrap().unwrap_err();
+            assert_eq!(got, want);
+            let msg = got.to_string();
+            assert!(msg.contains("No request was sent"), "{msg}");
+            assert!(!msg.contains("SECRETVALUE"), "{msg}");
+        }
+        let msg = env_key(Some("1"), Some("phm_SECRETVALUE"), None, None)
+            .unwrap()
+            .unwrap_err()
+            .to_string();
+        assert!(!msg.contains("SECRETVALUE"), "{msg}");
+        let dbg = format!(
+            "{:?}",
+            env_key(Some("1"), Some("sk-ant-SECRETVALUE"), None, None).unwrap()
+        );
+        assert!(!dbg.contains("SECRETVALUE"), "{dbg}");
     }
 }

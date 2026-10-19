@@ -174,10 +174,12 @@ pub async fn ai_generate(
     tauri::async_runtime::spawn(async move {
         let result = match provider.as_str() {
             "ollama" => stream_ollama(app.clone(), model, messages, request_id.clone()).await,
-            "anthropic" => {
-                let key = api_key.unwrap_or_default();
-                stream_anthropic(app.clone(), model, key, messages, request_id.clone()).await
-            }
+            "anthropic" => match anthropic_key(api_key) {
+                Ok(key) => {
+                    stream_anthropic(app.clone(), model, key, messages, request_id.clone()).await
+                }
+                Err(e) => Err(e),
+            },
             other => Err(format!("Unknown provider: {other}")),
         };
 
@@ -297,6 +299,58 @@ async fn stream_ollama(
 /// Default model constant — easy to update when Anthropic releases new versions.
 // The Anthropic model is chosen on the frontend and passed in per request.
 /// API version header required by Anthropic.
+/// The key for an Anthropic request: the Settings key the frontend passed,
+/// unless `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`, in which case only
+/// `ANTHROPIC_API_KEY` is used (see [`base_urls::anthropic_env_key_from`]).
+/// The environment value stays in this process: it is never sent to the
+/// frontend, written to Settings or the keychain, logged, or put in an error.
+fn anthropic_key(settings_key: Option<String>) -> Result<String, String> {
+    match base_urls::anthropic_env_key() {
+        None => Ok(settings_key.unwrap_or_default()),
+        Some(Ok(k)) => Ok(k.value),
+        Some(Err(why)) => Err(why.to_string()),
+    }
+}
+
+/// Value-free status of the environment-key opt-in, for the sidebar and
+/// Settings. Never carries the key.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicEnvKeyStatus {
+    /// `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`: the Settings key is not used.
+    enabled: bool,
+    /// The environment key passes the rules.
+    usable: bool,
+    /// The key is a `phm_` placeholder.
+    placeholder: bool,
+    /// Why it cannot be used, when it cannot.
+    problem: Option<String>,
+}
+
+#[tauri::command]
+pub fn anthropic_env_key_status() -> AnthropicEnvKeyStatus {
+    match base_urls::anthropic_env_key() {
+        None => AnthropicEnvKeyStatus {
+            enabled: false,
+            usable: false,
+            placeholder: false,
+            problem: None,
+        },
+        Some(Ok(k)) => AnthropicEnvKeyStatus {
+            enabled: true,
+            usable: true,
+            placeholder: k.kind == base_urls::EnvKeyKind::Placeholder,
+            problem: None,
+        },
+        Some(Err(why)) => AnthropicEnvKeyStatus {
+            enabled: true,
+            usable: false,
+            placeholder: false,
+            problem: Some(why.to_string()),
+        },
+    }
+}
+
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Max tokens for responses.
 const ANTHROPIC_MAX_TOKENS: u32 = 4096;
@@ -353,7 +407,7 @@ async fn stream_anthropic(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Anthropic request failed: {e}"))?;
+        .map_err(|e| format!("Anthropic request failed: {}", e.without_url()))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -367,7 +421,7 @@ async fn stream_anthropic(
     let mut buf: Vec<u8> = Vec::new();
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Stream read error: {e}"))?;
+        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e.without_url()))?;
         buf.extend_from_slice(&chunk);
 
         // Process complete SSE lines.

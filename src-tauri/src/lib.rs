@@ -130,6 +130,7 @@ pub fn run() {
             ipc::mcp_load_session,
             cli_install::install_cli,
             run::run_shell,
+            ai::anthropic_env_key_status,
             secrets::set_ai_key,
             secrets::get_ai_key,
             secrets::delete_ai_key,

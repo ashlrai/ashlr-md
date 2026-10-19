@@ -5,6 +5,7 @@
 import {
   afmGenerateStream,
   aiGenerateStream,
+  anthropicEnvKeyStatus,
   detectAfm,
   detectAnthropicKey,
   detectHostedToken,
@@ -188,6 +189,10 @@ class AnthropicProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    // With ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1 only the environment key counts;
+    // otherwise the Settings key, as always.
+    const env = await anthropicEnvKeyStatus();
+    if (env?.enabled) return env.usable;
     return !!detectAnthropicKey();
   }
 
@@ -198,8 +203,19 @@ class AnthropicProvider implements AIProvider {
     // Re-read from the store on every request, as the hosted provider does:
     // a key replaced or removed in Preferences must win over the value cached
     // when detection ran.
-    const key = detectAnthropicKey();
-    if (!key) throw new Error("Anthropic: no API key configured");
+    // With the environment opt-in on, send no key: Rust reads
+    // ANTHROPIC_API_KEY itself and the value never enters the webview.
+    const env = await anthropicEnvKeyStatus();
+    let key: string | null;
+    if (env?.enabled) {
+      if (!env.usable) {
+        throw new Error(env.problem ?? "Anthropic: ANTHROPIC_API_KEY cannot be used");
+      }
+      key = null;
+    } else {
+      key = detectAnthropicKey();
+      if (!key) throw new Error("Anthropic: no API key configured");
+    }
 
     const deltas: string[] = [];
     let resolve: (() => void) | null = null;
