@@ -137,8 +137,10 @@ The AI sidebar, semantic search and the MCP sidecar read these environment varia
 
 | Variable | Default | Accepts |
 |---|---|---|
-| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | a base URL; the app appends `/v1/messages` |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | an `https://` base URL, or `http://127.0.0.1` / `http://[::1]` with optional port; the app appends `/v1/messages` |
 | `OLLAMA_HOST` | `http://localhost:11434` (MCP sidecar: `http://127.0.0.1:11434`) | `host`, `host:port`, `:port` or a full URL |
+
+**Changed from #131:** `ANTHROPIC_BASE_URL` must be `https://` (any host), or plain `http://` only for the loopback addresses `127.0.0.1` and `[::1]`. `http://localhost`, plain http to any other host, other schemes, malformed URLs, a user name or password in the URL, a query and a fragment are refused when you send a message: the sidebar shows an error, no request is made and your API key is not sent. Anthropic requests do not follow redirects, so the key goes only to that host. The error never repeats the value. `OLLAMA_HOST` is unchanged.
 
 Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar speaks plain HTTP only, so it treats an `https://` `OLLAMA_HOST` as Ollama being unavailable and falls back to keyword search. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
 

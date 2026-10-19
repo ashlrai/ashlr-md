@@ -308,7 +308,15 @@ async fn stream_anthropic(
     messages: Vec<Msg>,
     request_id: String,
 ) -> Result<(), String> {
-    let client = Client::new();
+    // Validate the endpoint before anything else: a refused ANTHROPIC_BASE_URL
+    // returns here, before a client exists, so the key is never sent.
+    let base = base_urls::anthropic_base_url_checked().map_err(|e| e.to_string())?;
+    // No redirects: the key goes only to the validated host, never to a
+    // redirect target (x-api-key is not stripped on cross-host redirects).
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Anthropic client setup failed: {e}"))?;
 
     // Separate system messages from user/assistant turns (Anthropic API requirement).
     let system_content: String = messages
@@ -338,7 +346,7 @@ async fn stream_anthropic(
     };
 
     let resp = client
-        .post(format!("{}/v1/messages", base_urls::anthropic_base_url()))
+        .post(format!("{base}/v1/messages"))
         .header("x-api-key", &api_key)
         .header("anthropic-version", ANTHROPIC_VERSION)
         .header("content-type", "application/json")

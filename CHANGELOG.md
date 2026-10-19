@@ -45,6 +45,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **`ANTHROPIC_BASE_URL` is validated before the key is sent (changes #131).**
+  The override was used as given. It now must be `https://`, or plain
+  `http://` only for `127.0.0.1` or `[::1]` (not the name `localhost`). Any
+  other host over http, other schemes, malformed URLs, userinfo, a query or a
+  fragment are refused at request time with a clear error, before any network
+  call, so the API key is not sent. Anthropic requests no longer follow
+  redirects, so the key goes only to the validated host. The error never
+  echoes the value. Unset still means `https://api.anthropic.com`.
 - **HTML in an AI answer is shown as text.** The AI sidebar's markdown
   renderer escaped only code spans, so HTML a model wrote in plain text
   (an `<img src=x onerror=...>`, a `<script>`, an `<a href="javascript:...">`)
