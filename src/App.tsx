@@ -8,6 +8,7 @@ import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
 import { restoreSession } from "./lib/session";
+import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
 import { useActivationStore } from "./store/activationStore";
@@ -165,20 +166,8 @@ export default function App() {
   // no embed model is installed. Incremental: only changed files are re-embedded.
   useEffect(() => {
     const t = setTimeout(() => {
-      void (async () => {
-        // Opt-in (Settings > Semantic search); the manual button always works.
-        if (!useSettingsStore.getState().autoEmbedIndex) return;
-        const { embedAvailable, embedIndex } = await import("./lib/embedSearch");
-        if (!(await embedAvailable())) return;
-        const { useActivityStore } = await import("./store/activityStore");
-        // Ensure the watched-folder file list is populated before indexing.
-        await useActivityStore.getState().loadFiles();
-        const paths = new Set<string>();
-        for (const r of useRecentStore.getState().recents) paths.add(r.path);
-        for (const f of useActivityStore.getState().files) paths.add(f.path);
-        // Full reindex (prune stale files) since this is the complete library.
-        if (paths.size > 0) void embedIndex(Array.from(paths), true);
-      })();
+      // Opt-in (Settings > Semantic search); the manual button always works.
+      void runStartupEmbedIndex();
     }, 4000);
     return () => clearTimeout(t);
   }, []);
