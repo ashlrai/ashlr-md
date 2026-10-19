@@ -169,3 +169,41 @@ describe("isDefaultPromptSnoozed", () => {
     expect(JSON.parse(JSON.stringify(NEVER_ASK_DEFAULT))).toBe(NEVER_ASK_DEFAULT);
   });
 });
+
+// ─── autoEmbedIndex (opt-in semantic re-index) ────────────────────────────────
+
+describe("settingsStore — autoEmbedIndex", () => {
+  const migrate = () => {
+    const fn = useSettingsStore.persist.getOptions().migrate;
+    if (!fn) throw new Error("settings store has no migrate");
+    return fn;
+  };
+
+  it("defaults to false for a new install", () => {
+    expect(useSettingsStore.getInitialState().autoEmbedIndex).toBe(false);
+  });
+
+  it("setAutoEmbedIndex flips the flag", () => {
+    useSettingsStore.getState().setAutoEmbedIndex(true);
+    expect(useSettingsStore.getState().autoEmbedIndex).toBe(true);
+    useSettingsStore.getState().setAutoEmbedIndex(false);
+    expect(useSettingsStore.getState().autoEmbedIndex).toBe(false);
+  });
+
+  it("v7 to v8 migration keeps an existing install on", async () => {
+    const out = (await migrate()({ theme: "light" }, 7)) as { autoEmbedIndex: boolean };
+    expect(out.autoEmbedIndex).toBe(true);
+  });
+
+  it("migration from older versions also keeps existing installs on", async () => {
+    const out = (await migrate()({}, 3)) as { autoEmbedIndex: boolean };
+    expect(out.autoEmbedIndex).toBe(true);
+  });
+
+  it("migration never overrides an explicit choice", async () => {
+    const out = (await migrate()({ autoEmbedIndex: false }, 7)) as {
+      autoEmbedIndex: boolean;
+    };
+    expect(out.autoEmbedIndex).toBe(false);
+  });
+});

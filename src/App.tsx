@@ -166,6 +166,8 @@ export default function App() {
   useEffect(() => {
     const t = setTimeout(() => {
       void (async () => {
+        // Opt-in (Settings > Semantic search); the manual button always works.
+        if (!useSettingsStore.getState().autoEmbedIndex) return;
         const { embedAvailable, embedIndex } = await import("./lib/embedSearch");
         if (!(await embedAvailable())) return;
         const { useActivityStore } = await import("./store/activityStore");

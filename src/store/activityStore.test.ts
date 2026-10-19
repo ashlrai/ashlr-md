@@ -37,8 +37,11 @@ vi.mock("./documentStore", () => ({
   useDocumentStore: { getState: () => ({ openPath: vi.fn() }) },
 }));
 
+let autoEmbedIndex = false;
 vi.mock("./settingsStore", () => ({
-  useSettingsStore: { getState: () => ({ notificationsEnabled: false }) },
+  useSettingsStore: {
+    getState: () => ({ notificationsEnabled: false, autoEmbedIndex }),
+  },
 }));
 
 vi.mock("./uiStore", () => ({
@@ -47,6 +50,7 @@ vi.mock("./uiStore", () => ({
 
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
 import { listMarkdownFiles, scanMarkdownFiles } from "../lib/activity";
+import { embedIndex } from "../lib/embedSearch";
 import { useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
@@ -175,6 +179,53 @@ describe("activityStore", () => {
     vi.advanceTimersByTime(700);
     expect(toastInfoMock).toHaveBeenCalledOnce();
     expect(toastInfoMock.mock.calls[0][0]).toContain("plan.md");
+  });
+
+  // ── Opt-in semantic re-index ────────────────────────────────────────────
+
+  describe("autoEmbedIndex", () => {
+    beforeEach(() => {
+      vi.mocked(embedIndex).mockClear();
+    });
+    afterEach(() => {
+      autoEmbedIndex = false;
+    });
+
+    it("does nothing when the setting is off (the default)", async () => {
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(embedIndex).not.toHaveBeenCalled();
+    });
+
+    it("re-indexes incrementally (no prune) after the debounce when on", async () => {
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+      expect(embedIndex).not.toHaveBeenCalled(); // still debouncing
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      expect(embedIndex).toHaveBeenCalledWith(["/watch/a.md"], false);
+    });
+
+    it("coalesces a burst into one call", async () => {
+      autoEmbedIndex = true;
+      const a = useActivityStore.getState();
+      a.applyEvent(makeEvent("a.md", "created", 1));
+      a.applyEvent(makeEvent("b.md", "modified", 2));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      expect(vi.mocked(embedIndex).mock.calls[0][0].sort()).toEqual([
+        "/watch/a.md",
+        "/watch/b.md",
+      ]);
+    });
+
+    it("drops a queued batch if the setting is turned off before it fires", async () => {
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+      autoEmbedIndex = false;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(embedIndex).not.toHaveBeenCalled();
+    });
   });
 
   it("multiple novel created events within the window coalesce into one toast", () => {
