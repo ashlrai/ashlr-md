@@ -669,3 +669,148 @@ mod redaction_tests {
         assert!(found.is_empty(), "{found:#?}");
     }
 }
+
+/// LiteLLM compatibility, hermetic: a fake LiteLLM-shaped proxy on 127.0.0.1
+/// (port 0, no network) records the raw request. Asserts the configured base
+/// URL is honored, the path is LiteLLM's Anthropic route `/v1/messages`, and
+/// only the configured key (or a `phm_` placeholder) is sent. The leak check
+/// is proven red with an injected canary header.
+#[cfg(test)]
+mod litellm_compat_tests {
+    use super::send_anthropic;
+    use crate::base_urls::{anthropic_base_url_checked_from, anthropic_env_key_from};
+    use reqwest::Client;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    const CANARIES: [&str; 4] = [
+        "sk-ant-CANARY-env-anthropic-0001",
+        "sk-CANARY-openai-0002",
+        "CANARY-gemini-0003",
+        "CANARY-claude-oauth-0004",
+    ];
+
+    /// One-shot recorder: returns (base URL, receiver of the raw request).
+    fn litellm_stub() -> (String, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = s.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let len = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= end + 4 + len {
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"content":[{"type":"text","text":"ok"}]}"#;
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = tx.send(String::from_utf8_lossy(&buf).to_string());
+        });
+        (base, rx)
+    }
+
+    /// Err when any secret other than `allowed` appears in the raw request.
+    fn only_key(raw: &str, allowed: &str) -> Result<(), String> {
+        match CANARIES
+            .iter()
+            .find(|c| **c != allowed && raw.contains(**c))
+        {
+            Some(_) => Err("leak: a non-configured key reached the proxy".into()),
+            None => Ok(()),
+        }
+    }
+
+    fn request_line(raw: &str) -> &str {
+        raw.lines().next().unwrap_or("")
+    }
+
+    fn header<'a>(raw: &'a str, name: &str) -> Option<&'a str> {
+        raw.lines().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.eq_ignore_ascii_case(name).then(|| v.trim())
+        })
+    }
+
+    fn client() -> Client {
+        Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn leak_check_is_red_for_an_injected_key() {
+        let (base, rx) = litellm_stub();
+        client()
+            .post(format!("{base}/v1/messages"))
+            .header("x-api-key", "sk-litellm-configured")
+            .header("x-extra", CANARIES[1])
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        let raw = rx.recv().unwrap();
+        assert!(only_key(&raw, "sk-litellm-configured").is_err());
+    }
+
+    #[tokio::test]
+    async fn anthropic_honors_base_url_uses_v1_messages_and_sends_only_the_configured_key() {
+        for key in ["sk-litellm-virtual-key", "phm_session_placeholder_abc"] {
+            let (stub, rx) = litellm_stub();
+            let base =
+                anthropic_base_url_checked_from(Some(&stub)).expect("loopback http accepted");
+            assert_eq!(
+                base.trim_end_matches('/'),
+                stub,
+                "configured base URL honored"
+            );
+            send_anthropic(
+                &client(),
+                &base,
+                key,
+                &serde_json::json!({"model":"m","messages":[]}),
+            )
+            .await
+            .expect("stub answers 200");
+            let raw = rx.recv().unwrap();
+            assert!(
+                request_line(&raw).starts_with("POST /v1/messages "),
+                "{}",
+                request_line(&raw)
+            );
+            assert_eq!(header(&raw, "x-api-key"), Some(key));
+            assert_eq!(header(&raw, "authorization"), None);
+            only_key(&raw, key).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_environment_anthropic_key_is_not_used_without_the_opt_in() {
+        let stub = "http://127.0.0.1:4000";
+        assert!(anthropic_env_key_from(None, Some(CANARIES[0]), Some(stub), None).is_none());
+        assert!(anthropic_env_key_from(Some("0"), Some(CANARIES[0]), Some(stub), None).is_none());
+    }
+}
