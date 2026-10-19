@@ -89,3 +89,35 @@ change for Phantom; update Phantom's Markdown integration alongside it.
 
 On the `feat/ashlr-md-opener` branch: `"markdownOpener": "editor"` in Phantom's
 config, or `PHANTOM_ASHLR_MD=0`. On `master`, simply omit `--open`.
+
+## Running under `phantom exec` (Phantom Secrets)
+
+`phantom exec -- <cmd>` does three things:
+- It starts `<cmd>` with `phm_` session placeholders instead of real provider keys.
+- It points provider base URLs such as `ANTHROPIC_BASE_URL` at a local Phantom proxy: `http://127.0.0.1:<port>/<route>/_phantom/<token>/`.
+- On the way out, the proxy swaps each placeholder for the real key.
+
+What Ashlr MD reads, at call time:
+
+| Setting | Used by | Rules |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | AI sidebar (Anthropic) | `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. Anything else is refused before the key is attached. The Phantom proxy URL is loopback http, so it is accepted. |
+| `OLLAMA_HOST` | AI sidebar and semantic search (Ollama) | Taken as given: `host`, `host:port`, `:port` or a full URL. |
+| `OLLAMA_HOST` | MCP sidecar (`mdopener-mcp`) embeddings | Since #138: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port`, `0.0.0.0` and `[::]` map to loopback, and redirects are refused. |
+
+Things to know:
+- **The Anthropic key comes from Settings.** The app sends the key saved in Settings, which is stored in the OS keychain. It does not read `ANTHROPIC_API_KEY`, so the `phm_` placeholder that `phantom exec` sets is not used. Under `phantom exec` the app sends its Settings key to the Phantom proxy. This combination has not been tested.
+- **Shell-launched only.** An app launched from the Dock or Start menu does not see variables from your shell or from `phantom exec`. Start its executable from that shell instead: for example `phantom exec -- /usr/bin/md-opener` on a Linux `.deb` install, or the executable inside `Ashlr MD.app/Contents/MacOS/` on macOS. `open -a` hands the launch to the OS and may not pass the variables. These launch forms have not been tested here.
+- **The sidecar has no key.** `mdopener-mcp` sends no Anthropic requests and attaches no key to Ollama requests. An agent that runs it under `phantom exec` needs no placeholder for it.
+- **No `phm:` references.** Ashlr MD never resolves a `phm:` reference. Do not use `phantom reveal` to copy a key into Settings or into the environment.
+
+### LiteLLM
+
+If a LiteLLM proxy sits in front of Anthropic or Ollama, use LiteLLM 1.83.0 or newer, never 1.82.7 or 1.82.8.
+
+- **Why 1.83.0:** `litellm` 1.82.7 and 1.82.8 on PyPI were compromised releases that carried credential-stealing code (GHSA-5mg7-485q-xm76, March 2026). 1.83.0, published to PyPI on 2026-03-31, was the first clean release, built by LiteLLM's rebuilt release pipeline ([LiteLLM security update](https://docs.litellm.ai/blog/security-update-march-2026)).
+- **Use a current release, not just 1.83.0.** Later advisories were fixed in later releases (for example GHSA-3cv6-jpf6-8222). On 2026-10-19 the current PyPI release was 1.106.0. Check LiteLLM's security advisories before you pick or upgrade a version.
+- **Install it verifiably.** Use a hash-pinned install (`pip install --require-hashes -r requirements.txt`) or the official `ghcr.io/berriai/litellm` image, checked with `cosign verify` as LiteLLM's README shows. Run it in a container that does not mount your home directory or dotfiles.
+- Keep the provider keys on the LiteLLM side. Give the agent only the proxy URL and, if the proxy needs one, a proxy key that is separate from the provider keys.
+
+For Ashlr MD, `ANTHROPIC_BASE_URL` points at the gateway root, and the app appends `/v1/messages`, so the gateway must serve the Anthropic Messages API there. Use `https://`, or `http://127.0.0.1:<port>` for a proxy on the same machine. Only the URL handling is covered by tests. The app has not been tested against a live LiteLLM or Phantom proxy.
