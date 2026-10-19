@@ -44,6 +44,14 @@ interface SettingsState {
   /** Fire native OS notifications on real agent activity (default on). */
   notificationsEnabled: boolean;
   setNotificationsEnabled: (v: boolean) => void;
+  /**
+   * Re-index semantic-search embeddings automatically (watched-folder changes
+   * and at startup). New installs: off. Installs that predate this setting keep
+   * their old always-on behavior (v8 migration). The manual "Reindex library"
+   * button works either way.
+   */
+  autoEmbedIndex: boolean;
+  setAutoEmbedIndex: (v: boolean) => void;
 
   /**
    * Explicit Obsidian vault-root override. When set, wikilink resolution and
@@ -203,6 +211,8 @@ export const useSettingsStore = create<SettingsState>()(
 
       notificationsEnabled: true,
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
+      autoEmbedIndex: false,
+      setAutoEmbedIndex: (autoEmbedIndex) => set({ autoEmbedIndex }),
 
       pasteImageTarget: "doc-relative",
       setPasteImageTarget: (pasteImageTarget) => set({ pasteImageTarget }),
@@ -304,7 +314,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "mdopener-settings",
-      version: 7,
+      version: 8,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
@@ -313,6 +323,8 @@ export const useSettingsStore = create<SettingsState>()(
       // v5 adds epubEnabled (default true).
       // v6 adds customSnippets (default []).
       // v7 adds disabledProfileIds (default [] = all profiles enabled).
+      // v8 adds autoEmbedIndex (new installs false; existing installs true, since
+      // they already re-indexed automatically before the setting existed).
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Record<string, unknown> & {
           defaultPromptDismissed?: boolean;
@@ -324,6 +336,7 @@ export const useSettingsStore = create<SettingsState>()(
           epubEnabled?: boolean;
           customSnippets?: UserSnippet[];
           disabledProfileIds?: ExportProfileId[];
+          autoEmbedIndex?: boolean;
         };
         if (version < 1) {
           s.defaultPromptSnoozedUntil = s.defaultPromptDismissed
@@ -349,6 +362,9 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 7) {
           s.disabledProfileIds = s.disabledProfileIds ?? [];
+        }
+        if (version < 8) {
+          s.autoEmbedIndex = s.autoEmbedIndex ?? true;
         }
         // Always reconcile persisted disabled ids against the current set of
         // known profiles so stale ids from removed/renamed profiles don't

@@ -72,12 +72,16 @@ const pendingEmbedPaths = new Set<string>();
 let embedTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleEmbedIndex(path: string) {
+  // Opt-in (Settings > Semantic search). Off: nothing is queued.
+  if (!useSettingsStore.getState().autoEmbedIndex) return;
   pendingEmbedPaths.add(path);
   if (embedTimer) clearTimeout(embedTimer);
   embedTimer = setTimeout(() => {
     embedTimer = null;
     const paths = Array.from(pendingEmbedPaths);
     pendingEmbedPaths.clear();
+    // Turned off while the debounce was pending: drop the batch.
+    if (!useSettingsStore.getState().autoEmbedIndex) return;
     import("../lib/embedSearch").then(({ embedIndex }) => {
       void embedIndex(paths, false); // incremental — additive, never prunes
     });

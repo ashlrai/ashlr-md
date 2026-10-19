@@ -8,7 +8,34 @@ import {
 } from "../../../lib/embedSearch";
 import { useActivityStore } from "../../../store/activityStore";
 import { useRecentStore } from "../../../store/recentStore";
+import { useSettingsStore } from "../../../store/settingsStore";
 import { SpinnerIcon } from "../icons";
+
+/** Opt-in switch: keep the semantic index fresh without pressing Reindex. */
+export function AutoEmbedToggle() {
+  const enabled = useSettingsStore((s) => s.autoEmbedIndex);
+  const setEnabled = useSettingsStore((s) => s.setAutoEmbedIndex);
+  return (
+    <div className="settings-cli-row">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Keep the semantic index fresh automatically"
+        className={`settings-switch${enabled ? " on" : ""}`}
+        onClick={() => setEnabled(!enabled)}
+        title="Re-index changed files in the watched folder, and the library at startup, on this device"
+      >
+        <span className="settings-switch-knob" aria-hidden="true" />
+        <span className="settings-switch-label">{enabled ? "On" : "Off"}</span>
+      </button>
+      <span className="settings-description settings-description-muted">
+        Keep the index fresh automatically (watched folder changes and startup). It only
+        updates the search index, on-device.
+      </span>
+    </div>
+  );
+}
 
 /** On-device semantic search status + manual reindex. */
 export function EmbedSection() {
@@ -58,6 +85,7 @@ export function EmbedSection() {
         fully on-device via <code className="settings-inline-code">{status.model}</code>
         .
       </p>
+      <AutoEmbedToggle />
       <div className="settings-cli-row">
         <button
           type="button"
