@@ -7,7 +7,8 @@
 // never displayed, logged, or echoed back: the section says only whether one
 // is saved.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { type AnthropicEnvKeyStatus, anthropicEnvKeyStatus } from "../../../ai/bridge";
 import { isActionEnter, isDismissEscape } from "../../../lib/keymap";
 import { useAIStore } from "../../../store/aiStore";
 
@@ -21,6 +22,17 @@ export function AnthropicKeySection() {
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState<Note>("none");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [envKey, setEnvKey] = useState<AnthropicEnvKeyStatus | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    anthropicEnvKeyStatus().then((s) => {
+      if (live) setEnvKey(s);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   function startEdit() {
     setDraft("");
@@ -63,6 +75,17 @@ export function AnthropicKeySection() {
         model is available. The key is stored in your OS keychain and is never shown
         here.
       </p>
+
+      {envKey?.enabled && (
+        <p
+          className={`settings-cli-result ${envKey.usable ? "settings-result-ok" : "settings-result-error"}`}
+          data-testid="anthropic-env-key"
+        >
+          {envKey.usable
+            ? `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV is on: the AI sidebar uses ANTHROPIC_API_KEY (${envKey.placeholder ? "a phm_ placeholder" : "a key"}) from the environment, not the key saved here.`
+            : envKey.problem}
+        </p>
+      )}
 
       {editing ? (
         <div className="settings-cli-row" style={{ flexWrap: "wrap", gap: "8px" }}>

@@ -102,14 +102,31 @@ What Ashlr MD reads, at call time:
 | Setting | Used by | Rules |
 |---|---|---|
 | `ANTHROPIC_BASE_URL` | AI sidebar (Anthropic) | `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. Anything else is refused before the key is attached. The Phantom proxy URL is loopback http, so it is accepted. |
+| `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV` | AI sidebar (Anthropic) | Exactly `1` turns on reading the key from `ANTHROPIC_API_KEY` instead of Settings. Unset, or any other value, means Settings only (the default). |
 | `OLLAMA_HOST` | AI sidebar and semantic search (Ollama) | Taken as given: `host`, `host:port`, `:port` or a full URL. |
 | `OLLAMA_HOST` | MCP sidecar (`mdopener-mcp`) embeddings | Since #138: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port`, `0.0.0.0` and `[::]` map to loopback, and redirects are refused. |
 
 Things to know:
-- **The Anthropic key comes from Settings.** The app sends the key saved in Settings, which is stored in the OS keychain. It does not read `ANTHROPIC_API_KEY`, so the `phm_` placeholder that `phantom exec` sets is not used. Under `phantom exec` the app sends its Settings key to the Phantom proxy. This combination has not been tested.
+- **The Anthropic key comes from Settings by default.** The app sends the key saved in Settings, which is stored in the OS keychain, and ignores `ANTHROPIC_API_KEY`. To use the `phm_` placeholder from `phantom exec` instead, opt in with `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` (see below).
 - **Shell-launched only.** An app launched from the Dock or Start menu does not see variables from your shell or from `phantom exec`. Start its executable from that shell instead: for example `phantom exec -- /usr/bin/md-opener` on a Linux `.deb` install, or the executable inside `Ashlr MD.app/Contents/MacOS/` on macOS. `open -a` hands the launch to the OS and may not pass the variables. These launch forms have not been tested here.
 - **The sidecar has no key.** `mdopener-mcp` sends no Anthropic requests and attaches no key to Ollama requests. An agent that runs it under `phantom exec` needs no placeholder for it.
 - **No `phm:` references.** Ashlr MD never resolves a `phm:` reference. Do not use `phantom reveal` to copy a key into Settings or into the environment.
+
+### Using `ANTHROPIC_API_KEY` from the environment (opt-in)
+
+```sh
+ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1 phantom exec -- /usr/bin/md-opener
+```
+
+With `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`, the AI sidebar takes the Anthropic key from `ANTHROPIC_API_KEY` at request time:
+- **Only the environment key is used.** The key saved in Settings is not sent, and there is no fallback to it. Settings shows a note that the environment key is in use.
+- **The value stays in the Rust process.** It is never sent to the webview, written to Settings or the keychain, logged, or included in an error message. The webview only learns whether the opt-in is on, whether the key is usable, and whether it is a `phm_` placeholder.
+- **A `phm_` placeholder needs the session proxy.** `ANTHROPIC_BASE_URL` must be set and pass the usual rules. It must point at `127.0.0.1` or `[::1]` with a port, and that port must be `PHANTOM_PROXY_PORT` when it is set. Without that, the placeholder would go to the real provider, so the request is refused.
+- **A real key** in `ANTHROPIC_API_KEY` is accepted with any `ANTHROPIC_BASE_URL` that passes the usual rules.
+- **Refused before any request:** an unset or blank key, a `phm:` reference (Ashlr MD does not resolve references), or a value with spaces or control characters. The reason is shown, but the value never is.
+- **Request errors leave out the URL**, so the per-session proxy token in the path is not shown.
+
+The rules and the webview side are covered by tests: `src-tauri/src/base_urls.rs` and `src/ai/anthropicEnvKey.test.ts`. It has not been tested against a live `phantom exec` session.
 
 ### LiteLLM
 

@@ -61,6 +61,41 @@ export function detectAnthropicKey(): string | null {
 }
 
 /**
+ * Value-free status of the opt-in that reads the Anthropic key from
+ * `ANTHROPIC_API_KEY` (`ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`). The key itself
+ * never leaves Rust; this only says whether it is on and usable.
+ */
+export interface AnthropicEnvKeyStatus {
+  /** The opt-in is on, so the Settings key is not used. */
+  enabled: boolean;
+  /** The environment key passes the rules. */
+  usable: boolean;
+  /** The key is a `phm_` placeholder from `phantom exec`. */
+  placeholder: boolean;
+  /** Why it cannot be used, when it cannot. Never contains the key. */
+  problem: string | null;
+}
+
+/** Ask Rust for {@link AnthropicEnvKeyStatus}; null outside Tauri or on error. */
+export async function anthropicEnvKeyStatus(): Promise<AnthropicEnvKeyStatus | null> {
+  try {
+    const s = (await invoke("anthropic_env_key_status")) as
+      | Partial<AnthropicEnvKeyStatus>
+      | null
+      | undefined;
+    if (!s || typeof s !== "object" || typeof s.enabled !== "boolean") return null;
+    return {
+      enabled: s.enabled,
+      usable: s.usable === true,
+      placeholder: s.placeholder === true,
+      problem: typeof s.problem === "string" ? s.problem : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Ask whether a hosted (Tier 3) bearer token has been stored (via aiStore).
  * Purely a local in-memory check — the token is loaded from the OS keychain
  * at startup via `loadHostedToken()`.

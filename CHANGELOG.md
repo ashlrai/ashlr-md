@@ -21,6 +21,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   not followed. The default (`http://127.0.0.1:11434`) is unchanged.
 
 ### Added
+- **Anthropic key from the environment (opt-in).** With
+  `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` the AI sidebar uses `ANTHROPIC_API_KEY` instead
+  of the Settings key, so a `phm_` placeholder from `phantom exec` works. A placeholder
+  must go to the session's loopback proxy (`ANTHROPIC_BASE_URL` under the #137 rules,
+  on `PHANTOM_PROXY_PORT`). The value stays in Rust: it is never sent to the webview,
+  saved, logged or put in an error. Settings stays the default. Anthropic request
+  errors no longer include the URL.
 - **Phantom installed check in setup output.** `scripts/install.sh` now prints whether
   the optional Phantom CLI is installed and its version. The check
   (`scripts/phantom-check.sh`) only runs `phantom --version`. It never runs
