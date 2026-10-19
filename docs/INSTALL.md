@@ -144,6 +144,44 @@ xdg-mime query default text/markdown
 # → Ashlr MD.desktop
 ```
 
+### Linux troubleshooting
+
+Checked against the v0.4.0 `.deb` and AppImage on Debian 13 (x86_64).
+
+**`dpkg -i` stops with unmet dependencies.** The `.deb` depends on
+`libwebkit2gtk-4.1-0` and `libgtk-3-0`. Install it with apt instead, which pulls
+those in for you:
+
+```bash
+sudo apt-get install ./Ashlr_MD_X.Y.Z_amd64.deb
+```
+
+**Connecting an agent when you use the AppImage.** `mdopener-mcp` lives inside
+the AppImage, which is mounted at a different temporary path on every run, so
+there is no `/usr/lib/Ashlr MD/mdopener-mcp` to point Claude Code, Codex or
+Cursor at. Either install the `.deb` or `.rpm`, or extract the AppImage once and
+use the extracted copy:
+
+```bash
+./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract
+# Stable path to the MCP server:
+"$PWD/squashfs-root/usr/lib/Ashlr MD/mdopener-mcp"
+```
+
+Extract again after you update the AppImage, so the agent runs the new version.
+
+**`Cannot mount AppImage, please check your FUSE setup.`** The AppImage uses
+the static type 2 runtime, so it does not need `libfuse2` (it ran on Debian 13
+with only libfuse3 installed). Where FUSE is not available at all, for example
+in a container without `/dev/fuse`, run it without mounting:
+
+```bash
+./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract-and-run
+```
+
+**`mdopen: command not found`.** Neither package puts `mdopen` on your `PATH`;
+see the note under Option A above.
+
 ---
 
 ## Auto-Updates
