@@ -4769,26 +4769,141 @@ impl SearchResult {
 #[path = "../../../src/base_urls.rs"]
 mod base_urls;
 
-/// Ollama base URL the sidecar talks to when `OLLAMA_HOST` is `raw`:
-/// 127.0.0.1:11434 (as before) when unset or blank. The sidecar speaks plain
-/// HTTP only, so an `https://` value makes Ollama count as unavailable.
-pub fn ollama_base_from(raw: Option<&str>) -> String {
-    base_urls::ollama_override(raw).unwrap_or_else(|| "http://127.0.0.1:11434".to_string())
+/// Ollama base URL the sidecar talks to when `OLLAMA_HOST` is `raw`.
+///
+/// Unset or blank means `http://127.0.0.1:11434`, as before. Otherwise the
+/// value is normalized the way Ollama reads it (`host`, `host:port`, `:port`
+/// or a full URL) and must pass the same rules as `ANTHROPIC_BASE_URL`:
+/// `https://` to any valid host, or plain `http://` only to `127.0.0.1` or
+/// `[::1]` (the name `localhost` is refused for http). A user name or
+/// password, a query, a fragment, other schemes and malformed values are
+/// refused. Two local shorthands stay usable: `:port` means `127.0.0.1:port`,
+/// and the bind-all addresses `0.0.0.0` and `[::]` (often set so `ollama
+/// serve` listens everywhere) mean `127.0.0.1` and `[::1]`.
+///
+/// The refusal message never echoes the value.
+pub fn ollama_base_from(raw: Option<&str>) -> Result<String, String> {
+    let trimmed = raw.map(str::trim).unwrap_or("");
+    let shorthand = if trimmed.starts_with(':') {
+        Some(format!("127.0.0.1{trimmed}"))
+    } else {
+        None
+    };
+    let Some(url) = base_urls::ollama_override(shorthand.as_deref().or(raw)) else {
+        return Ok("http://127.0.0.1:11434".to_string());
+    };
+    let url = local_bind_all_to_loopback(&url);
+    base_urls::anthropic_base_url_checked_from(Some(&url)).map_err(|why| {
+        format!(
+            "OLLAMA_HOST refused: {}. No request was sent.",
+            refusal_reason(why)
+        )
+    })
 }
 
-fn ollama_base() -> String {
+/// `http(s)://0.0.0.0` and `http(s)://[::]` connect to this machine; name the
+/// loopback literal instead so the http-only-to-loopback rule can see that.
+fn local_bind_all_to_loopback(url: &str) -> String {
+    for (from, to) in [("0.0.0.0", "127.0.0.1"), ("[::]", "[::1]")] {
+        for scheme in ["http://", "https://"] {
+            let prefix = format!("{scheme}{from}");
+            if let Some(rest) = url.strip_prefix(&prefix) {
+                if rest.is_empty() || rest.starts_with([':', '/']) {
+                    return format!("{scheme}{to}{rest}");
+                }
+            }
+        }
+    }
+    url.to_string()
+}
+
+fn refusal_reason(why: base_urls::BaseUrlRefusal) -> &'static str {
+    use base_urls::BaseUrlRefusal as R;
+    match why {
+        R::Malformed => "it is not a valid host or URL",
+        R::Scheme => "only https:// is allowed (http:// only for 127.0.0.1 and [::1])",
+        R::HttpNotLoopback => {
+            "plain http:// is allowed only for 127.0.0.1 and [::1]; use https:// for any other host, including localhost"
+        }
+        R::Userinfo => "a user name or password in the URL is not allowed",
+        R::QueryOrFragment => "a query (?) or fragment (#) is not allowed",
+    }
+}
+
+fn ollama_base() -> Result<String, String> {
     ollama_base_from(std::env::var("OLLAMA_HOST").ok().as_deref())
 }
 
+/// A parsed Ollama URL: scheme, host as written (IPv6 in brackets), port
+/// (443 or 80 when absent) and path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OllamaTarget {
+    pub https: bool,
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+}
+
+/// Parse a URL that already passed [`ollama_base_from`]'s rules.
+pub fn parse_ollama_url(url: &str) -> Result<OllamaTarget, String> {
+    let (https, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        (false, r)
+    } else {
+        return Err("Ollama URL must be http:// or https://".to_string());
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], rest[i..].to_string()),
+        None => (rest, "/".to_string()),
+    };
+    let (host, port) = if authority.starts_with('[') {
+        let close = authority.find(']').ok_or("Invalid IPv6 host")?;
+        (
+            &authority[..=close],
+            authority[close + 1..].strip_prefix(':'),
+        )
+    } else {
+        match authority.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    let port = match port {
+        Some(p) => p.parse::<u16>().map_err(|e| format!("Invalid port: {e}"))?,
+        None if https => 443,
+        None => 80,
+    };
+    if host.is_empty() {
+        return Err("Missing host".to_string());
+    }
+    Ok(OllamaTarget {
+        https,
+        host: host.to_string(),
+        port,
+        path,
+    })
+}
+
+fn ollama_socket_addrs(t: &OllamaTarget) -> Result<Vec<std::net::SocketAddr>, String> {
+    use std::net::ToSocketAddrs;
+    let bare = t.host.trim_start_matches('[').trim_end_matches(']');
+    (bare, t.port)
+        .to_socket_addrs()
+        .map(|a| a.collect())
+        .map_err(|e| format!("could not resolve the Ollama host: {e}"))
+}
+
 /// Probe whether Ollama is reachable (127.0.0.1:11434 unless `OLLAMA_HOST`
-/// is set). Returns true only if a TCP connection succeeds within 200 ms.
+/// is set). Returns true only if `OLLAMA_HOST` passes the rules and a TCP
+/// connection succeeds within 200 ms.
 pub fn ollama_available() -> bool {
-    use std::net::{TcpStream, ToSocketAddrs};
+    use std::net::TcpStream;
     use std::time::Duration;
-    let Ok((host, port, _)) = parse_url(&ollama_base()) else {
+    let Ok(t) = ollama_base().and_then(|b| parse_ollama_url(&b)) else {
         return false;
     };
-    let Ok(addrs) = (host.as_str(), port).to_socket_addrs() else {
+    let Ok(addrs) = ollama_socket_addrs(&t) else {
         return false;
     };
     addrs
@@ -4796,12 +4911,117 @@ pub fn ollama_available() -> bool {
         .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok())
 }
 
+/// POST `body` as JSON to `url` (an Ollama URL that passed the rules) over
+/// http or https, and parse the JSON answer. No Authorization header is sent.
+/// Redirects are refused, not followed. The answer is read up to
+/// [`MAX_HTTP_RESPONSE_BYTES`].
+pub fn ollama_post_json(
+    url: &str,
+    body: &Value,
+    read_timeout: std::time::Duration,
+) -> Result<Value, String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let t = parse_ollama_url(url)?;
+    let host_header = if (t.https && t.port == 443) || (!t.https && t.port == 80) {
+        t.host.clone()
+    } else {
+        format!("{}:{}", t.host, t.port)
+    };
+    let body_str = body.to_string();
+    let request = format!(
+        "POST {} HTTP/1.0\r\nHost: {host_header}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
+        t.path,
+        body_str.len()
+    );
+
+    let mut last_err = String::from("no address for the Ollama host");
+    let mut tcp = None;
+    for addr in ollama_socket_addrs(&t)? {
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+            Ok(s) => {
+                tcp = Some(s);
+                break;
+            }
+            Err(e) => last_err = format!("could not connect to Ollama: {e}"),
+        }
+    }
+    let tcp = tcp.ok_or(last_err)?;
+    tcp.set_read_timeout(Some(read_timeout)).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(5))).ok();
+
+    fn exchange<S: Read + Write>(mut s: S, request: &[u8]) -> Result<Vec<u8>, String> {
+        s.write_all(request)
+            .map_err(|e| format!("Ollama write error: {e}"))?;
+        s.flush().ok();
+        let mut buf = Vec::new();
+        match (&mut s)
+            .take(MAX_HTTP_RESPONSE_BYTES + 1)
+            .read_to_end(&mut buf)
+        {
+            Ok(_) => {}
+            // Some TLS servers close without close_notify after a full answer.
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof && !buf.is_empty() => {}
+            Err(e) => return Err(format!("Ollama read error: {e}")),
+        }
+        if buf.len() as u64 > MAX_HTTP_RESPONSE_BYTES {
+            return Err(format!(
+                "the Ollama answer is more than {} MiB, so it was not read",
+                MAX_HTTP_RESPONSE_BYTES / (1024 * 1024)
+            ));
+        }
+        Ok(buf)
+    }
+
+    let raw = if t.https {
+        let connector =
+            native_tls::TlsConnector::new().map_err(|e| format!("TLS setup failed: {e}"))?;
+        let domain = t.host.trim_start_matches('[').trim_end_matches(']');
+        let tls = connector
+            .connect(domain, tcp)
+            .map_err(|e| format!("TLS handshake with Ollama failed: {e}"))?;
+        exchange(tls, request.as_bytes())?
+    } else {
+        exchange(tcp, request.as_bytes())?
+    };
+    parse_ollama_answer(&raw)
+}
+
+/// Status check and JSON body of an Ollama answer. A 3xx is refused so a
+/// redirect never moves the request (and the document text) to another host.
+fn parse_ollama_answer(raw: &[u8]) -> Result<Value, String> {
+    let sep = b"\r\n\r\n";
+    let body_start = raw
+        .windows(sep.len())
+        .position(|w| w == sep)
+        .map(|p| p + sep.len())
+        .ok_or("Ollama answer has no HTTP header")?;
+    let code = std::str::from_utf8(&raw[..body_start])
+        .ok()
+        .and_then(|h| h.lines().next())
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|c| c.parse::<u16>().ok())
+        .ok_or("Ollama answer has no HTTP status")?;
+    if (300..400).contains(&code) {
+        return Err(format!(
+            "Ollama answered with a redirect (HTTP {code}); redirects are not followed"
+        ));
+    }
+    if code >= 400 {
+        return Err(format!("Ollama returned HTTP {code}"));
+    }
+    serde_json::from_slice(&raw[body_start..]).map_err(|e| format!("Ollama JSON parse error: {e}"))
+}
+
 /// Fetch an embedding vector for `text` from the Ollama REST API using
-/// the `nomic-embed-text` model.  Returns `Err` when Ollama is unavailable
-/// or the response cannot be parsed.
+/// the `nomic-embed-text` model.  Returns `Err` when `OLLAMA_HOST` is
+/// refused, Ollama is unavailable or the response cannot be parsed.
 pub fn ollama_embed(text: &str) -> Result<Vec<f64>, String> {
     let body = json!({ "model": "nomic-embed-text", "prompt": text });
-    match http_post(&format!("{}/api/embeddings", ollama_base()), &body, "") {
+    let base = ollama_base()?;
+    match ollama_post_json(&format!("{base}/api/embeddings"), &body, IPC_READ_TIMEOUT) {
         Ok(v) => {
             let emb = v["embedding"]
                 .as_array()

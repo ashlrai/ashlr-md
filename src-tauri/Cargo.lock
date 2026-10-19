@@ -2404,6 +2404,7 @@ version = "0.4.0"
 dependencies = [
  "dirs 5.0.1",
  "libc",
+ "native-tls",
  "serde",
  "serde_json",
  "tempfile",

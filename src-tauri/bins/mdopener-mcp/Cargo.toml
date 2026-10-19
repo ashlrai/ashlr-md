@@ -25,6 +25,9 @@ urlencoding = "2"
 # Resolve ~ in paths.
 dirs = "5"
 
+# TLS for an https:// OLLAMA_HOST (system TLS; already in the workspace via reqwest).
+native-tls = "0.2"
+
 # O_NOFOLLOW / O_NONBLOCK for document reads (already in the tree via dirs).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
