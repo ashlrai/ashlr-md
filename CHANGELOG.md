@@ -5,6 +5,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 
 ## [0.4.1] — Unreleased
 
+### Changed
+- **MCP sidecar: https Ollama.** The sidecar now speaks `https://` to Ollama
+  (system TLS through `native-tls`, already in the workspace). `OLLAMA_HOST`
+  follows the `ANTHROPIC_BASE_URL` rules: `https://` to any host, or plain
+  `http://` only to `127.0.0.1` or `[::1]`; `:port`, `0.0.0.0` and `[::]` map
+  to loopback. Plain http to any other host, `localhost` by name, a user name or
+  password, a query or fragment and other schemes are refused before any
+  connection, and the refusal does not echo the value. Redirects are refused,
+  not followed. The default (`http://127.0.0.1:11434`) is unchanged.
+
 ### Added
 - **Phantom installed check in setup output.** `scripts/install.sh` now prints whether
   the optional Phantom CLI is installed and its version. The check
