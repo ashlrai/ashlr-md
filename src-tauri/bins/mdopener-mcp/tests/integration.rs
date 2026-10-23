@@ -7973,6 +7973,159 @@ fn heading_closing_hashes_are_not_heading_text() {
     assert_eq!(strip_markdown("## Learn C#").trim(), "Learn C#");
 }
 
+/// export_metadata's headings took a front matter `# comment` as a heading,
+/// and any line starting with ``` or ~~~ flipped "in code", so a `~~~` line
+/// or a shorter fence ended a block early and its `# comment` lines became
+/// headings. Headings now use document_title's rule: front matter is
+/// skipped, a fence closes only on the same character at least as long, and
+/// an open fence runs to the end.
+#[test]
+fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let cases: [(&str, &[&str]); 8] = [
+        ("---\n# generated\ntitle: x\n---\n# Real\n", &["Real"]),
+        ("---\n# generated\n...\n## Real\n", &["Real"]),
+        // An unclosed `---` is a thematic break, not front matter.
+        ("---\n# Real\n", &["Real"]),
+        ("```sh\n~~~\n# not\n```\n# Real\n", &["Real"]),
+        ("````\n```\n# not\n````\n# Real\n", &["Real"]),
+        ("~~~~\n~~~\n# not\n~~~~\n# Real\n", &["Real"]),
+        // A fence left open runs to the end.
+        ("# Real\n```\n# not\n", &["Real"]),
+        // A closing fence has nothing after it.
+        ("```\n``` sh\n# not\n```\n# Real\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(texts(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.md");
+    std::fs::write(
+        &path,
+        "---\n# generated\n---\n# Plan\n```\n~~~\n# step\n```\n",
+    )
+    .unwrap();
+    let resp = tool_export_metadata(
+        id(1),
+        &json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    );
+    let text = resp.result.unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["headings"], json!([{ "level": 1, "text": "Plan" }]));
+    let tools = mdopener_mcp::tool_list();
+    let tool = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "export_metadata")
+        .unwrap();
+    let d = tool["description"].as_str().unwrap();
+    assert!(
+        d.contains("every ATX heading outside front matter and fenced code"),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains(
+        "for every ATX heading outside a leading YAML front matter block and fenced code"
+    ));
+}
+
+/// extract_wikilinks flipped "in code" on any line starting with ``` or
+/// ~~~, so a `~~~` line inside a backtick block made the code after it
+/// links and the text after the block not, and a ``` line in a front matter
+/// block scalar hid the whole body. It now uses the shared fence rule, and
+/// reads front matter as links (Obsidian properties) without fences.
+#[test]
+fn export_metadata_wikilinks_use_the_fence_rule_and_keep_front_matter() {
+    use mdopener_mcp::extract_wikilinks;
+    let cases: [(&str, &[&str]); 7] = [
+        ("```\n~~~\n[[InCode]]\n```\n[[Real]]\n", &["Real"]),
+        ("````\n```\n[[InCode]]\n````\n[[Real]]\n", &["Real"]),
+        ("```\n``` sh\n[[InCode]]\n```\n[[Real]]\n", &["Real"]),
+        ("[[Real]]\n~~~\n[[InCode]]\n", &["Real"]),
+        (
+            "---\nrelated: \"[[Plan]]\"\n---\n[[Body]]\n",
+            &["Body", "Plan"],
+        ),
+        ("---\nnote: |\n  ```\n---\n[[Body]]\n", &["Body"]),
+        ("    ```\n[[Real]]\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    let tools = mdopener_mcp::tool_list();
+    let tool = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "export_metadata")
+        .unwrap();
+    let d = tool["description"].as_str().unwrap();
+    assert!(
+        d.contains("all [[wikilinks]] outside fenced code (front matter properties included)"),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("targets sorted, outside fenced code by the same fence rule"));
+}
+
+/// The other line scanners of the server flipped "in code" on any line
+/// starting with ``` or ~~~ too: export_text, export_metadata's image count
+/// and get_user_annotations' tasks. They now use the shared fence rule; the
+/// image count and the tasks skip front matter as well.
+#[test]
+fn export_text_images_and_tasks_use_the_fence_rule() {
+    use mdopener_mcp::{count_embedded_images, strip_markdown};
+    // A `~~~` line does not end a backtick block: the code keeps its marks.
+    assert_eq!(
+        strip_markdown("```\n~~~\n# keep **this**\n```\nafter **b**\n"),
+        "~~~\n# keep **this**\nafter b"
+    );
+    // Four spaces is not a fence.
+    assert_eq!(strip_markdown("    ```\n**b**\n"), "```\nb");
+    let images = [
+        ("````\n```\n![a](x.png)\n````\n![b](y.png)\n![[c.png]]\n", 2),
+        ("---\ncover: \"![](c.png)\"\n---\n![b](y.png)\n", 1),
+        ("![b](y.png)\n~~~\n![a](x.png)\n", 1),
+    ];
+    for (doc, want) in images {
+        assert_eq!(count_embedded_images(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("plan.md");
+    std::fs::write(
+        &file,
+        "---\nchecklist: |\n  - [ ] yaml\n---\n```md\n~~~\n- [ ] sample\n```\n- [x] real\n",
+    )
+    .unwrap();
+    let ipc = MockIpc::new().on_get("/annotations", Err("ipc-port not found".into()));
+    let resp = tool_get_annotations(id(1), &json!({ "path": file.to_str().unwrap() }), &ipc);
+    let v = content_text(&resp);
+    assert_eq!(
+        v["tasks"],
+        json!([{ "text": "real", "checked": true }]),
+        "{v}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    for said in [
+        "(a `- [ ]` line in fenced code or front matter is not a task;",
+        "(code blocks kept as written, by the fence rule of `export_metadata`;",
+        "images outside fenced code and front matter",
+    ] {
+        assert!(docs.contains(said), "docs/AGENTS.md must say {said}");
+    }
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
@@ -11989,7 +12142,12 @@ fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
             d.contains("With no document open it fails with -32002"),
             "{d}"
         );
-        assert!(d.contains("-32000 when the app is not running"), "{d}");
+        assert!(
+            d.contains(
+                "-32000 when the app is not running or refuses this server's token (HTTP 401"
+            ),
+            "{d}"
+        );
     }
     let none_open = MockIpc::new().on_get("/content", Ok(json!({ "path": null, "content": "" })));
     let no_app = MockIpc::new();
@@ -12013,6 +12171,90 @@ fn prompts_list_says_prompts_take_no_arguments_and_need_an_open_document() {
         .unwrap();
         assert_eq!(resp.error.as_ref().unwrap().code, -32000, "{name}");
     }
+}
+
+/// The prompts said -32000 means only that the app is not running. It is
+/// also the code, with the refused-token message, when the app answers HTTP
+/// 401, as the mdopener://current entry says. prompts/list and
+/// docs/AGENTS.md now say both.
+#[test]
+fn prompts_say_minus_32000_also_means_a_refused_token() {
+    let denied = MockIpc::new().on_get(
+        "/content",
+        Err("IPC auth failed: token mismatch or missing ~/.mdopener/ipc-token".into()),
+    );
+    for name in mdopener_mcp::PROMPT_NAMES {
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": name })),
+            &denied,
+        )
+        .unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000, "{name}");
+        assert_eq!(err.message, mdopener_mcp::APP_AUTH_FAILED_MSG, "{name}");
+    }
+    assert!(mdopener_mcp::PROMPT_USAGE_NOTE.contains(
+        "-32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it)"
+    ));
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("`-32000` when the app is not running\nor answers HTTP 401 (it refuses this server's token"),
+        "docs/AGENTS.md must say a prompt's -32000 also means a refused token"
+    );
+}
+
+/// mdopener://current, the recents and the prompts answer -32000 with the
+/// app's reason for any HTTP error other than 401, which the listing, the
+/// prompt note and docs/AGENTS.md did not say. A 500 whose reason held "not
+/// found" also read as a closed app.
+#[test]
+fn current_document_other_http_errors_are_minus_32000_with_the_apps_reason() {
+    for reason in [
+        "IPC server returned HTTP 500: template not found",
+        "IPC server returned HTTP 404: no such route",
+    ] {
+        let failing = MockIpc::new()
+            .on_get("/content", Err(reason.into()))
+            .on_get("/vault", Err(reason.into()));
+        for uri in ["mdopener://current", "mdopener://recent-documents"] {
+            let err = handle_resource_read(id(1), uri, &failing).error.unwrap();
+            assert_eq!(err.code, -32000, "{uri}");
+            assert_eq!(err.message, reason, "{uri}");
+        }
+        let resp = dispatch(
+            dispatch_req("prompts/get", json!({ "name": "summarize" })),
+            &failing,
+        )
+        .unwrap();
+        let err = resp.error.unwrap();
+        assert_eq!((err.code, err.message.as_str()), (-32000, reason));
+    }
+    let listed = handle_resources_list(id(1), &MockIpc::new());
+    let resources = listed.result.unwrap()["resources"].clone();
+    for uri in ["mdopener://current", "mdopener://recent-documents"] {
+        let entry = resources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["uri"] == uri)
+            .unwrap();
+        let d = entry["description"].as_str().unwrap();
+        assert!(
+            d.contains("-32000 with the app's reason when it answers any other HTTP error"),
+            "{uri}: {d}"
+        );
+    }
+    assert!(mdopener_mcp::PROMPT_USAGE_NOTE
+        .contains("Any other HTTP error from the app is -32000 too, with the app's reason."));
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("Any other HTTP error the app answers (a\n  404 or a 500) is `-32000` too"),
+        "docs/AGENTS.md must say mdopener://current's other HTTP errors"
+    );
+    assert!(
+        docs.contains("any other\nHTTP error the app answers is `-32000` too"),
+        "docs/AGENTS.md must say the prompts' other HTTP errors"
+    );
 }
 
 #[test]

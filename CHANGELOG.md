@@ -96,6 +96,44 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: plain text, image counts and tasks use the same fence rule.**
+  `export_text`, `export_metadata`'s `embedded_image_count` and the
+  `tasks` of `get_user_annotations` (and of the app's `/annotations`)
+  flipped "in code" on any line starting with ```` ``` ```` or `~~~`, or
+  did not skip code at all. A `~~~` line inside a backtick block ended it,
+  so `export_text` stripped the `#` and `*` of the code after it and the
+  images there were counted, and a `- [ ]` line in a code sample was
+  listed as a task. All three now read their lines through the shared
+  helper; the image count and the tasks also skip front matter.
+- **MCP: `export_metadata` wikilinks use the same fence rule.** Any line
+  starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line
+  inside a backtick block made the `[[links]]` in the code after it count
+  and those after the block not, and a ```` ``` ```` line in a front
+  matter block scalar hid every link in the body. Wikilinks now skip
+  fenced code by the headings' rule. Front matter is still read, so a
+  property such as `related: "[[Plan]]"` links to `Plan` as Obsidian reads
+  it, but its lines are never fences.
+- **MCP: `export_metadata` headings skip front matter and code.** A
+  `# comment` in YAML front matter was listed as a heading, and any line
+  starting with ```` ``` ```` or `~~~` flipped "in code", so a `~~~` line
+  or a shorter fence inside a block ended it early and the shell comments
+  after it became headings. Headings now follow the rule a recent
+  document's `title` uses: a leading front matter block is skipped, a
+  fence is closed only by the same character at least as long with
+  nothing after it, and a fence left open runs to the end. Both use one
+  shared helper.
+- **MCP: the current document says what any other HTTP error is.**
+  `mdopener://current`, `mdopener://recent-documents` and the prompts
+  answer `-32000`, with the app's reason as the message, when the app
+  answers an HTTP error other than 401 (a 404 or a 500). Their
+  `resources/list` and `prompts/list` text and docs/AGENTS.md said nothing
+  about it. They now do, and a 500 whose reason held "not found" or
+  "connect" is no longer reported as Ashlr MD not running, for every tool.
+- **MCP: the prompts say what `-32000` means.** Each prompt's
+  `prompts/list` description, and docs/AGENTS.md's prompts reference, said
+  `-32000` means the app is not running. It is also the code, with the
+  refused-token message, when the app answers HTTP 401. They now say both,
+  as the `mdopener://current` entry does.
 - **MCP: `resources/list` percent-encodes its `file://` URIs.** A vault
   file was listed as `file://` followed by its path as is, so a path with a
   space, `%`, `#` or `?` was not a valid URI. The path is now

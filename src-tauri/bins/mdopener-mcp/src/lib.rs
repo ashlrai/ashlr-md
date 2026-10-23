@@ -1373,7 +1373,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
                 mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
                 headings tree (level + text for \
-                every ATX heading), all [[wikilinks]] found in the document, the count of embedded \
+                every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
+                code (front matter properties included), the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
@@ -2986,6 +2987,11 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     }
 }
 
+// The front matter and code fence rule every Markdown scanner here uses.
+#[path = "../../../src/markdown_lines.rs"]
+mod markdown_lines;
+use markdown_lines::LineKind;
+
 // The task-checkbox parser is shared with the app's `/annotations`.
 #[path = "../../../src/task_list.rs"]
 mod task_list;
@@ -4084,7 +4090,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     let mut resources = vec![json!({
         "uri": "mdopener://current",
         "name": "Current document",
-        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it).",
+        "description": "The document currently open in Ashlr MD. An error (-32002) when no document is open, -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error.",
         "mimeType": "text/markdown"
     })];
 
@@ -4107,7 +4113,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -4231,7 +4237,10 @@ pub const VAULT_FILES_UNLISTED_META: &str = "mdopener/vaultFilesUnlisted";
 /// JSON-RPC error: `-32002` when no document is open (the app answers
 /// `{ "path": null, "content": "" }`) or the app's answer has no `content`,
 /// `-32000` when the app cannot be reached or refuses this server's token
-/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]). An open document that is empty
+/// (HTTP 401, with [`APP_AUTH_FAILED_MSG`]), and `-32000` with the app's
+/// reason when it answers any other HTTP error (a 404 or a 500): JSON-RPC
+/// keeps -32000 to -32099 for server errors, and the app failing is one; no
+/// standard code fits better. An open document that is empty
 /// is `""`. The resource used to answer `""` with no document open, so an
 /// agent could not tell "nothing open" from "an empty document", while the
 /// prompts already refused it. The app opens only files, so `path: null` is
@@ -4645,8 +4654,11 @@ fn lists_path(v: &Value, path: &str) -> bool {
 
 /// What every prompt's `prompts/list` description says after its own line:
 /// no prompt takes arguments, and each needs an open document (as
-/// docs/AGENTS.md says). Agents used to learn both from an error.
-pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running.";
+/// docs/AGENTS.md says). Agents used to learn both from an error. `-32000`
+/// is also the code when the app refuses this server's token (HTTP 401), as
+/// the `mdopener://current` entry says; the note used to name only a closed
+/// app.
+pub const PROMPT_USAGE_NOTE: &str = "Takes no arguments: it works on the document open in Ashlr MD, so open the one you mean with open_file first. With no document open it fails with -32002 (\"No document is open\"), and with -32000 when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it). Any other HTTP error from the app is -32000 too, with the app's reason.";
 
 pub fn prompts_list() -> Value {
     let described = |what: &str| format!("{what} {PROMPT_USAGE_NOTE}");
@@ -6037,9 +6049,12 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
     if app_auth_failed(err) {
         return APP_AUTH_FAILED_MSG.to_string();
     }
-    // The running app refused the request: its reason (which may quote a
-    // path containing "connect" or "not found") is the agent's to see as is.
-    if app_refused(err) {
+    // The running app refused the request or failed it (any HTTP error but
+    // 401): its reason (which may quote a path containing "connect" or "not
+    // found") is the agent's to see as is. A 5xx used to be checked for
+    // those words, so a reason such as "template not found" read as a
+    // closed app.
+    if err.starts_with("IPC server returned HTTP ") {
         return err.to_string();
     }
     if err.contains("ipc-port") || err.contains("not found") || err.contains("connect") {
@@ -6080,40 +6095,9 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// code block named the document. A fence left open runs to the end, as in
 /// CommonMark.
 pub fn document_title(content: &str) -> Option<String> {
-    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let mut fence: Option<(char, usize)> = None;
-    for line in content.lines().skip(skip) {
-        let run = code_fence(line);
-        match (fence, run) {
-            (Some((c, n)), Some((rc, rn, rest)))
-                if rc == c && rn >= n && rest.trim().is_empty() =>
-            {
-                fence = None;
-            }
-            (Some(_), _) => {}
-            (None, Some((rc, rn, _))) => fence = Some((rc, rn)),
-            (None, None) => {
-                if let Some(title) = line.strip_prefix("# ") {
-                    return Some(title.trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// The fence character, its run length and the rest of the line when `line`
-/// is a code fence: at most three spaces, then three or more backticks or
-/// tildes (a backtick fence's info string has no backtick).
-fn code_fence(line: &str) -> Option<(char, usize, &str)> {
-    let body = line.trim_start_matches(' ');
-    if line.len() - body.len() > 3 {
-        return None;
-    }
-    let c = body.chars().next().filter(|c| matches!(c, '`' | '~'))?;
-    let n = body.chars().take_while(|&x| x == c).count();
-    let rest = &body[n..];
-    (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+    markdown_lines::text_lines(content)
+        .find_map(|line| line.strip_prefix("# "))
+        .map(|title| title.trim().to_string())
 }
 
 /// Build the `mdopener://recent-documents` resource response.
@@ -7872,7 +7856,10 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   removed entirely. A leading `---` that is never closed is not
 ///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
-///   code content is preserved as-is.
+///   code content is preserved as-is. Fences follow [`markdown_lines`]: a
+///   block is closed only by the same character at least as long. Any line
+///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
+///   backtick block ended it and the code after it lost its `#`s and `*`s.
 /// - ATX headings: leading `#` characters and a space are removed.
 /// - Setext heading underlines (`===` / `---` only lines) are removed.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
@@ -7888,26 +7875,27 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
-    let skip = frontmatter_lines(content).map_or(0, |fm| fm.len() + 2);
-    let lines: Vec<&str> = content.lines().skip(skip).collect();
+    let lines: Vec<(LineKind, &str)> = markdown_lines::markdown_lines(content)
+        .filter(|(kind, _)| *kind != LineKind::FrontMatter)
+        .collect();
 
-    let mut in_code_block = false;
     let mut in_table = false;
 
-    for (idx, &line) in lines.iter().enumerate() {
-        // Detect fenced code blocks (``` or ~~~).
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_code_block = !in_code_block;
-            in_table = false;
+    for (idx, &(kind, line)) in lines.iter().enumerate() {
+        match kind {
             // Drop the fence line itself; preserve the code inside.
-            continue;
+            LineKind::Fence => {
+                in_table = false;
+                continue;
+            }
+            LineKind::Code => {
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            LineKind::FrontMatter | LineKind::Text => {}
         }
-        if in_code_block {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
+        let trimmed = line.trim();
 
         // GFM tables: a header row followed by a delimiter row starts one,
         // and it runs until a blank line or a line without a pipe. Rows
@@ -7921,7 +7909,7 @@ pub fn strip_markdown(content: &str) -> String {
         if !in_table && row.contains('|') {
             in_table = lines
                 .get(idx + 1)
-                .is_some_and(|next| is_table_delimiter(table_row_text(next)));
+                .is_some_and(|&(_, next)| is_table_delimiter(table_row_text(next)));
         }
         if in_table {
             if !is_table_delimiter(row) {
@@ -8398,19 +8386,9 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 /// that is never closed is a thematic break, not front-matter, so the rest
 /// of the document is not swallowed.
 fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
-    let mut lines = content.lines();
-    if lines.next()?.trim() != "---" {
-        return None;
-    }
-    let mut fm_lines = Vec::new();
-    for line in lines {
-        let t = line.trim();
-        if t == "---" || t == "..." {
-            return Some(fm_lines);
-        }
-        fm_lines.push(line);
-    }
-    None
+    // The block `markdown_lines` skips, without its two delimiters.
+    let len = markdown_lines::front_matter_len(content);
+    (len > 0).then(|| content.lines().skip(1).take(len - 2).collect())
 }
 
 /// Extract YAML front-matter from the start of a Markdown document.
@@ -8805,18 +8783,15 @@ fn without_closing_hashes(text: &str) -> &str {
 /// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
 ///
 /// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
+/// Lines of a leading YAML front matter block and of fenced code are not
+/// headings, by the rule [`document_title`] uses ([`markdown_lines`]). Any
+/// line starting with ```` ``` ```` or `~~~` used to flip an "in code" flag,
+/// so a `~~~` line ended a backtick block, and a front matter `# comment`
+/// was a heading.
 pub fn extract_headings(content: &str) -> Vec<Value> {
     let mut headings = Vec::new();
-    let mut in_code_block = false;
-    for line in content.lines() {
+    for line in markdown_lines::text_lines(content) {
         let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_code_block = !in_code_block;
-            continue;
-        }
-        if in_code_block {
-            continue;
-        }
         if trimmed.starts_with('#') {
             let level = trimmed.chars().take_while(|&c| c == '#').count();
             let rest = &trimmed[level..];
@@ -8836,22 +8811,24 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
 /// Extract all `[[wikilinks]]` from the content (not inside code blocks).
 ///
 /// Returns a deduplicated, sorted list of link targets (the part before `|`).
+/// Fenced code is skipped by the rule of [`extract_headings`]
+/// ([`markdown_lines`]); any line starting with ```` ``` ```` or `~~~` used
+/// to flip an "in code" flag, so a `~~~` line inside a backtick block made
+/// the code after it links and the text after the block not. A leading
+/// front matter block is read: a property such as `related: "[[Plan]]"`
+/// links to `Plan`, as Obsidian reads it. Its lines are never fences, so a
+/// `` ``` `` line in a front matter block scalar no longer hides the body.
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
     let mut links = std::collections::HashSet::new();
-    let mut in_code_block = false;
-    let chars: Vec<char> = content.chars().collect();
+    let text: Vec<&str> = markdown_lines::markdown_lines(content)
+        .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
+        .map(|(_, line)| line)
+        .collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
     let n = chars.len();
     let mut i = 0;
     while i < n {
-        // Toggle code-block state on fence lines.
-        if i == 0 || chars[i - 1] == '\n' {
-            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
-            let t = rest.trim();
-            if t.starts_with("```") || t.starts_with("~~~") {
-                in_code_block = !in_code_block;
-            }
-        }
-        if !in_code_block && chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
+        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
             if let Some(close) = find_double_close(&chars, i + 2) {
                 let inner: String = chars[i + 2..close].iter().collect();
                 let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
@@ -8871,22 +8848,21 @@ pub fn extract_wikilinks(content: &str) -> Vec<String> {
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
+///
+/// Fenced code and a leading front matter block are skipped by
+/// [`markdown_lines`]: any line starting with ``` or ~~~ used to flip "in
+/// code", so a `~~~` line in a backtick block made the images in the code
+/// after it count. Front matter is not rendered, so an image written in a
+/// property (`cover: "![](c.png)"`) embeds nothing and is not counted
+/// (wikilinks there still are links, see [`extract_wikilinks`]).
 pub fn count_embedded_images(content: &str) -> usize {
     let mut count = 0usize;
-    let mut in_code_block = false;
-    let chars: Vec<char> = content.chars().collect();
+    let text: Vec<&str> = markdown_lines::text_lines(content).collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
     let n = chars.len();
     let mut i = 0;
     while i < n {
-        // Detect code fences at line start.
-        if i == 0 || chars[i - 1] == '\n' {
-            let rest: String = chars[i..].iter().take_while(|&&c| c != '\n').collect();
-            let t = rest.trim();
-            if t.starts_with("```") || t.starts_with("~~~") {
-                in_code_block = !in_code_block;
-            }
-        }
-        if !in_code_block && chars[i] == '!' {
+        if chars[i] == '!' {
             // Standard image: ![alt](url)
             if i + 1 < n && chars[i + 1] == '[' {
                 // Check it's not a wikilink embed ![[…]]
