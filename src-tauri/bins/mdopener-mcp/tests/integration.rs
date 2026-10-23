@@ -8243,6 +8243,28 @@ fn a_wikilink_or_an_embed_is_one_line() {
     assert!(docs.contains("a link is one line, as in Obsidian"));
 }
 
+/// `strip_inline_markdown` read a `[text]` link before a wikilink, so
+/// `export_text` turned `[[Real]]` into `[Real]` and `[[Plan|the plan]]`
+/// into `[Plan|the plan]`, and read an image before an embed, so
+/// `![[a.png]]` left `[a.png]`. A wikilink now reads its target, or its
+/// alias when it has one, and an embed reads nothing.
+#[test]
+fn export_text_reads_a_wikilink_as_its_target_or_alias() {
+    let cases = [
+        ("See [[Real]] now", "See Real now"),
+        ("See [[Plan|the plan]].", "See the plan."),
+        ("Embed ![[a.png]] here", "Embed  here"),
+        ("A [link](x) and [[Note]]", "A link and Note"),
+        // In a table the alias pipe is escaped, as Obsidian writes it.
+        ("| [[A]] | [[B\\|b]] |\n|---|---|\n| 1 | 2 |", "A\tb\n1\t2"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a wikilink reads its target, or its alias"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

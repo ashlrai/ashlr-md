@@ -7880,6 +7880,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
 /// - Links `[text](url)` and `[text][ref]` → link text only.
+/// - Wikilinks `[[target]]` → target, `[[target|alias]]` → alias. The
+///   `[text]` link rule ran first, so `[[Real]]` read `[Real]`.
 /// - Blockquote `>` leaders are removed.
 /// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
 /// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
@@ -8116,6 +8118,14 @@ pub fn strip_inline_markdown(s: &str) -> String {
     let mut i = 0;
 
     while i < n {
+        // Obsidian embed ![[…]] → empty (no useful text). It is read before
+        // an image, which took `![[a.png]]` as an image with alt `[a.png]`.
+        if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
+            if let Some(close) = find_double_close(&chars, i + 3) {
+                i = close + 2;
+                continue;
+            }
+        }
         // Inline image: ![alt](url) or ![alt][ref] → alt text only
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
@@ -8126,9 +8136,17 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Obsidian embedded image ![[…]] → empty (no useful text)
-        if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 3) {
+        // Wikilink [[target]] → target, [[target|alias]] → alias, as the
+        // read view shows it. It is read before a `[text]` link, which took
+        // `[[Real]]` as a link with text `[Real]`.
+        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
+            if let Some(close) = find_double_close(&chars, i + 2) {
+                let inner: String = chars[i + 2..close].iter().collect();
+                let label = match inner.split_once('|') {
+                    Some((_, alias)) => alias,
+                    None => inner.as_str(),
+                };
+                out.push_str(label);
                 i = close + 2;
                 continue;
             }
@@ -8153,20 +8171,6 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 let after = skip_link_tail(&chars, end);
                 out.push_str(&text);
                 i = after;
-                continue;
-            }
-        }
-        // Wikilink [[…]] → inner text (before any |)
-        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 2) {
-                let inner: String = chars[i + 2..close].iter().collect();
-                let label = inner
-                    .split('|')
-                    .next()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| inner.clone());
-                out.push_str(&label);
-                i = close + 2;
                 continue;
             }
         }

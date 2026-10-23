@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` reads a wikilink as its text.** A `[text]` link
+  was read before a wikilink, so `[[Real]]` became `[Real]` and
+  `[[Plan|the plan]]` became `[Plan|the plan]`; an image was read before
+  an embed, so `![[a.png]]` left `[a.png]`. A wikilink now reads its
+  target, or its alias when it has one, as the read view shows it, and an
+  embed reads nothing.
 - **The outline, embeds, previews and wikilinks agree with the MCP
   server.** The Outline panel listed a tab-indented `# x` (indented code)
   and showed `## ##` as `#`, and its fence rule took a tab-indented
