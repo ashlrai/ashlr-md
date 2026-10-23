@@ -425,6 +425,37 @@ describe("rule:wikilink-targets-exist", () => {
     ).toHaveLength(0);
   });
 
+  it("skips fenced code but reads front matter, as export_metadata does", () => {
+    const doc = [
+      "---",
+      'related: "[[GoneProp]]"',
+      "notes: |",
+      "  ```",
+      "---",
+      "See [[GoneBody]].",
+      "```md",
+      "[[InCode]]",
+      "~~~",
+      "[[StillCode]]",
+      "```",
+      "  [[Gone2]] and [[Note]]",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set(["Note"]),
+    });
+    expect(violations.map((v) => v.message)).toEqual([
+      'Wikilink target not found: "GoneProp"',
+      'Wikilink target not found: "GoneBody"',
+      'Wikilink target not found: "Gone2"',
+    ]);
+    const last = violations[2].range!;
+    expect(doc.slice(last.from.offset, last.to.offset)).toBe("[[Gone2]]");
+    expect(last.from.line).toBe(12);
+    expect(last.from.col).toBe(2);
+  });
+
   it("handles wikilinks with heading anchors [[target#section]]", () => {
     const doc = "See [[Note#Introduction]].\n";
     const knownTargets = new Set(["Note"]);

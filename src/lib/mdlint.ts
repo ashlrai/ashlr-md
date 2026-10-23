@@ -14,6 +14,8 @@
  *   - settingsStore: persists enabled/disabled rule IDs
  */
 
+import { markdownLines } from "./outline";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /** A single text position (0-based character offset). */
@@ -231,10 +233,16 @@ export const ruleWikilinkTargetsExist: LintRule = {
     // One line, as Obsidian reads a link: an alias or heading used to run
     // across newlines to a `]]` lines later.
     const WIKI_RE = /\[\[([^\]|#\r\n]+?)(?:[|#][^\]\r\n]*?)?\]\]/g;
-    for (const m of doc.matchAll(WIKI_RE)) {
-      const target = m[1].trim();
-      if (!knownTargets.has(target) && !knownTargets.has(`${target}.md`)) {
-        const from = m.index;
+    // Fenced code is skipped, as export_metadata skips it: a `[[x]]` in a
+    // code sample used to be reported. A front matter property such as
+    // `related: "[[Plan]]"` is a link, as Obsidian and export_metadata read
+    // it, and a front matter line never opens a fence.
+    for (const l of markdownLines(doc)) {
+      if (l.kind !== "text" && l.kind !== "frontmatter") continue;
+      for (const m of l.text.matchAll(WIKI_RE)) {
+        const target = m[1].trim();
+        if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
+        const from = l.start + m.index;
         const to = from + m[0].length;
         violations.push({
           ruleId: "wikilink-targets-exist",

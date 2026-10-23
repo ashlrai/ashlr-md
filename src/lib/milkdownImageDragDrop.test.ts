@@ -68,6 +68,13 @@ describe("extractImageRefs", () => {
     expect(refs[0].offset).toBe(md.indexOf("![](a.png)"));
     expect(refs[1].offset).toBe(md.indexOf("![](b.png)"));
   });
+
+  it("reads a wiki embed on one line, as Obsidian does", () => {
+    const md = "![[open\ntext\n![[b.png]]";
+    const refs = extractImageRefs(md);
+    expect(refs.map((r) => r.token)).toEqual(["![[b.png]]"]);
+    expect(refs[0].offset).toBe(md.indexOf("![[b.png]]"));
+  });
 });
 
 // ── reorderImageInMarkdown ────────────────────────────────────────────────────

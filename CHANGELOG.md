@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The wikilink lint skips code, and an image embed is one line.** The
+  "wikilink targets exist" lint reported a `[[link]]` inside fenced code,
+  which `export_metadata` does not list; it now skips fenced code by the
+  same fence rule and still reads a front matter property such as
+  `related: "[[Plan]]"`, as Obsidian does, without taking a front matter
+  line as a fence. Dragging an image in the editor read an unclosed
+  `![[` up to a `]]` lines later as one embed; an embed now ends on its
+  own line.
 - **MCP: `export_text` strips a heading in a blockquote.** A heading's
   `#`s were taken off before the `>` leaders, while the line still
   started with `>`, so `> # Quote` read `# Quote`. The leaders now go

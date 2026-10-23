@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { atxHeading, atxHeadings, parseHeadings } from "./outline";
+import { atxHeading, atxHeadings, markdownLines, parseHeadings } from "./outline";
 
 describe("parseHeadings", () => {
   it("skips a leading YAML frontmatter block", () => {
@@ -115,5 +115,27 @@ describe("parseHeadings", () => {
     ]);
     expect(atxHeading("   # Three")).toEqual({ depth: 1, text: "Three" });
     expect(atxHeading("    # Four")).toBeNull();
+  });
+
+  it("marks each line front matter, fence, code or text in markdownLines", () => {
+    const doc = ["---", "a: |", "  ```", "---", "x", "````", "```", "````", "y"].join(
+      "\n",
+    );
+    const lines = markdownLines(doc);
+    expect(lines.map((l) => l.kind)).toEqual([
+      "frontmatter",
+      "frontmatter",
+      "frontmatter",
+      "frontmatter",
+      "text",
+      "fence",
+      "code",
+      "fence",
+      "text",
+    ]);
+    for (const l of lines) {
+      expect(doc.slice(l.start, l.start + l.text.length)).toBe(l.text);
+    }
+    expect(lines[8]).toMatchObject({ text: "y", line: 9 });
   });
 });

@@ -23,9 +23,11 @@ import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 
 /**
  * Matches Obsidian-style wiki-image embeds: `![[path]]` or `![[path|alt]]`.
- * Capture group 1 = the full embed token.
+ * Capture group 1 = the full embed token. An embed is one line, as Obsidian
+ * and the read view read it: an unclosed `![[` used to pair with a `]]`
+ * lines later and take the text between as one embed.
  */
-const WIKI_IMAGE_RE = /!\[\[([^\]]+)\]\]/g;
+const WIKI_IMAGE_RE = /!\[\[([^\]\r\n]+)\]\]/g;
 
 /**
  * Matches standard Markdown images: `![alt](url)` (alt may be empty).

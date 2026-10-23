@@ -109,22 +109,45 @@ function codeFence(line: string): { marker: string; rest: string } | null {
   return { marker: m[1], rest: m[2] };
 }
 
+/** A source line of a Markdown document, from {@link markdownLines}. */
+export interface MarkdownLine {
+  /**
+   * `frontmatter` for a line of a leading YAML front matter block (its
+   * `---` lines included), `fence` for a code fence line, `code` for a line
+   * inside fenced code, `text` for any other line.
+   */
+  kind: "frontmatter" | "fence" | "code" | "text";
+  /** The line without its `\n` (a `\r` before it is kept). */
+  text: string;
+  /** 1-based line number within the full document. */
+  line: number;
+  /** Offset of the line's first character in `markdown`. */
+  start: number;
+}
+
 /**
- * The ATX headings of `markdown` outside a leading YAML front matter block
- * and fenced code, with their source text and 1-based line, empty headings
- * included. A fence is closed only by the same character at least as long
- * with nothing after it, and one left open runs to the end. The rule the
- * outline, partial embeds and link previews share with mdopener-mcp's
- * `export_metadata` headings.
+ * The lines of `markdown`, each marked front matter, fence, fenced code or
+ * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
+ * matter block is closed by `---` or `...` (its lines are never fences),
+ * and a fence is closed only by the same character at least as long with
+ * nothing after it; one left open runs to the end.
  */
-export function atxHeadings(markdown: string): (AtxHeading & { line: number })[] {
-  const { lines, offset } = stripFrontmatter(markdown);
-  const out: (AtxHeading & { line: number })[] = [];
+export function markdownLines(markdown: string): MarkdownLine[] {
+  const { lines: body, offset } = stripFrontmatter(markdown);
+  const all = markdown.split("\n");
+  const out: MarkdownLine[] = [];
+  let start = 0;
+  for (let i = 0; i < offset; i++) {
+    out.push({ kind: "frontmatter", text: all[i], line: i + 1, start });
+    start += all[i].length + 1;
+  }
   let fence: string | null = null; // active fence marker, e.g. "```" or "~~~~"
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const f = codeFence(line);
+  for (let i = 0; i < body.length; i++) {
+    const text = body[i];
+    const f = codeFence(text);
+    let kind: MarkdownLine["kind"] = "text";
     if (fence) {
+      kind = "code";
       if (
         f &&
         f.marker[0] === fence[0] &&
@@ -132,15 +155,31 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
         f.rest.trim() === ""
       ) {
         fence = null;
+        kind = "fence";
       }
-      continue;
-    }
-    if (f) {
+    } else if (f) {
       fence = f.marker;
-      continue;
+      kind = "fence";
     }
-    const h = atxHeading(line);
-    if (h) out.push({ ...h, line: offset + i + 1 });
+    out.push({ kind, text, line: offset + i + 1, start });
+    start += text.length + 1;
+  }
+  return out;
+}
+
+/**
+ * The ATX headings of `markdown` outside a leading YAML front matter block
+ * and fenced code ({@link markdownLines}), with their source text and
+ * 1-based line, empty headings included. The rule the outline, partial
+ * embeds and link previews share with mdopener-mcp's `export_metadata`
+ * headings.
+ */
+export function atxHeadings(markdown: string): (AtxHeading & { line: number })[] {
+  const out: (AtxHeading & { line: number })[] = [];
+  for (const l of markdownLines(markdown)) {
+    if (l.kind !== "text") continue;
+    const h = atxHeading(l.text);
+    if (h) out.push({ ...h, line: l.line });
   }
   return out;
 }
