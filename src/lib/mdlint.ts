@@ -646,12 +646,18 @@ export function applyFix(doc: string, violation: LintViolation): string {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
- * Replace fenced code blocks and inline code spans with spaces so URL/link
- * rules don't flag content inside code.  Preserves character offsets.
+ * Replace front matter, fenced code blocks and inline code spans with
+ * spaces so URL/link rules don't flag content inside code or a property
+ * (where the autofix would break the YAML). Preserves character offsets
+ * and line breaks. Fences are read by markdownLines (outline.ts), as the
+ * outline and mdopener-mcp read them: a regex used to blank only from a
+ * ``` to the next ```, so a `~~~` block was linted and a ```` block
+ * holding ``` ended early.
  */
 function stripCodeBlocks(doc: string): string {
-  // Replace fenced blocks (``` ... ```) with spaces
-  let result = doc.replace(/```[\s\S]*?```/g, (m) => " ".repeat(m.length));
+  let result = markdownLines(doc)
+    .map((l) => (l.kind === "text" ? l.text : " ".repeat(l.text.length)))
+    .join("\n");
   // Replace inline code (`...`) with spaces
   result = result.replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
   return result;

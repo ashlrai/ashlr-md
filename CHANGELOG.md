@@ -113,6 +113,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (which the Outline, Obsidian and `export_metadata` read as front matter)
   and an empty `---`/`---` block were flagged as missing, while a `----`
   line closed a block. It now uses the Outline's front matter rule.
+- **"No bare URLs" skips every code block and front matter.** The rule
+  blanked only text between one ```` ``` ```` and the next, so a URL in a
+  `~~~` block was flagged, a ```` ```` ```` block that shows a ```` ``` ````
+  fence ended early, and a URL property in front matter was flagged with a
+  fix that broke the YAML. Code and front matter are now read by the
+  Outline's rules.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and

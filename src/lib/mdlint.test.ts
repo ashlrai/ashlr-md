@@ -316,6 +316,29 @@ describe("rule:no-bare-urls", () => {
     expect(lintDocument(doc, { rules: [ruleNoBareUrls] })).toHaveLength(0);
   });
 
+  it("skips code by the markdownLines fence rule and front matter", () => {
+    const doc = [
+      "---",
+      "source: https://example.com/yaml",
+      "---",
+      "~~~",
+      "https://example.com/tilde",
+      "~~~",
+      "````md",
+      "```",
+      "https://example.com/inner",
+      "```",
+      "https://example.com/still-code",
+      "````",
+      "See https://example.com/real here.",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules: [ruleNoBareUrls] });
+    expect(violations.map((v) => v.message)).toEqual([
+      "Bare URL: https://example.com/real",
+    ]);
+    expect(violations[0].range?.from).toMatchObject({ line: 13, col: 4 });
+  });
+
   it("does not flag URLs inside fenced code blocks", () => {
     const doc = "```\nhttps://example.com\n```\n";
     expect(lintDocument(doc, { rules: [ruleNoBareUrls] })).toHaveLength(0);
