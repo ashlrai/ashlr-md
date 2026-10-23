@@ -25,6 +25,7 @@ import {
   type ColAlignment,
   isInsideTable,
 } from "../../lib/tableEditor";
+import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import "../../styles/editor.css";
@@ -63,6 +64,8 @@ type InlinePhase =
       /** The provider's raw error text, shown as the message's tooltip. */
       detail?: string;
       retryFn: (() => void) | null;
+      /** No provider: offer to open the AI sidebar's setup panel. */
+      setup?: boolean;
     };
 
 // ── Table wizard types ──────────────────────────────────────────────────────────
@@ -230,6 +233,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
             kind: "error",
             message: NO_PROVIDER_MESSAGE,
             retryFn: null,
+            setup: true,
           });
         } else {
           const { detail } = describeAIError(e);
@@ -1089,6 +1093,21 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                   onClick={() => phase.retryFn?.()}
                 >
                   Retry
+                </button>
+              )}
+              {/* The message says to set AI up in the sidebar, which it
+                  used to leave the user to find. */}
+              {phase.setup && (
+                <button
+                  type="button"
+                  className="inline-ai-retry"
+                  onClick={() => {
+                    useAIStore.getState().open_();
+                    setAnchor(null);
+                    setPhase({ kind: "menu" });
+                  }}
+                >
+                  Set up AI
                 </button>
               )}
             </div>

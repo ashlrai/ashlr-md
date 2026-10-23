@@ -12,6 +12,7 @@ import { isDismissEscape } from "../../lib/keymap";
 import { clipboardHasImage, handleImagePaste } from "../../lib/pasteImage";
 import { buildSnippetExtension } from "../../lib/snippets";
 import { setSourceView } from "../../lib/sourceSearchBridge";
+import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import "../../styles/editor.css";
@@ -54,6 +55,8 @@ type InlinePhase =
       /** The provider's raw error text, shown as the message's tooltip. */
       detail?: string;
       retryFn: (() => void) | null;
+      /** No provider: offer to open the AI sidebar's setup panel. */
+      setup?: boolean;
     };
 
 export function SourceEditor({ initialContent }: { initialContent: string }) {
@@ -172,6 +175,7 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
             kind: "error",
             message: NO_PROVIDER_MESSAGE,
             retryFn: null,
+            setup: true,
           });
         } else {
           const { detail } = describeAIError(e);
@@ -396,6 +400,21 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
                   onClick={() => phase.retryFn?.()}
                 >
                   Retry
+                </button>
+              )}
+              {/* The message says to set AI up in the sidebar, which it
+                  used to leave the user to find. */}
+              {phase.setup && (
+                <button
+                  type="button"
+                  className="inline-ai-retry"
+                  onClick={() => {
+                    useAIStore.getState().open_();
+                    setAnchor(null);
+                    setPhase({ kind: "menu" });
+                  }}
+                >
+                  Set up AI
                 </button>
               )}
             </div>

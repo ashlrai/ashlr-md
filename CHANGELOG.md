@@ -129,6 +129,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   panel now has a "Check again" button, which says so when it still finds
   none. Its key button read "Save key & retry" but retried nothing; it now
   reads "Save key".
+- **Inline AI with no provider opens the setup panel.** In both editors, a
+  rewrite with no AI provider said "No AI provider. Set one up in the AI
+  sidebar." and left the user to find the sidebar. The message now has a
+  "Set up AI" button that opens it, as the selection popover's does.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and
