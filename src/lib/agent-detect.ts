@@ -15,11 +15,12 @@
  *   null         — ordinary document (no agent fingerprint detected)
  *
  * All helpers operate on the raw markdown string. No AST traversal needed here
- * — regex heuristics are fast and sufficient for detection purposes. Headings
- * are read by outline.ts's atxHeadings, outside front matter and fenced code:
- * a column-0 regex used to take a `# comment` in a code sample as a heading,
- * so a shell script's `# e.g. foo` counted as a file-path heading and a
- * `## Next` in a code block ended the acceptance criteria.
+ * — regex heuristics are fast and sufficient for detection purposes.
+ *
+ * Headings are read by outline.ts's atxHeadings, outside front matter and
+ * fenced code: a column-0 regex used to take a `# comment` in a code sample
+ * as a heading, so a shell script's `# e.g. foo` counted as a file-path
+ * heading and a `## Next` in a code block ended the acceptance criteria.
  */
 
 import { type AtxHeading, atxHeading, atxHeadings, markdownLines } from "./outline";
