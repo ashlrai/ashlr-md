@@ -20,7 +20,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { atxHeadings } from "./outline";
+import { atxHeadings, markdownLines } from "./outline";
 import { splitFragment } from "./transclude";
 import { resolveWikilink } from "./wikilink";
 
@@ -87,8 +87,13 @@ export function extractPreviewSnippet(content: string): string {
     return para ? `${headingLine}\n\n${para}` : headingLine;
   }
 
-  // Fallback: first 15 non-empty lines, without YAML frontmatter.
-  const lines = content.replace(/^---[\s\S]*?---\s*\n?/, "").split("\n");
+  // Fallback: first 15 non-empty lines, without YAML frontmatter, which
+  // ends on a line that is `---` or `...` as the outline reads it. A lazy
+  // regex used to end it at any later `---`, mid-line too, so a document
+  // opening with a thematic break lost the text up to the next one.
+  const lines = markdownLines(content)
+    .filter((l) => l.kind !== "frontmatter")
+    .map((l) => l.text);
   const preview: string[] = [];
   for (const line of lines) {
     if (preview.length >= 15) break;

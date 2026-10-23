@@ -243,6 +243,16 @@ describe("extractPreviewSnippet — content extraction", () => {
     expect(extractPreviewSnippet("  # Title\n\nBody.")).toBe("  # Title\n\nBody.");
     expect(extractPreviewSnippet("#\tTabbed\n\nBody.")).toBe("#\tTabbed\n\nBody.");
   });
+
+  it("ends front matter on its closing line in the fallback", () => {
+    // A `---` inside a value does not close it, and `...` does.
+    const fm = "---\nnote: a---b\nx: 1\n...\nFirst line\nSecond";
+    expect(extractPreviewSnippet(fm)).toBe("First line\nSecond");
+    // A leading `---` that is never closed is a thematic break, not front
+    // matter: the text after it stays.
+    const hr = "---\nIntro text\nmore --- here\nEnd";
+    expect(extractPreviewSnippet(hr)).toBe("---\nIntro text\nmore --- here\nEnd");
+  });
 });
 
 // ===========================================================================

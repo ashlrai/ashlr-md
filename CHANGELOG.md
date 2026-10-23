@@ -96,6 +96,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Related notes, the agent badge and link previews read headings and
+  front matter as the outline does.** Related notes searched by the first
+  column-0 `#` line, which could be a front matter comment or a line of
+  code. The agent document badge counted `#` lines in code blocks as
+  headings, so a shell script's `# src/main.ts` comments made a document
+  "multi-file", a `## ` line in a code sample ended a spec's acceptance
+  criteria, and numbered lines in code counted as runbook steps. A link
+  preview without a heading ended front matter at any later `---`, even
+  mid-line, so a document opening with a thematic break lost its first
+  lines; front matter now ends on a `---` or `...` line. (The AI
+  sidebar's document type hint still scores raw `#` lines, as a cheap
+  hint that also reads the words in code.)
 - **Lint heading rules skip code and front matter.** "Single H1",
   "No empty headings", "Max heading depth" and "No orphaned headings"
   tested each line against a column-0 `#` pattern, so a `# comment` in a
