@@ -123,6 +123,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   popover has no language picker, so Translate always answered in Spanish,
   but its button read only "Translate". The button now reads "To Spanish"
   (titled "Translate to Spanish"), and the chat shows the same label.
+- **The AI setup panel can check again.** The sidebar looked for a provider
+  only when it opened, so starting Ollama with the "No AI provider found"
+  panel open changed nothing until the sidebar was closed and reopened. The
+  panel now has a "Check again" button, which says so when it still finds
+  none. Its key button read "Save key & retry" but retried nothing; it now
+  reads "Save key".
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and

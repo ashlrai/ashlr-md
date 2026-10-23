@@ -283,6 +283,28 @@
   filter: brightness(1.07);
 }
 
+.ai-recheck-btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ai-recheck-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.ai-setup-nudge__still {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 260px;
+}
+
 /* ----- Chat transcript ----- */
 
 .ai-messages {

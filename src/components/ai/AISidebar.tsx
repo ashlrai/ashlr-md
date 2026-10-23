@@ -170,9 +170,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 
 function SetupNudge({
   onKeySet,
+  onCheckAgain,
+  stillMissing,
   notice,
 }: {
   onKeySet: () => void;
+  /** Look for a provider again, say once Ollama is running. */
+  onCheckAgain: () => void;
+  /** A "Check again" found no provider, so say so instead of nothing. */
+  stillMissing: boolean;
   /** The request that just failed for want of a provider (say a selection
    *  popover action), shown on top so the user sees why nothing ran. */
   notice: AIErrorInfo | null;
@@ -225,6 +231,17 @@ function SetupNudge({
         <br />
         Or enter an Anthropic API key below for cloud inference.
       </p>
+      {/* Detection ran only when the sidebar opened, so a user who started
+          Ollama with the panel open had to close and reopen it to be seen. */}
+      <button className="ai-recheck-btn" type="button" onClick={onCheckAgain}>
+        Check again
+      </button>
+      {stillMissing && (
+        <p className="ai-setup-nudge__still" role="status">
+          Still no AI provider found. Start Ollama with a model pulled, or save a key
+          below, then check again.
+        </p>
+      )}
       <form className="ai-key-form" onSubmit={submit}>
         <input
           className="ai-key-input"
@@ -236,7 +253,7 @@ function SetupNudge({
           spellCheck={false}
         />
         <button className="ai-key-submit" type="submit" disabled={!draft.trim()}>
-          Save key &amp; retry
+          Save key
         </button>
       </form>
     </div>
@@ -314,6 +331,8 @@ export function AISidebar() {
   const [input, setInput] = useState("");
   const [resolvedProvider, setResolvedProvider] = useState<AIProvider | null>(null);
   const [detecting, setDetecting] = useState(false);
+  // A "Check again" on the setup panel found no provider.
+  const [recheckMissed, setRecheckMissed] = useState(false);
   // retryState: holds the pending retry context when a generation fails.
   const [retryState, setRetryState] = useState<{
     retryCount: number;
@@ -362,6 +381,25 @@ export function AISidebar() {
       cancelled = true;
     };
   }, [open, setProvider, clearProvider, hasApiKey]);
+
+  /** Look for a provider again, from the setup panel. Resolves to whether
+   *  one was found. */
+  async function redetect(): Promise<boolean> {
+    setDetecting(true);
+    let found = false;
+    try {
+      const p = await detectProvider();
+      setResolvedProvider(p);
+      setProvider(p.id, p.capabilities);
+      found = p.id !== NOOP_PROVIDER_ID;
+    } catch {
+      setResolvedProvider(null);
+      clearProvider();
+    }
+    setRecheckMissed(!found);
+    setDetecting(false);
+    return found;
+  }
 
   // Scroll to bottom when messages change.
   useEffect(() => {
@@ -686,21 +724,9 @@ export function AISidebar() {
       ) : isNoop || !provider ? (
         <SetupNudge
           notice={unrunNotice(messages)}
-          onKeySet={() => {
-            setDetecting(true);
-            detectProvider().then(
-              (p) => {
-                setResolvedProvider(p);
-                setProvider(p.id, p.capabilities);
-                setDetecting(false);
-              },
-              () => {
-                setResolvedProvider(null);
-                clearProvider();
-                setDetecting(false);
-              },
-            );
-          }}
+          stillMissing={recheckMissed}
+          onKeySet={() => void redetect()}
+          onCheckAgain={() => void redetect()}
         />
       ) : (
         <>
