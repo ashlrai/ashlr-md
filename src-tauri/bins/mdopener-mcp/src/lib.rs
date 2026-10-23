@@ -1376,8 +1376,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
                 code (front matter properties included), the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
-                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
+                { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
+                embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
+                the note without a `#heading` (`[[Plan#Goals]]` links to `Plan`), `wikilink_headings` \
+                the distinct target and heading of each `[[target#heading]]` link, sorted, \
                 `path` the document's absolute path: with `path` omitted, the open document's file). \
                 With `path` it reads that file directly on disk; no running app required. When `path` \
                 is omitted it reads the currently open document from the app, as the window holds it \
@@ -8127,9 +8130,9 @@ pub fn strip_inline_markdown(s: &str) -> String {
     while i < n {
         // Obsidian embed ![[…]] → empty (no useful text). It is read before
         // an image, which took `![[a.png]]` as an image with alt `[a.png]`.
-        if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 3) {
-                i = close + 2;
+        if chars[i] == '!' {
+            if let Some(embed) = parse_wikilink(&chars, i + 1) {
+                i = embed.end;
                 continue;
             }
         }
@@ -8143,20 +8146,20 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Wikilink [[target]] → target, [[target|alias]] → alias, as the
-        // read view shows it. It is read before a `[text]` link, which took
-        // `[[Real]]` as a link with text `[Real]`.
-        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 2) {
-                let inner: String = chars[i + 2..close].iter().collect();
-                let label = match inner.split_once('|') {
-                    Some((_, alias)) => alias,
-                    None => inner.as_str(),
-                };
-                out.push_str(label);
-                i = close + 2;
-                continue;
+        // Wikilink [[target]] → target, [[target|alias]] → alias and
+        // [[target#heading]] → `target › heading`, as the read view shows
+        // it. It is read before a `[text]` link, which took `[[Real]]` as a
+        // link with text `[Real]`.
+        if let Some(link) = parse_wikilink(&chars, i) {
+            match (&link.alias, &link.heading) {
+                (Some(alias), _) => out.push_str(alias),
+                (None, Some(heading)) => {
+                    out.push_str(&format!("{} \u{203a} {heading}", link.target));
+                }
+                (None, None) => out.push_str(&link.target),
             }
+            i = link.end;
+            continue;
         }
         // Footnote reference [^1] → [1]
         if chars[i] == '[' && chars.get(i + 1) == Some(&'^') {
@@ -8311,15 +8314,59 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
     start
 }
 
-/// The index of the first `]` of the `]]` that closes a wikilink or embed
-/// opened before `start`, on the same line. A wikilink is one line, as
-/// Obsidian reads it: the search used to cross newlines, so an unclosed `[[`
-/// took the text up to a `]]` many lines later as its target, hiding the
-/// links in between, and an unclosed `![[` counted as an image.
-fn find_double_close(chars: &[char], start: usize) -> Option<usize> {
-    (start..chars.len().saturating_sub(1))
-        .take_while(|&i| chars[i] != '\n')
-        .find(|&i| chars[i] == ']' && chars[i + 1] == ']')
+/// A `[[target#heading|alias]]` wikilink, from [`parse_wikilink`].
+struct Wikilink {
+    /// The note it links to, as written (not trimmed).
+    target: String,
+    /// The `#heading` fragment, without its `#`.
+    heading: Option<String>,
+    /// The `|alias` display text, without its `|`.
+    alias: Option<String>,
+    /// The index just past the closing `]]`.
+    end: usize,
+}
+
+/// The wikilink starting at `start` (its first `[`), read as the app reads
+/// one (`remark-wikilinks.ts`): `[[`, a target of one or more characters
+/// with no `]`, `|`, `#` or line break, then an optional `#heading` with no
+/// `]`, `|` or line break, an optional `|alias` with no `]` or line break,
+/// and `]]`. A wikilink is one line, as Obsidian reads it: the search used
+/// to cross newlines, so an unclosed `[[` took the text up to a `]]` many
+/// lines later as its target, hiding the links in between, and an unclosed
+/// `![[` counted as an image. A `]` inside used to end up in the target
+/// (`[[a]b]]` linked to `a]b`), and `#heading` was part of it.
+fn parse_wikilink(chars: &[char], start: usize) -> Option<Wikilink> {
+    if chars.get(start) != Some(&'[') || chars.get(start + 1) != Some(&'[') {
+        return None;
+    }
+    // A run of one or more characters from `pos` that are none of `stops`
+    // (a line break always stops it), and the index after it.
+    let run = |pos: usize, stops: &[char]| -> Option<(String, usize)> {
+        let len = chars[pos.min(chars.len())..]
+            .iter()
+            .take_while(|c| !matches!(c, '\n' | '\r') && !stops.contains(c))
+            .count();
+        (len > 0).then(|| (chars[pos..pos + len].iter().collect(), pos + len))
+    };
+    let (target, mut pos) = run(start + 2, &[']', '|', '#'])?;
+    let mut heading = None;
+    if chars.get(pos) == Some(&'#') {
+        let (h, next) = run(pos + 1, &[']', '|'])?;
+        heading = Some(h);
+        pos = next;
+    }
+    let mut alias = None;
+    if chars.get(pos) == Some(&'|') {
+        let (a, next) = run(pos + 1, &[']'])?;
+        alias = Some(a);
+        pos = next;
+    }
+    (chars.get(pos) == Some(&']') && chars.get(pos + 1) == Some(&']')).then_some(Wikilink {
+        target,
+        heading,
+        alias,
+        end: pos + 2,
+    })
 }
 
 /// Count words (whitespace-separated tokens) in plain text.
@@ -8815,7 +8862,8 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
 
 /// Extract all `[[wikilinks]]` from the content (not inside code blocks).
 ///
-/// Returns a deduplicated, sorted list of link targets (the part before `|`).
+/// Returns a deduplicated, sorted list of link targets (the part before
+/// any `#` or `|`).
 /// Fenced code is skipped by the rule of [`extract_headings`]
 /// ([`markdown_lines`]); any line starting with ```` ``` ```` or `~~~` used
 /// to flip an "in code" flag, so a `~~~` line inside a backtick block made
@@ -8823,33 +8871,58 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
 /// front matter block is read: a property such as `related: "[[Plan]]"`
 /// links to `Plan`, as Obsidian reads it. Its lines are never fences, so a
 /// `` ``` `` line in a front matter block scalar no longer hides the body.
+///
+/// A link is read by the app's rule ([`parse_wikilink`]): the target is the
+/// note, without a `#heading` fragment (see [`extract_wikilink_headings`]),
+/// and a `]` inside ends no target, so `[[a]b]]` is not a link. `[[Note#Goals]]`
+/// used to list `Note#Goals`, a note that does not exist, and `[[a]b]]`
+/// listed `a]b`. A link to a heading of the same note (`[[#Goals]]`) has no
+/// target and is not listed, as the app does not link it.
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
-    let mut links = std::collections::HashSet::new();
+    let links: std::collections::BTreeSet<String> =
+        wikilink_refs(content).into_iter().map(|(t, _)| t).collect();
+    links.into_iter().collect()
+}
+
+/// The distinct `(target, heading)` pairs of the `[[target#heading]]`
+/// wikilinks [`extract_wikilinks`] reads, sorted: `export_metadata`'s
+/// `wikilink_headings`.
+pub fn extract_wikilink_headings(content: &str) -> Vec<(String, String)> {
+    let pairs: std::collections::BTreeSet<(String, String)> = wikilink_refs(content)
+        .into_iter()
+        .filter_map(|(t, h)| h.map(|h| (t, h)))
+        .collect();
+    pairs.into_iter().collect()
+}
+
+/// Each wikilink outside fenced code (front matter included) as its trimmed
+/// target and trimmed heading fragment, embeds (`![[...]]`) and empty
+/// targets left out.
+fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
     let text: Vec<&str> = markdown_lines::markdown_lines(content)
         .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
         .map(|(_, line)| line)
         .collect();
     let chars: Vec<char> = text.join("\n").chars().collect();
-    let n = chars.len();
+    let mut refs = Vec::new();
     let mut i = 0;
-    while i < n {
-        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 2) {
-                let inner: String = chars[i + 2..close].iter().collect();
-                let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
-                // Exclude embedded image wikilinks (preceded by `!`).
-                if (i == 0 || chars[i - 1] != '!') && !target.is_empty() {
-                    links.insert(target);
-                }
-                i = close + 2;
-                continue;
+    while i < chars.len() {
+        if let Some(link) = parse_wikilink(&chars, i) {
+            let target = link.target.trim().to_string();
+            // Exclude embedded image wikilinks (preceded by `!`).
+            if (i == 0 || chars[i - 1] != '!') && !target.is_empty() {
+                let heading = link
+                    .heading
+                    .map(|h| h.trim().to_string())
+                    .filter(|h| !h.is_empty());
+                refs.push((target, heading));
             }
+            i = link.end;
+            continue;
         }
         i += 1;
     }
-    let mut sorted: Vec<String> = links.into_iter().collect();
-    sorted.sort();
-    sorted
+    refs
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
@@ -8872,10 +8945,10 @@ pub fn count_embedded_images(content: &str) -> usize {
             if i + 1 < n && chars[i + 1] == '[' {
                 // Check it's not a wikilink embed ![[…]]
                 if i + 2 < n && chars[i + 2] == '[' {
-                    // Embedded wikilink image ![[…]]
-                    if let Some(close) = find_double_close(&chars, i + 3) {
+                    // Embedded wikilink image ![[…]], by the app's rule.
+                    if let Some(embed) = parse_wikilink(&chars, i + 1) {
                         count += 1;
-                        i = close + 2;
+                        i = embed.end;
                         continue;
                     }
                 } else if let Some((_, end)) = parse_bracket_content(&chars, i + 1) {
@@ -8905,6 +8978,7 @@ pub fn count_embedded_images(content: &str) -> usize {
 ///   "frontmatter": { … } | null,
 ///   "headings": [{ "level": N, "text": "…" }, …],
 ///   "wikilinks": ["Target", …],
+///   "wikilink_headings": [{ "target": "Target", "heading": "Goals" }, …],
 ///   "embedded_image_count": N,
 ///   "word_count": N,
 ///   "path": "…"            // only when a path can be determined
@@ -8922,6 +8996,10 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     let frontmatter = extract_frontmatter(&markdown);
     let headings = extract_headings(&markdown);
     let wikilinks = extract_wikilinks(&markdown);
+    let wikilink_headings: Vec<Value> = extract_wikilink_headings(&markdown)
+        .into_iter()
+        .map(|(target, heading)| json!({ "target": target, "heading": heading }))
+        .collect();
     let embedded_image_count = count_embedded_images(&markdown);
     let plain = strip_markdown(&markdown);
     let word_count = count_words(&plain);
@@ -8930,6 +9008,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         "frontmatter": frontmatter,
         "headings": headings,
         "wikilinks": wikilinks,
+        "wikilink_headings": wikilink_headings,
         "embedded_image_count": embedded_image_count,
         "word_count": word_count,
     });

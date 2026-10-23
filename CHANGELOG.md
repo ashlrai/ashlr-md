@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a wikilink's target agrees with the app.** `export_metadata`
+  took everything between `[[` and `]]` (before a `|`) as the target, so
+  `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and
+  `[[a]b]]` listed `a]b`, which the app does not link. The target is now
+  the note without its `#heading`, and a `]` ends no target. A new
+  `wikilink_headings` field beside `wikilinks` lists each link's
+  `{ target, heading }`. `export_text` shows `[[Plan#Goals]]` as the read
+  view does, `Plan › Goals`, and the embed count follows the same rule.
 - **Related notes, the agent badge and link previews read headings and
   front matter as the outline does.** Related notes searched by the first
   column-0 `#` line, which could be a front matter comment or a line of

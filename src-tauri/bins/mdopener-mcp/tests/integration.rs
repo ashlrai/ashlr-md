@@ -8287,6 +8287,49 @@ fn export_text_strips_a_heading_inside_a_blockquote() {
     assert!(docs.contains("so `> # Quote` reads `Quote`"));
 }
 
+/// `export_metadata` took everything between `[[` and `]]` (before a `|`)
+/// as a link's target, so `[[Plan#Goals]]` listed `Plan#Goals`, a note that
+/// does not exist, and `[[a]b]]` listed `a]b`, which the app does not link.
+/// The target is now read by the app's rule: the note without its
+/// `#heading`, which `wikilink_headings` reports, and no `]` inside.
+#[test]
+fn a_wikilink_target_is_read_as_the_app_reads_it() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilink_headings, extract_wikilinks};
+    let doc = "[[Plan#Goals]] [[Plan#Risks|risks]] [[Plan]] [[Other|o]]\n\
+               [[a]b]] [[#Local]] [[x#]] [[y|]] ![[img.png]] [[ Spaced # Head ]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Other", "Plan", "Spaced"]);
+    assert_eq!(
+        extract_wikilink_headings(doc),
+        [
+            ("Plan".to_string(), "Goals".to_string()),
+            ("Plan".to_string(), "Risks".to_string()),
+            ("Spaced".to_string(), "Head".to_string()),
+        ]
+    );
+    // An embed follows the same rule.
+    assert_eq!(count_embedded_images("![[a.png]] ![[b]c.png]]\n"), 1);
+    // export_text shows a heading link as the read view does.
+    assert_eq!(
+        strip_markdown("See [[Plan#Goals]] and [[Plan#Risks|risks]]."),
+        "See Plan \u{203a} Goals and risks."
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, "See [[Plan#Goals]] and [[Plan]].\n").unwrap();
+    let v = content_text(&call(
+        "export_metadata",
+        json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    ));
+    assert_eq!(v["wikilinks"], json!(["Plan"]));
+    assert_eq!(
+        v["wikilink_headings"],
+        json!([{ "target": "Plan", "heading": "Goals" }])
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("`wikilink_headings` the distinct `{ target, heading }`"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
@@ -11492,8 +11535,17 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
         ),
         (
             "export_metadata",
-            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path }",
-            &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
+            "{ frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
+             embedded_image_count, word_count, path }",
+            &[
+                "embedded_image_count",
+                "frontmatter",
+                "headings",
+                "path",
+                "wikilink_headings",
+                "wikilinks",
+                "word_count",
+            ][..],
         ),
     ] {
         let d = desc(tool);
