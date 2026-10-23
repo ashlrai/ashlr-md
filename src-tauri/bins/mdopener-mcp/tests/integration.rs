@@ -8173,6 +8173,25 @@ fn title_and_headings_share_the_atx_heading_rule() {
     assert!(docs.contains("so a `# comment` indented four spaces is indented code"));
 }
 
+/// A heading inside a blockquote is not listed in `export_metadata`'s
+/// headings and is not a title, as in Obsidian's outline and the app's
+/// Outline panel (src/lib/outline.ts), which agree on it.
+#[test]
+fn a_heading_inside_a_blockquote_is_not_listed() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let doc = "> # Quote\n>> ## Deep\n   > ### Spaced\n\n## Real\n";
+    let texts: Vec<String> = extract_headings(doc)
+        .iter()
+        .map(|h| h["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(texts, ["Real"]);
+    assert_eq!(document_title(doc), None);
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a heading inside a blockquote, `> # Quote`, is not listed"));
+    let outline = include_str!("../../../../src/lib/outline.ts");
+    assert!(outline.contains("A heading inside a blockquote (`> # Quote`) is not"));
+}
+
 /// `strip_markdown` trimmed a line before it took its `#`s off, so a
 /// `# comment` indented four spaces lost its `#` and the rest of the
 /// indented code was read as Markdown. A heading now follows the ATX rule

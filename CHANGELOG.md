@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Outline jumps to the right heading after a quoted one.** A heading
+  inside a blockquote (`> # Plan`) stays out of the Outline panel and
+  `export_metadata`'s headings, as in Obsidian's outline, so quoted text
+  from elsewhere does not clutter it. The read view still gives that
+  heading an id, though, so a later `# Plan` is `plan-1` in the page while
+  the Outline gave it `plan` and jumped into the quote. The Outline now
+  counts a quoted heading's slug without listing it.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and

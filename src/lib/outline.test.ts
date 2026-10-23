@@ -138,4 +138,28 @@ describe("parseHeadings", () => {
     }
     expect(lines[8]).toMatchObject({ text: "y", line: 9 });
   });
+
+  it("leaves a quoted heading out but counts its slug as the renderer does", () => {
+    // Obsidian's outline lists no heading inside a blockquote, and neither
+    // does mdopener-mcp. rehype-slug still gives `> # Plan` the id `plan`,
+    // so the real `# Plan` below it is `plan-1`.
+    const doc = [
+      "> # Plan",
+      ">> ## Deep ##",
+      "",
+      "> ```",
+      "> # not a heading",
+      "> ```",
+      "",
+      "# Plan",
+      "## Deep",
+      "# not a heading",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Plan", "plan-1", 8],
+      ["Deep", "deep-1", 9],
+      ["not a heading", "not-a-heading", 10],
+    ]);
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([8, 9, 10]);
+  });
 });

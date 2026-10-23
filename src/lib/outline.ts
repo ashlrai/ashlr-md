@@ -185,6 +185,22 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
 }
 
 /**
+ * The text inside the blockquote markers of `line` (`> `, `>> `, `> > `),
+ * or null when `line` is not in a blockquote.
+ */
+function quoteContent(line: string): string | null {
+  const marker = /^ {0,3}>[ \t]?/;
+  let rest = line.endsWith("\r") ? line.slice(0, -1) : line;
+  let m = marker.exec(rest);
+  if (!m) return null;
+  while (m) {
+    rest = rest.slice(m[0].length);
+    m = marker.exec(rest);
+  }
+  return rest;
+}
+
+/**
  * Parse ATX headings (`#` to `######`) into an ordered outline.
  *
  * - Headings are read by {@link atxHeadings}: a leading YAML frontmatter
@@ -192,6 +208,12 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
  *   spaces before its `#`s, as the renderer and mdopener-mcp read it. A
  *   tab-indented `# x` (indented code) used to be listed, and `## ##` was
  *   listed as `#`.
+ * - A heading inside a blockquote (`> # Quote`) is not listed, as in
+ *   Obsidian's outline and mdopener-mcp's `export_metadata` headings: quoted
+ *   text from elsewhere would clutter the outline. The renderer still gives
+ *   it a slug id, so it takes its slug here too, and a later `# Quote` is
+ *   `quote-1` as in the DOM. It used to take none, so that later heading's
+ *   entry jumped into the quote.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -202,10 +224,45 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
 export function parseHeadings(markdown: string): HeadingItem[] {
   const slugger = new GithubSlugger();
   const out: HeadingItem[] = [];
-  for (const h of atxHeadings(markdown)) {
-    const text = stripInline(h.text);
-    if (text === "") continue; // empty heading -> no anchor rendered
-    out.push({ depth: h.depth, text, slug: slugger.slug(text), line: h.line });
+  // The fence open inside the current blockquote, e.g. "```".
+  let quoteFence: string | null = null;
+  for (const l of markdownLines(markdown)) {
+    if (l.kind !== "text") {
+      quoteFence = null;
+      continue;
+    }
+    const h = atxHeading(l.text);
+    if (h) {
+      quoteFence = null;
+      const text = stripInline(h.text);
+      if (text === "") continue; // empty heading -> no anchor rendered
+      out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
+      continue;
+    }
+    const quoted = quoteContent(l.text);
+    if (quoted === null) {
+      quoteFence = null;
+      continue;
+    }
+    const f = codeFence(quoted);
+    if (quoteFence) {
+      if (
+        f &&
+        f.marker[0] === quoteFence[0] &&
+        f.marker.length >= quoteFence.length &&
+        f.rest.trim() === ""
+      ) {
+        quoteFence = null;
+      }
+      continue;
+    }
+    if (f) {
+      quoteFence = f.marker;
+      continue;
+    }
+    const qh = atxHeading(quoted);
+    const text = qh ? stripInline(qh.text) : "";
+    if (text !== "") slugger.slug(text);
   }
   return out;
 }

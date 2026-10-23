@@ -100,6 +100,9 @@ fn code_fence(line: &str) -> Option<(char, usize, &str)> {
 /// is `Title`, `C#` keeps its `#`, and `#` alone or `## ##` is an empty
 /// heading). A line indented four spaces or a tab is indented code, not a
 /// heading, and `#tag` or `#!/bin/sh` is text.
+/// A line in a blockquote (`> # Quote`) is not one: Obsidian's outline
+/// lists no quoted heading, and the app's Outline panel reads it the same
+/// way, so quoted text from elsewhere does not clutter either.
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
 pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
