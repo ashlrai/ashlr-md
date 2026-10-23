@@ -103,6 +103,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   heading an id, though, so a later `# Plan` is `plan-1` in the page while
   the Outline gave it `plan` and jumped into the quote. The Outline now
   counts a quoted heading's slug without listing it.
+- **Task totals skip code and front matter.** The agent badge and the
+  status bar's "done / total tasks" counted every `- [ ]` line, so a plan
+  that showed a task list in a code sample, or kept a to-do list in its
+  front matter, reported tasks nobody could tick. Tasks are now read
+  outside front matter and fenced code, by the rule the Outline uses.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and

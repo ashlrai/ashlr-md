@@ -125,6 +125,33 @@ describe("detectDocKind — plan", () => {
     expect(info.kind).toBe("plan");
     expect(info.taskTotal).toBe(3);
   });
+
+  it("plan: does not count task items in fenced code or front matter", () => {
+    const doc = [
+      "---",
+      "todo: |",
+      "  - [ ] yaml",
+      "---",
+      "# Plan",
+      "",
+      "- [ ] One",
+      "- [x] Two",
+      "",
+      "~~~md",
+      "- [x] tilde sample",
+      "~~~",
+      "````md",
+      "```",
+      "- [ ] still in the four-backtick block",
+      "```",
+      "````",
+      "- [x] Three",
+    ].join("\n");
+    const info = detectDocKind(doc);
+    expect(info.kind).toBe("plan");
+    expect(info.taskTotal).toBe(3);
+    expect(info.taskDone).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
