@@ -150,17 +150,21 @@ function docHeadings(doc: string): { lines: MarkdownLine[]; headings: HeadingLin
 
 /**
  * RULE: frontmatter-required
- * The document must begin with a YAML frontmatter block (--- ... ---).
+ * The document must begin with a YAML frontmatter block, a `---` line
+ * closed by a later `---` or `...` line.
  */
 export const ruleFrontmatterRequired: LintRule = {
   id: "frontmatter-required",
   label: "Frontmatter required",
   description:
-    "Every document should have a YAML frontmatter block (--- ... ---) at the top.",
+    "Every document should start with a YAML frontmatter block: a --- line, closed by --- or ...",
   severity: "warning",
   check({ doc }): LintViolation[] {
-    const FM_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
-    if (FM_RE.test(doc)) return [];
+    // The front matter rule of markdownLines (outline.ts, as mdopener-mcp
+    // reads it): a first `---` line closed by a later `---` or `...` line.
+    // A regex used to require `---`, so a block closed by `...` was flagged,
+    // an empty block was flagged and a `----` line closed one.
+    if (markdownLines(doc)[0]?.kind === "frontmatter") return [];
     return [
       {
         ruleId: "frontmatter-required",

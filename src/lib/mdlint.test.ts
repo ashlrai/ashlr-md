@@ -261,6 +261,17 @@ describe("rule:frontmatter-required", () => {
     const doc = "---\r\ntitle: X\r\n---\r\n# Hello\r\n";
     expect(lintDocument(doc, { rules: [ruleFrontmatterRequired] })).toHaveLength(0);
   });
+
+  it("reads front matter by the markdownLines rule", () => {
+    const flagged = (doc: string) =>
+      lintDocument(doc, { rules: [ruleFrontmatterRequired] }).length;
+    // A YAML document end `...` closes front matter, as in Obsidian and
+    // mdopener-mcp, and an empty block is still a block.
+    expect(flagged("---\ntitle: X\n...\n# Hello\n")).toBe(0);
+    expect(flagged("---\n---\n# Hello\n")).toBe(0);
+    // A `----` line closes nothing, so this `---` is never closed.
+    expect(flagged("---\ntitle: X\n----\n# Hello\n")).toBe(1);
+  });
 });
 
 // ─── 3d. Rule: no-bare-urls ───────────────────────────────────────────────────

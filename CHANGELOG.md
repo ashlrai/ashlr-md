@@ -108,6 +108,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   that showed a task list in a code sample, or kept a to-do list in its
   front matter, reported tasks nobody could tick. Tasks are now read
   outside front matter and fenced code, by the rule the Outline uses.
+- **"Frontmatter required" accepts a block closed by `...`.** The lint
+  rule used its own pattern, so front matter closed by a YAML `...` line
+  (which the Outline, Obsidian and `export_metadata` read as front matter)
+  and an empty `---`/`---` block were flagged as missing, while a `----`
+  line closed a block. It now uses the Outline's front matter rule.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and
