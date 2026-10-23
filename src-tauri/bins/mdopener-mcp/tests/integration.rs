@@ -8265,6 +8265,28 @@ fn export_text_reads_a_wikilink_as_its_target_or_alias() {
     assert!(docs.contains("a wikilink reads its target, or its alias"));
 }
 
+/// `strip_markdown` took a heading's `#`s off before the blockquote
+/// leaders, while the line still started with `>`, so `> # Quote` kept its
+/// `#`. The leaders now go first, then the ATX rule of the headings.
+#[test]
+fn export_text_strips_a_heading_inside_a_blockquote() {
+    let cases = [
+        ("> # Quote", "Quote"),
+        ("> > ## Deep ##\n> body", "Deep\nbody"),
+        (">### Tight", "Tight"),
+        // Four spaces after the leader is indented code, not a heading.
+        (">     # code", "# code"),
+        // `#tag` is text in a quote too.
+        ("> #tag here", "#tag here"),
+        ("> plain **bold**", "plain bold"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("so `> # Quote` reads `Quote`"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.

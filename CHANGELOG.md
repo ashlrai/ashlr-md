@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export_text` strips a heading in a blockquote.** A heading's
+  `#`s were taken off before the `>` leaders, while the line still
+  started with `>`, so `> # Quote` read `# Quote`. The leaders now go
+  first, then the ATX rule of `export_metadata`'s headings.
 - **MCP: `export_text` reads a wikilink as its text.** A `[text]` link
   was read before a wikilink, so `[[Real]]` became `[Real]` and
   `[[Plan|the plan]]` became `[Plan|the plan]`; an image was read before

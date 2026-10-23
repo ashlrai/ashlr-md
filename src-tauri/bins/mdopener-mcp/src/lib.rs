@@ -7882,7 +7882,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Links `[text](url)` and `[text][ref]` → link text only.
 /// - Wikilinks `[[target]]` → target, `[[target|alias]]` → alias. The
 ///   `[text]` link rule ran first, so `[[Real]]` read `[Real]`.
-/// - Blockquote `>` leaders are removed.
+/// - Blockquote `>` leaders are removed, before the ATX rule is applied,
+///   so `> # Quote` reads `Quote` (it used to keep its `#`).
 /// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
 /// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
 /// - HTML tags are stripped.
@@ -7964,16 +7965,22 @@ pub fn strip_markdown(content: &str) -> String {
             }
         }
 
-        // Strip ATX heading markers.
-        let line = markdown_lines::atx_heading(line).map_or(line, |(_, text)| text);
-
-        // Strip blockquote leaders.
+        // Strip blockquote leaders, each `>` with one optional space after
+        // it, then ATX heading markers by the rule of the headings, so
+        // `> # Quote` reads `Quote`. The `#`s used to be taken off first,
+        // while the line still started with `>`, so they were kept.
         let line = {
             let mut s = line;
+            let mut quoted = false;
             while let Some(rest) = s.trim_start().strip_prefix('>') {
-                s = rest.trim_start_matches(' ');
+                s = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
+                quoted = true;
             }
-            s
+            match markdown_lines::atx_heading(s) {
+                Some((_, text)) => text,
+                None if quoted => s.trim_start_matches(' '),
+                None => s,
+            }
         };
 
         // A footnote definition `[^1]: text` reads `[1] text`.
