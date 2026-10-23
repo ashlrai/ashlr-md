@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Lint heading rules skip code and front matter.** "Single H1",
+  "No empty headings", "Max heading depth" and "No orphaned headings"
+  tested each line against a column-0 `#` pattern, so a `# comment` in a
+  code block or front matter was linted as a heading and `  ## Indented`
+  was not. They now read headings as the Outline panel does. The "Max
+  heading depth" fix rewrites the heading it flags; it used to rewrite the
+  first line starting with as many `#`s, which could be a line of code.
 - **The wikilink lint skips code, and an image embed is one line.** The
   "wikilink targets exist" lint reported a `[[link]]` inside fenced code,
   which `export_metadata` does not list; it now skips fenced code by the
