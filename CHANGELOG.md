@@ -119,6 +119,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   fence ended early, and a URL property in front matter was flagged with a
   fix that broke the YAML. Code and front matter are now read by the
   Outline's rules.
+- **The selection popover's Translate button names its language.** The
+  popover has no language picker, so Translate always answered in Spanish,
+  but its button read only "Translate". The button now reads "To Spanish"
+  (titled "Translate to Spanish"), and the chat shows the same label.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and
