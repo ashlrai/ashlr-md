@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Runbook prerequisites and steps follow the page's list rule.** Plain
+  prerequisites (`- x`, `1. x`) and ordered steps were matched on raw lines, so
+  a `- x` or `1. x` line in fenced or indented code was one, `-x` (no list item)
+  was a bullet and a quoted item (`> - x`) was not one. A `## Rollback`,
+  `### Step` or `**Step 1:**` line in a code block also started a section or a
+  step, and an unclosed `---` first line (a thematic break on the page) hid the
+  rest of the runbook as front matter. They are now read by the line rule of
+  the Outline and the task checkboxes.
 - **`export_text` reads inline links as CommonMark does.** Any `(...)` after
   `[text]` was read as a link's destination, so `[t](a b)`, which is no link (a
   destination has no space and `b` is no title), read `t`, and `export_metadata`

@@ -18,6 +18,7 @@
  *   - `**Step N:**` bold leads
  */
 
+import { type MarkdownLine, markdownLines } from "../outline";
 import { taskMarks } from "../tasklist";
 
 // ---------------------------------------------------------------------------
@@ -103,9 +104,31 @@ const VERIFICATION_TITLES = new Set([
 // ---------------------------------------------------------------------------
 
 const HEADING_RE = /^(#{1,6})\s+(.+)/;
-const ORDERED_ITEM_RE = /^[ \t]*(\d+)[.)]\s+(.+)/;
 const BOLD_STEP_RE = /^\*\*[Ss]tep\s+(\d+)[:.]\*\*\s*(.*)/;
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})(\w*)/;
+
+/**
+ * The list item line `l` opens, by the page's list rule
+ * ({@link markdownLines}): whether its marker is ordered (`1.`, `2)`) and
+ * its text, or null for any other line. A `- x` or `1. x` line in fenced
+ * or indented code, `-x` (no item) and an item's continuation are none;
+ * one in a blockquote (`> - x`) is one. These were matched on raw lines.
+ */
+function listItem(
+  l: MarkdownLine | undefined,
+): { ordered: boolean; text: string } | null {
+  if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
+  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  let expanded = "";
+  for (const ch of raw)
+    expanded += ch === "\t" ? " ".repeat(4 - (expanded.length % 4)) : ch;
+  const prefix = expanded.slice(0, expanded.length - l.content.length);
+  // The marker right before the text; a line after a bare marker (`-`,
+  // then `  x`) has none and continues the item opened before it.
+  const marker = /(?:^|[ >])(?:(\d{1,9})[.)]|[-*+]) *$/.exec(prefix);
+  if (!marker) return null;
+  return { ordered: marker[1] !== undefined, text: l.content.trim() };
+}
 
 function normaliseTitle(text: string): string {
   return text.toLowerCase().replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
@@ -163,8 +186,10 @@ function extractCommands(body: string): string[] {
  */
 export function parseRunbook(content: string): ParsedRunbook {
   const lines = content.split("\n");
-  // The page's task checkboxes, one entry per line.
+  // The page's task checkboxes and the kind of each line (front matter,
+  // code or text), one entry per line.
   const marks = taskMarks(content);
+  const kinds = markdownLines(content);
 
   let title = "";
   const prerequisites: Prerequisite[] = [];
@@ -184,7 +209,6 @@ export function parseRunbook(content: string): ParsedRunbook {
   let sectionLines: string[] = [];
   let sectionStartLine = 0;
 
-  let inFrontmatter = false;
   let stepCounter = 0;
 
   function flushSection() {
@@ -192,7 +216,6 @@ export function parseRunbook(content: string): ParsedRunbook {
 
     if (currentSection === "prereq") {
       for (let idx = 0; idx < sectionLines.length; idx++) {
-        const sl = sectionLines[idx];
         // Checked/unchecked task items: `- [x] text` / `- [ ] text`
         const mark = marks[sectionStartLine + idx - 1];
         if (mark) {
@@ -203,21 +226,11 @@ export function parseRunbook(content: string): ParsedRunbook {
           });
           continue;
         }
-        // Ordered list items: `1. text`
-        const orderedMatch = ORDERED_ITEM_RE.exec(sl);
-        if (orderedMatch) {
+        // Plain list items: `1. text`, `- text`, `* text`, `+ text`.
+        const item = listItem(kinds[sectionStartLine + idx - 1]);
+        if (item) {
           prerequisites.push({
-            text: orderedMatch[2].trim(),
-            done: false,
-            line: sectionStartLine + idx,
-          });
-          continue;
-        }
-        // Plain bullet list items: `- text` / `* text` / `+ text`
-        const bulletMatch = /^[ \t]*[-*+]\s+(.+)/.exec(sl);
-        if (bulletMatch) {
-          prerequisites.push({
-            text: bulletMatch[1].trim(),
+            text: item.text,
             done: false,
             line: sectionStartLine + idx,
           });
@@ -245,13 +258,17 @@ export function parseRunbook(content: string): ParsedRunbook {
 
       for (let idx = 0; idx < sectionLines.length; idx++) {
         const sl = sectionLines[idx];
-        const orderedMatch = ORDERED_ITEM_RE.exec(sl);
-        const subHeading = /^(#{3,6})\s+(.+)/.exec(sl);
-        const boldStep = BOLD_STEP_RE.exec(sl);
+        const kind = kinds[sectionStartLine + idx - 1];
+        const item = listItem(kind);
+        const ordered = item?.ordered ? item : null;
+        // A heading or a bold lead is one only on a text line, not in code.
+        const text = kind?.kind === "text";
+        const subHeading = text ? /^(#{3,6})\s+(.+)/.exec(sl) : null;
+        const boldStep = text ? BOLD_STEP_RE.exec(sl) : null;
 
-        if (orderedMatch) {
+        if (ordered) {
           commitStep();
-          stepTitle = orderedMatch[2].trim();
+          stepTitle = ordered.text;
           stepStart = sectionStartLine + idx;
           stepLines = [];
         } else if (subHeading) {
@@ -283,17 +300,11 @@ export function parseRunbook(content: string): ParsedRunbook {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Skip YAML frontmatter block.
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      continue;
-    }
-    if (inFrontmatter) {
-      if (line.trim() === "---" || line.trim() === "...") inFrontmatter = false;
-      continue;
-    }
+    // Skip a leading YAML front matter block, by the shared rule.
+    if (kinds[i]?.kind === "frontmatter") continue;
 
-    const headingMatch = HEADING_RE.exec(line);
+    // A section heading is one only on a text line, not in code.
+    const headingMatch = kinds[i]?.kind === "text" ? HEADING_RE.exec(line) : null;
     if (headingMatch) {
       const level = headingMatch[1].length;
       const headingText = headingMatch[2].trim();
