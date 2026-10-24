@@ -227,9 +227,8 @@ export function LinterToast({
   const fixableCount = violations.filter((v) => v.fix !== null).length;
 
   return (
-    <div
+    <section
       className="linter-toast"
-      role="region"
       aria-label="Linter suggestions"
       aria-live="polite"
     >
@@ -308,6 +307,6 @@ export function LinterToast({
           )}
         </ul>
       )}
-    </div>
+    </section>
   );
 }

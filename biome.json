@@ -25,9 +25,9 @@
       },
       "a11y": {
         "noStaticElementInteractions": "off",
-        "useAriaPropsSupportedByRole": "off",
+        "useAriaPropsSupportedByRole": "error",
         "useSemanticElements": "off",
-        "noLabelWithoutControl": "off"
+        "noLabelWithoutControl": "error"
       }
     }
   },
