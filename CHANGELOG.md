@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports carry the front matter's title and author.** An EPUB was titled
+  by its file name with an empty author, and the HTML, PDF, DOCX and
+  profile exports were titled by the file name too. The front matter's
+  `title` and `author` (a list of authors joined with commas) now name the
+  book, the page's `<title>` and the DOCX properties; the suggested file
+  name is still the file's.
 - **MCP `export` no longer overwrites a file unasked.** With `output_path`
   it replaced whatever file was there while it was listed with
   `destructiveHint: false`. An existing file is now refused unless the call

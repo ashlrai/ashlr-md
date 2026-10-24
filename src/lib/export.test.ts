@@ -321,6 +321,17 @@ describe("exportHtml", () => {
     });
   });
 
+  it("titles the page by the front matter's title", async () => {
+    mockDocGetState.mockReturnValueOnce({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+    });
+    await exportHtml("my-doc");
+    expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
+    expect(writtenExport()?.path).toBe("/home/user/my-doc.html");
+  });
+
   it("never writes through write_markdown_file, which follows a symbolic link", async () => {
     // write_file_bytes refuses a link (src-tauri/src/export.rs); the save
     // command writes into the file a link points to.
@@ -1508,6 +1519,19 @@ describe("exportWithProfile", () => {
     );
   });
 
+  it("titles a profile export by the front matter's title, else the file's", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    mockDocGetState.mockReturnValueOnce({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+    });
+    await exportWithProfile("notion-html", "my-doc");
+    expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
+    await exportWithProfile("email-html", "my-doc");
+    expect(writtenExport()?.text).toContain("<title>my-doc</title>");
+  });
+
   it("written content contains profile-specific CSS marker for notion-html", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     await exportWithProfile("notion-html", "Check");
@@ -1961,6 +1985,38 @@ describe("exportEpub", () => {
     expect(options.css).toBeTruthy();
     expect(Array.isArray(chapters)).toBe(true);
     expect(chapters.length).toBeGreaterThan(0);
+  });
+
+  it("names the book by the front matter's title and author", async () => {
+    // It used to be the file name and `author: ""`.
+    document.body.innerHTML = "";
+    setupEpubDom();
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+    mockDocGetState.mockReturnValue({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+    });
+    try {
+      const { exportEpub: fresh } = await import("./export");
+      await fresh("my-doc");
+      expect(epubFn.mock.calls[0][0]).toMatchObject({
+        title: "Field Notes",
+        author: "Ada Lovelace, Grace Hopper",
+      });
+      // The suggested file name stays the file's.
+      expect(saveMock).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultPath: "my-doc.epub" }),
+      );
+    } finally {
+      mockDocGetState.mockReset();
+      mockDocGetState.mockImplementation(() => ({
+        path: "/vault/my-doc.md",
+        fileName: "my-doc.md",
+        content: "# Hello\n\nWorld.",
+      }));
+    }
   });
 
   it("generates chapters from H1 headings via buildEpubChapters", async () => {

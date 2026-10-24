@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  frontmatterText,
   inLineBreaks,
   joinFrontmatter,
   splitFrontmatter,
@@ -148,5 +149,37 @@ describe("a byte order mark", () => {
     ]);
     const item = markdownLines("\uFEFF- [ ] task\n")[0];
     expect(listItem(item)).toEqual({ ordered: false, text: "[ ] task" });
+  });
+});
+
+describe("frontmatterText", () => {
+  it("reads a plain, quoted or commented scalar at the top level", () => {
+    const doc =
+      '---\r\ntitle: "Field Notes: Spring"\r\nauthor: Ada Lovelace # me\r\nsub: \'it\'\'s\'\r\n---\r\n# Body';
+    expect(frontmatterText(doc, "title")).toBe("Field Notes: Spring");
+    expect(frontmatterText(doc, "author")).toBe("Ada Lovelace");
+    expect(frontmatterText(doc, "sub")).toBe("it's");
+    expect(frontmatterText(doc, "missing")).toBeNull();
+  });
+
+  it("joins a flow or block list with commas", () => {
+    expect(frontmatterText("---\nauthor: [Ada, 'Grace Hopper']\n---\n", "author")).toBe(
+      "Ada, Grace Hopper",
+    );
+    expect(frontmatterText("---\nauthor:\n  - Ada\n  - Grace\ntitle: T\n---\n", "author")).toBe(
+      "Ada, Grace",
+    );
+  });
+
+  it("is null without front matter, for nested keys, mappings and block scalars", () => {
+    expect(frontmatterText("# title: no\n", "title")).toBeNull();
+    expect(frontmatterText("---\nmeta:\n  title: nested\n---\n", "title")).toBeNull();
+    expect(frontmatterText("---\nauthor:\n  name: Ada\n---\n", "author")).toBeNull();
+    expect(frontmatterText("---\ntitle: |\n  Long\n---\n", "title")).toBeNull();
+    expect(frontmatterText("---\ntitle:\n---\n", "title")).toBeNull();
+    // A body line after the block is not front matter.
+    expect(frontmatterText("---\na: 1\n---\ntitle: body\n", "title")).toBeNull();
+    // A byte order mark before the block, as Notepad saves one.
+    expect(frontmatterText("\uFEFF---\ntitle: BOM\n---\n", "title")).toBe("BOM");
   });
 });
