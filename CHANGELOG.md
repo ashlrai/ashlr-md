@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A checkbox after a nested empty item is a task.** In `10. 1.<tab>-`, then a
+  line holding `[x] t` in the `1.` item (or `- -`, then `  [ ] t`), the page
+  shows a checkbox, since remark-gfm reads the line after a marker with nothing
+  after it as first content also when the line leaves that item for an item it
+  is in. `get_user_annotations`, the `/annotations` endpoint, the checkbox
+  toggle and the task counts read it as text. They now read it as a task, and
+  still read text where the line leaves the item for a blockquote. Checked
+  against the renderer on generated documents.
 - **Task counts follow the page's task rule.** The doc-kind badge, the status
   bar's task count, the classifier's checklist signal, a spec's acceptance
   criteria and a runbook's prerequisites matched `- [ ]` on raw lines, so a

@@ -87,8 +87,9 @@ pub fn line_text(content: &str) -> impl Iterator<Item = Option<(Cow<'_, str>, bo
 /// For each line of `content`, as [`markdown_lines`] yields them, the text
 /// of a text line that is the first content of a list item ([`line_text`])
 /// and not indented code: it opens the item (`- a`, `> - a`, `1. a`), or
-/// follows a line that opened one with only its marker (`-`, then `  a`).
-/// With it, whether the line goes on with the paragraph of the line
+/// follows a line that opened one with only its marker (`-`, then `  a`),
+/// in that item or in a list item it is in (`- -`, then `  a`), as
+/// micromark reads it. With it, whether the line goes on with the paragraph of the line
 /// before, lazily (`- a`, then `b`) or in its containers, and whether it
 /// is a setext heading underline, which makes that paragraph a heading.
 /// Where a GFM task checkbox can be, as the renderer reads it
@@ -280,11 +281,14 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                     let closed = (matched < open.len() || closer) && !opened;
                     // Only a marker with nothing after it, not even a
                     // space, has its first content on the next line, at
-                    // its content column.
+                    // its content column. The renderer reads that line's
+                    // paragraph as first content also when the line leaves
+                    // the bare item for an item it is in (`- -`, then
+                    // `  [ ] t`), but not for a blockquote.
                     let after_bare = bare
                         && tight
                         && !opened
-                        && matched == open.len()
+                        && matches!(list.last(), Some(Container::Item(_)))
                         && spaces_before(rest) == 0;
                     open = list.clone();
                     bare = opened && empty && list.last() != Some(&Container::Quote);
