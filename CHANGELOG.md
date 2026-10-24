@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Clicking a task checkbox in the read view toggles it again.** The checkbox
+  input that remark-rehype creates has no source position (rehype-raw keeps
+  none), so the checkbox read line 0 and every click was a no-op. A rehype step
+  after the sanitizer now gives each task checkbox the line of its `[ ]` from
+  its list item's position, so a click checks or unchecks that task in the
+  document and saves it, after front matter, in nested and loose lists, in
+  blockquotes and callouts, and on a bare item's next line. A checkbox in an
+  embedded note (`![[Note]]`) is read-only, since its lines are not the open
+  document's, and a checkbox written as raw HTML toggles nothing.
 - **Task toggles follow the page's task rule.** The app's checkbox write-back
   matched `- [ ]` with its own pattern, so a task in a blockquote
   (`> - [ ] t`), after a `1)` marker or on a bare item's next line (`-`, then

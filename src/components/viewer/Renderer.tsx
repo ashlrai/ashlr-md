@@ -11,6 +11,7 @@ import { useUiStore } from "../../store/uiStore";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
 import type { OtOperation } from "../../lib/ot";
+import { rehypeTaskLines } from "../../lib/rehype-task-lines";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
@@ -30,7 +31,7 @@ import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
 import { MermaidBlock } from "./MermaidBlock";
 import { ReviewSummaryCard } from "./ReviewSummaryCard";
-import { TaskCheckbox } from "./TaskCheckbox";
+import { TaskCheckbox, TaskSourceContext } from "./TaskCheckbox";
 import { WikiEmbed } from "./WikiEmbed";
 import { Wikilink } from "./Wikilink";
 
@@ -356,31 +357,35 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
         )
       )}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
-      <ReactMarkdown
-        remarkPlugins={[
-          remarkFrontmatter,
-          remarkGfm,
-          // Obsidian text syntax: strip %%comments%% first, then ==highlights==,
-          // before wikilinks/math claim their delimiters.
-          remarkComments,
-          remarkHighlights,
-          remarkWikilinks,
-          remarkMath,
-          remarkCallouts,
-        ]}
-        // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
-        // (its trusted styled output bypasses the sanitizer), then headings get
-        // slug ids. See SANITIZE_SCHEMA for the rationale.
-        rehypePlugins={[
-          rehypeRaw,
-          [rehypeSanitize, SANITIZE_SCHEMA],
-          rehypeKatex,
-          rehypeSlug,
-        ]}
-        components={components}
-      >
-        {content}
-      </ReactMarkdown>
+      <TaskSourceContext.Provider value={content}>
+        <ReactMarkdown
+          remarkPlugins={[
+            remarkFrontmatter,
+            remarkGfm,
+            // Obsidian text syntax: strip %%comments%% first, then ==highlights==,
+            // before wikilinks/math claim their delimiters.
+            remarkComments,
+            remarkHighlights,
+            remarkWikilinks,
+            remarkMath,
+            remarkCallouts,
+          ]}
+          // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
+          // (its trusted styled output bypasses the sanitizer), then headings get
+          // slug ids. See SANITIZE_SCHEMA for the rationale. Task checkboxes
+          // get their source line after the sanitizer, so raw HTML cannot set it.
+          rehypePlugins={[
+            rehypeRaw,
+            [rehypeSanitize, SANITIZE_SCHEMA],
+            rehypeTaskLines,
+            rehypeKatex,
+            rehypeSlug,
+          ]}
+          components={components}
+        >
+          {content}
+        </ReactMarkdown>
+      </TaskSourceContext.Provider>
     </div>
   );
 });
