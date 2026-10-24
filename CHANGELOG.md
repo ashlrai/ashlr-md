@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A big cross-file search no longer freezes the window.** `search_files` was
+  a sync command, which Tauri runs on the main thread, so typing, scrolling and
+  the spinner stopped until a search over a large folder finished. It now runs
+  on a background thread.
 - **A wikilink to a note with a dot in its name resolves.** `[[v1.2 plan]]`
   or `[[2024.01.05]]` was taken to name a file with the extension `2 plan`
   or `05`, so it was looked up as a file of that full name and showed as a
