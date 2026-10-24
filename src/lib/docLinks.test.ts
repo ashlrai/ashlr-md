@@ -284,6 +284,23 @@ describe("the read view follows links and shows local images", () => {
     ).toMatch(/No note named “Gone”/);
   });
 
+  it("scrolls to a heading of this document from [[#Heading]]", async () => {
+    await render("Go to [[#My Heading]] or [[#Nowhere]].\n\n# My Heading\n");
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>("button.wikilink")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["My Heading", "Nowhere"]);
+    act(() => buttons[0].click());
+    expect(scrolled).toEqual(["my-heading"]);
+    act(() => buttons[1].click());
+    expect(scrolled).toEqual(["my-heading"]);
+    expect(
+      useToastStore
+        .getState()
+        .toasts.map((t) => t.message)
+        .join(),
+    ).toMatch(/No heading or block “Nowhere”/);
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
   it("shows a relative image through Rust, and says when one is missing", async () => {
     await render("![pic](assets/my%20pic.png) ![gone](missing.png)\n");
     const img = host.querySelector("img");

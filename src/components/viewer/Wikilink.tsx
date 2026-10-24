@@ -8,7 +8,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { linkOpenError, scrollToFragment, wikilinkFragment } from "../../lib/docLinks";
+import {
+  anchorElement,
+  linkOpenError,
+  scrollToFragment,
+  wikilinkFragment,
+} from "../../lib/docLinks";
+import { smoothScrollBehavior } from "../../lib/motion";
 import { splitFragment } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
@@ -21,6 +27,43 @@ interface WikilinkProps {
 }
 
 export function Wikilink({ target, alias }: WikilinkProps) {
+  // `[[#Heading]]`: a heading or block of the document holding the link.
+  if (splitFragment(target).file.trim() === "") {
+    return <HereLink target={target} alias={alias} />;
+  }
+  return <NoteLink target={target} alias={alias} />;
+}
+
+/**
+ * A wikilink to a heading or block of its own document (`[[#Setup]]`,
+ * `[[#^block]]`): a click scrolls there, in the rendered document (or embed)
+ * that holds the link. Such a link was not recognised at all and showed as
+ * the text `[[#Setup]]`.
+ */
+function HereLink({ target, alias }: WikilinkProps) {
+  const fragment = wikilinkFragment(splitFragment(target).fragment) ?? "";
+  const label = alias ?? target;
+  return (
+    <button
+      type="button"
+      className="wikilink"
+      onClick={(e) => {
+        const root = e.currentTarget.closest(".markdown-body") ?? document;
+        const el = anchorElement(fragment, root);
+        if (!el) {
+          toast.info(`No heading or block “${fragment}” in this document.`);
+          return;
+        }
+        el.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
+      }}
+      title={target}
+    >
+      {label}
+    </button>
+  );
+}
+
+function NoteLink({ target, alias }: WikilinkProps) {
   // undefined = resolving, null = broken, string = resolved path.
   const [resolved, setResolved] = useState<string | null | undefined>(undefined);
   // The heading or block to scroll to, decoded and as the page names it.

@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`[[#Heading]]` links to a heading of the same note.** A wikilink with no
+  note name before the `#` (Obsidian's link to a heading or `^block` of the
+  same note) was not recognised and showed as the text `[[#Heading]]`. It is
+  now a link, shown as the heading's name, and a click scrolls to it; when
+  the note has no such heading a toast says so.
 - **The outline and `#heading` links go to the document's own heading.** An
   embedded note (`![[other]]`) is rendered with its own heading ids, so a
   heading it shares with the document ("Setup", "Notes") had its id twice,

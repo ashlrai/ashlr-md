@@ -5,6 +5,7 @@
  *   [[target]]            → internal link (rendered by Wikilink.tsx)
  *   [[target|alias]]      → internal link with display text
  *   [[target#heading]]    → link carrying a heading fragment
+ *   [[#heading]]          → link to a heading (or `^block`) of this document
  *   ![[target]]           → transclusion / embed (rendered by WikiEmbed.tsx)
  *
  * Modeled on remark-callouts: it rewrites text nodes into custom inline nodes
@@ -20,7 +21,9 @@ import { visit } from "unist-util-visit";
 // paragraph's text node holds its soft line breaks, so an unclosed `[[`
 // used to pair with a `]]` lines later; Obsidian and mdopener-mcp's
 // `export_metadata` end a link on its own line.
-const WIKILINK_RE = /(!)?\[\[([^\]|#\r\n]+)(?:#([^\]|\r\n]+))?(?:\|([^\]\r\n]+))?\]\]/g;
+// The target may be empty before a heading: `[[#Heading]]` and `[[#^block]]`
+// link to this document (an embed of one is left as text).
+const WIKILINK_RE = /(!)?\[\[([^\]|#\r\n]*)(?:#([^\]|\r\n]+))?(?:\|([^\]\r\n]+))?\]\]/g;
 
 export function remarkWikilinks() {
   return (tree: Root) => {
@@ -49,11 +52,19 @@ export function remarkWikilinks() {
       while (m !== null) {
         const [full, bang, target, heading, alias] = m;
         const start = m.index;
+        // `[[]]`, `[[|x]]` and `![[#Heading]]` name no note: left as text.
+        if (target.trim() === "" && (bang === "!" || !heading)) {
+          m = WIKILINK_RE.exec(node.value);
+          continue;
+        }
         if (start > last) {
           replacement.push({ type: "text", value: node.value.slice(last, start) });
         }
         const fullTarget = heading ? `${target}#${heading}` : target;
-        const label = alias ?? (heading ? `${target} › ${heading}` : target);
+        // A link into this document shows the heading alone, as Obsidian does.
+        const label =
+          alias ??
+          (heading ? (target.trim() ? `${target} › ${heading}` : heading) : target);
 
         if (bang === "!") {
           // For embeds the `|alias` slot is Obsidian's size hint (e.g.
