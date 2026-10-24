@@ -11,6 +11,8 @@
 //! ```` ``` ```` or `~~~`, so a ```` ```` ```` block holding ```` ``` ````
 //! ended early and a `~~~` line closed a backtick block.
 
+use std::borrow::Cow;
+
 /// What a line of a Markdown text is, from [`markdown_lines`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineKind {
@@ -50,9 +52,26 @@ pub enum LineKind {
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
+    scan(content).map(|(kind, line, _)| (kind, line))
+}
+
+/// For each line of `content`, as [`markdown_lines`] yields them, the code
+/// of a [`LineKind::Code`] line: the line without the blockquote markers
+/// and list item indentation its fence sits in, and without up to as many
+/// spaces as the fence is indented, as CommonMark reads fenced code. None
+/// for any other line.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
+pub fn fenced_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
+    scan(content).map(|(_, _, code)| code)
+}
+
+/// [`markdown_lines`], with each code line's code ([`fenced_code`]).
+fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, str>>)> {
     let front_matter = front_matter_len(content);
-    // The open fence, with the containers its code lines stay in.
-    let mut fence: Option<(char, usize, Vec<Container>)> = None;
+    // The open fence (its character, its length and how far it is
+    // indented), with the containers its code lines stay in.
+    let mut fence: Option<(char, usize, usize, Vec<Container>)> = None;
     // The widths of the open list items, outermost first.
     let mut items: Vec<usize> = Vec::new();
     // How many open items hold the paragraph the line before is in (-1 for
@@ -67,16 +86,17 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
     let mut closer = false;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
-            return (LineKind::FrontMatter, line);
+            return (LineKind::FrontMatter, line, None);
         }
         let expanded = expand_tabs(line);
         let mut ends_bare = false;
         let quoted;
         let mut kind = LineKind::Text;
+        let mut code = None;
         let inside = fence
             .as_ref()
-            .and_then(|(_, _, list)| continues(&expanded, list));
-        if let (Some((c, n, list)), Some(inside)) = (&fence, inside) {
+            .and_then(|(_, _, _, list)| continues(&expanded, list));
+        if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
             quoted = list.contains(&Container::Quote);
             kind = match code_fence(inside) {
                 Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
@@ -86,6 +106,13 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
             };
             if kind == LineKind::Fence {
                 fence = None;
+            } else {
+                let text = &inside[spaces_before(inside).min(*indent)..];
+                code = Some(match &expanded {
+                    // `text` ends `line`, which has no tab to expand.
+                    Cow::Borrowed(_) => Cow::Borrowed(&line[line.len() - text.len()..]),
+                    Cow::Owned(_) => Cow::Owned(text.to_string()),
+                });
             }
         } else {
             fence = None;
@@ -95,7 +122,7 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
             let opened = list.len() > matched;
             if let Some((c, n, _)) = code_fence(rest) {
                 items = leading_items(&list);
-                fence = Some((c, n, list));
+                fence = Some((c, n, spaces_before(rest), list));
                 kind = LineKind::Fence;
                 paragraph = None;
                 indented = None;
@@ -144,7 +171,7 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
             }
         }
         closer = ends_bare || quoted;
-        (kind, line)
+        (kind, line, code)
     })
 }
 
@@ -159,9 +186,9 @@ enum Container {
 
 /// `line` with each tab replaced by the spaces that reach the next multiple
 /// of four columns, as CommonMark reads indentation.
-fn expand_tabs(line: &str) -> std::borrow::Cow<'_, str> {
+fn expand_tabs(line: &str) -> Cow<'_, str> {
     if !line.contains('\t') {
-        return std::borrow::Cow::Borrowed(line);
+        return Cow::Borrowed(line);
     }
     let mut out = String::with_capacity(line.len() + 8);
     let mut column = 0;
@@ -175,7 +202,7 @@ fn expand_tabs(line: &str) -> std::borrow::Cow<'_, str> {
             column += 1;
         }
     }
-    std::borrow::Cow::Owned(out)
+    Cow::Owned(out)
 }
 
 /// How many spaces `line` (tabs expanded) starts with.
@@ -325,27 +352,6 @@ fn leading_items(list: &[Container]) -> Vec<usize> {
             Container::Quote => None,
         })
         .collect()
-}
-
-/// `line` without up to `max` leading blockquote markers (at most three
-/// spaces, `>`, then one optional space or tab), and how many it lost.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
-pub fn strip_quote_markers(line: &str, max: usize) -> (usize, &str) {
-    let mut rest = line;
-    let mut markers = 0;
-    while markers < max {
-        let body = rest.trim_start_matches(' ');
-        if rest.len() - body.len() > 3 {
-            break;
-        }
-        let Some(after) = body.strip_prefix('>') else {
-            break;
-        };
-        rest = after.strip_prefix([' ', '\t']).unwrap_or(after);
-        markers += 1;
-    }
-    (markers, rest)
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a

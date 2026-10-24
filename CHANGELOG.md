@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` strips a list item's indentation from its code.** Code
+  from a fence in a list item kept the item's indentation in the plain
+  text agents read, while code in a blockquote lost its `>` markers. Both
+  now read as CommonMark renders them: the item's indentation and the
+  fence's own indentation are taken off, deeper indentation is kept.
 - **More fences in list items are read as code.** A fence on a list
   item's continuation line (`- a`, a blank line, then the fence indented
   to the item's text), in an item indented four spaces or more under its

@@ -8101,6 +8101,30 @@ fn a_fence_in_an_item_continuation_nested_item_or_item_quote_is_a_fence() {
     );
 }
 
+/// export_text kept a list item's indentation on the code of a fence in
+/// the item, while quoted code lost its `>` markers. Fenced code now loses
+/// its containers' markers and indentation and up to as many spaces as its
+/// fence is indented, as CommonMark reads it, and keeps deeper indentation.
+#[test]
+fn export_text_strips_a_list_items_indentation_from_its_code() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        (
+            "- ```sh\n  # comment\n\n    nested\n  ```\n",
+            "# comment\n\n  nested",
+        ),
+        ("1. - ~~~\n     code\n", "code"),
+        ("- a\n\n  ```\n  code\n  ```\n", "a\n\ncode"),
+        ("-\t```\n    code\n", "code"),
+        ("- > ```\n  > code\n  > ```\n", "code"),
+        ("> ```\n> code\n> ```\n", "code"),
+        ("  ```\n   code\n  ```\n", " code"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc).trim_end(), want, "{doc:?}");
+    }
+}
+
 /// A fence inside a blockquote was text, so a `[[link]]` in quoted code
 /// was a link and export_text read a quoted `# comment` as a heading. A
 /// quoted fence is now a fence; its block ends at its closing fence or at a
