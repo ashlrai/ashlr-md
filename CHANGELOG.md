@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited list keeps its markers and numbering.** Typing in a list in the
+  WYSIWYG view wrote it Milkdown's way: `-` and `+` bullets became `*`, `1)`
+  became `1.`, and a list numbered `1.` `1.` `1.` was renumbered `1.` `2.`
+  `3.`. An edited block is now written in the style its source used, so the
+  list keeps its marker, its delimiter and its numbering.
 - **An edit before a last list, table or rule leaves that block alone.** On
   the first edit the WYSIWYG editor adds an empty paragraph after a last
   block that is not a paragraph, so every edit looked like a change at the

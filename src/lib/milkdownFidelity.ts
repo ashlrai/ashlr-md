@@ -20,10 +20,15 @@
  * reference definition in the replaced range is kept. When the source cannot
  * be mapped (block counts differ), the serializer's whole output is used, as
  * before.
+ *
+ * A block that is edited (one top-level block for one, as typing does) is
+ * written in the style its source used where the serializer has a choice
+ * ({@link blockStyle}): a `-` or `+` bullet list keeps its marker, an
+ * ordered list its `)` and its numbering (`1.` `1.` `1.` stays so).
  */
 
 import type { Crepe } from "@milkdown/crepe";
-import { editorViewCtx, remarkCtx, serializerCtx } from "@milkdown/kit/core";
+import { editorViewCtx, remarkCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
 import type { Ctx } from "@milkdown/kit/ctx";
 import { bulletListSchema, listItemSchema } from "@milkdown/kit/preset/commonmark";
 import {
@@ -32,6 +37,7 @@ import {
   tableHeaderSchema,
 } from "@milkdown/kit/preset/gfm";
 import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
+import { type MarkdownNode, SerializerState } from "@milkdown/kit/transformer";
 
 /** A source range `[start, end)` in the original body. */
 export interface BlockRange {
@@ -44,6 +50,8 @@ export interface MdNode {
   type: string;
   position?: { start: { offset?: number }; end: { offset?: number } };
   children?: MdNode[];
+  /** A list's. */
+  ordered?: boolean | null;
 }
 
 /** The parts of a ProseMirror node this module reads. */
@@ -69,38 +77,96 @@ function range(n: MdNode): BlockRange | null {
  * last empty paragraph the editor adds after a final non-paragraph block is
  * mapped to the end of the last block.
  */
-export function sourceRanges(
-  tree: MdNode,
-  pmCount: number,
-): { blocks: BlockRange[]; definitions: BlockRange[] } | null {
+export function sourceRanges(tree: MdNode, pmCount: number): SourceMap | null {
   const blocks: BlockRange[] = [];
+  const nodes: MdNode[] = [];
   const definitions: BlockRange[] = [];
   for (const child of tree.children ?? []) {
     const r = range(child);
     if (!r) return null;
     if (child.type === "definition") definitions.push(r);
-    else blocks.push(r);
+    else {
+      blocks.push(r);
+      nodes.push(child);
+    }
   }
   if (blocks.length === 0) return null;
-  if (blocks.length === pmCount) return { blocks, definitions };
+  if (blocks.length === pmCount) return { blocks, definitions, nodes };
   if (blocks.length + 1 === pmCount) {
     const end = blocks[blocks.length - 1].end;
-    return { blocks: [...blocks, { start: end, end }], definitions };
+    return { blocks: [...blocks, { start: end, end }], definitions, nodes };
   }
   return null;
+}
+
+/** {@link sourceRanges}: where each top-level node's Markdown is. */
+export interface SourceMap {
+  /** Each top-level node's source range. */
+  blocks: BlockRange[];
+  /** The link reference definitions'. */
+  definitions: BlockRange[];
+  /** The remark node each range is (none for one the editor added). */
+  nodes?: MdNode[];
+}
+
+/**
+ * How a block's source spells what the serializer has a choice about, as
+ * remark-stringify settings: a bullet list's marker (`-`, `+` or `*`), an
+ * ordered list's delimiter (`.` or `)`) and whether its numbers count up
+ * (`1.` `2.` `3.`) or repeat (`1.` `1.` `1.`). An edited block written with
+ * these keeps its look; Milkdown wrote every bullet `*`, every ordered list
+ * `1.` `2.` `3.`.
+ */
+export function blockStyle(original: string, node: MdNode): Record<string, unknown> {
+  const style: Record<string, unknown> = {};
+  const r = range(node);
+  if (!r) return style;
+  if (node.type === "list") {
+    const items = (node.children ?? [])
+      .map((item) => range(item))
+      .filter((x): x is BlockRange => x !== null)
+      .map((x) => original.slice(x.start, x.end));
+    if (node.ordered) {
+      const marks = items
+        .map((text) => /^(\d{1,9})([.)])/.exec(text))
+        .filter((x): x is RegExpExecArray => x !== null);
+      if (marks.length > 0) {
+        style.bulletOrdered = marks[0][2];
+        if (marks.length > 1 && marks.every((x) => x[1] === marks[0][1])) {
+          style.incrementListMarker = false;
+        }
+      }
+    } else {
+      const bullet = items[0]?.charAt(0);
+      if (bullet === "-" || bullet === "+" || bullet === "*") {
+        style.bullet = bullet;
+        // A list right after another one is written with the other marker,
+        // so the two stay apart; any other than this one will do.
+        style.bulletOther = bullet === "-" ? "*" : "-";
+      }
+    }
+  }
+  return style;
 }
 
 export interface SpliceInput {
   /** The body as it was loaded. */
   original: string;
   /** {@link sourceRanges} of `original` for `initial`. */
-  map: { blocks: BlockRange[]; definitions: BlockRange[] };
+  map: SourceMap;
   /** The editor's tree as loaded. */
   initial: PmNode;
   /** The editor's tree now. */
   current: PmNode;
   /** Serialize top-level nodes `[from, to)` of `current` (no trailing newline needed). */
   serializeRange: (from: number, to: number) => string;
+  /**
+   * Serialize top-level node `index` of `current`, which stands where node
+   * `index` of `initial` stood, in that block's style. Used when the
+   * changed run holds as many blocks as it replaced (an edit inside them);
+   * without it the run is written by `serializeRange`.
+   */
+  serializeBlock?: (index: number) => string;
 }
 
 /**
@@ -157,7 +223,9 @@ export function spliceEdited(input: SpliceInput): string {
           )
           .map((d) => original.slice(d.start, d.end))
       : [];
-  const middle = input.serializeRange(k, c - m).replace(/\n+$/, "");
+  const middle =
+    pairedRun(input, k, replacedTo, c - m) ??
+    input.serializeRange(k, c - m).replace(/\n+$/, "");
   const parts = [middle, ...kept].filter((p) => p !== "");
   // The gap before the run (after the kept head) and after it (before the
   // kept tail), as in the original where there was one there.
@@ -192,6 +260,31 @@ function addedTrailingParagraph(initial: PmNode, current: PmNode): boolean {
 }
 
 /**
+ * The changed run `[k, to)` of `initial`, edited in place into `[k, cto)` of
+ * `current` with as many blocks: each block written in its own style
+ * (`serializeBlock`), with the original text between them. Null when the
+ * run's length changed, or a block writes as nothing.
+ */
+function pairedRun(
+  input: SpliceInput,
+  k: number,
+  to: number,
+  cto: number,
+): string | null {
+  const { serializeBlock, original, map } = input;
+  if (!serializeBlock || to - k !== cto - k || to <= k) return null;
+  let out = "";
+  for (let i = k; i < to; i++) {
+    const text = serializeBlock(i).replace(/\n+$/, "");
+    if (text === "") return null;
+    if (i > k)
+      out += separating(original.slice(map.blocks[i - 1].end, map.blocks[i].start));
+    out += text;
+  }
+  return out;
+}
+
+/**
  * `gap` (original text between two blocks) when it still separates the
  * blocks either side, whatever they now are: it holds a blank line and ends
  * with a line break. Otherwise a blank line.
@@ -220,6 +313,7 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
   }
   if (!map) return (written) => written;
   const blocks = map;
+  const styled = styledSerializer(ctx, original);
   return (written) => {
     try {
       const current = ctx.get(editorViewCtx).state.doc;
@@ -234,10 +328,52 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
           for (let i = from; i < to; i++) nodes.push(current.child(i));
           return nodes.length ? serializer(current.copy(Fragment.from(nodes))) : "";
         },
+        serializeBlock: (index) => {
+          const node = current.copy(Fragment.from(current.child(index)));
+          const source = blocks.nodes?.[index];
+          return source ? styled(node, source) : serializer(node);
+        },
       });
     } catch {
       return written;
     }
+  };
+}
+
+/** The editor's remark processor: callable for a copy, as unified's are. */
+interface Processor {
+  (): Processor;
+  data(key: string): unknown;
+  data(key: string, value: unknown): Processor;
+  stringify(tree: unknown): string;
+}
+
+/**
+ * Write a one-block doc the way the editor's serializer does, but in the
+ * style of `source` (its block in `original`, see {@link blockStyle}).
+ * The settings go in a copy of the editor's remark processor (its
+ * `settings` data, which remark-stringify reads under the options it was
+ * given), one per style.
+ */
+function styledSerializer(
+  ctx: Ctx,
+  original: string,
+): (doc: ProseNode, source: MdNode) => string {
+  const copies = new Map<string, Processor>();
+  return (doc, source) => {
+    const style = blockStyle(original, source);
+    const key = JSON.stringify(style);
+    let processor = copies.get(key);
+    if (!processor) {
+      const remark = ctx.get(remarkCtx) as unknown as Processor;
+      const settings = (remark.data("settings") ?? {}) as Record<string, unknown>;
+      processor = remark().data("settings", { ...settings, ...style });
+      copies.set(key, processor);
+    }
+    const state = new SerializerState(ctx.get(schemaCtx));
+    state.run(doc);
+    const tree: MarkdownNode = state.build();
+    return processor.stringify(tree);
   };
 }
 

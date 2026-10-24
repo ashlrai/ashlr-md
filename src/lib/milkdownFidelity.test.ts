@@ -36,8 +36,10 @@ import {
 } from "./frontmatter";
 import {
   type BlockRange,
+  blockStyle,
   keepSourceOnSave,
   listSpread,
+  type MdNode,
   type PmNode,
   sourceRanges,
   spliceEdited,
@@ -48,6 +50,20 @@ const fixtures = import.meta.glob<string>("./__fixtures__/roundtrip/*.md", {
   import: "default",
   eager: true,
 });
+
+/**
+ * Fixtures for an edit inside a block: each has the word EDIT in every
+ * block under test, and an X is typed after each one. Only those blocks
+ * change, and each keeps the way its source spelled it.
+ */
+const editedFixtures = import.meta.glob<string>(
+  "./__fixtures__/roundtrip/edited/*.md",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+);
 
 const editors: Crepe[] = [];
 
@@ -93,6 +109,25 @@ function typeInto(crepe: Crepe, needle: string, offset: number, text: string) {
   });
 }
 
+/** Type `text` right after the `nth` (from 0) occurrence of `needle` in the doc's text. */
+function typeAfterNth(crepe: Crepe, needle: string, nth: number, text: string) {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const found: number[] = [];
+    view.state.doc.descendants((n, p) => {
+      if (!n.isText || !n.text) return;
+      let at = n.text.indexOf(needle);
+      while (at !== -1) {
+        found.push(p + at + needle.length);
+        at = n.text.indexOf(needle, at + 1);
+      }
+    });
+    const pos = found[nth];
+    if (pos === undefined) throw new Error(`no ${nth}th "${needle}"`);
+    view.dispatch(view.state.tr.insertText(text, pos, pos));
+  });
+}
+
 /** Wait for the listener's debounced markdownUpdated. */
 const settle = () => new Promise((r) => setTimeout(r, 300));
 
@@ -107,6 +142,23 @@ describe("WYSIWYG round trip: one edit elsewhere keeps the rest byte for byte", 
       typeInto(ed.crepe, "Edit me here.", "Edit me ".length, "X");
       await settle();
       expect(ed.saved()).toBe(raw.replace("Edit me here.", "Edit me Xhere."));
+    });
+  }
+});
+
+describe("WYSIWYG round trip: an edit inside a block keeps its spelling", () => {
+  for (const [file, raw] of Object.entries(editedFixtures)) {
+    const name = file.split("/").pop();
+    it(`${name}`, async () => {
+      const ed = await open(raw);
+      await settle();
+      // Opening changes nothing (a report of the text as it is, at most).
+      expect(ed.saved() ?? raw).toBe(raw);
+      // Type from the last EDIT back, so the earlier positions stay put.
+      const count = raw.split("EDIT").length - 1;
+      for (let i = count - 1; i >= 0; i--) typeAfterNth(ed.crepe, "EDIT", i, "X");
+      await settle();
+      expect(ed.saved()).toBe(raw.replaceAll("EDIT", "EDITX"));
     });
   }
 });
@@ -241,7 +293,7 @@ describe("sourceRanges / spliceEdited", () => {
       ["definition", 5, 9],
       ["paragraph", 11, 14],
     ]);
-    expect(sourceRanges(tree, 2)).toEqual({
+    expect(sourceRanges(tree, 2)).toMatchObject({
       blocks: [
         { start: 0, end: 3 },
         { start: 11, end: 14 },
@@ -282,6 +334,36 @@ describe("sourceRanges / spliceEdited", () => {
         serializeRange: () => "never",
       }),
     ).toBe(original);
+  });
+
+  it("reads a block's style from its source", () => {
+    const list = (src: string, ordered: boolean) => {
+      const items: MdNode[] = [];
+      let at = 0;
+      for (const line of src.split("\n")) {
+        items.push({
+          type: "listItem",
+          position: { start: { offset: at }, end: { offset: at + line.length } },
+        });
+        at += line.length + 1;
+      }
+      return {
+        type: "list",
+        ordered,
+        position: { start: { offset: 0 }, end: { offset: src.length } },
+        children: items,
+      };
+    };
+    const style = (src: string, ordered = false) => blockStyle(src, list(src, ordered));
+    expect(style("- a\n- b")).toMatchObject({ bullet: "-" });
+    expect(style("+ a\n+ b")).toMatchObject({ bullet: "+" });
+    expect(style("1. a\n1. b", true)).toEqual({
+      bulletOrdered: ".",
+      incrementListMarker: false,
+    });
+    expect(style("1) a\n2) b", true)).toEqual({ bulletOrdered: ")" });
+    expect(style("7. only", true)).toEqual({ bulletOrdered: "." });
+    expect(blockStyle("Para.", { type: "paragraph" })).toEqual({});
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {
