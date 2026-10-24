@@ -128,6 +128,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Restoring a session: at most 20 tabs, Recents untouched, gone files
+  named.** A session of hundreds of tabs reopened every one, and each
+  reopened tab was pushed to the top of Recents, so Recents ended up in tab
+  order. Now the first 20 tabs reopen (the active tab always among them, and
+  the message says how many stayed closed), and Recents keep their order. A
+  saved tab whose file was moved or deleted since was dropped without a
+  word; the launch message now names it. A failed existence check no longer
+  clears the saved session.
 - **Unreadable settings are kept, not overwritten.** Settings that were not
   readable JSON were replaced by the defaults on the next change, without a
   word. A copy is now kept first (`mdopener-settings.bak` in the app's

@@ -8,7 +8,7 @@ import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { restoreSession } from "./lib/session";
+import { restoreSession, sessionRestoreMessage } from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
   restoreBuffers,
@@ -69,18 +69,18 @@ export default function App() {
         // Open every queued file (openPath dedupes); the last stays active.
         await openOpenedFiles(pending, openPath);
       } else {
-        const n = await restoreSession();
-        if (n >= 1) {
-          toast.info(
-            `Reopened ${n} document${n > 1 ? "s" : ""} from your last session`,
-          );
+        const restored = await restoreSession();
+        const said = sessionRestoreMessage(restored);
+        if (said) {
+          if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
+          else toast.info(said);
         }
       }
       // Put back the unsaved text a crash or forced quit left, then keep
       // it from here on (see lib/unsavedBuffers.ts).
       const kept = await restoreBuffers(openPath);
-      const said = restoreMessage(kept);
-      if (said) toast[said.kind](said.text);
+      const keptNote = restoreMessage(kept);
+      if (keptNote) toast[keptNote.kind](keptNote.text);
       if (!gone) keeping = startKeepingBuffers();
       // Recents whose file was deleted or moved since are dropped, so the
       // Recent list and the agents' `list_recent` only offer real files.

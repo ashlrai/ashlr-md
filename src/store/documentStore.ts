@@ -168,7 +168,7 @@ interface DocumentState {
    * `null` once it is open, or to the reason a read failed (also set as
    * `error`, with the previous document left open).
    */
-  openPath: (path: string) => Promise<string | null>;
+  openPath: (path: string, opts?: OpenOptions) => Promise<string | null>;
   setContent: (content: string) => void;
   /**
    * Apply a remote OT operation atomically.
@@ -237,6 +237,15 @@ interface DocumentState {
   closeTab: (id: string) => void;
   nextTab: () => void;
   prevTab: () => void;
+}
+
+export interface OpenOptions {
+  /**
+   * Put the file at the top of Recents (default true). A session restore
+   * passes false: reopening the last session's tabs is not opening them
+   * anew, and it used to reorder Recents by tab order.
+   */
+  addRecent?: boolean;
 }
 
 export interface SaveOptions {
@@ -467,7 +476,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   showRemoteCursors: true,
   opLog: [],
 
-  openPath: async (path) => {
+  openPath: async (path, opts) => {
     // If this path is already open, just switch to it — no reload.
     const existing = get().tabs.find((t) => t.path === path);
     if (existing) {
@@ -515,7 +524,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         tabs: [...s.tabs, tab],
         activeId: id,
       }));
-      useRecentStore.getState().add(file.path, file.file_name, Date.now());
+      if (opts?.addRecent !== false) {
+        useRecentStore.getState().add(file.path, file.file_name, Date.now());
+      }
       // Begin watching for external changes; failure is non-fatal.
       invoke("watch_file", { path: file.path }).catch(() => {});
       return null;
