@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Outline leaves out a heading on a list item's continuation line.**
+  A heading indented to a list item's text after a blank line (`- x`, a
+  blank line, then `  # Sub`) or after a bare `-` is part of the item, and
+  the Outline already left out headings in list items. It was still
+  listed. It is now counted for the page's heading ids but not listed.
 - **The inline AI's Retry pause is one constant.** Both editors computed
   a doubling delay (500 ms times 2 to the retry count) for a Retry that is
   offered only once, so it was always 500 ms. They now share that 500 ms

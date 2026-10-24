@@ -373,7 +373,10 @@ function listItemColumns(line: string): number[] | null {
  *   it is at most three columns past the item's content column, and the
  *   renderer gives it an id, so it takes its slug the same way without
  *   being listed. It used to take none (it was read as indented code), so
- *   a later `# Sub` was `sub` here and `sub-1` in the page.
+ *   a later `# Sub` was `sub` here and `sub-1` in the page. One indented
+ *   zero to three columns past the item's content column (`- x`, a blank
+ *   line, then `  # Sub`, or `-` then `  # Sub`) is in the item too, so it
+ *   is not listed either. It used to be listed.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -411,7 +414,10 @@ export function parseHeadings(markdown: string): HeadingItem[] {
     if (h) {
       const text = stripInline(h.text);
       if (text === "") continue; // empty heading -> no anchor rendered
-      out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
+      const slug = slugger.slug(text);
+      // Indented to an open item's content column, it is in the item.
+      if (items.length > 0) continue;
+      out.push({ depth: h.depth, text, slug, line: l.line });
       continue;
     }
     const item = items[items.length - 1];

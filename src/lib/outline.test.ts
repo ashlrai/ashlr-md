@@ -213,6 +213,27 @@ describe("parseHeadings", () => {
       ["Code", "code", 10],
     ]);
   });
+  it("leaves out a heading on a list item's continuation line", () => {
+    // `  # Sub` after `- x` and a blank line, or after a bare `-`, is in
+    // the item, so it is counted for slugs but not listed. It used to be
+    // listed. One less indented than the item's text ends the list.
+    const doc = [
+      "- x",
+      "",
+      "  # Sub",
+      "-",
+      "  ## Bare",
+      "",
+      " # Out",
+      "# Sub",
+      "## Bare",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Out", "out", 7],
+      ["Sub", "sub-1", 8],
+      ["Bare", "bare-1", 9],
+    ]);
+  });
   it("reads a fence in a list item as a fence", () => {
     // A list-item fence used to be text, so `  # comment` in the item's
     // code was listed in the Outline. A less indented line ends it.
