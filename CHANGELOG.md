@@ -101,6 +101,34 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **`export_text` says how it keeps code.** Its description said code
+  block contents are kept as-is, though code in a blockquote or a list
+  item loses the `>` markers and indentation it sits in, and indented
+  code its four columns, so an agent could match the text against the
+  source with them. It now says what is taken off.
+- **Docs: `stream_edit` with `path` reads only the open path.** The
+  `docs/AGENTS.md` row said a `path` made it fetch the whole document to
+  compare, which it stopped doing when the app gained a path-only route,
+  so an agent could leave out the check on a large document. It now says
+  only the open document's path is asked for.
+- **`stream_edit` says its result has no diff without a preview.** With
+  `preview: false` the edit is applied at once and the result's `diff` is
+  empty and `candidates` null, but the description called `diff` the diff
+  of the first match in every case, so an agent could read the empty diff
+  as an edit that changed nothing. The description and docs now say so.
+- **`export_metadata`'s description says which headings it lists.** It
+  promised a "headings tree" of every ATX heading outside front matter and
+  fenced code, so an agent looked for nesting and for headings in quotes
+  and list items. It now says `headings` is a flat list in document order
+  that leaves out empty headings and those in blockquotes and list items,
+  and that images in fenced code and front matter are not counted.
+- **`export_text` keeps indented code in a list item as code.** A line
+  indented four columns past a list item's text (`- a`, a blank line, then
+  six spaces and `# step`) or past a blockquote's `>` is indented code, as
+  the preview renders it, but after a list item every indented line was
+  read as text until the list ended, so agents read such code without its
+  `#`s and `*`s. It is now kept as code without the item's indentation,
+  and a line indented less is still the item's text.
 - **`export_text` strips a list item's indentation from its code.** Code
   from a fence in a list item kept the item's indentation in the plain
   text agents read, while code in a blockquote lost its `>` markers. Both
@@ -119,6 +147,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   blank line, then `  # Sub`) or after a bare `-` is part of the item, and
   the Outline already left out headings in list items. It was still
   listed. It is now counted for the page's heading ids but not listed.
+- **Partial embeds, link previews and agents skip a list item's heading.**
+  A heading on a list item's continuation line (`- x`, a blank line, then
+  `  # Sub`) was still a heading of the note for `![[Note#Sub]]` embeds,
+  link previews, Related notes and document kinds, and agents'
+  `export_metadata` listed it and could take it as the title. They now
+  leave it out, as the Outline does, by the container rule fences follow.
+- **The Outline lists a heading after a list marker that opens no item.**
+  `2. z` after a paragraph (it cannot interrupt one) or a bare `-` before
+  an unindented line was read as a list item holding the `   # Sub` after
+  it, so that heading was left out of the Outline. The Outline now reads
+  list items and blockquotes by the rule fences follow, which agrees with
+  the preview on every ATX heading of a generated test corpus.
 - **The inline AI's Retry pause is one constant.** Both editors computed
   a doubling delay (500 ms times 2 to the retry count) for a Retry that is
   offered only once, so it was always 500 ms. They now share that 500 ms

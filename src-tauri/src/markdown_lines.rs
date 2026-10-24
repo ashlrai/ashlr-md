@@ -52,22 +52,52 @@ pub enum LineKind {
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
-    scan(content).map(|(kind, line, _)| (kind, line))
+    scan(content).map(|l| (l.kind, l.line))
 }
 
 /// For each line of `content`, as [`markdown_lines`] yields them, the code
 /// of a [`LineKind::Code`] line: the line without the blockquote markers
 /// and list item indentation its fence sits in, and without up to as many
-/// spaces as the fence is indented, as CommonMark reads fenced code. None
-/// for any other line.
+/// spaces as the fence is indented, as CommonMark reads fenced code. For a
+/// line [`with_indented_code`] marks [`LineKind::IndentedCode`], the line
+/// without the markers and item indentation it sits in and the four
+/// columns that make it code (a tab past them is kept). None for any other
+/// line.
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
-pub fn fenced_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
-    scan(content).map(|(_, _, code)| code)
+pub fn line_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
+    scan(content).map(|l| l.code)
 }
 
-/// [`markdown_lines`], with each code line's code ([`fenced_code`]).
-fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, str>>)> {
+/// The ATX headings ([`atx_heading`]) of the text lines of `content`
+/// ([`text_lines`]) that sit in no blockquote or list item, empty ones
+/// included: a document's title and `export_metadata`'s headings. A line
+/// behind `> ` or `- ` markers, or indented into an open item's content
+/// column (`- x`, a blank line, then `  # Sub`), is in a container by the
+/// rule fences follow, as the app's Outline reads it.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
+pub fn document_headings(content: &str) -> impl Iterator<Item = (usize, &str)> {
+    scan(content)
+        .filter(|l| l.kind == LineKind::Text && !l.contained)
+        .filter_map(|l| atx_heading(l.line))
+}
+
+/// A line of [`scan`].
+struct Scanned<'a> {
+    kind: LineKind,
+    line: &'a str,
+    /// The code of a code line ([`line_code`]).
+    code: Option<Cow<'a, str>>,
+    /// Whether the line is a line of indented code ([`with_indented_code`]).
+    indented: bool,
+    /// Whether the line sits in a blockquote or a list item.
+    contained: bool,
+}
+
+/// [`markdown_lines`], with each code line's code ([`line_code`]), whether
+/// each line sits in a container and whether it is indented code.
+fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     let front_matter = front_matter_len(content);
     // The open fence (its character, its length and how far it is
     // indented), with the containers its code lines stay in.
@@ -77,6 +107,8 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
     // How many open items hold the paragraph the line before is in (-1 for
     // one in a blockquote), or None after any other line.
     let mut paragraph: Option<isize> = None;
+    // The containers of the paragraph's last line that was not lazy.
+    let mut para_list: Vec<Container> = Vec::new();
     // The same for indented code, which a blank line does not end.
     let mut indented: Option<isize> = None;
     // Whether the innermost open item has only its marker so far.
@@ -86,18 +118,27 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
     let mut closer = false;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
-            return (LineKind::FrontMatter, line, None);
+            return Scanned {
+                kind: LineKind::FrontMatter,
+                line,
+                code: None,
+                indented: false,
+                contained: false,
+            };
         }
         let expanded = expand_tabs(line);
         let mut ends_bare = false;
         let quoted;
+        let contained;
         let mut kind = LineKind::Text;
         let mut code = None;
+        let mut indented_code = false;
         let inside = fence
             .as_ref()
             .and_then(|(_, _, _, list)| continues(&expanded, list));
         if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
             quoted = list.contains(&Container::Quote);
+            contained = !list.is_empty();
             kind = match code_fence(inside) {
                 Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
                     LineKind::Fence
@@ -118,6 +159,7 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
             fence = None;
             let (list, matched, rest) = containers(&expanded, &items, paragraph.or(indented));
             quoted = list.contains(&Container::Quote);
+            contained = !list.is_empty();
             let empty = rest.trim().is_empty();
             let opened = list.len() > matched;
             if let Some((c, n, _)) = code_fence(rest) {
@@ -161,17 +203,32 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
                     bare = opened && empty && list.last() != Some(&Container::Quote);
                     let level = if quoted { -1 } else { items.len() as isize };
                     // Four spaces past the containers is indented code, not text.
-                    let code =
-                        (opened || paragraph.is_none()) && !empty && spaces_before(rest) >= 4;
-                    paragraph = (!heading && !empty && !code).then_some(level);
+                    // A paragraph goes on unless the line opens a list
+                    // item, or a blockquote the paragraph is not in.
+                    let fresh = paragraph.is_none()
+                        || list[matched..].iter().any(|c| *c != Container::Quote)
+                        || (opened && !para_list.starts_with(&list));
+                    indented_code = fresh && !empty && spaces_before(rest) >= 4;
+                    if indented_code {
+                        let columns = expanded.len() - rest.len() + 4;
+                        code = Some(past_columns(line, columns));
+                    }
+                    paragraph = (!heading && !empty && !indented_code).then_some(level);
+                    para_list = list;
                     // Only indented code that closed no container, as the
                     // renderer reads it.
-                    indented = (code && !closed).then_some(level);
+                    indented = (indented_code && !closed).then_some(level);
                 }
             }
         }
         closer = ends_bare || quoted;
-        (kind, line, code)
+        Scanned {
+            kind,
+            line,
+            code,
+            indented: indented_code,
+            contained,
+        }
     })
 }
 
@@ -425,96 +482,49 @@ pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
 }
 
 /// [`markdown_lines`], with the text lines of an indented code block marked
-/// [`LineKind::IndentedCode`]: a line indented four columns or more (a tab
-/// reaches the next multiple of four) that opens a block after a blank
-/// line, a heading, a fence or the start of the document, and the indented
-/// lines after it, blank lines between them included. An indented line in
-/// a paragraph continues the paragraph, as CommonMark reads it.
-///
-/// Inside a list an indented line is often an item's continuation, not
-/// code, and telling the two apart needs the item's content column. So
-/// after a list item no indented line is code until the list ends at a line
-/// that starts at column 0, is not a list item and follows a blank line (or
-/// is a heading). That reads some code inside a list item as text, never
-/// text as code.
+/// [`LineKind::IndentedCode`]: a line indented four columns or more past
+/// the blockquote markers and list item content it sits in (a tab reaches
+/// the next multiple of four) that does not continue a paragraph, and the
+/// indented lines after it; the blank lines between them stay text. In a
+/// list item that is four columns past the item's content column (`- a`, a
+/// blank line, then six spaces), by the container rule fences follow, so
+/// an item's indented continuation is text and its indented code is code.
+/// After a list item an indented line used to be read as text until the
+/// list ended, so code in an item lost its `#`s and `*`s.
 #[allow(dead_code)]
 pub fn with_indented_code(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
-    let mut can_open = true;
-    let mut in_code = false;
-    let mut in_list = false;
-    markdown_lines(content).map(move |(kind, line)| {
-        if kind != LineKind::Text {
-            // Front matter or a fence may be followed by indented code.
-            can_open = true;
-            in_code = false;
-            return (kind, line);
-        }
-        if line.trim().is_empty() {
-            can_open = true;
-            return (kind, line);
-        }
-        if indent_columns(line) >= 4 && (in_code || (can_open && !in_list)) {
-            in_code = true;
-            return (LineKind::IndentedCode, line);
-        }
-        in_code = false;
-        let heading = atx_heading(line).is_some();
-        if is_list_item(line) {
-            in_list = true;
-        } else if indent_columns(line) == 0 && (can_open || heading) {
-            in_list = false;
-        }
-        can_open = heading;
-        (kind, line)
+    scan(content).map(|l| {
+        let kind = if l.indented {
+            LineKind::IndentedCode
+        } else {
+            l.kind
+        };
+        (kind, l.line)
     })
 }
 
-/// `line` without the four columns of indentation that make it indented
-/// code (a tab reaches the next multiple of four).
-#[allow(dead_code)]
-pub fn without_code_indent(line: &str) -> &str {
+/// `line` without its first `columns` columns of ASCII containers and
+/// indentation (a tab reaches the next multiple of four). A tab that runs
+/// past them leaves its remaining columns as spaces.
+fn past_columns(line: &str, columns: usize) -> Cow<'_, str> {
     let mut col = 0;
-    for (i, c) in line.char_indices() {
-        if col >= 4 {
-            return &line[i..];
+    for (i, b) in line.bytes().enumerate() {
+        if col >= columns {
+            return if col == columns {
+                Cow::Borrowed(&line[i..])
+            } else {
+                Cow::Owned(format!("{}{}", " ".repeat(col - columns), &line[i..]))
+            };
         }
-        match c {
-            ' ' => col += 1,
-            '\t' => col += 4 - col % 4,
-            _ => return &line[i..],
-        }
+        col = if b == b'\t' {
+            col + 4 - col % 4
+        } else {
+            col + 1
+        };
     }
-    ""
-}
-
-/// How many columns of spaces and tabs `line` starts with, a tab reaching
-/// the next multiple of four.
-fn indent_columns(line: &str) -> usize {
-    let mut col = 0;
-    for c in line.chars() {
-        match c {
-            ' ' => col += 1,
-            '\t' => col += 4 - col % 4,
-            _ => break,
-        }
-    }
-    col
-}
-
-/// Whether `line` starts a list item: at most three spaces, then `-`, `*`,
-/// `+`, or 1 to 9 digits and `.` or `)`, then a space, a tab or the end.
-fn is_list_item(line: &str) -> bool {
-    let body = line.trim_start_matches(' ');
-    if line.len() - body.len() > 3 {
-        return false;
-    }
-    let digits = body.bytes().take_while(u8::is_ascii_digit).count();
-    let rest = if digits == 0 {
-        body.strip_prefix(['-', '*', '+'])
-    } else if digits <= 9 {
-        body[digits..].strip_prefix(['.', ')'])
+    if col > columns {
+        Cow::Owned(" ".repeat(col - columns))
     } else {
-        None
-    };
-    rest.is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t']))
+        Cow::Borrowed("")
+    }
 }

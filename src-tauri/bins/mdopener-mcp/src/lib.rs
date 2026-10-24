@@ -1214,12 +1214,13 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
-                the find string must match exactly once) and the result has applied: true, so do not \
+                the find string must match exactly once) and the result has applied: true, an empty \
+                `diff` and `candidates` null (its editId names no preview), so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
                 before committing it (edit_document applies at once), not for large files: both send the \
                 app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
                 this tool also asks the app for the open document's path (not its content) to compare. Returns { ok, editId, diff, candidates, matchCount, applied }: \
-                `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
+                `diff` is the diff of the first (or only) match of a preview, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \
@@ -1339,7 +1340,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_text",
             description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
-                stripped while code block contents are preserved as-is. Strikethrough keeps its \
+                stripped while code is kept as written, its `#`s and `*`s included: fenced and \
+                indented code lose only the blockquote markers and list item indentation they sit \
+                in and the fence's or the four columns' indentation. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
@@ -1371,11 +1374,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_metadata",
             description: "Extract structural metadata from a Markdown document without the full \
                 content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
-                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
-                headings tree (level + text for \
-                every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
+                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), the \
+                headings as a flat list in document order (level + text for every ATX heading with \
+                text outside front matter, fenced code, blockquotes and list items: `> # Quote`, \
+                `- # Step` and a heading on an item's continuation line are left out, as in the \
+                app's Outline), all [[wikilinks]] outside fenced \
                 code (front matter properties included), the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
+                images (`![…](…)` and `![[…]]` syntax outside fenced code and front matter), and the \
+                total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
                 embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
@@ -6100,10 +6106,13 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// [`markdown_lines::atx_heading`], the rule of `export_metadata`'s
 /// headings: only `# ` at the start of a line used to count, so `  # Title`
 /// and `#\tTitle` were not titles, `# Title #` kept its closing `#`, and an
-/// empty `# ` named the document with an empty title.
+/// empty `# ` named the document with an empty title. A heading in a
+/// blockquote or a list item is not a title
+/// ([`markdown_lines::document_headings`]), as the app's Outline lists none:
+/// one on an item's continuation line (`- x`, a blank line, then `  # Sub`)
+/// used to name the document.
 pub fn document_title(content: &str) -> Option<String> {
-    markdown_lines::text_lines(content)
-        .filter_map(markdown_lines::atx_heading)
+    markdown_lines::document_headings(content)
         .find(|&(level, text)| level == 1 && !text.is_empty())
         .map(|(_, text)| text.to_string())
 }
@@ -7866,17 +7875,17 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Fenced code blocks (``` or ~~~): the fence lines are stripped but the
 ///   code content is preserved, its `#`s kept. Code in a blockquote loses
 ///   its `>` leaders and code in a list item its item's indentation, as
-///   CommonMark reads them ([`markdown_lines::fenced_code`]); list-item code
+///   CommonMark reads them ([`markdown_lines::line_code`]); list-item code
 ///   used to keep its indentation. Fences follow [`markdown_lines`]: a
 ///   block is closed only by the same character at least as long. Any line
 ///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
 ///   backtick block ended it and the code after it lost its `#`s and `*`s.
-/// - Indented code (a line indented four columns or more that opens a block
-///   after a blank line or a heading) is kept as code without its indent, by
-///   [`markdown_lines::with_indented_code`]. After a list item an indented
-///   line is read as the item's continuation, not as code, until the list
-///   ends: telling the two apart needs the item's content column, so some
-///   code in a list item is read as text but text is never read as code.
+/// - Indented code (a line indented four columns or more past its
+///   containers that does not continue a paragraph) is kept as code without
+///   its containers and indent, by [`markdown_lines::with_indented_code`]:
+///   in a list item, four columns past the item's content column. After a
+///   list item an indented line used to be read as text until the list
+///   ended, so code in an item lost its `#`s and `*`s.
 /// - ATX headings ([`markdown_lines::atx_heading`]: at most three spaces,
 ///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
 ///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
@@ -7899,10 +7908,10 @@ pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
     // Each line with its code when it is fenced code
-    // ([`markdown_lines::fenced_code`]).
+    // ([`markdown_lines::line_code`]).
     let (lines, code): (Vec<(LineKind, &str)>, Vec<_>) =
         markdown_lines::with_indented_code(content)
-            .zip(markdown_lines::fenced_code(content))
+            .zip(markdown_lines::line_code(content))
             .filter(|((kind, _), _)| *kind != LineKind::FrontMatter)
             .unzip();
 
@@ -7922,7 +7931,7 @@ pub fn strip_markdown(content: &str) -> String {
             }
             LineKind::IndentedCode => {
                 in_table = false;
-                out.push_str(markdown_lines::without_code_indent(line));
+                out.push_str(code[idx].as_deref().unwrap_or(line));
                 out.push('\n');
                 continue;
             }
@@ -8858,10 +8867,12 @@ fn split_flow_items(inner: &str) -> Vec<&str> {
 /// was a heading. A heading is read by [`markdown_lines::atx_heading`], as
 /// [`document_title`] reads one: the whole line used to be trimmed, so a
 /// `# comment` indented four spaces (indented code) was a heading. An empty
-/// heading is left out.
+/// heading is left out, and so is one in a blockquote or a list item
+/// ([`markdown_lines::document_headings`]), as the app's Outline lists none.
+/// One on an item's continuation line (`- x`, a blank line, then `  # Sub`)
+/// used to be listed.
 pub fn extract_headings(content: &str) -> Vec<Value> {
-    markdown_lines::text_lines(content)
-        .filter_map(markdown_lines::atx_heading)
+    markdown_lines::document_headings(content)
         .filter(|(_, text)| !text.is_empty())
         .map(|(level, text)| json!({ "level": level, "text": text }))
         .collect()

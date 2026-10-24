@@ -7611,7 +7611,8 @@ fn edit_tools_assert_the_canonical_path() {
 }
 
 /// `preview: false` applies the edit at once; the result must say so, or an
-/// agent that then calls stream_edit_apply edits the document twice.
+/// agent that then calls stream_edit_apply edits the document twice. Its
+/// `diff` is empty, which the description now says.
 #[test]
 fn stream_edit_reports_whether_it_applied_the_edit() {
     let reply = json!({ "ok": true, "editId": "sedit_1", "diff": "", "matchCount": 1 });
@@ -7628,6 +7629,23 @@ fn stream_edit_reports_whether_it_applied_the_edit() {
         &ipc,
     ));
     assert_eq!(applied["applied"], true, "{applied}");
+    // The window sends no diff without a preview, and the description used
+    // to call `diff` the diff of the first match in every case.
+    let d = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains(
+            "applied: true, an empty `diff` and `candidates` null (its editId names no preview)"
+        ),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("an empty `diff`, `candidates: null` and an `editId` that names no preview")
+    );
 }
 
 /// `stream_edit` read a `preview_lines` above 20 as 20 in silence, and its
@@ -7978,7 +7996,10 @@ fn heading_closing_hashes_are_not_heading_text() {
 /// or a shorter fence ended a block early and its `# comment` lines became
 /// headings. Headings now use document_title's rule: front matter is
 /// skipped, a fence closes only on the same character at least as long, and
-/// an open fence runs to the end.
+/// an open fence runs to the end. The tool's description called them a
+/// "headings tree" of every heading outside front matter and fenced code,
+/// though they are a flat list that leaves out empty headings and those in
+/// blockquotes and list items; it now says so.
 #[test]
 fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
     use mdopener_mcp::extract_headings;
@@ -8031,9 +8052,10 @@ fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
         .unwrap();
     let d = tool["description"].as_str().unwrap();
     assert!(
-        d.contains("every ATX heading outside front matter and fenced code"),
+        d.contains("every ATX heading with text outside front matter, fenced code, blockquotes and list items"),
         "{d}"
     );
+    assert!(!d.contains("headings tree"), "{d}");
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains(
         "for every ATX heading outside a leading YAML front matter block and fenced code"
@@ -8099,6 +8121,35 @@ fn a_fence_in_an_item_continuation_nested_item_or_item_quote_is_a_fence() {
         extract_headings("- a\n\n  ```sh\n  # comment\n  ```\n\n# Real\n"),
         vec![json!({ "level": 1, "text": "Real" })]
     );
+}
+
+/// A heading on a list item's continuation line (`- x`, a blank line, then
+/// `  # Sub`, or a bare `-` then `  # Sub`) was a heading of the document
+/// in `export_metadata` and could be its title, while the app's Outline
+/// lists none in an item. Both now read containers by the rule fences
+/// follow, so it is left out, and a line that leaves the item (or a `2.`
+/// that cannot interrupt a paragraph) is still a heading.
+#[test]
+fn a_heading_on_a_list_items_continuation_line_is_not_listed() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let cases: [(&str, &[&str], Option<&str>); 6] = [
+        ("- x\n\n  # Sub\n", &[], None),
+        ("-\n  # Sub\n", &[], None),
+        ("- x\n  # Sub\n\n # Out\n", &["Out"], Some("Out")),
+        ("> - x\n>\n>   # Sub\n", &[], None),
+        ("1. x\n\n   # Sub\n# Top\n", &["Top"], Some("Top")),
+        ("text\n2. z\n   # Sub\n", &["Sub"], Some("Sub")),
+    ];
+    for (doc, want, title) in cases {
+        assert_eq!(texts(doc), want, "{doc:?}");
+        assert_eq!(document_title(doc).as_deref(), title, "{doc:?}");
+    }
 }
 
 /// export_text kept a list item's indentation on the code of a fence in
@@ -8307,8 +8358,9 @@ fn a_heading_inside_a_blockquote_is_not_listed() {
 /// `# comment` indented four spaces lost its `#` and the rest of the
 /// indented code was read as Markdown. A heading now follows the ATX rule
 /// of the headings, and indented code that opens after a blank line or a
-/// heading is kept as code without its indent. After a list item an
-/// indented line is the item's continuation and is still read as text.
+/// heading is kept as code without its indent. In a list item an indented
+/// line is the item's continuation unless it is four columns past the
+/// item's text, which is code in the item: all of it used to be text.
 #[test]
 fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     let cases = [
@@ -8328,6 +8380,22 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
         ("1. step\n    *more*\n", "step\nmore"),
         // The list ends at a paragraph at column 0 after a blank line.
         ("- item\n\nPara\n\n    *code*\n", "item\n\nPara\n\n*code*"),
+        // Four columns past an item's text is code in the item, and it
+        // loses the item's indentation; less is the item's continuation.
+        ("- item\n\n      # *code*\n", "item\n\n# *code*"),
+        (
+            "1. step\n\n       **x**\n   *more*\n",
+            "step\n\n**x**\nmore",
+        ),
+        ("- a\n  - b\n\n        `x`\n", "a\nb\n\n`x`"),
+        ("-     *code*\n", "*code*"),
+        // In a blockquote, past its `>`, and a tab past the four columns
+        // is kept.
+        (">     *code*\n", "*code*"),
+        // An indented line in a quoted paragraph continues it.
+        ("> a\n>     *b*\n", "a\nb"),
+        ("- a\n\n  \t  \tx\n", "a\n\n\tx"),
+        ("- a\n\n  \t\tx\n", "a\n\n  x"),
         // Headings by the ATX rule.
         ("   ### Three ###\n", "Three"),
         ("#\tTabbed\n", "Tabbed"),
@@ -8351,7 +8419,19 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["text"], "Notes\n\n# keep");
     let docs = include_str!("../../../../docs/AGENTS.md");
-    assert!(docs.contains("indented code is kept as code without its indent"));
+    assert!(docs.contains("is kept as code without them and its indent"));
+    // The description said code was "preserved as-is", though it loses its
+    // containers and indentation.
+    let d = mdopener_mcp::tool_registry()
+        .into_iter()
+        .find(|t| t.name == "export_text")
+        .unwrap()
+        .description;
+    assert!(!d.contains("as-is"), "{d}");
+    assert!(
+        d.contains("lose only the blockquote markers and list item indentation they sit in"),
+        "{d}"
+    );
 }
 
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
@@ -11400,6 +11480,11 @@ fn stream_edit_is_not_preferred_for_large_files() {
         "{d}"
     );
     assert!(d.contains("not for large files"), "{d}");
+    // docs/AGENTS.md said `path` fetched the whole document, so an agent
+    // left out the check on a large one.
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(!docs.contains("it also fetches the whole document"));
+    assert!(docs.contains("asks the app for the open document's path, not its content"));
     let big = "x".repeat(1 << 20);
     let doc = json!({ "path": "/notes/big.md", "content": big });
     let reply =
