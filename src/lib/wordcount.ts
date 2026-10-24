@@ -6,7 +6,7 @@
  * than configuration or code listings.
  */
 
-import { splitFrontmatter } from "./frontmatter";
+import { atxHeading, markdownLines } from "./outline";
 
 export interface DocStats {
   words: number;
@@ -17,34 +17,30 @@ export interface DocStats {
 /** Average adult silent reading speed (words per minute). */
 const WORDS_PER_MINUTE = 220;
 
-/** Strip fenced code blocks (``` or ~~~), tracking the opening fence marker. */
-function stripFencedCode(body: string): string {
-  const lines = body.split("\n");
-  const kept: string[] = [];
-  let inFence = false;
-  let marker = "";
-  for (const line of lines) {
-    const m = /^\s*(`{3,}|~{3,})/.exec(line);
-    if (m) {
-      const ch = m[1][0];
-      if (!inFence) {
-        inFence = true;
-        marker = ch;
-        continue;
-      }
-      if (ch === marker) {
-        inFence = false;
-        continue;
-      }
-    }
-    if (!inFence) kept.push(line);
-  }
-  return kept.join("\n");
+/**
+ * The prose lines of `content`: its text and HTML lines past their
+ * blockquote markers, list markers and item indentation, without a heading's
+ * `#`s, by the line rule of the Outline and the task checkboxes
+ * ({@link markdownLines}). Front matter, fences and fenced code (also in a
+ * blockquote or a list item, and closed only by the same character at least
+ * as long), setext underlines and thematic breaks are left out. Fences used
+ * to be any line starting with three backticks or tildes, closed by any
+ * later one of the same character, so a longer fence holding a shorter one
+ * ended early and a quoted fence was counted; list and quote markers
+ * counted as words.
+ */
+function proseLines(content: string): string[] {
+  return markdownLines(content)
+    .filter((l) => (l.kind === "text" || l.kind === "html") && !l.setext)
+    .map((l) => l.content)
+    .filter((c) => !/^ {0,3}([-*_])( *\1){2,} *$/.test(c))
+    .map((c) => atxHeading(c)?.text ?? c);
 }
 
 export function computeDocStats(content: string): DocStats {
-  const { body } = splitFrontmatter(content);
-  const prose = stripFencedCode(body).replace(/`[^`]*`/g, " ");
+  const prose = proseLines(content)
+    .join("\n")
+    .replace(/`[^`]*`/g, " ");
   const trimmed = prose.trim();
   const words = trimmed ? trimmed.split(/\s+/).length : 0;
   const minutes = words === 0 ? 0 : Math.max(1, Math.round(words / WORDS_PER_MINUTE));

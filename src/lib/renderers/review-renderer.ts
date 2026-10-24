@@ -16,6 +16,8 @@
  *   Files Changed, Summary, Feedback, Comments, Review Notes, Findings
  */
 
+import { listItem, markdownLines } from "../outline";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,9 +91,6 @@ const HEADING_RE = /^(#{1,6})\s+(.+)/;
 /** `path/to/file.ext:123` or just `path/to/file.ext` (no line number). */
 const FILE_PATH_RE = /(?:^|\s)([\w./\\-]+\.[A-Za-z][\w]{0,9})(?::\d+)?/;
 
-/** A list item (bullet or ordered). */
-const LIST_ITEM_RE = /^[ \t]*(?:[-*+]|\d+\.)\s+(.+)/;
-
 function normaliseTitle(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -111,6 +110,9 @@ function normaliseTitle(text: string): string {
  */
 export function parseReview(content: string): ParsedReview {
   const lines = content.split("\n");
+  // The kind of each line (front matter, code or text), by the line rule
+  // of the Outline and the task checkboxes.
+  const kinds = markdownLines(content);
 
   let title = "";
   let summary = "";
@@ -122,17 +124,15 @@ export function parseReview(content: string): ParsedReview {
   let sectionBuffer: string[] = [];
   let sectionStartLine = 0;
 
-  let inFrontmatter = false;
-
   function flushSection() {
     if (currentSection === "summary") {
       summary = sectionBuffer.join("\n").trim();
     } else if (currentSection === "files") {
       for (let idx = 0; idx < sectionBuffer.length; idx++) {
-        const bufLine = sectionBuffer[idx];
-        const itemMatch = LIST_ITEM_RE.exec(bufLine);
-        if (itemMatch) {
-          const text = itemMatch[1].trim();
+        // A list item (bullet or ordered), by the page's list rule.
+        const item = listItem(kinds[sectionStartLine + idx - 1]);
+        if (item) {
+          const text = item.text;
           const pathMatch = FILE_PATH_RE.exec(text);
           const path = pathMatch ? pathMatch[1] : text;
           const description = pathMatch
@@ -166,8 +166,10 @@ export function parseReview(content: string): ParsedReview {
 
       for (let idx = 0; idx < sectionBuffer.length; idx++) {
         const bufLine = sectionBuffer[idx];
-        const subHeading = /^(#{3,6})\s+(.+)/.exec(bufLine);
-        const boldLead = /^\*\*([^*]+)\*\*:?\s*(.*)/.exec(bufLine);
+        // A heading or a bold lead is one only on a text line, not in code.
+        const text = kinds[sectionStartLine + idx - 1]?.kind === "text";
+        const subHeading = text ? /^(#{3,6})\s+(.+)/.exec(bufLine) : null;
+        const boldLead = text ? /^\*\*([^*]+)\*\*:?\s*(.*)/.exec(bufLine) : null;
 
         if (subHeading) {
           commitAnnot();
@@ -192,17 +194,11 @@ export function parseReview(content: string): ParsedReview {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Skip YAML frontmatter block.
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      continue;
-    }
-    if (inFrontmatter) {
-      if (line.trim() === "---" || line.trim() === "...") inFrontmatter = false;
-      continue;
-    }
+    // Skip a leading YAML front matter block, by the shared rule.
+    if (kinds[i]?.kind === "frontmatter") continue;
 
-    const headingMatch = HEADING_RE.exec(line);
+    // A section heading is one only on a text line, not in code.
+    const headingMatch = kinds[i]?.kind === "text" ? HEADING_RE.exec(line) : null;
     if (headingMatch) {
       const level = headingMatch[1].length;
       const headingText = headingMatch[2].trim();

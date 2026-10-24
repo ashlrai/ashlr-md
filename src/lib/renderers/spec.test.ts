@@ -258,11 +258,12 @@ describe("parseSpec — malformed input", () => {
       "## Goals",
       "body",
     ].join("\n");
-    // Should not throw; frontmatter is never closed so everything is skipped.
+    // An unclosed `---` is a thematic break on the page, not front matter,
+    // so the headings after it are read (they used to be swallowed).
     expect(() => parseSpec(doc)).not.toThrow();
     const r = parseSpec(doc);
-    // Since frontmatter never closes, the body is treated as frontmatter.
-    expect(r.sections).toHaveLength(0);
+    expect(r.title).toBe("Heading inside unclosed frontmatter");
+    expect(r.sections.map((s) => s.title)).toEqual(["Goals"]);
   });
 
   it("handles truncated list (list item at EOF with no newline)", () => {
@@ -350,5 +351,30 @@ describe("parseSpec: criteria by the page's task rule", () => {
     ]);
     expect(r.criteriaTotal).toBe(3);
     expect(r.criteriaDone).toBe(1);
+  });
+});
+
+describe("parseSpec: headings by the page's line rule", () => {
+  // Headings were matched on raw lines, so a `# comment` in a code block
+  // ended the section it sits in (and could be the title), and a `##` line
+  // in one opened a section.
+  it("reads no heading in code or front matter", () => {
+    const doc = [
+      "---",
+      "# not: a title",
+      "---",
+      "## Overview",
+      "```sh",
+      "# install the tool",
+      "## Goals",
+      "```",
+      "Text.",
+      "",
+      "# Real Title",
+    ].join("\n");
+    const r = parseSpec(doc);
+    expect(r.title).toBe("Real Title");
+    expect(r.sections.map((s) => s.title)).toEqual(["Overview"]);
+    expect(r.sections[0].body).toContain("## Goals\n```\nText.");
   });
 });

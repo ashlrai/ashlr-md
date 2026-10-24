@@ -96,6 +96,79 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_metadata` reads no wikilinks or images in code.** Its wikilinks and
+  image count were read on every line outside fenced code, so a `[[link]]` or an
+  `![image](u)` in indented code or in a code span (`` `[[x]]` ``) was counted,
+  although the page shows it as code. They are now left out.
+- **The document-kind classifier reads no structure in code.** Its heading
+  patterns and numbered steps were matched on the whole text, so a code sample
+  listing `## Rollback` or `1. step` lines scored as the document's own and could
+  make a note a runbook. Its code density toggled on lines starting with three
+  backticks, so `~~~` blocks and quoted fences were not code, and its front
+  matter hint was missed when a delimiter had spaces after it. It now reads lines
+  by the rule of the Outline and the task checkboxes.
+- **Spec and review renderers read headings and list items as the page does.**
+  Their section headings were matched on raw lines, so a `# comment` in a code
+  block ended a spec section (or became the title) and a `## Notes` line in one
+  opened a review section; a review's changed files were any `- x` or `1. x`
+  line, in code too, and not a quoted item. Front matter was opened by any
+  trimmed `---` first line, also an unclosed one, which hid the document. They
+  now read lines, list items and front matter by the rules of the runbook fix.
+- **Semantic search chunks begin only at headings.** The index cut a document
+  into chunks at every line starting with `#`, so the `# comment` lines of a code
+  block (and `#tag` lines) cut it into pieces too small to keep, and that code
+  was left out of the index. A chunk now begins only at an ATX heading, read by
+  the line rule of the Outline.
+- **The status bar's word count reads code and containers as the page does.**
+  A fence was any line starting with three backticks or tildes, at any
+  indentation, closed by any later one of the same character, so a ```` ```` ````
+  block holding a ```` ``` ```` line ended early and its code was counted, and a
+  quoted fence (`> ````) was counted as text. List and blockquote markers, a
+  heading's `#`s, setext underlines and thematic breaks counted as words. The
+  count now reads lines by the rule of the Outline and the task checkboxes.
+- **Runbook prerequisites and steps follow the page's list rule.** Plain
+  prerequisites (`- x`, `1. x`) and ordered steps were matched on raw lines, so
+  a `- x` or `1. x` line in fenced or indented code was one, `-x` (no list item)
+  was a bullet and a quoted item (`> - x`) was not one. A `## Rollback`,
+  `### Step` or `**Step 1:**` line in a code block also started a section or a
+  step, and an unclosed `---` first line (a thematic break on the page) hid the
+  rest of the runbook as front matter. They are now read by the line rule of
+  the Outline and the task checkboxes.
+- **`export_text` reads inline links as CommonMark does.** Any `(...)` after
+  `[text]` was read as a link's destination, so `[t](a b)`, which is no link (a
+  destination has no space and `b` is no title), read `t`, and `export_metadata`
+  counted `![a](b c)` as an image. A wikilink was read before a link, so
+  `[[[W]]](u)`, a link whose text is `[[W]]`, read `[W](u)`, and a link inside a
+  link's text made the outer one a link too. The `(destination "title")` tail is
+  now read by the CommonMark rule, a link holds no link, and a link's or an
+  image's text is no wikilink, as on the page.
+- **`export_text` no longer starts with a line break.** The text began with
+  `\n` when the document started with blank lines, with front matter and a
+  blank line, or with a line that reads nothing (a link reference definition,
+  an HTML comment). Blank lines before the first text are now left out, as
+  those after the last are; the first line keeps its indentation.
+- **`export_text` keeps an `===` line the page shows as text.** Every line of
+  only `=` or `-` was dropped as a setext heading underline, so an `===` line
+  after link reference definitions, one with no paragraph before it and a lazy
+  one after a list item (`- a`, then `===`) were lost, although the page shows
+  them. Underlines are now read by the container rule of the lines and, after
+  definitions, as micromark reads them, also when a `---` line underlines the
+  paragraph an `===` line starts there.
+- **HTML blocks and footnote definitions are read as the page reads them.** The
+  line scanner behind the Outline, task checkboxes, `export_text`,
+  `export_metadata` and document titles read the lines of an HTML block (a
+  `<div>` or a lone `<u>` line up to a blank line, a comment up to its `-->`) as
+  Markdown, although the page shows them as raw HTML. A `# x` in a `<div>` was
+  listed as a heading, a `- [ ] t` in one was a task, and a link reference
+  definition after `<!-- c -->` was read as part of a paragraph. GFM footnote
+  definitions (`[^1]: text`) were not containers, so a task, a heading or a
+  fence in one (`[^1]: - [ ] t`, or a line indented four columns after it) was
+  read as paragraph text, and a footnote definition that interrupts a paragraph,
+  also lazily after a blockquote, went on with it. Both are now read as
+  micromark reads them, in the Rust scanner and the app's `outline.ts` alike, and
+  `export_text` reads an HTML block's text without its tags. `[^a b]: x`, which
+  is no footnote because its label has a space, is now dropped as a link
+  reference definition.
 - **The `export_text` tool description says what links read.** It said links,
   images and HTML tags are stripped, and nothing about what stays: a link's text,
   an image's alt text, the brackets of a `[text]` whose label is not defined and

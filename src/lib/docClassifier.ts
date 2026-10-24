@@ -25,6 +25,7 @@
  * prompts, renderer selection) rather than agent-badge display.
  */
 
+import { type MarkdownLine, markdownLines } from "./outline";
 import { taskMarks } from "./tasklist";
 
 // ---------------------------------------------------------------------------
@@ -217,23 +218,15 @@ function checklistDensity(content: string): number {
 
 /**
  * Compute the ratio of lines inside fenced code blocks to total document lines.
- * Returns a value in [0, 1].
+ * Returns a value in [0, 1]. Fenced code is read by the line rule of the
+ * Outline ({@link markdownLines}): a line starting with three backticks used
+ * to toggle "in code", so a `~~~` block, a quoted fence and a ```` block
+ * holding ``` were misread.
  */
-function codeBlockDensity(content: string): number {
-  const lines = content.split("\n");
+function codeBlockDensity(lines: MarkdownLine[]): number {
   const total = lines.length;
   if (total === 0) return 0;
-
-  let codeLines = 0;
-  let inFence = false;
-  for (const line of lines) {
-    if (/^```/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) codeLines++;
-  }
-  return codeLines / total;
+  return lines.filter((l) => l.kind === "code").length / total;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,17 +244,18 @@ function countNumberedSteps(content: string): number {
 // Frontmatter type hint (highest priority)
 // ---------------------------------------------------------------------------
 
-const FM_BLOCK_RE = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)(?:\r?\n|$)/;
 const FM_TYPE_RE = /^(?:type|kind|doc_type|doctype)\s*:\s*(\S+)/im;
 
 /**
  * Read an explicit `type:` / `kind:` / `doc_type:` value from frontmatter.
  * Returns the normalised DocType string, or null if absent / unrecognised.
  */
-function frontmatterDocType(content: string): DocType | null {
-  const blockMatch = FM_BLOCK_RE.exec(content);
-  if (!blockMatch) return null;
-  const m = FM_TYPE_RE.exec(blockMatch[1]);
+function frontmatterDocType(lines: MarkdownLine[]): DocType | null {
+  // The front matter block, by the shared rule ({@link markdownLines}): a
+  // regex used to miss one whose delimiters have spaces after them.
+  const block = lines.filter((l) => l.kind === "frontmatter").map((l) => l.content);
+  if (block.length === 0) return null;
+  const m = FM_TYPE_RE.exec(block.slice(1, -1).join("\n"));
   if (!m) return null;
   const raw = m[1].replace(/^["']|["']$/g, "").toUpperCase();
   if (
@@ -296,6 +290,14 @@ interface TypeScore {
  * Compute per-type confidence scores from all signal families.
  */
 function scoreContent(content: string): TypeScore[] {
+  const lines = markdownLines(content);
+  // The text lines (not front matter or code), where headings and numbered
+  // steps are read: patterns matched on the whole text used to read them in
+  // code samples too.
+  const text = lines
+    .filter((l) => l.kind === "text")
+    .map((l) => l.text)
+    .join("\n");
   const scores: Record<Exclude<DocType, "GENERIC">, number> = {
     PLAN: 0,
     REVIEW: 0,
@@ -309,7 +311,7 @@ function scoreContent(content: string): TypeScore[] {
     RegExp[],
   ][]) {
     for (const re of patterns) {
-      if (re.test(content)) scores[type] += HEADING_HIT_WEIGHT;
+      if (re.test(text)) scores[type] += HEADING_HIT_WEIGHT;
     }
   }
 
@@ -332,13 +334,13 @@ function scoreContent(content: string): TypeScore[] {
   if (clDensity > 0.05) scores.REVIEW += 3;
 
   // ── 4. Code-block density (strong RUNBOOK / SPEC signal) ──────────────────
-  const cbDensity = codeBlockDensity(content);
+  const cbDensity = codeBlockDensity(lines);
   if (cbDensity > 0.3) scores.RUNBOOK += 10;
   else if (cbDensity > 0.1) scores.RUNBOOK += 5;
   if (cbDensity > 0.1) scores.SPEC += 4;
 
   // ── 5. Numbered steps (strong RUNBOOK signal) ─────────────────────────────
-  const steps = countNumberedSteps(content);
+  const steps = countNumberedSteps(text);
   if (steps >= 5) scores.RUNBOOK += 12;
   else if (steps >= 3) scores.RUNBOOK += 7;
   else if (steps >= 1) scores.RUNBOOK += 3;
@@ -371,7 +373,7 @@ export function classify(content: string): DocType {
   if (!content || content.trim().length === 0) return "GENERIC";
 
   // ── Step 1: Explicit frontmatter hint ────────────────────────────────────
-  const fmType = frontmatterDocType(content);
+  const fmType = frontmatterDocType(markdownLines(content));
   if (fmType) return fmType;
 
   // ── Step 2: Score all types ───────────────────────────────────────────────

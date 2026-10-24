@@ -305,9 +305,10 @@ describe("parseReview — malformed input", () => {
   it("handles broken frontmatter (unclosed ---) without throwing", () => {
     const doc = ["---", "kind: review", "## Summary", "Content here."].join("\n");
     expect(() => parseReview(doc)).not.toThrow();
-    // Everything is consumed as frontmatter.
+    // An unclosed `---` is a thematic break on the page, not front matter,
+    // so the sections after it are read (they used to be swallowed).
     const r = parseReview(doc);
-    expect(r.summary).toBe("");
+    expect(r.summary).toBe("Content here.");
   });
 
   it("handles truncated feedback section (heading with no body)", () => {
@@ -376,5 +377,29 @@ describe("parseReview — malformed input", () => {
     // FILE_PATH_RE excludes protocol-prefixed URLs; fileRef may be undefined.
     // The key requirement is no throw.
     expect(r.feedback).toHaveLength(1);
+  });
+});
+
+describe("parseReview: list items and headings by the page's rules", () => {
+  // Files and section headings were matched on raw lines, so a `- x` line
+  // in a code block was a file and a `## Notes` line in one a section.
+  it("reads only the page's list items and headings", () => {
+    const doc = [
+      "## Files Changed",
+      "- src/a.ts: the fix",
+      "```diff",
+      "- src/b.ts: removed line",
+      "## Notes",
+      "```",
+      "> - src/c.ts: quoted",
+      "-src/d.ts",
+      "",
+    ].join("\n");
+    const r = parseReview(doc);
+    expect(r.files.map((f) => [f.path, f.line])).toEqual([
+      ["src/a.ts", 2],
+      ["src/c.ts", 7],
+    ]);
+    expect(r.feedback).toEqual([]);
   });
 });

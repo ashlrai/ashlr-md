@@ -1347,7 +1347,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 reads its text and an image its alt text, without their inline marks; a `[text]` \
                 with no `(url)` keeps its brackets unless the document defines its label, a link \
                 reference definition (`[text]: /url`) reads nothing, as on the page, and an \
-                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. Returns \
+                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. An HTML block \
+                (a `<div>` line to a blank line, a comment to its `-->`) reads its text without its \
+                tags, as raw HTML, not as Markdown. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
                 path of the document (with `path` omitted, the open document's file). \
@@ -1382,9 +1384,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 headings as a flat list in document order (level + text for every ATX heading with \
                 text outside front matter, fenced code, blockquotes and list items: `> # Quote`, \
                 `- # Step` and a heading on an item's continuation line are left out, as in the \
-                app's Outline), all [[wikilinks]] outside fenced \
-                code (front matter properties included), the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax outside fenced code and front matter), and the \
+                app's Outline), all [[wikilinks]] outside fenced and indented \
+                code and code spans (front matter properties included), the count of embedded \
+                images (`![…](…)` and `![[…]]` syntax outside code and front matter), and the \
                 total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
                 embedded_image_count, word_count, path } \
@@ -7894,11 +7896,23 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
 ///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
 ///   `# comment` indented four spaces lost its `#`.
-/// - Setext heading underlines (`===` / `---` only lines) are removed.
+/// - Setext heading underlines (`===` / `---` only lines after a
+///   paragraph) are removed, by the container rule of the lines
+///   ([`markdown_lines::item_starts`]) and, after link reference
+///   definitions, as micromark reads them ([`reference_definitions`]). An
+///   `===` line with no paragraph before it, after definitions or lazily
+///   after a list item is text on the page and is kept; every line of only
+///   `=` or `-` used to be dropped.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
-/// - Links `[text](url)` and `[text][ref]` → link text only. A reference
+/// - Links `[text](url)` and `[text][ref]` → link text only. An inline
+///   link's `(url "title")` tail is read as CommonMark reads it
+///   ([`inline_link_end`]): `[t](a b)` is no link (a destination has no
+///   space and `b` is no title) and keeps its text as written, a link
+///   holds no link (`[a [b](c)](d)` reads `[a b](d)`), and a link's text
+///   is no wikilink (`[[[W]]](u)` reads `[[W]]`). Any `(...)` used to be a
+///   tail, and a wikilink was read before a link. A reference
 ///   link (`[text][ref]`, `[text][]` or `[text]` alone) is a link only when
 ///   the document defines its label (`[ref]: /url`), as CommonMark reads it
 ///   ([`reference_definitions`]); any other `[text]` keeps its brackets, as
@@ -7912,9 +7926,20 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   so `> # Quote` reads `Quote` (it used to keep its `#`).
 /// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
 /// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
-/// - HTML tags are stripped.
+/// - HTML tags are stripped. An HTML block ([`markdown_lines`]: a `<div>`
+///   or a lone `<u>` line up to a blank line, a comment up to its `-->`)
+///   is raw HTML on the page, so it reads its text without its tags and
+///   comments and is not read as Markdown. Its lines used to be read as
+///   Markdown, so a `# x` in a `<div>` lost its `#`.
+/// - A footnote definition (`[^1]: text`) reads `[1] text`, its text read
+///   past it as a container that holds the lines indented four columns
+///   after it, as remark-gfm reads it ([`markdown_lines`]).
 /// - Horizontal rules (`---`, `***`, `___` on their own line) are removed.
-/// - Blank lines are collapsed to a single blank line between paragraphs.
+/// - Blank lines are collapsed to a single blank line between paragraphs,
+///   and those before the first text and after the last are left out. The
+///   text used to start with a line break when the document started with
+///   blank lines, front matter and a blank line, or a line that reads
+///   nothing (a link reference definition).
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
@@ -7931,7 +7956,16 @@ pub fn strip_markdown(content: &str) -> String {
         ),
     );
     let tasks = task_list::task_marks(content);
-    let (refs, definitions) = reference_definitions(content);
+    let (refs, definitions, underlines) = reference_definitions(content);
+    // The label of the footnote definition each line opens, and whether
+    // it is a setext heading underline, past the front matter the lines
+    // below leave out.
+    let (footnotes, underlines): (Vec<Option<String>>, Vec<bool>) =
+        markdown_lines::item_starts(content)
+            .zip(underlines)
+            .skip(markdown_lines::front_matter_len(content))
+            .map(|(s, under)| (s.footnote, under.unwrap_or(s.underline)))
+            .unzip();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -7948,6 +7982,8 @@ pub fn strip_markdown(content: &str) -> String {
     };
 
     let mut in_table = false;
+    // The HTML block being read, past its containers.
+    let mut html = String::new();
 
     for (idx, ((kind, line), (code, text))) in lines.iter().enumerate() {
         match kind {
@@ -7965,6 +8001,18 @@ pub fn strip_markdown(content: &str) -> String {
                 in_table = false;
                 out.push_str(code.as_deref().unwrap_or(line));
                 out.push('\n');
+                continue;
+            }
+            LineKind::Html => {
+                // An HTML block is raw HTML: the page shows its text, not
+                // Markdown, so only its tags and comments are taken off,
+                // over the whole block, as a comment may span lines.
+                in_table = false;
+                html.push_str(code.as_deref().unwrap_or(line));
+                html.push('\n');
+                if !matches!(lines.get(idx + 1), Some(((LineKind::Html, _), _))) {
+                    out.push_str(&strip_html(&std::mem::take(&mut html)));
+                }
                 continue;
             }
             LineKind::FrontMatter | LineKind::Text => {}
@@ -8009,10 +8057,11 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
 
-        // Setext heading underlines (lines that are only `=` or `-`).
-        if !trimmed.is_empty()
-            && (trimmed.chars().all(|c| c == '=') || trimmed.chars().all(|c| c == '-'))
-        {
+        // A setext heading underline, by the container rule of the lines
+        // and after definitions as micromark reads it: an `===` line after
+        // a definition, or with no paragraph before it, is text on the
+        // page. Every line of only `=` or `-` used to be dropped.
+        if underlines[idx] {
             continue;
         }
 
@@ -8039,20 +8088,6 @@ pub fn strip_markdown(content: &str) -> String {
             None => text.trim_start(),
         };
 
-        // A footnote definition `[^1]: text` reads `[1] text`.
-        if let Some((label, rest)) = line
-            .strip_prefix("[^")
-            .and_then(|r| r.split_once("]:"))
-            .filter(|(label, _)| !label.is_empty() && !label.contains(char::is_whitespace))
-        {
-            out.push_str(&format!(
-                "[{label}] {}",
-                strip_inline_markdown(rest.trim_start())
-            ));
-            out.push('\n');
-            continue;
-        }
-
         // A task-list checkbox, where the renderer reads one
         // ([`task_list::task_marks`]): `- [ ]` alone keeps its `[ ]`, and
         // `-`, then `  [ ] t`, loses it.
@@ -8062,9 +8097,15 @@ pub fn strip_markdown(content: &str) -> String {
             line
         };
 
-        // Now process inline Markdown on the remaining text.
+        // Now process inline Markdown on the remaining text. A footnote
+        // definition `[^1]: text` reads `[1] text`; its text is read past
+        // the definition, as a container, so `[^1]: # H` reads `[1] H`.
         let plain = strip_inline_markdown(line);
-        out.push_str(&plain);
+        if let Some(label) = &footnotes[idx] {
+            out.push_str(format!("[{label}] {plain}").trim_end());
+        } else {
+            out.push_str(&plain);
+        }
         out.push('\n');
     }
 
@@ -8083,7 +8124,9 @@ pub fn strip_markdown(content: &str) -> String {
             collapsed.push('\n');
         }
     }
-    collapsed.trim_end().to_string()
+    // Blank lines before the first text are left out, as those after the
+    // last are; the first line keeps its own indentation (code).
+    collapsed.trim_end().trim_start_matches('\n').to_string()
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.
@@ -8162,7 +8205,7 @@ fn definition(text: &str, following: &[&str]) -> Option<(String, usize)> {
     }
     let end = end?;
     let label = &inner[..end];
-    if label.trim().is_empty() || label.starts_with('^') || label.chars().count() > 999 {
+    if label.trim().is_empty() || label.chars().count() > 999 {
         return None;
     }
     let label = normalize_label(label);
@@ -8250,13 +8293,24 @@ fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
 /// blockquote markers and list markers, that does not go on with a
 /// paragraph (a definition cannot interrupt one), or that follows another
 /// definition. The links of [`strip_markdown`] are read against the
-/// labels, and it drops the lines, which the page does not show.
-fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, Vec<bool>) {
+/// labels, and it drops the lines, which the page does not show. Last,
+/// whether each line is a setext heading underline, where definitions
+/// make it read otherwise than [`markdown_lines::item_starts`] does: an
+/// `===` line after them starts a paragraph (no underline), and the
+/// paragraph's own underline is one.
+type Definitions = (
+    std::collections::HashSet<String>,
+    Vec<bool>,
+    Vec<Option<bool>>,
+);
+
+fn reference_definitions(content: &str) -> Definitions {
     let texts: Vec<Option<String>> = markdown_lines::line_text(content)
         .map(|t| t.map(|(text, _)| text.into_owned()))
         .collect();
     let mut labels = std::collections::HashSet::new();
     let mut lines = vec![false; texts.len()];
+    let mut underlines = vec![None; texts.len()];
     let mut after_definition = false;
     // Whether the line is in a paragraph markdown_lines does not see.
     let mut paragraph = false;
@@ -8284,8 +8338,10 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
         if paragraph
             && (text.trim().is_empty()
                 || start.text.is_some()
+                || start.footnote.is_some()
                 || markdown_lines::atx_heading(text).is_some()
-                || is_thematic_break(text)
+                // A `---` line is that paragraph's underline, not a break.
+                || (is_thematic_break(text) && !text.trim_end().ends_with("---"))
                 || i.checked_sub(1)
                     .is_some_and(|j| quote_depth(raws[i]) > quote_depth(raws[j])))
         {
@@ -8303,14 +8359,22 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
                 || !(mark.chars().all(|c| c == '=') || mark.chars().all(|c| c == '-'));
             after_definition = false;
             heading_end = !paragraph;
+            underlines[i] = Some(heading_end);
             continue;
         }
-        if after_definition && start.underline && !text.trim().starts_with("---") {
-            paragraph = true;
-            after_definition = false;
-            continue;
+        // Whether the line before ended that paragraph as a heading, which
+        // markdown_lines reads as a paragraph's first line.
+        let after_heading = std::mem::take(&mut heading_end);
+        if (after_definition || after_heading) && start.underline {
+            // A `---` line is a thematic break there.
+            underlines[i] = Some(false);
+            if !text.trim().starts_with("---") {
+                paragraph = true;
+                after_definition = false;
+                continue;
+            }
         }
-        let fresh = !start.continues || std::mem::take(&mut heading_end);
+        let fresh = !start.continues || after_heading;
         let found = (fresh || after_definition)
             .then(|| {
                 // The lines that go on with its paragraph.
@@ -8331,7 +8395,7 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
             lines[i..covered].fill(true);
         }
     }
-    (labels, lines)
+    (labels, lines, underlines)
 }
 
 /// Whether `text` (a line past its containers) is a thematic break: at
@@ -8391,9 +8455,107 @@ fn reference_end(
     }
 }
 
+/// The end of the link whose text `[...]` ends at `end` (just past its
+/// `]`): an inline link's `(...)` tail ([`inline_link_end`]), or a
+/// reference whose label `refs` defines ([`reference_end`]).
+fn link_end(
+    chars: &[char],
+    text: &str,
+    end: usize,
+    refs: &std::collections::HashSet<String>,
+) -> Option<usize> {
+    inline_link_end(chars, end).or_else(|| reference_end(chars, text, end, refs))
+}
+
+/// Whether `text` (a link's text) holds a link ([`link_end`]).
+fn holds_link(text: &str, refs: &std::collections::HashSet<String>) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len()).any(|i| {
+        parse_bracket_content(&chars, i)
+            .is_some_and(|(inner, end)| link_end(&chars, &inner, end, refs).is_some())
+    })
+}
+
+/// The index just past the `(destination "title")` tail of an inline link
+/// that starts at `start` (its `(`), as CommonMark reads one: spaces, an
+/// optional destination (`<...>` with no `<`, or a run with no space or
+/// control character whose unescaped parentheses balance), then, after a
+/// space, an optional title in `"`, `'` or parentheses, then spaces and
+/// `)`. `(a b)` is no tail: a destination has no space and `b` is no
+/// title.
+fn inline_link_end(chars: &[char], start: usize) -> Option<usize> {
+    let at = |j: usize| chars.get(j).copied();
+    let spaces = |mut j: usize| {
+        while at(j).is_some_and(|c| c == ' ' || c == '\t') {
+            j += 1;
+        }
+        j
+    };
+    if at(start) != Some('(') {
+        return None;
+    }
+    let mut j = spaces(start + 1);
+    if at(j) == Some('<') {
+        j += 1;
+        loop {
+            match at(j)? {
+                '\\' if at(j + 1).is_some_and(|c| c.is_ascii_punctuation()) => j += 2,
+                '>' => break,
+                '<' => return None,
+                _ => j += 1,
+            }
+        }
+        j += 1;
+    } else {
+        let mut depth = 0usize;
+        while let Some(c) = at(j) {
+            match c {
+                '\\' if at(j + 1).is_some_and(|c| c.is_ascii_punctuation()) => j += 1,
+                '(' => depth += 1,
+                ')' if depth == 0 => break,
+                ')' => depth -= 1,
+                c if c == ' ' || c.is_ascii_control() => break,
+                _ => {}
+            }
+            j += 1;
+        }
+        if depth > 0 {
+            return None;
+        }
+    }
+    let k = spaces(j);
+    if at(k) == Some(')') {
+        return Some(k + 1);
+    }
+    let close = match at(k)? {
+        _ if k == j => return None,
+        '"' => '"',
+        '\'' => '\'',
+        '(' => ')',
+        _ => return None,
+    };
+    let mut t = k + 1;
+    loop {
+        match at(t)? {
+            '\\' if at(t + 1).is_some_and(|c| c.is_ascii_punctuation()) => t += 2,
+            c if c == close => break,
+            '(' if close == ')' => return None,
+            _ => t += 1,
+        }
+    }
+    let end = spaces(t + 1);
+    (at(end) == Some(')')).then_some(end + 1)
+}
+
 /// [`strip_inline_markdown`], with `refs` the labels the document defines
 /// ([`reference_definitions`]).
 fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> String {
+    strip_inline_in(s, refs, true)
+}
+
+/// [`strip_inline_with`], reading wikilinks only when `wikilinks` is set:
+/// the page reads none in a link's text or an image's alt text.
+fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
@@ -8414,24 +8576,26 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         // `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
-                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
-                let after = if inline {
-                    Some(skip_link_tail(&chars, end))
-                } else {
-                    reference_end(&chars, &alt, end, refs)
-                };
-                if let Some(after) = after {
-                    out.push_str(&strip_inline_with(&alt, refs));
+                if let Some(after) = link_end(&chars, &alt, end, refs) {
+                    out.push_str(&strip_inline_in(&alt, refs, false));
                     i = after;
                     continue;
                 }
             }
         }
+        // A link whose text is a wikilink (`[[[W]]](u)`) is a link with
+        // the text `[[W]]`, which the page does not read as a wikilink.
+        // A link holds no link, so `[a [b](c)](d)` is a `[` and a link.
+        let link = (chars[i] == '[')
+            .then(|| parse_bracket_content(&chars, i))
+            .flatten()
+            .filter(|(text, _)| !holds_link(text, refs))
+            .and_then(|(text, end)| Some((text.clone(), link_end(&chars, &text, end, refs)?)));
         // Wikilink [[target]] → target, [[target|alias]] → alias and
         // [[target#heading]] → `target › heading`, as the read view shows
-        // it. It is read before a `[text]` link, which took `[[Real]]` as a
-        // link with text `[Real]`.
-        if let Some(link) = parse_wikilink(&chars, i) {
+        // it. It is read before a `[text]` with no link after it, which took
+        // `[[Real]]` as a link with text `[Real]`.
+        if let Some(link) = parse_wikilink(&chars, i).filter(|_| wikilinks && link.is_none()) {
             match (&link.alias, &link.heading) {
                 (Some(alias), _) => out.push_str(alias),
                 (None, Some(heading)) => {
@@ -8465,18 +8629,12 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         // this, so `[ ] not a task` keeps its brackets, and so does
         // `[label]` with no `[label]: /url` in the document.
         if chars[i] == '[' {
-            if let Some((text, end)) = parse_bracket_content(&chars, i) {
-                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
-                let after = if inline {
-                    Some(skip_link_tail(&chars, end))
-                } else {
-                    reference_end(&chars, &text, end, refs)
-                };
-                if let Some(after) = after {
-                    out.push_str(&strip_inline_with(&text, refs));
-                    i = after;
-                    continue;
-                }
+            if let Some((text, after)) = link {
+                out.push_str(&strip_inline_in(&text, refs, false));
+                i = after;
+                continue;
+            }
+            if parse_bracket_content(&chars, i).is_some() {
                 out.push('[');
                 i += 1;
                 continue;
@@ -8553,6 +8711,26 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         i += 1;
     }
 
+    out
+}
+
+/// `s` without the HTML tags, comments, processing instructions,
+/// declarations and CDATA sections ([`html_end`]) in it: the text of an
+/// HTML block.
+fn strip_html(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '<' {
+            if let Some(end) = html_end(&chars, i) {
+                i = end;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
     out
 }
 
@@ -8711,48 +8889,6 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
         i += 1;
     }
     None
-}
-
-// Helper: skip the `(url)` or `[ref]` tail after a link/image `]`. A
-// `<...>` destination (`(<a)b>)`) is skipped whole, as CommonMark reads it:
-// a parenthesis inside it does not end the link.
-fn skip_link_tail(chars: &[char], start: usize) -> usize {
-    let opener = chars.get(start);
-    let (open, close) = match opener {
-        Some(&'(') => ('(', ')'),
-        Some(&'[') => ('[', ']'),
-        _ => return start,
-    };
-    let mut depth = 0usize;
-    let mut i = start;
-    if open == '(' {
-        let dest = start
-            + 1
-            + chars[start + 1..]
-                .iter()
-                .take_while(|&&c| c == ' ' || c == '\t')
-                .count();
-        if chars.get(dest) == Some(&'<') {
-            if let Some(len) = chars[dest + 1..].iter().position(|&c| c == '<' || c == '>') {
-                if chars[dest + 1 + len] == '>' {
-                    depth = 1;
-                    i = dest + 2 + len;
-                }
-            }
-        }
-    }
-    while i < chars.len() {
-        if chars[i] == open {
-            depth += 1;
-        } else if chars[i] == close {
-            depth -= 1;
-            if depth == 0 {
-                return i + 1;
-            }
-        }
-        i += 1;
-    }
-    start
 }
 
 /// A `[[target#heading|alias]]` wikilink, from [`parse_wikilink`].
@@ -9342,11 +9478,7 @@ pub fn extract_wikilink_headings(content: &str) -> Vec<(String, String)> {
 /// target and trimmed heading fragment, embeds (`![[...]]`) and empty
 /// targets left out.
 fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
-    let text: Vec<&str> = markdown_lines::markdown_lines(content)
-        .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
-        .map(|(_, line)| line)
-        .collect();
-    let chars: Vec<char> = text.join("\n").chars().collect();
+    let chars = prose_chars(content, true);
     let mut refs = Vec::new();
     let mut i = 0;
     while i < chars.len() {
@@ -9368,6 +9500,55 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
     refs
 }
 
+/// The text lines of `content` (and its front matter lines with
+/// `front_matter`), joined by line breaks, with the code spans in them
+/// (`` `…` ``) left out: where [`extract_wikilinks`] and
+/// [`count_embedded_images`] read links and images. Fenced code, indented
+/// code ([`markdown_lines::with_indented_code`]) and HTML blocks are not
+/// text; indented code and code spans used to be read, so a `[[link]]` in
+/// either was counted, although the page shows it as code.
+fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
+    let text: Vec<&str> = markdown_lines::with_indented_code(content)
+        .filter(|(kind, _)| {
+            *kind == LineKind::Text || (front_matter && *kind == LineKind::FrontMatter)
+        })
+        .map(|(_, line)| line)
+        .collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
+    let mut out = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '`' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let run = chars[i..].iter().take_while(|&&c| c == '`').count();
+        // The next run of exactly as many backticks closes the span.
+        let mut j = i + run;
+        let mut close = None;
+        while j < chars.len() {
+            let n = chars[j..].iter().take_while(|&&c| c == '`').count();
+            if n == run {
+                close = Some(j + n);
+                break;
+            }
+            j += n.max(1);
+        }
+        match close {
+            Some(end) => {
+                out.push(' ');
+                i = end;
+            }
+            None => {
+                out.extend(&chars[i..i + run]);
+                i += run;
+            }
+        }
+    }
+    out
+}
+
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
 ///
 /// Fenced code and a leading front matter block are skipped by
@@ -9378,8 +9559,7 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 /// (wikilinks there still are links, see [`extract_wikilinks`]).
 pub fn count_embedded_images(content: &str) -> usize {
     let mut count = 0usize;
-    let text: Vec<&str> = markdown_lines::text_lines(content).collect();
-    let chars: Vec<char> = text.join("\n").chars().collect();
+    let chars = prose_chars(content, false);
     let n = chars.len();
     let mut i = 0;
     while i < n {
@@ -9395,10 +9575,11 @@ pub fn count_embedded_images(content: &str) -> usize {
                         continue;
                     }
                 } else if let Some((_, end)) = parse_bracket_content(&chars, i + 1) {
-                    // Check for trailing (url) to confirm it's an image not just `![`
-                    if chars.get(end) == Some(&'(') {
+                    // A `(url)` tail, by the inline link rule of export_text
+                    // ([`inline_link_end`]), makes it an image: any `(`
+                    // used to, so `![a](b c)`, text on the page, counted.
+                    if let Some(after) = inline_link_end(&chars, end) {
                         count += 1;
-                        let after = skip_link_tail(&chars, end);
                         i = after;
                         continue;
                     }

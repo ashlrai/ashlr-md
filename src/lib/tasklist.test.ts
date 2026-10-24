@@ -142,3 +142,22 @@ describe("toggleTaskAtLine follows the renderer's task rule", () => {
     expect(marks.filter(Boolean)).toHaveLength(2);
   });
 });
+
+describe("taskMarks reads footnotes and HTML blocks as the renderer does", () => {
+  it("reads a task in a footnote definition", () => {
+    // remark-gfm reads `[^n]: - [ ] t` as a footnote holding a task, and
+    // the lines indented four columns after it as its content.
+    expect(taskMarks("[^n]: - [ ] t").map((m) => m?.text ?? null)).toEqual(["t"]);
+    expect(taskMarks("[^n]: x\n\n    - [x] u").map((m) => m?.checked ?? null)).toEqual([
+      null,
+      null,
+      true,
+    ]);
+  });
+
+  it("does not read a task in an HTML block", () => {
+    // The page shows an HTML block's lines as raw HTML, not as a list.
+    expect(taskMarks("<div>\n- [ ] t\n</div>").every((m) => m === null)).toBe(true);
+    expect(taskMarks("<u>\n- [ ] t").every((m) => m === null)).toBe(true);
+  });
+});

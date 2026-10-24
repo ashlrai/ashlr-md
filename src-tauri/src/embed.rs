@@ -164,8 +164,14 @@ fn chunk_markdown(text: &str) -> Vec<String> {
         current.clear();
     };
 
-    for line in text.lines() {
-        let is_heading = line.trim_start().starts_with('#');
+    // A chunk begins at an ATX heading, read past its containers by the
+    // line rule of the Outline: any line starting with `#` used to begin
+    // one, so the `# comment` lines of a code block cut it into chunks too
+    // small to keep, and its code was not indexed.
+    let texts = crate::markdown_lines::line_text(text);
+    for (line, line_text) in text.lines().zip(texts) {
+        let is_heading =
+            line_text.is_some_and(|(t, _)| crate::markdown_lines::atx_heading(&t).is_some());
         if is_heading && !current.trim().is_empty() {
             flush(&mut current, &mut chunks);
         }
@@ -675,5 +681,21 @@ mod tests {
     #[test]
     fn chunk_drops_empty() {
         assert!(chunk_markdown("# Just a heading\n").is_empty());
+    }
+
+    /// A chunk began at any line starting with `#` after its indentation,
+    /// so the `# comment` lines of a code block cut it into chunks too
+    /// small to keep and its code was not indexed. A chunk now begins only
+    /// at an ATX heading, read by the line rule of the Outline.
+    #[test]
+    fn chunk_splits_only_on_headings() {
+        let md = "# Setup\n\nRun these commands to install the tool and its \
+            dependencies on a fresh machine.\n\n```sh\n# fetch\ncurl -O x\n\
+            # unpack\ntar xf x\n```\n\n#tag    \n    # indented code\n";
+        let chunks = chunk_markdown(md);
+        assert_eq!(chunks.len(), 1, "{chunks:?}");
+        assert!(chunks[0].contains("# unpack\ntar xf x"));
+        let two = format!("{md}\n## Next\n\nAnother paragraph that is long enough to be kept as a chunk of its own.\n");
+        assert_eq!(chunk_markdown(&two).len(), 2);
     }
 }

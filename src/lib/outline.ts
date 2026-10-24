@@ -170,9 +170,136 @@ function thematicBreak(line: string): boolean {
 
 /**
  * A container a line can sit in: a blockquote, or a list item with how
- * many columns its content is past the container before it.
+ * many columns its content is past the container before it, or a GFM
+ * footnote definition (`[^n]: x`), whose content goes on four columns past
+ * the container before it.
  */
-type Container = { quote: true } | { quote: false; width: number };
+type Container = { quote: true } | { quote: false; width: number; footnote?: true };
+
+/**
+ * The label of the GFM footnote definition `line` (tabs expanded) opens
+ * and the rest of the line past its `:` and the spaces after it, or null:
+ * at most three spaces, `[^`, a label of 1 to 999 characters with no space
+ * and no unescaped bracket, then `]:`, as micromark reads it. `[^a b]: x`
+ * and `[^]: x` are link reference definitions. The rule of mdopener-mcp's
+ * `markdown_lines::footnote_marker`.
+ */
+function footnoteMarker(line: string): { label: string; rest: string } | null {
+  const m = /^ {0,3}\[\^((?:\\[[\\\]]|[^\s[\]\\]|\\(?![[\\\]]))+)\]:/u.exec(line);
+  if (!m || [...m[1]].length > 999) return null;
+  return { label: m[1], rest: line.slice(m[0].length).replace(/^ +/, "") };
+}
+
+/** How an HTML block ends, by the kind its first line opens. */
+type HtmlEnd = "raw" | "comment" | "instruction" | "declaration" | "cdata" | "blank";
+
+/** The tag names of an HTML block of the sixth kind, as micromark lists them. */
+const HTML_BLOCK_NAMES = new Set(
+  (
+    "address article aside base basefont blockquote body caption center col " +
+    "colgroup dd details dialog dir div dl dt fieldset figcaption figure footer " +
+    "form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li " +
+    "link main menu menuitem nav noframes ol optgroup option p param search " +
+    "section summary table tbody td tfoot th thead title tr track ul"
+  ).split(" "),
+);
+
+/** The tag names of an HTML block of the first kind. */
+const HTML_RAW_NAMES = ["pre", "script", "style", "textarea"];
+
+/** A whole open tag's attributes, `/` and `>`, after its name. */
+const OPEN_TAG_TAIL =
+  /^(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t]*\/?>/;
+
+/**
+ * How the HTML block that `line` (tabs expanded, past its containers)
+ * opens ends, and whether it may interrupt a paragraph, or null, as
+ * CommonMark and micromark read it: at most three spaces, then `<` and
+ * `!--` (ended by `-->`), `?` (`?>`), `![CDATA[` (`]]>`), `!` and a letter
+ * (`>`), `pre`, `script`, `style` or `textarea` (their closing tag), a
+ * block-level tag name (a blank line), or any other whole open or closing
+ * tag alone on its line (a blank line; it cannot interrupt a paragraph).
+ * The rule of mdopener-mcp's `markdown_lines::html_start`.
+ */
+function htmlStart(line: string): { end: HtmlEnd; interrupts: boolean } | null {
+  const m = /^ {0,3}</.exec(line);
+  if (!m) return null;
+  const after = line.slice(m[0].length);
+  if (after.startsWith("!--")) return { end: "comment", interrupts: true };
+  if (after.startsWith("?")) return { end: "instruction", interrupts: true };
+  if (after.startsWith("![CDATA[")) return { end: "cdata", interrupts: true };
+  if (/^![A-Za-z]/.test(after)) return { end: "declaration", interrupts: true };
+  const closing = after.startsWith("/");
+  const tag = closing ? after.slice(1) : after;
+  const name = /^[A-Za-z][A-Za-z0-9-]*/.exec(tag)?.[0];
+  if (!name) return null;
+  const lower = name.toLowerCase();
+  const next = tag.slice(name.length);
+  const endsName = next === "" || /^[ \t>]/.test(next);
+  if (!closing && endsName && HTML_RAW_NAMES.includes(lower)) {
+    return { end: "raw", interrupts: true };
+  }
+  if ((endsName || next.startsWith("/>")) && HTML_BLOCK_NAMES.has(lower)) {
+    return { end: "blank", interrupts: true };
+  }
+  const whole = closing ? /^[ \t]*>/.exec(next) : OPEN_TAG_TAIL.exec(next);
+  if (!whole || next.slice(whole[0].length).trim() !== "") return null;
+  return { end: "blank", interrupts: false };
+}
+
+/**
+ * How many characters of `opener` (a line from its `<`) come before the
+ * text an HTML block's end marker is looked for in: `<!-->` and `<?>` end
+ * on their first line, as micromark reads them.
+ */
+function openerLength(end: HtmlEnd, opener: string): number {
+  switch (end) {
+    case "raw":
+      return 1 + (/^[A-Za-z0-9]*/.exec(opener.slice(1))?.[0].length ?? 0);
+    case "comment":
+    case "declaration":
+      return 2;
+    case "instruction":
+      return 1;
+    case "cdata":
+      return 9;
+    default:
+      return 0;
+  }
+}
+
+/** Whether `line` ends an HTML block that ends by `end`. */
+function htmlEnds(end: HtmlEnd, line: string): boolean {
+  switch (end) {
+    case "raw": {
+      const lower = line.toLowerCase();
+      return HTML_RAW_NAMES.some((name) => lower.includes(`</${name}>`));
+    }
+    case "comment":
+      return line.includes("-->");
+    case "instruction":
+      return line.includes("?>");
+    case "declaration":
+      return line.includes(">");
+    case "cdata":
+      return line.includes("]]>");
+    default:
+      return false;
+  }
+}
+
+/**
+ * The rest of `rest` (tabs expanded) past the open container `c`, or null
+ * when the line does not go on in it: a blockquote by its `>`, a list item
+ * by its content indentation and a footnote definition by four columns (a
+ * blank line stays in both).
+ */
+function continueOne(rest: string, c: Container): string | null {
+  if (c.quote) return quoteMarker(rest);
+  if (rest.trim() === "") return "";
+  const width = c.footnote ? 4 : c.width;
+  return spacesBefore(rest) >= width ? rest.slice(width) : null;
+}
 
 /**
  * The containers `line` (tabs expanded) sits in and the rest of the line:
@@ -193,25 +320,18 @@ function containers(
   line: string,
   open: Container[],
   held: number | null,
-): { list: Container[]; matched: number; rest: string } {
+): { list: Container[]; matched: number; rest: string; footnote: boolean } {
   const list: Container[] = [];
   let rest = line;
   for (const c of open) {
-    if (c.quote) {
-      const q = quoteMarker(rest);
-      if (q === null) break;
-      rest = q;
-    } else if (rest.trim() === "") {
-      rest = "";
-    } else if (spacesBefore(rest) >= c.width) {
-      rest = rest.slice(c.width);
-    } else {
-      break;
-    }
+    const r = continueOne(rest, c);
+    if (r === null) break;
+    rest = r;
     list.push(c);
   }
   const matched = list.length;
   const interrupt = held === matched;
+  let footnote = false;
   for (;;) {
     const q = quoteMarker(rest);
     if (q !== null) {
@@ -219,12 +339,20 @@ function containers(
       rest = q;
       continue;
     }
+    // A footnote definition, which may interrupt a paragraph.
+    const f = footnoteMarker(rest);
+    if (f !== null) {
+      list.push({ quote: false, width: 4, footnote: true });
+      footnote = true;
+      rest = f.rest;
+      continue;
+    }
     const item = thematicBreak(rest) ? null : listMarker(rest);
     if (!item || (interrupt && (!item.one || item.rest.trim() === ""))) break;
     list.push({ quote: false, width: item.width });
     rest = item.rest;
   }
-  return { list, matched, rest };
+  return { list, matched, rest, footnote };
 }
 
 /**
@@ -234,19 +362,10 @@ function containers(
  * indentation unless the line is blank.
  */
 function continues(line: string, list: Container[]): string | null {
-  let rest = line;
+  let rest: string | null = line;
   for (const c of list) {
-    if (c.quote) {
-      const q = quoteMarker(rest);
-      if (q === null) return null;
-      rest = q;
-    } else if (rest.trim() === "") {
-      rest = "";
-    } else if (spacesBefore(rest) >= c.width) {
-      rest = rest.slice(c.width);
-    } else {
-      return null;
-    }
+    rest = continueOne(rest, c);
+    if (rest === null) return null;
   }
   return rest;
 }
@@ -257,7 +376,9 @@ function startsWith(list: Container[], prefix: Container[]): boolean {
     prefix.length <= list.length &&
     prefix.every((c, i) => {
       const d = list[i];
-      return c.quote ? d.quote : !d.quote && d.width === c.width;
+      return c.quote
+        ? d.quote
+        : !d.quote && d.width === c.width && !d.footnote === !c.footnote;
     })
   );
 }
@@ -267,9 +388,10 @@ export interface MarkdownLine {
   /**
    * `frontmatter` for a line of a leading YAML front matter block (its
    * `---` lines included), `fence` for a code fence line, `code` for a line
-   * inside fenced code, `text` for any other line.
+   * inside fenced code, `html` for a line of an HTML block (raw HTML, which
+   * the page does not read as Markdown), `text` for any other line.
    */
-  kind: "frontmatter" | "fence" | "code" | "text";
+  kind: "frontmatter" | "fence" | "code" | "html" | "text";
   /** The line without its `\n` (a `\r` before it is kept). */
   text: string;
   /** 1-based line number within the full document. */
@@ -310,6 +432,12 @@ export interface MarkdownLine {
    * (`- a`, then `b`) or in its containers.
    */
   continues: boolean;
+  /**
+   * Set on a line that sits in a GFM footnote definition (`[^n]: x`, and
+   * the lines indented four columns after it), which the page shows in its
+   * footnotes, after the rest of the document.
+   */
+  footnote?: true;
 }
 
 /**
@@ -333,6 +461,14 @@ export interface MarkdownLine {
  * to be. A quoted fence, a list-item fence
  * and then these used to be text, so a `# comment` in their code was
  * listed in the Outline and `- [ ] x` read as a task.
+ *
+ * An HTML block is `html` in the same containers, up to its end marker
+ * (`-->` for a comment) or, for a block tag (`<div>`) or a lone tag
+ * (`<u>`, which cannot interrupt a paragraph), a blank line, and a GFM
+ * footnote definition (`[^n]: x`) is a container whose content goes on in
+ * the lines indented four columns after it, as remark-gfm reads them. Both
+ * used to be text, so a `# x` in a `<div>` was listed in the Outline and a
+ * task in a footnote was not one.
  */
 export function markdownLines(markdown: string): MarkdownLine[] {
   const { lines: body, offset } = stripFrontmatter(markdown);
@@ -355,6 +491,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   }
   // The open fence, with the containers its code lines stay in.
   let fence: { marker: string; list: Container[] } | null = null;
+  // The open HTML block (how it ends), with the containers it stays in.
+  let html: { end: HtmlEnd; list: Container[] } | null = null;
   // The open blockquotes and list items, outermost first: the containers
   // of the last line that was not blank or lazy, less those a blank line
   // or a closing line ended.
@@ -381,18 +519,27 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
     const expanded = expandTabs(raw);
     let kind: MarkdownLine["kind"] = "text";
+    // A line of an open HTML block: one that stays in its containers and,
+    // for a block that ends at a blank line, is not blank.
+    let inHtml = html ? continues(expanded, html.list) : null;
+    if (html?.end === "blank" && inHtml?.trim() === "") inHtml = null;
     const inside = fence ? continues(expanded, fence.list) : null;
-    let lineList: Container[] = fence?.list ?? [];
-    let content = inside ?? expanded;
+    let lineList: Container[] =
+      (html && inHtml !== null ? html.list : fence?.list) ?? [];
+    let content = inHtml ?? inside ?? expanded;
     let endsBare = false;
     let setext: MarkdownLine["setext"];
     let first = false;
     let continuesParagraph = false;
-    if (fence && inside !== null) {
+    if (html && inHtml !== null) {
+      kind = "html";
+      if (htmlEnds(html.end, inHtml)) html = null;
+    } else if (fence && inside !== null) {
       kind = closesFence(codeFence(inside), fence.marker) ? "fence" : "code";
       if (kind === "fence") fence = null;
     } else {
       fence = null;
+      html = null;
       const c = containers(expanded, open, paragraph ?? indented);
       lineList = c.list;
       content = c.rest;
@@ -416,10 +563,14 @@ export function markdownLines(markdown: string): MarkdownLine[] {
         bare = false;
       } else {
         const heading = atxHeading(c.rest) !== null;
+        const block = htmlStart(c.rest);
+        // An HTML block of the first six kinds interrupts a paragraph, as a
+        // heading does; one of the seventh kind (a lone tag, `<u>`) does not.
+        const interrupts = heading || block?.interrupts === true;
         // A paragraph goes on in a line that leaves an item without
         // opening one, or a blockquote (lazy continuation).
         const lazy =
-          paragraph !== null && !heading && !opened && c.matched < open.length;
+          paragraph !== null && !interrupts && !opened && c.matched < open.length;
         if (paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest)) {
           // A setext underline ends the paragraph as a heading.
           setext = { depth: c.rest.trim().startsWith("=") ? 1 : 2, from: paraStart };
@@ -430,6 +581,15 @@ export function markdownLines(markdown: string): MarkdownLine[] {
         } else if (thematicBreak(c.rest)) {
           // A thematic break ends the containers it is not in.
           open = c.list;
+          paragraph = null;
+          indented = null;
+          bare = false;
+        } else if (lazy && block !== null) {
+          // A lone tag on a lazy line opens an HTML block in the containers
+          // the paragraph is in, as micromark reads it (`> a`, then `<u>`).
+          lineList = open;
+          kind = "html";
+          html = { end: "blank", list: open };
           paragraph = null;
           indented = null;
           bare = false;
@@ -451,11 +611,12 @@ export function markdownLines(markdown: string): MarkdownLine[] {
             !opened &&
             lastLeft !== undefined &&
             !lastLeft.quote &&
+            !lastLeft.footnote &&
             spacesBefore(c.rest) === 0;
           open = c.list;
           const last = c.list[c.list.length - 1];
-          const item = opened && !last.quote;
-          bare = opened && empty && !last.quote;
+          const item = opened && !last.quote && !last.footnote;
+          bare = opened && empty && !last.quote && !last.footnote;
           tight = bare && !/[ \t]$/.test(raw);
           const level = c.list.length;
           // Four spaces past the containers is indented code, not text.
@@ -465,17 +626,30 @@ export function markdownLines(markdown: string): MarkdownLine[] {
             paragraph === null ||
             c.list.slice(c.matched).some((x) => !x.quote) ||
             (opened && !startsWith(paraList, c.list));
-          const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
-          continuesParagraph = !fresh && !heading && !empty;
-          // The first content of an item opened by a bare marker may be on
-          // the line after it (`-`, then `  [ ] t`).
-          first = !code && !empty && (item || afterBare);
-          if (paragraph === null || fresh) paraStart = out.length;
-          paragraph = heading || empty || code ? null : level;
-          paraList = c.list;
-          // Only indented code that closed no container, as the renderer
-          // reads it.
-          indented = code && !closed ? level : null;
+          if (block !== null && (block.interrupts || fresh)) {
+            // An HTML block, which ends at its end marker (on this line
+            // too) or, for the last two kinds, at a blank line.
+            kind = "html";
+            bare = false;
+            paragraph = null;
+            indented = null;
+            const opener = c.rest.replace(/^ +/, "");
+            if (!htmlEnds(block.end, opener.slice(openerLength(block.end, opener)))) {
+              html = { end: block.end, list: c.list };
+            }
+          } else {
+            const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
+            continuesParagraph = !fresh && !heading && !empty;
+            // The first content of an item opened by a bare marker may be
+            // on the line after it (`-`, then `  [ ] t`).
+            first = !code && !empty && (item || afterBare);
+            if (paragraph === null || fresh) paraStart = out.length;
+            paragraph = heading || empty || code ? null : level;
+            paraList = c.list;
+            // Only indented code that closed no container, as the renderer
+            // reads it.
+            indented = code && !closed ? level : null;
+          }
         } else {
           continuesParagraph = true;
         }
@@ -494,9 +668,33 @@ export function markdownLines(markdown: string): MarkdownLine[] {
       continues: continuesParagraph,
     });
     if (setext) out[out.length - 1].setext = setext;
+    if (lineList.some((c) => !c.quote && c.footnote))
+      out[out.length - 1].footnote = true;
     start += text.length + 1;
   }
   return out;
+}
+
+/**
+ * The list item line `l` opens, by the page's list rule
+ * ({@link markdownLines}): whether its marker is ordered (`1.`, `2)`) and
+ * its text, or null for any other line. A `- x` or `1. x` line in fenced
+ * or indented code, `-x` (no item) and an item's continuation are none;
+ * one in a blockquote (`> - x`) is one. The runbook and review renderers
+ * read their list items by it; they used to match them on raw lines.
+ */
+export function listItem(
+  l: MarkdownLine | undefined,
+): { ordered: boolean; text: string } | null {
+  if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
+  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  const expanded = expandTabs(raw);
+  const prefix = expanded.slice(0, expanded.length - l.content.length);
+  // The marker right before the text; a line after a bare marker (`-`,
+  // then `  x`) has none and continues the item opened before it.
+  const marker = /(?:^|[ >])(?:(\d{1,9})[.)]|[-*+]) *$/.exec(prefix);
+  if (!marker) return null;
+  return { ordered: marker[1] !== undefined, text: l.content.trim() };
 }
 
 /**
@@ -573,7 +771,9 @@ export function parseHeadings(markdown: string): HeadingItem[] {
   // containers its line sits in, by the container rule of markdownLines.
   const lines = markdownLines(markdown);
   lines.forEach((l, i) => {
-    if (l.kind !== "text") return;
+    // A heading in a footnote definition is in the page's footnotes, after
+    // every other heading, so its slug cannot change theirs.
+    if (l.kind !== "text" || l.footnote) return;
     if (l.setext) {
       // A setext heading takes its slug from its lines, joined by line
       // breaks as the renderer's heading text is, but is not listed.

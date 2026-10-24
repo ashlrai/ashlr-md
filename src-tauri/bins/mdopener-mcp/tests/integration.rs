@@ -8262,7 +8262,9 @@ fn export_metadata_wikilinks_use_the_fence_rule_and_keep_front_matter() {
         .unwrap();
     let d = tool["description"].as_str().unwrap();
     assert!(
-        d.contains("all [[wikilinks]] outside fenced code (front matter properties included)"),
+        d.contains(
+            "all [[wikilinks]] outside fenced and indented code and code spans (front matter properties included)"
+        ),
         "{d}"
     );
     let docs = include_str!("../../../../docs/AGENTS.md");
@@ -8310,7 +8312,7 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     for said in [
         "a `- [ ]` line in fenced or indented code or front matter is not,",
         "(code blocks kept as written, by the fence rule of `export_metadata`;",
-        "images outside fenced code and front matter",
+        "images outside fenced and indented code, code spans and front matter",
     ] {
         assert!(docs.contains(said), "docs/AGENTS.md must say {said}");
     }
@@ -8654,9 +8656,8 @@ fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
         ("[a]: /u \"t\" x", "[a]: /u \"t\" x"),
         ("[a]:\n/u x", "[a]:\n/u x"),
         // `===` after definitions is a paragraph, not an underline, and
-        // the line after it goes on with that paragraph (the `===` line
-        // itself is still dropped, as an underline is).
-        ("[a]: /u\n===\n[b]: /v", "[b]: /v"),
+        // the line after it goes on with that paragraph.
+        ("[a]: /u\n===\n[b]: /v", "===\n[b]: /v"),
         // Autolinks keep their URL or address; HTML reads nothing; any
         // other `<` is text.
         (
@@ -8680,6 +8681,163 @@ fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("a link reference definition (`[text]: /url \"title\"`, also over two or three lines) reads nothing"));
     assert!(docs.contains("an autolink reads its URL or address"));
+}
+
+/// markdown_lines read the lines of an HTML block as Markdown, although
+/// the page shows them as raw HTML: a `# x` in a `<div>` was a heading of
+/// export_metadata and the document's title, a `[[link]]` in one was a
+/// link, and export_text read their Markdown. A link reference definition
+/// after a one-line HTML comment was read as going on with a paragraph, so
+/// it was not dropped. HTML blocks are now read as CommonMark reads them.
+#[test]
+fn html_blocks_are_read_as_raw_html() {
+    use mdopener_mcp::{document_title, extract_headings, extract_wikilinks, strip_markdown};
+    let doc = "Intro\n\n<div>\n# Inside\n[[Hidden]] **b**\n</div>\n\n# After\n";
+    assert_eq!(
+        extract_headings(doc),
+        vec![json!({ "level": 1, "text": "After" })]
+    );
+    assert!(extract_wikilinks(doc).is_empty());
+    assert_eq!(document_title("<div>\n# Inside\n</div>").as_deref(), None);
+    assert_eq!(
+        strip_markdown(doc),
+        "Intro\n\n# Inside\n[[Hidden]] **b**\n\nAfter"
+    );
+    let cases = [
+        // A comment ends on its `-->` line, and a definition can follow it.
+        ("x\n<!-- c -->\n[a]: /u\n\n[a] y", "x\n\na y"),
+        // A comment over lines hides its text; a lone tag runs to a blank
+        // line, so the `===` after it is no setext underline.
+        ("x\n\n<!--\n# c\n-->\n# K", "x\n\nK"),
+        ("x\n\n<u>\n===\n\ny", "x\n\n===\n\ny"),
+        // A lone tag cannot interrupt a paragraph, a block tag can.
+        ("a\n<u>\n# H", "a\n\nH"),
+        ("a\n<div>\n# H", "a\n\n# H"),
+        // In a blockquote, it ends with the quote.
+        ("x\n\n> <div>\n# H", "x\n\nH"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// markdown_lines did not read GFM footnote definitions as containers:
+/// a definition, a heading or a fence on a footnote's lines, or on its
+/// first line (`[^n]: [a]: /u`), was read as paragraph text, a footnote
+/// definition interrupting a paragraph (`para`, then `[^n]: x`) was read
+/// as going on with it, and `[^a b]: x` (a link reference definition,
+/// since a footnote label has no space) was kept.
+#[test]
+fn footnote_definitions_are_containers() {
+    use mdopener_mcp::{extract_headings, strip_markdown};
+    let cases = [
+        ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
+        ("[^n]: # Note", "[n] Note"),
+        ("[a]\n\npara\n[^n]: [a]: /u", "a\n\npara"),
+        ("[a]\n\n> para\n[^n]: [a]: /u", "a\n\npara"),
+        ("[a]\n\n[^n]: x\n\n    [a]: /u", "a\n\n[n] x"),
+        ("[^a b] x\n\n[^a b]: /u", "^a b x"),
+        ("[^n]: x\n\n    ```\n    # c\n    ```", "[n] x\n\n# c"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    assert!(extract_headings("[^n]: x\n\n    # Sub").is_empty());
+}
+
+/// export_text dropped every line of only `=` or `-` as a setext heading
+/// underline, although an `===` line after link reference definitions,
+/// or with no paragraph before it, or a lazy one after a list item, is
+/// text on the page. Underlines are now read by the container rule of
+/// the lines and, after definitions, as micromark reads them.
+#[test]
+fn export_text_keeps_an_equals_line_the_page_shows_as_text() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        ("x\n\n[a]: /u\n===", "x\n\n==="),
+        ("x\n\n[a]: /u\n===\n===", "x\n\n==="),
+        ("x\n\n[a]: /u\n--\ny", "x\n\n--\ny"),
+        ("x\n\n===", "x\n\n==="),
+        ("- a\n===", "a\n==="),
+        ("> a\n===", "a\n==="),
+        // Underlines are still dropped.
+        ("Title\n===\n\nSub\n---", "Title\n\nSub"),
+        ("> q\n> ===", "q"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// export_text's text started with a line break when the document did:
+/// after blank lines, after front matter and a blank line, or after a
+/// link reference definition or an HTML block that reads nothing. The
+/// blank lines before the first text are now left out, as the end's are.
+#[test]
+fn export_text_does_not_start_with_a_line_break() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        ("\n\nText", "Text"),
+        ("---\ntitle: x\n---\n\n# Title\n\nBody", "Title\n\nBody"),
+        ("[a]: /u\n\nText [a]", "Text a"),
+        ("<!-- note -->\n\nText", "Text"),
+        ("    code\n\nText", "code\n\nText"),
+        ("\n```\n  indented\n```", "  indented"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// strip_inline_markdown took any `(...)` after `[text]` as a link's
+/// destination, so `[t](a b)` (no link in CommonMark: a destination has no
+/// space, and `b` is no title) read `t`, and it read a wikilink before a
+/// link, so `[[[W]]](u)`, a link whose text is `[[W]]` (which the page
+/// does not read as a wikilink inside a link), read `[W](u)`.
+#[test]
+fn export_text_reads_inline_links_as_commonmark() {
+    use mdopener_mcp::{count_embedded_images, strip_inline_markdown, strip_markdown};
+    let cases = [
+        ("[t](a b)", "[t](a b)"),
+        ("[t](a \"b\" c)", "[t](a \"b\" c)"),
+        ("[t](a(b)", "[t](a(b)"),
+        ("[t](a \"b\")", "t"),
+        ("[t]( a )", "t"),
+        ("[t](<a b>)", "t"),
+        ("[t](a(b)c)", "t"),
+        ("[t](a 'b')", "t"),
+        ("[t](a (b))", "t"),
+        ("[t]()", "t"),
+        ("[[[W]]](u)", "[[W]]"),
+        ("[[W]](u)", "[W]"),
+        ("[[W]] and [[A|b]]", "W and b"),
+        // A link holds no link: the outer brackets are text.
+        ("[a [b](c)](d)", "[a b](d)"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_inline_markdown(doc), want, "{doc:?}");
+    }
+    assert_eq!(strip_markdown("![i](a b) ![j](a \"t\")"), "![i](a b) j");
+    // export_metadata's image count reads images by the same rule.
+    assert_eq!(count_embedded_images("![i](a b) ![j](a \"t\") ![k](u)"), 2);
+}
+
+/// export_metadata read its wikilinks and images on every line outside
+/// fenced code, so a `[[link]]` or an `![image](u)` in indented code (four
+/// columns past its containers) or in a code span was counted, although
+/// the page shows it as code.
+#[test]
+fn export_metadata_reads_no_links_or_images_in_code() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "para\n\n    [[Code]] ![a](b)\n\n- item\n\n      [[Item code]]\n\n\
+        [[Real]] `[[Span]]` ``a ![c](d) b`` ![e](f)\n";
+    assert_eq!(extract_wikilinks(doc), vec!["Real".to_string()]);
+    assert_eq!(count_embedded_images(doc), 1);
+    // Front matter properties are still links.
+    assert_eq!(
+        extract_wikilinks("---\nrelated: \"[[Plan]]\"\n---\n"),
+        vec!["Plan".to_string()]
+    );
 }
 
 /// A link's text and an image's alt text kept their inline markup:

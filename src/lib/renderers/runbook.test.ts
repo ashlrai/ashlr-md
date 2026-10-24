@@ -336,9 +336,10 @@ describe("parseRunbook — malformed input", () => {
   it("handles broken frontmatter (unclosed ---) without throwing", () => {
     const doc = ["---", "kind: runbook", "## Steps", "1. Release"].join("\n");
     expect(() => parseRunbook(doc)).not.toThrow();
-    // Everything consumed as frontmatter — no steps.
+    // An unclosed `---` is a thematic break on the page, not front matter,
+    // so the steps after it are read (they used to be swallowed).
     const r = parseRunbook(doc);
-    expect(r.stepCount).toBe(0);
+    expect(r.stepCount).toBe(1);
   });
 
   it("handles truncated ordered list (EOF mid-item) without throwing", () => {
@@ -385,5 +386,58 @@ describe("parseRunbook: prerequisites by the page's task rule", () => {
       { text: "quoted", done: true, line: 5 },
       { text: "plain", done: false, line: 6 },
     ]);
+  });
+});
+
+describe("parseRunbook: list items and headings by the page's rules", () => {
+  // Prerequisites and steps were matched on raw lines, so a `- x` or
+  // `1. x` line in fenced or indented code was one, a quoted item was not,
+  // and `-x` (no item on the page) was a bullet. A `## Rollback` or
+  // `### Step` line in a code block also started a section or a step.
+  it("reads only the page's list items as prerequisites", () => {
+    const doc = [
+      "## Prerequisites",
+      "Intro:",
+      "",
+      "    - indented code",
+      "",
+      "- real",
+      "```",
+      "- in a fence",
+      "1. in a fence",
+      "```",
+      "> - quoted",
+      "> 2) quoted ordered",
+      "-not a bullet",
+      "",
+    ].join("\n");
+    expect(parseRunbook(doc).prerequisites).toEqual([
+      { text: "real", done: false, line: 6 },
+      { text: "quoted", done: false, line: 11 },
+      { text: "quoted ordered", done: false, line: 12 },
+    ]);
+  });
+
+  it("reads only the page's ordered items and headings as steps", () => {
+    const doc = [
+      "## Steps",
+      "1. First",
+      "   ```sh",
+      "   2. printed by the command",
+      "   ### Step not a heading",
+      "   ## Rollback",
+      "   ```",
+      "2. Second",
+      "",
+      "       3. indented code",
+      "",
+    ].join("\n");
+    const r = parseRunbook(doc);
+    expect(r.steps.map((s) => [s.title, s.line])).toEqual([
+      ["First", 2],
+      ["Second", 8],
+    ]);
+    expect(r.steps[0].commands).toHaveLength(1);
+    expect(r.rollback).toBe("");
   });
 });

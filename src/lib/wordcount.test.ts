@@ -34,4 +34,15 @@ describe("computeDocStats", () => {
     const words = Array.from({ length: 660 }, () => "word").join(" ");
     expect(computeDocStats(words).minutes).toBe(3);
   });
+
+  it("reads code blocks and containers by the page's line rule", () => {
+    // A fence was any line starting with three backticks or tildes after any
+    // indentation, closed by any later one of the same character, so a
+    // longer fence holding a shorter one ended early, and a quoted fence was
+    // text. List and blockquote markers counted as words.
+    expect(computeDocStats("````\n```js\nx y\n```\n````\nz").words).toBe(1);
+    expect(computeDocStats("> ```\n> code here\n> ```\nwords").words).toBe(1);
+    expect(computeDocStats("- item one\n> quoted text\n# Title").words).toBe(5);
+    expect(computeDocStats("  ---\nkept\n---\n").words).toBe(1);
+  });
 });

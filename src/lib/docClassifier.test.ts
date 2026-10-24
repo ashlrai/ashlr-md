@@ -626,3 +626,34 @@ describe("classify: checklist density by the page's task rule", () => {
     expect(classify(doc)).toBe("PLAN");
   });
 });
+
+describe("classify: code is not structure", () => {
+  // Heading patterns and numbered steps were matched on the raw text, so a
+  // code sample listing `## Rollback` or `1. step` lines scored like the
+  // document's own headings and steps, and `~~~` blocks were not code.
+  it("does not read headings or steps in a code block", () => {
+    const prose = Array.from({ length: 60 }, () => "Lorem ipsum dolor sit amet.");
+    const doc = [
+      "Notes on the template.",
+      "",
+      "~~~md",
+      "## Prerequisites",
+      "## Steps",
+      "1. one",
+      "2. two",
+      "3. three",
+      "## Rollback",
+      "~~~",
+      "",
+      ...prose,
+    ].join("\n");
+    expect(classify(doc)).toBe("GENERIC");
+  });
+
+  it("reads the type hint from front matter by the shared rule", () => {
+    // Spaces may follow a delimiter, as remark-frontmatter reads it; the
+    // hint used to be missed there.
+    expect(classify("--- \nkind: runbook\n---\t\nBody")).toBe("RUNBOOK");
+    expect(classify("---\nkind: runbook\n--- not a close\n")).toBe("GENERIC");
+  });
+});

@@ -4,7 +4,7 @@
 //! scanner that must not read code as Markdown (a document's title, the
 //! headings, wikilinks and image count of `export_metadata`, the plain text
 //! of `export_text`, the task checkboxes of `/annotations` and
-//! `get_user_annotations`) uses one rule for front matter and one for fences.
+//! `get_user_annotations`, the heading chunks of semantic search) uses one rule for front matter and one for fences.
 //! [`atx_heading`] is the one ATX heading rule of a document's title and of
 //! `export_metadata`'s headings.
 //! Those scanners used to flip an "in code" flag on any line starting with
@@ -25,6 +25,9 @@ pub enum LineKind {
     Code,
     /// A line of an indented code block, only from [`with_indented_code`].
     IndentedCode,
+    /// A line of an HTML block ([`html_start`]): raw HTML, which the page
+    /// shows as HTML, not as Markdown.
+    Html,
     /// Any other line.
     Text,
 }
@@ -52,6 +55,14 @@ pub enum LineKind {
 /// text, so a `# comment` or a `[[link]]` in their code was read as
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
+///
+/// An HTML block ([`html_start`]) is [`LineKind::Html`] in the same
+/// containers, up to its end marker or, for a block tag or a lone tag, a
+/// blank line, and a GFM footnote definition (`[^n]: x`) is a container
+/// whose content goes on in the lines indented four columns after it, as
+/// micromark reads them. Both used to be text, so a `# x` in a `<div>` was
+/// a heading, a definition after `<!-- c -->` went on with a paragraph,
+/// and a heading or a fence on a footnote's lines was paragraph text.
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
@@ -59,7 +70,8 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
 }
 
 /// For each line of `content`, as [`markdown_lines`] yields them, the code
-/// of a [`LineKind::Code`] line: the line without the blockquote markers
+/// of a [`LineKind::Code`] line or the HTML of a [`LineKind::Html`] line:
+/// the line without the blockquote markers
 /// and list item indentation its fence sits in, and without up to as many
 /// spaces as the fence is indented, as CommonMark reads fenced code. For a
 /// line [`with_indented_code`] marks [`LineKind::IndentedCode`], the line
@@ -78,8 +90,6 @@ pub fn line_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
 /// rule fences follow, and whether the line opens a list item that holds
 /// that text: `- # Step` is `# Step`, `> - a` is `a`, and an item's
 /// continuation line (`- a`, then `  b`) is `b`. None for any other line.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
 pub fn line_text(content: &str) -> impl Iterator<Item = Option<(Cow<'_, str>, bool)>> {
     scan(content).map(|l| l.text.map(|t| (t, l.item)))
 }
@@ -101,6 +111,7 @@ pub fn item_starts(content: &str) -> impl Iterator<Item = ItemStart<'_>> {
         text: if l.first { l.text } else { None },
         continues: l.continues,
         underline: l.underline,
+        footnote: l.footnote,
     })
 }
 
@@ -112,6 +123,12 @@ pub struct ItemStart<'a> {
     pub continues: bool,
     /// Whether the line is a setext heading underline.
     pub underline: bool,
+    /// The label of the GFM footnote definition the line opens (`[^n]: x`
+    /// is `n`), as micromark reads one: it may interrupt a paragraph, and
+    /// its content goes on in the lines indented four columns.
+    // mdopener-mcp uses it; the app reads only tasks.
+    #[allow(dead_code)]
+    pub footnote: Option<String>,
 }
 
 /// The ATX headings ([`atx_heading`]) of the text lines of `content`
@@ -149,6 +166,8 @@ struct Scanned<'a> {
     continues: bool,
     /// Whether the line is a setext heading underline.
     underline: bool,
+    /// The label of the footnote definition the line opens (`[^n]: x`).
+    footnote: Option<String>,
 }
 
 /// [`markdown_lines`], with each code line's code ([`line_code`]), whether
@@ -158,6 +177,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     // The open fence (its character, its length and how far it is
     // indented), with the containers its code lines stay in.
     let mut fence: Option<(char, usize, usize, Vec<Container>)> = None;
+    // The open HTML block (how it ends), with the containers it stays in.
+    let mut html: Option<(HtmlEnd, Vec<Container>)> = None;
     // The open blockquotes and list items, outermost first: the containers
     // of the last line that was not blank or lazy, less those a blank line
     // or a closing line ended.
@@ -189,11 +210,12 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 first: false,
                 continues: false,
                 underline: false,
+                footnote: None,
             };
         }
         let expanded = expand_tabs(line);
         let mut ends_bare = false;
-        let contained;
+        let mut contained;
         let mut kind = LineKind::Text;
         let mut code = None;
         let mut indented_code = false;
@@ -202,10 +224,27 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
         let mut first = false;
         let mut continues_paragraph = false;
         let mut underline = false;
+        let mut footnote = None;
+        // A line of an open HTML block: one that stays in its containers
+        // and, for a block that ends at a blank line, is not blank.
+        let in_html = html.as_ref().and_then(|(end, list)| {
+            let inside = continues(&expanded, list)?;
+            (*end != HtmlEnd::Blank || !inside.trim().is_empty()).then_some((inside, list))
+        });
         let inside = fence
             .as_ref()
             .and_then(|(_, _, _, list)| continues(&expanded, list));
-        if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
+        if let Some((inside, list)) = in_html {
+            contained = !list.is_empty();
+            kind = LineKind::Html;
+            code = Some(past(line, &expanded, inside));
+            if html
+                .as_ref()
+                .is_some_and(|(end, _)| html_ends(*end, inside))
+            {
+                html = None;
+            }
+        } else if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
             contained = !list.is_empty();
             kind = match code_fence(inside) {
                 Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
@@ -217,24 +256,18 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 fence = None;
             } else {
                 let text = &inside[spaces_before(inside).min(*indent)..];
-                code = Some(match &expanded {
-                    // `text` ends `line`, which has no tab to expand.
-                    Cow::Borrowed(_) => Cow::Borrowed(&line[line.len() - text.len()..]),
-                    Cow::Owned(_) => Cow::Owned(text.to_string()),
-                });
+                code = Some(past(line, &expanded, text));
             }
         } else {
             fence = None;
-            let (list, matched, rest) = containers(&expanded, &open, paragraph.or(indented));
+            html = None;
+            let (list, matched, rest, label) = containers(&expanded, &open, paragraph.or(indented));
+            footnote = label;
             contained = !list.is_empty();
             let empty = rest.trim().is_empty();
             let opened = list.len() > matched;
             item = opened && matches!(list.last(), Some(Container::Item(_)));
-            text = Some(match &expanded {
-                // `rest` ends `line`, which has no tab to expand.
-                Cow::Borrowed(_) => Cow::Borrowed(&line[line.len() - rest.len()..]),
-                Cow::Owned(_) => Cow::Owned(rest.to_string()),
-            });
+            text = Some(past(line, &expanded, rest));
             if let Some((c, n, _)) = code_fence(rest) {
                 text = None;
                 item = false;
@@ -257,9 +290,14 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 bare = false;
             } else {
                 let heading = atx_heading(rest).is_some();
+                let block = html_start(rest);
+                // An HTML block of the first six kinds interrupts a
+                // paragraph, as a heading does; one of the seventh kind (a
+                // lone tag, `<u>`) does not.
+                let interrupts = heading || block.is_some_and(|b| b != HtmlEnd::Blank7);
                 // A paragraph goes on in a line that leaves an item without
                 // opening one, or a blockquote (lazy continuation).
-                let lazy = paragraph.is_some() && !heading && !opened && matched < open.len();
+                let lazy = paragraph.is_some() && !interrupts && !opened && matched < open.len();
                 if paragraph == Some(matched) && !opened && setext_underline(rest) {
                     // A setext underline ends the paragraph as a heading.
                     underline = true;
@@ -270,6 +308,17 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 } else if thematic_break(rest) {
                     // A thematic break ends the containers it is not in.
                     open = list;
+                    paragraph = None;
+                    indented = None;
+                    bare = false;
+                } else if lazy && block == Some(HtmlEnd::Blank7) {
+                    // A lone tag on a lazy line opens an HTML block in the
+                    // containers the paragraph is in, as micromark reads it
+                    // (`> a`, then `<u>`).
+                    contained = !open.is_empty();
+                    kind = LineKind::Html;
+                    code = text.take();
+                    html = Some((HtmlEnd::Blank, open.clone()));
                     paragraph = None;
                     indented = None;
                     bare = false;
@@ -291,7 +340,7 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                         && matches!(list.last(), Some(Container::Item(_)))
                         && spaces_before(rest) == 0;
                     open = list.clone();
-                    bare = opened && empty && list.last() != Some(&Container::Quote);
+                    bare = opened && empty && matches!(list.last(), Some(Container::Item(_)));
                     tight = bare && !line.ends_with([' ', '\t']);
                     let level = list.len();
                     // Four spaces past the containers is indented code, not text.
@@ -300,6 +349,40 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                     let fresh = paragraph.is_none()
                         || list[matched..].iter().any(|c| *c != Container::Quote)
                         || (opened && !para_list.starts_with(&list));
+                    if let Some(end) = block.filter(|&b| b != HtmlEnd::Blank7 || fresh) {
+                        // An HTML block, which ends at its end marker (on
+                        // this line too) or, for the last two kinds, at a
+                        // blank line.
+                        kind = LineKind::Html;
+                        code = text.take();
+                        item = false;
+                        bare = false;
+                        paragraph = None;
+                        indented = None;
+                        let end = if end == HtmlEnd::Blank7 {
+                            HtmlEnd::Blank
+                        } else {
+                            end
+                        };
+                        let opener = rest.trim_start_matches(' ');
+                        if !html_ends(end, &opener[end.opener_len(opener)..]) {
+                            html = Some((end, list));
+                        }
+                        closer = false;
+                        return Scanned {
+                            kind,
+                            line,
+                            code,
+                            indented: false,
+                            contained,
+                            text,
+                            item,
+                            first,
+                            continues: false,
+                            underline,
+                            footnote,
+                        };
+                    }
                     indented_code = fresh && !empty && spaces_before(rest) >= 4;
                     continues_paragraph = !fresh && !heading && !empty;
                     // The first content of an item opened by a bare marker
@@ -331,6 +414,7 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             first,
             continues: continues_paragraph,
             underline,
+            footnote,
         }
     })
 }
@@ -342,6 +426,282 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
 enum Container {
     Quote,
     Item(usize),
+    /// A GFM footnote definition (`[^n]: x`), whose content goes on in the
+    /// lines indented four columns past the container before it.
+    Footnote,
+}
+
+/// The columns a footnote definition's content goes on at, past the
+/// container before it.
+const FOOTNOTE_WIDTH: usize = 4;
+
+/// How an HTML block ends, by the kind its first line opens
+/// ([`html_start`]), as CommonMark numbers them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HtmlEnd {
+    /// 1: `<pre`, `<script`, `<style` or `<textarea`, ended by a line
+    /// holding `</pre>`, `</script>`, `</style>` or `</textarea>`.
+    Raw,
+    /// 2: `<!--`, ended by `-->`.
+    Comment,
+    /// 3: `<?`, ended by `?>`.
+    Instruction,
+    /// 4: `<!` and a letter, ended by `>`.
+    Declaration,
+    /// 5: `<![CDATA[`, ended by `]]>`.
+    Cdata,
+    /// 6: a block-level tag (`<div>`, `</p>`), ended by a blank line.
+    Blank,
+    /// 7: any other whole open or closing tag alone on its line (`<u>`),
+    /// ended by a blank line; it cannot interrupt a paragraph.
+    Blank7,
+}
+
+impl HtmlEnd {
+    /// How many bytes of `opener` (the line from its `<`) come before the
+    /// text its end marker is looked for in: `<!-->` and `<?>` end on
+    /// their first line, as micromark reads them.
+    fn opener_len(self, opener: &str) -> usize {
+        match self {
+            HtmlEnd::Raw => {
+                1 + opener[1..]
+                    .bytes()
+                    .take_while(u8::is_ascii_alphanumeric)
+                    .count()
+            }
+            HtmlEnd::Comment | HtmlEnd::Declaration => 2,
+            HtmlEnd::Instruction => 1,
+            HtmlEnd::Cdata => 9,
+            HtmlEnd::Blank | HtmlEnd::Blank7 => 0,
+        }
+    }
+}
+
+/// The tag names of an HTML block of the sixth kind, as micromark lists
+/// them.
+const HTML_BLOCK_NAMES: &[&str] = &[
+    "address",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "menu",
+    "menuitem",
+    "nav",
+    "noframes",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "param",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+];
+
+/// The tag names of an HTML block of the first kind.
+const HTML_RAW_NAMES: &[&str] = &["pre", "script", "style", "textarea"];
+
+/// How the HTML block that `line` (tabs expanded, past its containers)
+/// opens ends, when it opens one, as CommonMark and micromark read it: at
+/// most three spaces, then `<` and one of the seven openings of
+/// [`HtmlEnd`]. A line of the seventh kind is a whole open tag (a tag
+/// name, attributes with optional quoted or unquoted values, an optional
+/// `/`) or closing tag with only spaces after it.
+fn html_start(line: &str) -> Option<HtmlEnd> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let after = body.strip_prefix('<')?;
+    if after.starts_with("!--") {
+        return Some(HtmlEnd::Comment);
+    }
+    if after.starts_with('?') {
+        return Some(HtmlEnd::Instruction);
+    }
+    if after.starts_with("![CDATA[") {
+        return Some(HtmlEnd::Cdata);
+    }
+    if after
+        .strip_prefix('!')
+        .is_some_and(|a| a.starts_with(|c: char| c.is_ascii_alphabetic()))
+    {
+        return Some(HtmlEnd::Declaration);
+    }
+    let closing = after.starts_with('/');
+    let tag = if closing { &after[1..] } else { after };
+    if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let len = tag
+        .bytes()
+        .take_while(|b| b.is_ascii_alphanumeric() || *b == b'-')
+        .count();
+    let name = tag[..len].to_ascii_lowercase();
+    let next = &tag[len..];
+    let ends_name = next.is_empty() || next.starts_with([' ', '\t', '>']);
+    if !closing && ends_name && HTML_RAW_NAMES.contains(&name.as_str()) {
+        return Some(HtmlEnd::Raw);
+    }
+    if (ends_name || next.starts_with("/>")) && HTML_BLOCK_NAMES.contains(&name.as_str()) {
+        return Some(HtmlEnd::Blank);
+    }
+    let end = if closing {
+        let gap = next.trim_start_matches([' ', '\t']);
+        gap.strip_prefix('>')
+    } else {
+        open_tag_end(next)
+    }?;
+    end.trim_matches([' ', '\t'])
+        .is_empty()
+        .then_some(HtmlEnd::Blank7)
+}
+
+/// The rest of `tag` (an open tag past its name) after the tag's
+/// attributes, optional `/` and `>`, when it closes on the line.
+fn open_tag_end(mut tag: &str) -> Option<&str> {
+    loop {
+        let gap = tag.trim_start_matches([' ', '\t']);
+        if let Some(rest) = gap.strip_prefix('>') {
+            return Some(rest);
+        }
+        if let Some(rest) = gap.strip_prefix("/>") {
+            return Some(rest);
+        }
+        // An attribute needs a space before it.
+        if gap.len() == tag.len()
+            || !gap.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == ':')
+        {
+            return None;
+        }
+        let name = gap
+            .bytes()
+            .take_while(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(b))
+            .count();
+        tag = &gap[name..];
+        let eq = tag.trim_start_matches([' ', '\t']);
+        if let Some(value) = eq.strip_prefix('=') {
+            let value = value.trim_start_matches([' ', '\t']);
+            tag = match value.chars().next()? {
+                q @ ('"' | '\'') => {
+                    let close = value[1..].find(q)?;
+                    &value[close + 2..]
+                }
+                _ => {
+                    let len = value
+                        .find(|c: char| c.is_whitespace() || "\"'=<>`".contains(c))
+                        .unwrap_or(value.len());
+                    if len == 0 {
+                        return None;
+                    }
+                    &value[len..]
+                }
+            };
+        }
+    }
+}
+
+/// Whether `line` (past the containers of its HTML block, or past the
+/// opening of the block's first line) ends an HTML block that ends by
+/// `end`.
+fn html_ends(end: HtmlEnd, line: &str) -> bool {
+    match end {
+        HtmlEnd::Raw => {
+            let lower = line.to_ascii_lowercase();
+            HTML_RAW_NAMES
+                .iter()
+                .any(|name| lower.contains(&format!("</{name}>")))
+        }
+        HtmlEnd::Comment => line.contains("-->"),
+        HtmlEnd::Instruction => line.contains("?>"),
+        HtmlEnd::Declaration => line.contains('>'),
+        HtmlEnd::Cdata => line.contains("]]>"),
+        HtmlEnd::Blank | HtmlEnd::Blank7 => false,
+    }
+}
+
+/// The label of the GFM footnote definition `line` (tabs expanded) opens
+/// and the rest of the line past its `:` and the spaces after it, when it
+/// opens one, as micromark reads it: at most three spaces, `[^`, a label of
+/// 1 to 999 characters with no space and no unescaped bracket, then `]:`.
+/// `[^a b]: x` and `[^]: x` are link reference definitions.
+fn footnote_marker(line: &str) -> Option<(&str, &str)> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let inner = body.strip_prefix("[^")?;
+    let mut escaped = false;
+    for (n, (i, c)) in inner.char_indices().enumerate() {
+        match c {
+            _ if n >= 999 => return None,
+            c if c.is_whitespace() => return None,
+            '[' | '\\' | ']' if escaped => escaped = false,
+            ']' if n > 0 => {
+                let rest = inner[i + 1..].strip_prefix(':')?;
+                return Some((&inner[..i], rest.trim_start_matches(' ')));
+            }
+            '[' | ']' => return None,
+            '\\' => escaped = true,
+            _ => escaped = false,
+        }
+    }
+    None
+}
+
+/// `rest`, the end of `expanded` (`line` with its tabs expanded), as a
+/// part of `line` when `line` has no tab to expand.
+fn past<'a>(line: &'a str, expanded: &Cow<'a, str>, rest: &str) -> Cow<'a, str> {
+    match expanded {
+        Cow::Borrowed(_) => Cow::Borrowed(&line[line.len() - rest.len()..]),
+        Cow::Owned(_) => Cow::Owned(rest.to_string()),
+    }
 }
 
 /// `line` with each tab replaced by the spaces that reach the next multiple
@@ -458,26 +818,29 @@ fn containers<'a>(
     line: &'a str,
     open: &[Container],
     held: Option<usize>,
-) -> (Vec<Container>, usize, &'a str) {
+) -> (Vec<Container>, usize, &'a str, Option<String>) {
     let mut list = Vec::new();
     let mut rest = line;
     for c in open {
-        match *c {
-            Container::Quote => match quote_marker(rest) {
-                Some(after) => rest = after,
-                None => break,
-            },
-            Container::Item(_) if rest.trim().is_empty() => rest = "",
-            Container::Item(width) if spaces_before(rest) >= width => rest = &rest[width..],
-            Container::Item(_) => break,
+        match continue_one(rest, *c) {
+            Some(after) => rest = after,
+            None => break,
         }
         list.push(*c);
     }
     let matched = list.len();
     let interrupt = held == Some(matched);
+    let mut footnote = None;
     loop {
         if let Some(after) = quote_marker(rest) {
             list.push(Container::Quote);
+            rest = after;
+            continue;
+        }
+        // A footnote definition, which may interrupt a paragraph.
+        if let Some((label, after)) = footnote_marker(rest) {
+            list.push(Container::Footnote);
+            footnote = Some(label.to_string());
             rest = after;
             continue;
         }
@@ -492,7 +855,21 @@ fn containers<'a>(
             _ => break,
         }
     }
-    (list, matched, rest)
+    (list, matched, rest, footnote)
+}
+
+/// The rest of `line` (tabs expanded) past the open container `c`, when
+/// the line goes on in it: a blockquote by its `>`, a list item by its
+/// content indentation and a footnote definition by four columns (a blank
+/// line stays in both).
+fn continue_one(rest: &str, c: Container) -> Option<&str> {
+    let width = match c {
+        Container::Quote => return quote_marker(rest),
+        _ if rest.trim().is_empty() => return Some(""),
+        Container::Item(width) => width,
+        Container::Footnote => FOOTNOTE_WIDTH,
+    };
+    (spaces_before(rest) >= width).then(|| &rest[width..])
 }
 
 /// The rest of `line` (tabs expanded) inside the containers `list` of an
@@ -502,12 +879,7 @@ fn containers<'a>(
 fn continues<'a>(line: &'a str, list: &[Container]) -> Option<&'a str> {
     let mut rest = line;
     for c in list {
-        match *c {
-            Container::Quote => rest = quote_marker(rest)?,
-            Container::Item(_) if rest.trim().is_empty() => rest = "",
-            Container::Item(width) if spaces_before(rest) >= width => rest = &rest[width..],
-            Container::Item(_) => return None,
-        }
+        rest = continue_one(rest, *c)?;
     }
     Some(rest)
 }
@@ -565,8 +937,6 @@ fn code_fence(line: &str) -> Option<(char, usize, &str)> {
 /// A line in a blockquote (`> # Quote`) is not one: Obsidian's outline
 /// lists no quoted heading, and the app's Outline panel reads it the same
 /// way, so quoted text from elsewhere does not clutter either.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
 pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
     let body = line.trim_start_matches(' ');
     if line.len() - body.len() > 3 {

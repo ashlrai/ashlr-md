@@ -15,6 +15,7 @@
  * equivalent) section as a list of structured items with their completion state.
  */
 
+import { markdownLines } from "../outline";
 import { taskMarks } from "../tasklist";
 
 // ---------------------------------------------------------------------------
@@ -112,36 +113,27 @@ function normaliseTitle(text: string): string {
  */
 export function parseSpec(content: string): ParsedSpec {
   const lines = content.split("\n");
-  // The page's task checkboxes, one entry per line.
+  // The page's task checkboxes and the kind of each line (front matter,
+  // code or text), one entry per line.
   const marks = taskMarks(content);
+  const kinds = markdownLines(content);
   const sections: SpecSection[] = [];
   const criteria: CriterionItem[] = [];
   let title = "";
 
   let currentSection: SpecSection | null = null;
   let inCriteriaSection = false;
-  let inFrontmatter = false;
-  let frontmatterClosed = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
 
-    // Skip YAML frontmatter block.
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      continue;
-    }
-    if (inFrontmatter) {
-      if (line.trim() === "---" || line.trim() === "...") {
-        inFrontmatter = false;
-        frontmatterClosed = true;
-      }
-      continue;
-    }
-    void frontmatterClosed; // used only to skip parsing
+    // Skip a leading YAML front matter block, by the shared rule.
+    if (kinds[i]?.kind === "frontmatter") continue;
 
-    const headingMatch = HEADING_RE.exec(line);
+    // A heading is one only on a text line, not in code: a `# comment` in
+    // a code block used to end its section.
+    const headingMatch = kinds[i]?.kind === "text" ? HEADING_RE.exec(line) : null;
     if (headingMatch) {
       const level = headingMatch[1].length;
       const headingText = headingMatch[2].trim();
