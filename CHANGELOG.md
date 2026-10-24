@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Changes made to a background tab's file are noticed, and unchanged files
+  raise no conflict.** Only the active tab's file is watched, and switching
+  back to a tab did not read its file again, so a change another app or an
+  agent made meanwhile was never shown and the next save wrote over it. A tab
+  now re-reads its file when it becomes active, reloading it when it has no
+  edits and offering the change when it has. A watcher event that re-read
+  the same text (a `touch`, a permission change) flagged a conflict while
+  the document had edits; it is now ignored, and a change undone on disk
+  takes its banner away.
 - **Edits made while a save is writing stay unsaved.** A save marked the
   document clean when the write finished, even if more was typed during it,
   so closing the tab then dropped those edits without asking. And when the

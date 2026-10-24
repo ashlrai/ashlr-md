@@ -230,6 +230,23 @@ function syncActiveTab(s: DocumentState): Tab[] {
   return s.tabs.map((t) => (t.id === s.activeId ? { ...t, ...topToTabFields(s) } : t));
 }
 
+/**
+ * Re-read `path`, the tab `id` just made active, and hand its text to
+ * `handleDiskUpdate` if that tab is still active: only the active document
+ * is watched, so a change made on disk while the tab was in the background
+ * was never seen (the window showed the old text, and its next save wrote
+ * over the change). Now it reloads a clean tab, or offers the change when
+ * the tab has edits, as a watched change does.
+ */
+function recheckDisk(get: () => DocumentState, id: string, path: string) {
+  invoke<MarkdownFile>("read_markdown_file", { path })
+    .then((file) => {
+      const cur = get();
+      if (cur.activeId === id && cur.path === path) cur.handleDiskUpdate(file.content);
+    })
+    .catch(() => {});
+}
+
 export const useDocumentStore = create<DocumentState>((set, get) => ({
   path: null,
   fileName: "",
@@ -508,6 +525,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       });
       return;
     }
+    // The file is as it was when last read or saved (a touch, a permission
+    // or metadata change, or a change undone): nothing to offer, and a
+    // banner offering it is gone. It used to be flagged as a conflict while
+    // the user had edits, as if another app had changed the file.
+    if (disk === s.diskContent) {
+      if (!s.externalChange && s.pendingDisk == null) return;
+      const next = { ...s, externalChange: false, pendingDisk: null };
+      set({ externalChange: false, pendingDisk: null, tabs: syncActiveTab(next) });
+      return;
+    }
     if (s.isDirty) {
       // Conflict: keep the user's edits, surface a banner.
       const next = { ...s, externalChange: true, pendingDisk: disk };
@@ -592,8 +619,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    *
    * TRADEOFF: only ONE file is watched at a time (the active document). Editing
    * an inactive doc on disk won't surface an external-change banner until you
-   * switch to it. This keeps the watcher model simple; multi-watch can come
-   * later if needed.
+   * switch to it, when the tab's file is read again ({@link recheckDisk}).
+   * This keeps the watcher model simple; multi-watch can come later if needed.
    */
   switchTab: (id) => {
     const s = get();
@@ -612,6 +639,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     });
     // Re-issue the watch so the active doc is the one being watched.
     invoke("watch_file", { path: target.path }).catch(() => {});
+    recheckDisk(get, id, target.path);
   },
 
   /**
@@ -655,6 +683,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         error: null,
       });
       invoke("watch_file", { path: neighbor.path }).catch(() => {});
+      recheckDisk(get, neighbor.id, neighbor.path);
     };
 
     if (dirty) {

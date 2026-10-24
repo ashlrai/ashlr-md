@@ -210,6 +210,7 @@ describe("documentStore", () => {
       (c) => c[0] === "read_markdown_file",
     ).length;
 
+    const nonce = useDocumentStore.getState().tabs[0].reloadNonce;
     await useDocumentStore.getState().openPath("/a.md");
     const s = useDocumentStore.getState();
     expect(s.tabs).toHaveLength(2); // no new tab
@@ -217,7 +218,13 @@ describe("documentStore", () => {
     const readsAfter = invokeMock.mock.calls.filter(
       (c) => c[0] === "read_markdown_file",
     ).length;
-    expect(readsAfter).toBe(reads); // no extra read_markdown_file call
+    // One read checks the file for changes made while it was in the
+    // background; the file is unchanged, so nothing reloads.
+    expect(readsAfter).toBe(reads + 1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useDocumentStore.getState().reloadNonce).toBe(nonce);
+    expect(useDocumentStore.getState().content).toBe("content of /a.md");
   });
 
   it("switchTab preserves each tab's content, viewMode, and dirty flag", async () => {
@@ -770,7 +777,7 @@ describe("openPath of a file that is gone", () => {
   });
 });
 
-describe("documentStore — saves stay with their tab", () => {
+describe("documentStore — saves and disk changes stay with their tab", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     reset();
@@ -838,5 +845,59 @@ describe("documentStore — saves stay with their tab", () => {
     const a = s.tabs.find((t) => t.id === aId);
     expect(a?.diskContent).toBe("a edited");
     expect(a?.isDirty).toBe(false);
+  });
+
+  it("does not flag a conflict when the file on disk did not change", () => {
+    useDocumentStore.setState({
+      path: "/a.md",
+      content: "mine",
+      diskContent: "old",
+      isDirty: true,
+    });
+    // A metadata-only event (touch, chmod) re-reads the same text.
+    useDocumentStore.getState().handleDiskUpdate("old");
+    let s = useDocumentStore.getState();
+    expect(s.externalChange).toBe(false);
+    expect(s.pendingDisk).toBeNull();
+    expect(s.content).toBe("mine");
+    expect(s.isDirty).toBe(true);
+    // A change offered and then undone on disk takes its banner away.
+    useDocumentStore.getState().handleDiskUpdate("theirs");
+    expect(useDocumentStore.getState().externalChange).toBe(true);
+    useDocumentStore.getState().handleDiskUpdate("old");
+    s = useDocumentStore.getState();
+    expect(s.externalChange).toBe(false);
+    expect(s.pendingDisk).toBeNull();
+    expect(s.content).toBe("mine");
+  });
+
+  it("reads a background tab's file again when switching to it", async () => {
+    const files: Record<string, string> = { "/a.md": "a0", "/b.md": "b0" };
+    disk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    await useDocumentStore.getState().openPath("/b.md");
+    const aId = useDocumentStore.getState().tabs[0].id;
+    // Another app changes A while B is active (only B is watched).
+    files["/a.md"] = "a changed elsewhere";
+    useDocumentStore.getState().switchTab(aId);
+    await vi.waitFor(() =>
+      expect(useDocumentStore.getState().content).toBe("a changed elsewhere"),
+    );
+    expect(useDocumentStore.getState().isDirty).toBe(false);
+
+    // With edits in the tab, the change is offered instead.
+    const bId = useDocumentStore.getState().tabs[1].id;
+    useDocumentStore.getState().switchTab(bId);
+    await vi.waitFor(() => expect(useDocumentStore.getState().path).toBe("/b.md"));
+    useDocumentStore.getState().setContent("b mine");
+    useDocumentStore.getState().switchTab(aId);
+    files["/b.md"] = "b theirs";
+    useDocumentStore.getState().switchTab(bId);
+    await vi.waitFor(() =>
+      expect(useDocumentStore.getState().externalChange).toBe(true),
+    );
+    const s = useDocumentStore.getState();
+    expect(s.content).toBe("b mine");
+    expect(s.pendingDisk).toBe("b theirs");
   });
 });
