@@ -96,6 +96,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` drops link reference definitions and reads autolinks as
+  CommonMark does.** A definition line (`[ref]: /url "title"`) read
+  `ref: /url "title"`, although the page shows nothing for it. Definitions are
+  now dropped, the same ones reference links are read against, also when the
+  destination or the title sits on the next line or the title goes on over
+  lines. Any `<` followed by a letter was read as an HTML tag up to the next
+  `>`, so `<me@x.org>` read nothing and `<a href="x://y">` read
+  `a href="x://y"`. Autolinks (a 2 to 32 character scheme, or an email
+  address) now keep their URL or address, inline HTML reads nothing, and any
+  other `<` is text. A `)` inside a `<...>` link destination
+  (`[t](<a)b>)`) no longer ends the link. Checked against the renderer's
+  definitions on generated documents.
 - **A checkbox after a nested empty item is a task.** In `10. 1.<tab>-`, then a
   line holding `[x] t` in the `1.` item (or `- -`, then `  [ ] t`), the page
   shows a checkbox, since remark-gfm reads the line after a marker with nothing

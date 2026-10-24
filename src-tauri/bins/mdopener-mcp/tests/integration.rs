@@ -8603,21 +8603,18 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
         ("![alt] here", "![alt] here"),
         ("[outer [inner](u)]", "[outer inner]"),
         // A shortcut, collapsed or full reference with a definition.
-        (
-            "See [Docs] now\n\n[docs]: https://e.x",
-            "See Docs now\n\ndocs: https://e.x",
-        ),
-        ("[Foo  Bar] x\n\n[foo bar]: /u", "Foo  Bar x\n\nfoo bar: /u"),
-        ("[a][] x\n\n[a]: /u", "a x\n\na: /u"),
-        ("[text][ref]\n\n[ref]: /u \"T\"", "text\n\nref: /u \"T\""),
-        ("[t][r]\n\n[r]: <> (title)", "t\n\nr: <> (title)"),
-        ("![logo][img]\n\n[img]: /l.png", "logo\n\nimg: /l.png"),
+        ("See [Docs] now\n\n[docs]: https://e.x", "See Docs now"),
+        ("[Foo  Bar] x\n\n[foo bar]: /u", "Foo  Bar x"),
+        ("[a][] x\n\n[a]: /u", "a x"),
+        ("[text][ref]\n\n[ref]: /u \"T\"", "text"),
+        ("[t][r]\n\n[r]: <> (title)", "t"),
+        ("![logo][img]\n\n[img]: /l.png", "logo"),
         // A shortcut followed by an undefined label is text, as on the page.
-        ("[a][b] x\n\n[a]: /u", "[a][b] x\n\na: /u"),
+        ("[a][b] x\n\n[a]: /u", "[a][b] x"),
         // Definitions in containers, after another one, and split over lines.
-        ("[q] x\n\n> [q]: /u", "q x\n\nq: /u"),
-        ("[a] [b]\n\n[a]: /u\n[b]: /v", "a b\n\na: /u\nb: /v"),
-        ("[a]\n\n[a]:\n/u", "a\n\na:\n/u"),
+        ("[q] x\n\n> [q]: /u", "q x"),
+        ("[a] [b]\n\n[a]: /u\n[b]: /v", "a b"),
+        ("[a]\n\n[a]:\n/u", "a"),
         // Not definitions: one that interrupts a paragraph, one with text
         // after its title, one in code, and a footnote.
         ("[a]\n\npara\n[a]: /u", "[a]\n\npara\n[a]: /u"),
@@ -8630,6 +8627,59 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
     }
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("keeps its brackets unless the document defines its label"));
+}
+
+/// export_text printed a link reference definition as `label: url`,
+/// although the page shows nothing for it, and read any `<` and a letter
+/// up to the next `>` as an HTML tag, so an email autolink read nothing,
+/// an `<a href="x://y">` tag read its attributes, and a `)` inside a
+/// `<...>` link destination ended the link. Definitions (the ones the
+/// reference links are read against) are now dropped, and autolinks, HTML
+/// and `<...>` destinations are read as CommonMark reads them.
+#[test]
+fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
+    let cases = [
+        // Definitions read nothing, in containers, over lines and with a
+        // title on the next line; text after a title keeps the line.
+        ("[a]\n\n[a]: <./x y> \"T\"\n", "a"),
+        ("x\n\n> [q]: /u\n- [r]: /v\n- b", "x\n\nb"),
+        (
+            "[a]: /u\n[b]:\n  /v\n  'title'\n[c]: /w\n(over\nlines)\nend",
+            "end",
+        ),
+        ("[a]: /u\n\"t\" x", "\"t\" x"),
+        ("[a]: /u\n    [b]: /v\nnext", "next"),
+        // Not definitions: a paragraph goes on, or more follows the title.
+        ("para\n[a]: /u", "para\n[a]: /u"),
+        ("[a]: /u \"t\" x", "[a]: /u \"t\" x"),
+        ("[a]:\n/u x", "[a]:\n/u x"),
+        // `===` after definitions is a paragraph, not an underline, and
+        // the line after it goes on with that paragraph (the `===` line
+        // itself is still dropped, as an underline is).
+        ("[a]: /u\n===\n[b]: /v", "[b]: /v"),
+        // Autolinks keep their URL or address; HTML reads nothing; any
+        // other `<` is text.
+        (
+            "<https://e.x/a?b> <MAILTO:a@b.c> <me@e.x> <irc:x>",
+            "https://e.x/a?b MAILTO:a@b.c me@e.x irc:x",
+        ),
+        (
+            "<a href=\"x://y\">link</a> <br/> <!-- c --> <img src=x alt='y' />.",
+            "link   .",
+        ),
+        (
+            "<https://a b> <x:y> <a@-b.c> a <b c=> 1 < 2",
+            "<https://a b> <x:y> <a@-b.c> a <b c=> 1 < 2",
+        ),
+        // A `<...>` destination is read whole.
+        ("[t](<a)b>) end and [u]( <c d>) too", "t end and u too"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a link reference definition (`[text]: /url \"title\"`, also over two or three lines) reads nothing"));
+    assert!(docs.contains("an autolink reads its URL or address"));
 }
 
 /// After a bare item's end, indented code that opens a blockquote
