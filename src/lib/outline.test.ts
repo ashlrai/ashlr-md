@@ -257,6 +257,41 @@ describe("parseHeadings", () => {
       [true, "# Sub"],
     ]);
   });
+  it("counts a setext heading's slug without listing it", () => {
+    // The renderer gives a setext heading an id, so a later ATX heading
+    // with the same text is `-1` there. The Outline used to give it none.
+    expect(parseHeadings("Title\n=====\n\n# Title\n")).toEqual([
+      { depth: 1, text: "Title", slug: "title-1", line: 4 },
+    ]);
+    // `---` after a paragraph is an underline, in a quote and an item too,
+    // and a heading of several lines joins them (`Two`, `Lines` is
+    // `twolines`, as rehype-slug reads it).
+    const doc = [
+      "Two",
+      "Lines",
+      "---",
+      "",
+      "> Quote",
+      "> ===",
+      "",
+      "- Item",
+      "  ---",
+      "",
+      "# Twolines",
+      "# Quote",
+      "# Item",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => h.slug)).toEqual([
+      "twolines-1",
+      "quote-1",
+      "item-1",
+    ]);
+    // A thematic break after a blank line, or front matter, is no heading.
+    expect(parseHeadings("a\n\n---\n\n# A\n").map((h) => h.slug)).toEqual(["a"]);
+    expect(parseHeadings("---\ntitle: A\n---\n# A\n").map((h) => h.slug)).toEqual([
+      "a",
+    ]);
+  });
   it("tracks list items inside a blockquote", () => {
     // Only the items before the first blockquote used to be tracked, so a
     // quoted item's continuation was read by its indentation in the quote:

@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Outline jumps land on the right heading after a setext heading.** The
+  page gives a heading underlined with `===` or `---` an id, but the
+  Outline did not count it, so in a document with `Title`, `=====` and
+  later `# Title`, the Outline's entry for `# Title` jumped to the setext
+  heading. Setext headings now take their slug as the page does. They are
+  still not listed, as `export_metadata` lists only `#` headings.
 - **List items inside a blockquote are read across lines.** Only the
   items before a document's first `>` were tracked, so in `> - a` the
   item's later lines (`>     # Sub`, `>     **b**`) were read by their

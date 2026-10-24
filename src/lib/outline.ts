@@ -307,6 +307,13 @@ export interface MarkdownLine {
    * list markers and item indentation it sits in: `Sub` for `> - Sub`.
    */
   content: string;
+  /**
+   * On a setext heading's underline (`===` or `---` after a paragraph),
+   * the heading's level and the index in the returned lines of its first
+   * line; the heading's text is the content of the lines from there to
+   * the underline.
+   */
+  setext?: { depth: 1 | 2; from: number };
 }
 
 /**
@@ -366,6 +373,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   // Whether the line before was in a blockquote or ended a bare item:
   // indented code after it closes a container.
   let closer = false;
+  // The index in `out` of the first line of the paragraph.
+  let paraStart = 0;
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
@@ -375,6 +384,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     let lineList: Container[] = fence?.list ?? [];
     let content = inside ?? expanded;
     let endsBare = false;
+    let setext: MarkdownLine["setext"];
     if (fence && inside !== null) {
       kind = closesFence(codeFence(inside), fence.marker) ? "fence" : "code";
       if (kind === "fence") fence = null;
@@ -409,6 +419,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           paragraph !== null && !heading && !opened && c.matched < open.length;
         if (paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest)) {
           // A setext underline ends the paragraph as a heading.
+          setext = { depth: c.rest.trim().startsWith("=") ? 1 : 2, from: paraStart };
           open = open.slice(0, c.matched);
           paragraph = null;
           indented = null;
@@ -433,6 +444,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
             c.list.slice(c.matched).some((x) => !x.quote) ||
             (opened && !startsWith(paraList, c.list));
           const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
+          if (paragraph === null || fresh) paraStart = out.length;
           paragraph = heading || empty || code ? null : level;
           paraList = c.list;
           // Only indented code that closed no container, as the renderer
@@ -444,6 +456,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     closer = endsBare;
     const contained = lineList.length > 0;
     out.push({ kind, text, line, start, contained, content });
+    if (setext) out[out.length - 1].setext = setext;
     start += text.length + 1;
   }
   return out;
@@ -506,9 +519,14 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
- * Note: only ATX headings are collected. Setext headings (underlined with
- * `===`/`---`) are intentionally out of scope: agent-generated docs use ATX,
- * and `---` is ambiguous with thematic breaks / frontmatter.
+ * - A setext heading (a paragraph underlined with `===` or `---`) is not
+ *   listed, as mdopener-mcp's `export_metadata` headings list only ATX
+ *   headings, but the renderer gives it an id, so it takes its slug the
+ *   same way. It used to take none, so in `Title`, `=====`, then
+ *   `# Title`, the ATX heading was `title` here and `title-1` in the page.
+ *   Its underline is read by the container rule of {@link markdownLines}:
+ *   `---` after a paragraph is an underline, not a thematic break, and a
+ *   leading front matter block is never one.
  */
 export function parseHeadings(markdown: string): HeadingItem[] {
   const slugger = new GithubSlugger();
@@ -516,15 +534,26 @@ export function parseHeadings(markdown: string): HeadingItem[] {
   // Quoted fences are fences ({@link markdownLines}), so quoted code is
   // skipped here with the rest of the code. A heading is read inside the
   // containers its line sits in, by the container rule of markdownLines.
-  for (const l of markdownLines(markdown)) {
-    if (l.kind !== "text") continue;
+  const lines = markdownLines(markdown);
+  lines.forEach((l, i) => {
+    if (l.kind !== "text") return;
+    if (l.setext) {
+      // A setext heading takes its slug from its lines, joined by line
+      // breaks as the renderer's heading text is, but is not listed.
+      const text = lines
+        .slice(l.setext.from, i)
+        .map((p) => stripInline(p.content))
+        .join("\n");
+      if (text.replace(/\n/g, "") !== "") slugger.slug(text);
+      return;
+    }
     const h = atxHeading(l.content);
     const text = h ? stripInline(h.text) : "";
-    if (!h || text === "") continue; // empty heading -> no anchor rendered
+    if (!h || text === "") return; // empty heading -> no anchor rendered
     const slug = slugger.slug(text);
     // In a blockquote or a list item, it takes its slug but is not listed.
-    if (l.contained) continue;
+    if (l.contained) return;
     out.push({ depth: h.depth, text, slug, line: l.line });
-  }
+  });
   return out;
 }
