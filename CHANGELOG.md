@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` reads code spans by their backtick runs.** A code span
+  closed at any run of as many backticks, also part of a longer run, and an
+  unclosed run's later backticks opened a new span, so ``` `` b`c ``` read
+  `` ` bc ``. A span now closes only at a run of exactly as many backticks,
+  an unclosed run is text, and the one space each side of padded code is
+  taken off, as CommonMark reads them.
 - **`export_text` and `export_metadata` read no wikilink across inline HTML.**
   A `[[...]]` holding a tag, an autolink or a code span (`[[a<b>c]]`) was
   read as a link across it, so `export_text` read `a<b>c` and

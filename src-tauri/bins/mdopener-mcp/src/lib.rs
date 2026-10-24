@@ -8442,22 +8442,46 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
             }
         }
         // Inline code: `` `…` `` or ` ``…`` ` — strip backticks, keep content.
+        // A run of backticks is closed by the next run of exactly as many,
+        // and a run never closed is text, as CommonMark reads them. Any run
+        // as long used to close it, also part of a longer one, and an
+        // unclosed run's backticks after its first could open a span, so
+        // ``` `` a`b ``` read `` `a b ``.
         if chars[i] == '`' {
             let tick_count = chars[i..].iter().take_while(|&&c| c == '`').count();
             let start = i + tick_count;
-            // Find matching closing run of same length.
-            let rest = &chars[start..];
-            let close_rel = rest
-                .windows(tick_count)
-                .enumerate()
-                .find(|(_, w)| w.iter().all(|&c| c == '`'))
-                .map(|(pos, _)| pos);
-            if let Some(rel) = close_rel {
-                let code: String = chars[start..start + rel].iter().collect();
-                out.push_str(&code);
-                i = start + rel + tick_count;
-                continue;
+            let mut j = start;
+            let mut close = None;
+            while j < n {
+                let run = chars[j..].iter().take_while(|&&c| c == '`').count();
+                if run == tick_count {
+                    close = Some(j);
+                    break;
+                }
+                j += run.max(1);
             }
+            match close {
+                Some(end) => {
+                    // One space is taken off each side of code that both
+                    // begins and ends with one and is not all spaces.
+                    let code = &chars[start..end];
+                    let padded = code.len() >= 2
+                        && code[0] == ' '
+                        && code[code.len() - 1] == ' '
+                        && code.iter().any(|&c| c != ' ');
+                    out.extend(if padded {
+                        &code[1..code.len() - 1]
+                    } else {
+                        code
+                    });
+                    i = end + tick_count;
+                }
+                None => {
+                    out.extend(&chars[i..start]);
+                    i = start;
+                }
+            }
+            continue;
         }
         // Autolinks keep their URL or address (`<https://x>`, `<irc:x>`,
         // `<me@x.org>`) and HTML (`<tag …>`, `</tag>`, `<!-- … -->`) is

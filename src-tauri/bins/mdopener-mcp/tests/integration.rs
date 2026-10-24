@@ -14451,3 +14451,15 @@ fn a_wikilink_does_not_hold_inline_html_or_code_spans() {
     );
     assert_eq!(mdopener_mcp::count_embedded_images("![[i<b>.png]]\n"), 0);
 }
+
+/// A code span is closed by the next run of exactly as many backticks, and
+/// a run never closed is text, as CommonMark reads it. export_text closed
+/// it at any run as long, also part of a longer one, and read the
+/// backticks of an unclosed run after its first as a new span.
+#[test]
+fn export_text_reads_code_spans_by_their_backtick_runs() {
+    assert_eq!(strip_markdown("x `` b`c y\n").trim(), "x `` b`c y");
+    assert_eq!(strip_markdown("``a```b`` c\n").trim(), "a```b c");
+    assert_eq!(strip_markdown("`` a`b `` c\n").trim(), "a`b c");
+    assert_eq!(strip_markdown("` `` `\n").trim(), "``");
+}
