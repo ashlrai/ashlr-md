@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Table edits keep the lines around the table.** An edit from the table menu
+  (add or delete a row or column, alignment) took the line break after the
+  table and wrote the table back without one, so the next line joined the
+  table's last row and a blank line after the table was lost. A table in a
+  CRLF file came back with LF line breaks. A table was any line before a
+  `---` line, so front matter, a setext heading, a thematic break or a
+  `--- | ---` line in a code block was read as a table and rewritten, and an
+  escaped pipe (`\|`) split a cell. Tables are now read by the page's rules.
 - **`$$` math blocks are read as the page renders them.** The page renders a
   `$$` block with remark-math, but every line reader (the Outline, task
   checkboxes, word count, `export_metadata` headings, `export_text`) read its
