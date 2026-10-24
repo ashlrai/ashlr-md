@@ -96,6 +96,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A greyed-out AI quick action says why.** Its tooltip repeated its
+  label, so on an empty document or while an answer streamed the buttons
+  were disabled with no reason. The tooltip now names it.
 - **The Outline jumps to the right heading after a list-item one.** A
   heading in a list item (`- # Step`) is not listed, as in
   `export_metadata`, but the page gives it an id, so a later `# Step` is

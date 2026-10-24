@@ -670,6 +670,13 @@ export function AISidebar() {
     setRetryState(null);
   }
 
+  // Why the quick actions are disabled, or null when they can run.
+  const quickActionBlock = busy
+    ? "wait for the current answer to finish, or stop it."
+    : !docContent.trim()
+      ? "this document has no text to work on."
+      : null;
+
   return (
     <aside
       className={`ai-sidebar${open ? " ai-sidebar--open" : ""}`}
@@ -695,7 +702,9 @@ export function AISidebar() {
         </button>
       </div>
 
-      {/* Quick action buttons */}
+      {/* Quick action buttons. A disabled one says why in its tooltip: it
+          used to repeat its label, so an empty document's greyed-out buttons
+          gave no reason. They show only once a provider is set up. */}
       {!isNoop && provider && (
         <div className="ai-quick-actions" aria-label="Quick actions">
           {DOC_ACTIONS.map((a) => (
@@ -703,9 +712,9 @@ export function AISidebar() {
               key={a.id}
               type="button"
               className="ai-quick-btn"
-              disabled={busy || !docContent}
+              disabled={!!quickActionBlock}
               onClick={() => runDocAction(a.id)}
-              title={a.label}
+              title={quickActionBlock ? `${a.label}: ${quickActionBlock}` : a.label}
             >
               {a.icon} {a.label}
             </button>
