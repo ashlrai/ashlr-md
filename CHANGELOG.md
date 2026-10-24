@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Math in HTML and PDF exports uses KaTeX's fonts.** The exported page
+  inlined KaTeX's stylesheet, whose fonts are links (`fonts/KaTeX_Main-Regular.woff2`)
+  that resolved next to the exported file, or in the app for the PDF, where
+  no such files are. Every formula was set in fallback fonts, with misdrawn
+  roots, brackets and large operators. When the document has math, the
+  export now carries the fonts in the page (WOFF2, about 300 KB), so it is
+  still one offline file.
 - **Exports wait for Mermaid diagrams.** A diagram is drawn once mermaid has
   loaded, and an export taken before then (always, from the palette in Edit
   view, which switches to Read view just before) held an empty block where

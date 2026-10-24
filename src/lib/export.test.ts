@@ -8,6 +8,7 @@
  * so the module under test can be imported in the happy-dom environment.
  */
 
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Module mocks (must precede any import of the module under test) ──────────
@@ -61,7 +62,9 @@ import {
   exportHtml,
   exportLang,
   exportPdf,
+  katexCssForExport,
   languageTag,
+  loadKatexFonts,
   waitForRenderedImages,
 } from "./export";
 
@@ -2421,5 +2424,35 @@ describe("languageTag / exportLang", () => {
     expect(exportLang("---\nlang: not a tag\n---\nx")).toBe("en");
     expect(exportLang("---\ntitle: x\n---\nx")).toBe("en");
     expect(exportLang("lang: fr\n")).toBe("en");
+  });
+});
+
+// ─── KaTeX fonts ──────────────────────────────────────────────────────────────
+
+describe("katexCssForExport", () => {
+  it("puts KaTeX's fonts in the page, where they were links next to the file", async () => {
+    // `url(fonts/KaTeX_Main-Regular.woff2)` resolved beside the exported file
+    // (or in the app, for the PDF), where there are no such files.
+    const css = readFileSync("node_modules/katex/dist/katex.min.css", "utf8");
+    expect(css).toContain("url(fonts/KaTeX_Main-Regular.woff2)");
+    await loadKatexFonts();
+    const out = katexCssForExport(css);
+    expect(out).not.toMatch(/url\(fonts\//);
+    // Each face names its WOFF2 file as loaded (a data: URL in a build; the
+    // test runner serves the file's path).
+    expect(out).toMatch(
+      /font-family:KaTeX_Main;[^}]*src:url\([^)]*KaTeX_Main-Regular\.woff2/,
+    );
+    expect(out).not.toMatch(/format\("woff"\)|format\("truetype"\)/);
+  });
+
+  it("keeps a face whose fonts are not given, and needs fonts to change anything", () => {
+    const face =
+      '@font-face{font-family:X;src:url(fonts/X.woff2) format("woff2"),url(fonts/X.woff) format("woff")}';
+    expect(katexCssForExport(face, new Map())).toBe(face);
+    expect(katexCssForExport(face, new Map([["Y.woff2", "data:y"]]))).toBe(face);
+    expect(katexCssForExport(face, new Map([["X.woff2", "data:x"]]))).toBe(
+      '@font-face{font-family:X;src:url(data:x) format("woff2")}',
+    );
   });
 });

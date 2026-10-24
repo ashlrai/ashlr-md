@@ -126,6 +126,68 @@ hr { border: none; border-top: 1px solid ${v.border}; margin: 1.5em 0; }
 `.trim();
 }
 
+// ─── KaTeX fonts ─────────────────────────────────────────────────────────────
+
+/**
+ * KaTeX's fonts (WOFF2, which every browser that opens an export reads), as
+ * `data:` URLs, loaded only when an export holds math.
+ */
+const KATEX_FONT_FILES = import.meta.glob<string>(
+  "../../node_modules/katex/dist/fonts/*.woff2",
+  { query: "?inline", import: "default" },
+);
+
+/** File name to `data:` URL, once {@link loadKatexFonts} has run. */
+let katexFonts: Map<string, string> | null = null;
+
+/** Load KaTeX's fonts for {@link katexCssForExport}. Never throws. */
+export async function loadKatexFonts(): Promise<void> {
+  if (katexFonts) return;
+  try {
+    const fonts = new Map<string, string>();
+    await Promise.all(
+      Object.entries(KATEX_FONT_FILES).map(async ([path, load]) => {
+        fonts.set(path.slice(path.lastIndexOf("/") + 1), await load());
+      }),
+    );
+    katexFonts = fonts;
+  } catch {
+    // Left as they are: the math shows in fallback fonts.
+  }
+}
+
+/**
+ * `css` (KaTeX's stylesheet) with each font it names as a `data:` URL from
+ * `fonts` (file name to URL). Its `url(fonts/KaTeX_Main-Regular.woff2)`
+ * resolved next to the exported file, where there are none, or (in the
+ * PDF's print frame) in the app, whose build names them otherwise: the math
+ * of every HTML and PDF export was set in fallback fonts, with misdrawn
+ * roots, brackets and large operators. A font face none of whose files is
+ * in `fonts` is left as it was.
+ */
+export function katexCssForExport(
+  css: string,
+  fonts: ReadonlyMap<string, string> | null = katexFonts,
+): string {
+  if (!fonts || fonts.size === 0) return css;
+  return css.replace(/src:([^;}]*)/g, (whole, list: string) => {
+    const kept = list
+      .split(",")
+      .map((entry) => {
+        const m = /url\(\s*["']?(?:[^)"']*\/)?([^/)"']+\.woff2)["']?\s*\)/.exec(entry);
+        const data = m ? fonts.get(m[1]) : undefined;
+        return data ? `url(${data}) format("woff2")` : null;
+      })
+      .filter((x): x is string => x !== null);
+    return kept.length > 0 ? `src:${kept.join(",")}` : whole;
+  });
+}
+
+/** Load KaTeX's fonts when the read view shows math. */
+async function fontsForMath(): Promise<void> {
+  if (document.querySelector(".markdown-body .katex")) await loadKatexFonts();
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /** Grab the current theme id from the document root (set by App.tsx). */
@@ -305,7 +367,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCss}
+${katexCssForExport(katexCss)}
 
 /* ── Page shell ── */
 body{
@@ -438,6 +500,7 @@ export async function exportHtml(
   opts: WriteOptions = {},
 ): Promise<boolean> {
   await waitForRenderedImages();
+  await fontsForMath();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
 
@@ -549,6 +612,7 @@ export async function exportDocx(
  */
 export async function exportPdf(_title: string): Promise<void> {
   await waitForRenderedImages();
+  await fontsForMath();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(_title).title);
 
@@ -954,7 +1018,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCss}
+${katexCssForExport(katexCss)}
 
 /* ── Export profile: ${escapeHtml(profile.name)} ── */
 ${profile.css}
@@ -1063,6 +1127,7 @@ export async function exportWithProfile(
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
   await waitForRenderedImages();
+  await fontsForMath();
 
   // A text profile (Slack) is the text it promises, not a page: the Slack
   // .txt used to hold a whole HTML document, which pasted as markup.
