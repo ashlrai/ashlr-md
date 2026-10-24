@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited table keeps its layout.** Typing one character in a table cell
+  in the WYSIWYG editor re-padded every column of the table to its widest
+  cell. Rows whose cells did not change are now kept as written, a changed
+  row keeps the padding of its other cells (and of the changed one), and the
+  delimiter row (`|:--|--:|`) is kept while the columns and their alignment
+  are the same. A table without outer pipes stays without them.
 - **An edited indented code block stays indented.** Typing in a code block
   written with four spaces (or a tab) in the WYSIWYG editor saved it as a
   backtick fence. It is written indented as it was, unless a language was

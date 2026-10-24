@@ -33,7 +33,9 @@
  * keeps doing so, and `&nbsp;`, `&copy;` and other character references stay
  * as they were written ({@link keepSpellings}). An edited code block keeps
  * its fence (`~~~` or backticks, at its length) and its whole info string
- * ({@link codeBlockText}), and an indented one stays indented.
+ * ({@link codeBlockText}), and an indented one stays indented. An edited
+ * table keeps its rows' padding and its delimiter row where they still
+ * hold ({@link keepTableLayout}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -614,15 +616,141 @@ function isClosingFence(line: string, fence: string): boolean {
  * `written` (a block as the serializer wrote it in its {@link blockStyle})
  * with what the settings cannot say put back from the block's source: a
  * setext heading's underline, at its length (the serializer matches the
- * text's, so it changed with every edit).
+ * text's, so it changed with every edit), and a table's layout
+ * ({@link keepTableLayout}).
  */
 export function restyled(written: string, original: string, node: MdNode): string {
   const r = range(node);
-  if (!r || node.type !== "heading") return written;
+  if (!r) return written;
+  if (node.type === "table") {
+    // The block's range starts at its line (see sourceRanges).
+    const lineStart = original.lastIndexOf("\n", r.start - 1) + 1;
+    const lead = original.slice(lineStart, r.start);
+    const from = /^[ \t]*$/.test(lead) ? lineStart : r.start;
+    return keepTableLayout(written, original.slice(from, r.end));
+  }
+  if (node.type !== "heading") return written;
   const underline = /\n( {0,3}([=-])\2*[ \t]*)$/.exec(original.slice(r.start, r.end));
   const out = /\n([=-])\1*(\n*)$/.exec(written);
   if (!underline || !out || underline[2] !== out[1]) return written;
   return `${written.slice(0, out.index)}\n${underline[1]}${out[2]}`;
+}
+
+/** A table row's cells as written, between its pipes. */
+interface TableRow {
+  /** Whitespace before the row. */
+  indent: string;
+  /** Whether the row starts and ends with a pipe. */
+  lead: boolean;
+  trail: boolean;
+  /** Each cell's text, padding included. */
+  cells: string[];
+}
+
+/** `line` (a table row) split at its unescaped pipes. */
+function tableRow(line: string): TableRow {
+  const indent = /^[ \t]*/.exec(line)?.[0] ?? "";
+  let rest = line.slice(indent.length).replace(/\r$/, "");
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (ch === "\\" && i + 1 < rest.length) {
+      cell += ch + rest[i + 1];
+      i++;
+    } else if (ch === "|") {
+      cells.push(cell);
+      cell = "";
+    } else cell += ch;
+  }
+  cells.push(cell);
+  rest = rest.trim();
+  const lead = rest.startsWith("|");
+  const trail = rest.length > 1 && rest.endsWith("|") && !rest.endsWith("\\|");
+  if (lead) cells.shift();
+  if (trail) cells.pop();
+  return { indent, lead, trail, cells };
+}
+
+/** A delimiter row's alignment, one per column (null: not a delimiter row). */
+function alignments(row: TableRow): string[] | null {
+  const out: string[] = [];
+  for (const cell of row.cells) {
+    const m = /^(:?)-+(:?)$/.exec(cell.trim());
+    if (!m) return null;
+    out.push(`${m[1]}${m[2]}`);
+  }
+  return out;
+}
+
+/** The row's cell texts, without their padding. */
+function cellTexts(row: TableRow): string[] {
+  return row.cells.map((c) => c.trim());
+}
+
+/**
+ * `written` (a table as the serializer wrote it) laid out as `source` (the
+ * table as loaded) was: a row whose cells are the same is the source's row
+ * as it was, a changed row keeps the source's padding in its unchanged
+ * cells, and the delimiter row is kept while the columns and their
+ * alignment are. The serializer padded every column to its widest cell, so
+ * typing one character in a cell re-padded the whole table. When the
+ * number of columns changed, `written` is the table.
+ */
+export function keepTableLayout(written: string, source: string): string {
+  const body = written.replace(/\n+$/, "");
+  const end = written.slice(body.length);
+  const wl = body.split("\n");
+  const sl = source.replace(/\r?\n$/, "").split(/\r?\n/);
+  if (wl.length < 2 || sl.length < 2) return written;
+  const ws = wl.map(tableRow);
+  const ss = sl.map(tableRow);
+  const columns = ws[0].cells.length;
+  if (ss[0].cells.length !== columns) return written;
+  const wAlign = alignments(ws[1]);
+  const sAlign = alignments(ss[1]);
+  if (!wAlign || !sAlign || sAlign.length !== columns) return written;
+  const same = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x, i) => x === b[i]);
+  const line = (w: number, s: number | null): string => {
+    if (s === null) return wl[w];
+    const wt = cellTexts(ws[w]);
+    const st = cellTexts(ss[s]);
+    if (same(wt, st)) return sl[s].replace(/\r$/, "");
+    const src = ss[s];
+    const cells = wt.map((_, j) => {
+      if (j < st.length && wt[j] === st[j]) return src.cells[j];
+      // A changed cell keeps the spaces either side of its text.
+      const was = j < src.cells.length ? src.cells[j] : "";
+      if (wt[j] === "" || was.trim() === "") return wt[j] === "" ? " " : ` ${wt[j]} `;
+      const pad = /^(\s*)[\s\S]*?(\s*)$/.exec(was) as RegExpExecArray;
+      return `${pad[1]}${wt[j]}${pad[2]}`;
+    });
+    // Without a leading pipe, an empty first cell would not be one.
+    if (!src.lead && wt[0] === "") return wl[w];
+    return `${src.indent}${src.lead ? "|" : ""}${cells.join("|")}${src.trail ? "|" : ""}`;
+  };
+  const out = [line(0, 0)];
+  out.push(same(wAlign, sAlign) ? sl[1].replace(/\r$/, "") : wl[1]);
+  // Body rows: paired in order when there are as many, else each with
+  // the first unused source row that reads the same.
+  const used = new Set<number>();
+  for (let w = 2; w < wl.length; w++) {
+    let s: number | null = null;
+    if (wl.length === sl.length) s = w;
+    else {
+      const wt = cellTexts(ws[w]);
+      for (let i = 2; i < sl.length; i++) {
+        if (!used.has(i) && same(wt, cellTexts(ss[i]))) {
+          s = i;
+          break;
+        }
+      }
+    }
+    if (s !== null) used.add(s);
+    out.push(line(w, s));
+  }
+  return out.join("\n") + end;
 }
 
 /** The parts of an mdast node {@link keepSpellings} reads and writes. */

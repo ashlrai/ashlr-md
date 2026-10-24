@@ -42,6 +42,7 @@ import {
   dropEmptyLineBreaks,
   keepSourceOnSave,
   keepSpellings,
+  keepTableLayout,
   listSpread,
   type MdNode,
   type PmNode,
@@ -585,6 +586,25 @@ describe("sourceRanges / spliceEdited", () => {
     expect(codeBlockText(src, code(src, "ts"), "ts", "a\n~~~~~\nb")).toBeNull();
     const open = "```\nnever closed";
     expect(codeBlockText(open, code(open, null), "", "x")).toBeNull();
+  });
+
+  it("keeps a table's layout where its cells and columns are the same", () => {
+    const source = "|  a | b |\n|---:|:-|\n|  1 | 2 |\n|  3 | 4 |";
+    // A row added: the others keep their padding, the new one is written.
+    const added = "| a | b  |\n| -: | :- |\n| 1 | 2  |\n| 9 | 10 |\n| 3 | 4  |\n";
+    expect(keepTableLayout(added, source)).toBe(
+      "|  a | b |\n|---:|:-|\n|  1 | 2 |\n| 9 | 10 |\n|  3 | 4 |\n",
+    );
+    // A new alignment: the delimiter row is the serializer's.
+    const aligned = "| a | b |\n| :-: | :- |\n| 1 | 2 |\n| 3 | 4 |";
+    expect(keepTableLayout(aligned, source).split("\n")[1]).toBe("| :-: | :- |");
+    // A column added: the serializer's table.
+    const wider = "| a | b | c |\n| -: | :- | - |\n| 1 | 2 | 3 |\n| 3 | 4 | 5 |";
+    expect(keepTableLayout(wider, source)).toBe(wider);
+    // An escaped pipe is no cell boundary; a changed cell keeps its padding.
+    expect(keepTableLayout("| a\\|b | c! |\n| - | - |", "|a\\|b|c|\n|-|-|")).toBe(
+      "|a\\|b|c!|\n|-|-|",
+    );
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {
