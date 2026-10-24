@@ -505,16 +505,12 @@ export async function exportHtml(
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
 
   // An agent-supplied destination (MCP `export` with `output_path`) skips the dialog.
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.html`,
-      filters: [{ name: "HTML", extensions: ["html"] }],
-    }));
-  if (!path) return false; // user cancelled — no toast
+  const dest = await exportDestination(outputPath, opts, title, "html", "HTML");
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(html), opts);
+    await writeExportBytes(path, new TextEncoder().encode(html), dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw new ShownExportError(errMsg(e));
@@ -556,13 +552,15 @@ export async function exportDocx(
     throw "html-to-docx is not installed. Run: bun add html-to-docx";
   }
 
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.docx`,
-      filters: [{ name: "Word Document", extensions: ["docx"] }],
-    }));
-  if (!path) return false; // user cancelled — no toast
+  const dest = await exportDestination(
+    outputPath,
+    opts,
+    title,
+    "docx",
+    "Word Document",
+  );
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   const meta = exportMetadata(title);
   const result = await HTMLtoDOCX(bodyHtml, null, {
@@ -586,7 +584,7 @@ export async function exportDocx(
   }
 
   try {
-    await writeExportBytes(path, bytes, opts);
+    await writeExportBytes(path, bytes, dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw new ShownExportError(errMsg(e));
@@ -904,13 +902,9 @@ export async function exportEpub(
     throw "epub-gen-memory is not installed. Run: bun add epub-gen-memory";
   }
 
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.epub`,
-      filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
-    }));
-  if (!path) return false; // user cancelled — no toast
+  const dest = await exportDestination(outputPath, opts, title, "epub", "EPUB eBook");
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   const theme = currentTheme();
   const css = buildEpubThemeCss(theme);
@@ -945,7 +939,7 @@ export async function exportEpub(
   }
 
   try {
-    await writeExportBytes(path, bytes, opts);
+    await writeExportBytes(path, bytes, dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw new ShownExportError(errMsg(e));
@@ -1140,14 +1134,12 @@ export async function exportWithProfile(
   const ext = profile.extension;
   const filterName = ext === "txt" ? "Text / Markdown" : "HTML Document";
 
-  const path = await save({
-    defaultPath: `${sanitizeFileName(title)}.${ext}`,
-    filters: [{ name: filterName, extensions: [ext] }],
-  });
-  if (!path) return false; // user cancelled — no toast
+  const dest = await exportDestination(undefined, {}, title, ext, filterName);
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(content));
+    await writeExportBytes(path, new TextEncoder().encode(content), dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw new ShownExportError(errMsg(e));
@@ -1157,6 +1149,40 @@ export async function exportWithProfile(
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────
+
+/**
+ * Where an export goes: `outputPath` (an agent's, no dialog), else the file
+ * picked in the save dialog, offered as `title` with `ext`. A picked name
+ * with no extension gets `.ext`: the Linux save dialogs do not add it, so
+ * `report` typed there was saved as a file named `report` that no app
+ * opened as HTML (or Word, or EPUB). The dialog asked about replacing
+ * `report`, not `report.ext`, so that file is written only if it is new.
+ * Null when the dialog was cancelled.
+ */
+async function exportDestination(
+  outputPath: string | undefined,
+  opts: WriteOptions,
+  title: string,
+  ext: string,
+  filterName: string,
+): Promise<{ path: string; opts: WriteOptions } | null> {
+  if (outputPath) return { path: outputPath, opts };
+  const picked = await save({
+    defaultPath: `${sanitizeFileName(title)}.${ext}`,
+    filters: [{ name: filterName, extensions: [ext] }],
+  });
+  if (!picked) return null;
+  const named = withExtension(picked, ext);
+  return named === picked
+    ? { path: picked, opts }
+    : { path: named, opts: { ...opts, newFile: true } };
+}
+
+/** `path`, with `.ext` added when its file name has no extension. */
+export function withExtension(path: string, ext: string): string {
+  const name = baseName(path);
+  return /[^.]\.[^.]+$/.test(name) ? path : `${path}.${ext}`;
+}
 
 /**
  * Write `bytes` to `path` through `write_file_bytes` (src-tauri/src/export.rs):

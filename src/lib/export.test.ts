@@ -66,6 +66,7 @@ import {
   languageTag,
   loadKatexFonts,
   waitForRenderedImages,
+  withExtension,
 } from "./export";
 
 /**
@@ -406,6 +407,28 @@ describe("exportHtml", () => {
     expect(clone.querySelector("pre code.language-mermaid")?.textContent).toBe(
       "graph LR; X-->Y",
     );
+  });
+
+  it("adds the extension a save dialog left off, replacing nothing", async () => {
+    // A Linux save dialog does not add it: `report` was saved as is.
+    saveMock.mockResolvedValue("/home/user/report");
+    await exportHtml("My Doc");
+    const call = invokeMock.mock.calls
+      .filter((c) => c[0] === "write_file_bytes")
+      .at(-1);
+    expect(writtenExport()?.path).toBe("/home/user/report.html");
+    // The dialog asked about `report`, not `report.html`.
+    expect(call?.[2].headers["x-export-new"]).toBe("1");
+    // A name with an extension is written as picked.
+    saveMock.mockResolvedValue("/home/user/report.htm");
+    await exportHtml("My Doc");
+    const again = invokeMock.mock.calls
+      .filter((c) => c[0] === "write_file_bytes")
+      .at(-1);
+    expect(writtenExport()?.path).toBe("/home/user/report.htm");
+    expect(again?.[2].headers["x-export-new"]).toBeUndefined();
+    expect(withExtension("/a/.env", "html")).toBe("/a/.env.html");
+    expect(withExtension("C:\\out\\notes.v2", "docx")).toBe("C:\\out\\notes.v2");
   });
 
   it("never writes through write_markdown_file, which follows a symbolic link", async () => {

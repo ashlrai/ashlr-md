@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An export picked without an extension gets one.** The Linux save dialogs
+  do not add the extension, so an export saved as `report` was a file named
+  `report` that no app opened as HTML, Word or EPUB. The format's extension
+  is now added (`report.html`); as the dialog asked about `report`, not
+  `report.html`, a file already there under the new name is not replaced.
 - **Math in HTML and PDF exports uses KaTeX's fonts.** The exported page
   inlined KaTeX's stylesheet, whose fonts are links (`fonts/KaTeX_Main-Regular.woff2`)
   that resolved next to the exported file, or in the app for the PDF, where
