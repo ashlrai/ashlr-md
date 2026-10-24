@@ -1179,21 +1179,37 @@ function inlineEmailStyles(html: string): string {
     },
   );
   for (const { tag, css, withAttributes } of EMAIL_INLINE_STYLES) {
-    out = out.replace(
-      openingTag(tag, withAttributes ?? false),
-      (_, attrs: string, close: string) => {
-        const style = attributeValue(attrs, "style");
-        // The element's own style comes after, so it still wins where both
-        // set a property (a Shiki block's colours, an image's width).
-        const merged = style
-          ? replaceAttribute(attrs, style, "style", `${css}${style.value.trim()}`)
-          : ` style="${css}"${attrs}`;
-        return `<${tag}${merged}${close}>`;
-      },
-    );
+    const styled = (html: string, css: string) =>
+      html.replace(
+        openingTag(tag, withAttributes ?? false),
+        (_, attrs: string, close: string) => {
+          const style = attributeValue(attrs, "style");
+          // The element's own style comes after, so it still wins where both
+          // set a property (a Shiki block's colours, an image's width).
+          const merged = style
+            ? replaceAttribute(attrs, style, "style", `${css}${style.value.trim()}`)
+            : ` style="${css}"${attrs}`;
+          return `<${tag}${merged}${close}>`;
+        },
+      );
+    // The `<code>` of a code block is reset, as the stylesheet's `pre code`
+    // rule says: the inline-code style (pink text on a grey box with a
+    // border) used to land on it too, and an inline style beats the rule.
+    out =
+      tag === "code"
+        ? out.replace(
+            /(<pre\b[\s\S]*?<\/pre\s*>)|[\s\S]+?(?=<pre\b|$)/gi,
+            (part, pre?: string) =>
+              styled(part, pre === undefined ? css : EMAIL_PRE_CODE_CSS),
+          )
+        : styled(out, css);
   }
   return out;
 }
+
+/** The inline style of a `<code>` inside a `<pre>` in an email export. */
+const EMAIL_PRE_CODE_CSS =
+  "font-family:inherit;font-size:inherit;background:none;border:none;border-radius:0;padding:0;color:inherit;";
 
 /**
  * The inline styles {@link inlineEmailStyles} gives each element, in order;

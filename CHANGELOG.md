@@ -128,6 +128,89 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A wikilink to a note with a dot in its name resolves.** `[[v1.2 plan]]`
+  or `[[2024.01.05]]` was taken to name a file with the extension `2 plan`
+  or `05`, so it was looked up as a file of that full name and showed as a
+  broken link to `v1.2 plan.md`. Only an extension a link may resolve to
+  (a note, image, canvas, PDF or text file) now makes a target a file name.
+- **A link's hover preview shows for every link a click opens.** The preview
+  sorted links by a test of its own (a path ending in `.md`, or a name with
+  no `/`), so `notes/plan.md#Goals`, `notes/Plan`, `Plan.MD` and
+  `x.markdown` opened on a click but showed no preview. It now goes by the
+  click's rule.
+- **`[[#Heading]]` links to a heading of the same note.** A wikilink with no
+  note name before the `#` (Obsidian's link to a heading or `^block` of the
+  same note) was not recognised and showed as the text `[[#Heading]]`. It is
+  now a link, shown as the heading's name, and a click scrolls to it; when
+  the note has no such heading a toast says so.
+- **The outline and `#heading` links go to the document's own heading.** An
+  embedded note (`![[other]]`) is rendered with its own heading ids, so a
+  heading it shares with the document ("Setup", "Notes") had its id twice,
+  and the first in the page was taken: with the embed above it, the
+  outline, its scrollspy and a `#setup` link went to the embed's heading.
+  The document's own heading is now taken, and a link inside an embed still
+  goes to the embed's.
+- **A `#heading` link jumps without animation under reduced motion.** A
+  click on a link to a heading of the same document scrolled smoothly even
+  when the system asks to reduce motion; links into other documents, the
+  outline and find already went by the setting.
+- **A link to a missing file leaves the document in view.** Clicking a link
+  (or a wikilink) to a file that is not there replaced the document holding
+  it with the read error, which stayed until another tab was chosen; with
+  one tab open the document could not be got back without opening it again.
+  The document now stays in view and a toast names the file and why it could
+  not be opened.
+- **File search shows the results of the query in the box.** A search for
+  an earlier query that finished after a later one replaced the later
+  results, so typing on while a big folder was searched could leave hits for
+  text no longer in the box. An answer for a query that has since changed is
+  now dropped.
+- **Find marks the right letters in Turkish text.** Find looked for hits in
+  the lowercased text and marked them at those places in the original, and
+  `İ` lowercases to two characters, so after an `İ` each hit was marked one
+  letter off (`stan` in `İstanbul` marked `tanb`). Hits are now found in the
+  text itself, ignoring case.
+- **Find in the read view finds words in a `==highlight==`.** Find skipped
+  every `<mark>` so as not to mark its own hits twice, and a highlight
+  renders as a `<mark>`, so the highlighted words of a note, often the ones
+  that matter most, were never found. Only find's own marks are skipped now.
+- **A task item that starts with `> [!TIP]` keeps it when edited.** The
+  editor writes a task item's text as if it began a line, so `- [ ] > [!TIP]`
+  was saved as `- [ ] \> \[!TIP]` once the item was edited (and `# x` as
+  `\# x`). After the `[ ]` box none of these can start a block, so a `>`,
+  `#`, `-`, `+` or `*` and a callout marker at the start of a task item's
+  text are now saved as the file wrote them. Text the file wrote escaped
+  stays escaped.
+- **Email export: a code block's text is not styled as inline code.** The
+  email profile gave every `<code>` the inline-code style (pink text in a grey
+  box with a border), and as an inline style it beat the stylesheet's
+  `pre code` reset, so each code block showed a box inside its box. The
+  `<code>` of a code block now gets a reset style; inline code is unchanged.
+- **mdopen and the MCP server: a launcher killed by a signal says which.**
+  An `xdg-open` (or `gio`, `open`) ended by a signal was reported as having
+  "exited with status signal". The message now says it was killed and names
+  the signal (`was killed by signal 9 (SIGKILL)`).
+- **mdopen: `--edit=yes` is told the flag it meant.** A flag given a value
+  with `=` (no flag takes one) was compared whole, so `--edit=yes` got only
+  "unknown flag". The part before `=` is now compared, and the error says
+  "did you mean --edit?".
+- **MCP: connecting to the app gives up after half a second.** The server's
+  connection to Ashlr MD had no connect timeout, so a port whose listener took
+  no more connections held a tool call for the system's own timeout, a minute
+  or more. It now waits at most 500 ms, as `mdopen` does, and says it could
+  not connect.
+- **MCP: a vault search names the Markdown files it cannot read by path.**
+  Searching a `vault` on disk passed each path on lossily, so a note in a
+  folder whose name is not UTF-8 (or a link to one) named no file and was
+  left out without a word. The search's note now says how many such files
+  were not searched, names the first few and says to rename them, and a
+  `vault` that is itself such a folder is refused, saying why.
+- **MCP: a request line has a size limit.** The server read each stdin line
+  whole, however long, so a client that sent a huge line (or bytes with no
+  newline) grew its memory without bound. A line longer than 64 MiB (room for
+  a 16 MiB document escaped several times over) is now read to its end
+  without being kept and answered with a JSON-RPC `-32600` error on stdout;
+  the requests after it are still served.
 - **mdopen and the MCP server: a launcher that cannot start says so.** An
   `xdg-open` (or `gio`, `open`) on the PATH that could not be started, not
   being executable for one, was reported as having "exited with status

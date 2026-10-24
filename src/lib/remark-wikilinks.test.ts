@@ -61,6 +61,30 @@ describe("remarkWikilinks", () => {
     expect(collect("[[a]] and [[b]] and [[c]]", "wikilink")).toHaveLength(3);
   });
 
+  it("links [[#Heading]] and [[#^block]] to this document", () => {
+    const links = collect("See [[#Setup]], [[#^b1]] and [[#Setup|there]].", "wikilink");
+    expect(links.map((l) => l.data.hProperties.dataWikitarget)).toEqual([
+      "#Setup",
+      "#^b1",
+      "#Setup",
+    ]);
+    // Shown as the heading, as Obsidian does, or as the alias.
+    expect(links.map((l) => l.data.hProperties.dataWikialias)).toEqual([
+      "Setup",
+      "^b1",
+      "there",
+    ]);
+  });
+
+  it("leaves [[]], [[|x]] and ![[#Heading]] as text", () => {
+    for (const md of ["a [[]] b", "a [[|x]] b", "a ![[#Setup]] b"]) {
+      expect(collect(md, "wikilink"), md).toHaveLength(0);
+      expect(collect(md, "wikiembed"), md).toHaveLength(0);
+    }
+    const [link] = collect("[[]] then [[Real]]", "wikilink");
+    expect(link.data.hProperties.dataWikitarget).toBe("Real");
+  });
+
   it("ends a wikilink or an embed on its own line, as Obsidian does", () => {
     const md = "See [[open\nmore [[Real]] and ![[pic\nnext]]";
     const links = collect(md, "wikilink");

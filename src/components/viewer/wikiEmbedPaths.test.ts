@@ -100,7 +100,9 @@ describe("relative links in an embedded note", () => {
     );
     expect(wikilink?.disabled).toBe(false);
     await act(async () => wikilink?.click());
-    expect(openPath).toHaveBeenCalledWith("/vault/sub/other.md");
+    expect(openPath).toHaveBeenCalledWith("/vault/sub/other.md", {
+      keepViewOnError: true,
+    });
     // Its Markdown link opens next to it.
     const a = [...host.querySelectorAll("a")].find((x) => x.textContent === "rel");
     const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
@@ -108,6 +110,8 @@ describe("relative links in an embedded note", () => {
     act(() => {
       a?.dispatchEvent(ev);
     });
-    expect(openPath).toHaveBeenCalledWith("/vault/sub/rel.md");
+    expect(openPath).toHaveBeenCalledWith("/vault/sub/rel.md", {
+      keepViewOnError: true,
+    });
   });
 });

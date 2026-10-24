@@ -175,6 +175,15 @@ export async function resolveLinkTarget(
   return { kind: "document", path, fragment: target.fragment };
 }
 
+/**
+ * What a toast says when the file a link names cannot be opened (it is not
+ * there, say). The document holding the link stays in view.
+ */
+export function linkOpenError(path: string, error: string): string {
+  const name = path.split(/[\\/]/).pop() || path;
+  return `Could not open the link to ${name}: ${error}`;
+}
+
 export type ImageSource =
   /** Shown as written (a web image). */
   | { kind: "remote"; src: string }
@@ -241,14 +250,25 @@ export async function editorImageUrl(
  * written, as rehype-sanitize prefixes ids written in raw HTML or footnotes
  * (`user-content-`), or the slug a heading with that text gets
  * (`#My Heading` finds `my-heading`).
+ *
+ * An embedded note (`![[other]]`) is rendered with its own heading ids, so
+ * a heading it shares with the document has its id twice. The one at
+ * `root`'s own level (not inside a further embed) is taken: the first in
+ * the page was, so a `#setup` link or the outline's "Setup" went to the
+ * embed's heading when the embed came first.
  */
 export function anchorElement(
   id: string,
   root: ParentNode = document,
 ): HTMLElement | null {
   if (id === "") return null;
-  const byId = (x: string) =>
-    root.querySelector<HTMLElement>(`[id="${CSS.escape(x)}"]`);
+  const level = root instanceof Element ? root.closest(".wikiembed") : null;
+  const byId = (x: string) => {
+    const all = Array.from(
+      root.querySelectorAll<HTMLElement>(`[id="${CSS.escape(x)}"]`),
+    );
+    return all.find((el) => el.closest(".wikiembed") === level) ?? all[0] ?? null;
+  };
   return (
     byId(id) ?? byId(`user-content-${id}`) ?? byId(new GithubSlugger().slug(id)) ?? null
   );

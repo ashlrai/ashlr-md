@@ -3510,6 +3510,16 @@ pub fn disk_vault_dir(raw: &str) -> Result<std::path::PathBuf, String> {
             dir.display()
         ));
     }
+    // Every file below a folder whose path is not UTF-8 has a non-UTF-8 path
+    // too, and none of them can be read, so the search would find nothing.
+    if dir.to_str().is_none() {
+        return Err(format!(
+            "`vault` '{}' resolves to {}, a path that is not valid UTF-8, and Ashlr MD works \
+             only with UTF-8 paths. Rename the folder to a UTF-8 name, then try again.",
+            agent_path(raw),
+            dir.to_string_lossy()
+        ));
+    }
     // The walk skips hidden folders below a vault, so a hidden vault itself
     // (`.git`, `.obsidian`) is refused rather than read.
     if dir
@@ -3537,6 +3547,10 @@ pub struct DiskVaultScan {
     /// not entered (the walk went on). Such folders used to be skipped
     /// without a word.
     pub depth_cut: bool,
+    /// Markdown files that were not listed because their path (or the path a
+    /// symlink resolves to) is not valid UTF-8, spelled lossily, sorted. They
+    /// used to be dropped without a word.
+    pub non_utf8: Vec<String>,
 }
 
 /// [`disk_vault_scan`]'s paths, and whether [`DISK_VAULT_MAX_FILES`] cut the
@@ -3553,12 +3567,32 @@ pub fn disk_vault_files(dir: &std::path::Path) -> (Vec<String>, bool) {
 /// the file it resolves to is listed by that canonical path (even when it is
 /// outside `dir`) if it is a Markdown file that is not a dotfile.
 pub fn disk_vault_scan(dir: &std::path::Path) -> DiskVaultScan {
-    fn walk(
-        dir: &std::path::Path,
-        depth: usize,
-        out: &mut Vec<String>,
-        depth_cut: &mut bool,
-    ) -> bool {
+    struct Walk {
+        out: Vec<String>,
+        depth_cut: bool,
+        non_utf8: Vec<String>,
+    }
+    /// A Markdown file whose path, or the path it resolves to, is not UTF-8:
+    /// no tool can read it, so it is reported rather than listed.
+    fn non_utf8_markdown(path: &std::path::Path) -> bool {
+        let is_md = |p: &std::path::Path| {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
+            !name.starts_with('.')
+                && std::path::Path::new(&*name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| MD_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        };
+        let real = std::fs::canonicalize(path).ok();
+        match &real {
+            Some(r) if r.to_str().is_none() => is_md(r) && r.is_file(),
+            _ => path.to_str().is_none() && is_md(path),
+        }
+    }
+    fn walk(dir: &std::path::Path, depth: usize, w: &mut Walk) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return false;
         };
@@ -3580,30 +3614,40 @@ pub fn disk_vault_scan(dir: &std::path::Path) -> DiskVaultScan {
                     continue;
                 }
                 if depth >= DISK_VAULT_MAX_DEPTH {
-                    *depth_cut = true;
+                    w.depth_cut = true;
                     continue;
                 }
-                if walk(&path, depth + 1, out, depth_cut) {
+                if walk(&path, depth + 1, w) {
                     return true;
                 }
+            } else if non_utf8_markdown(&path) {
+                // Passed on lossily, such a path named no file: it was
+                // skipped (or, through a symlink, refused) without a word.
+                w.non_utf8.push(path.to_string_lossy().into_owned());
             } else if let Ok(p) = checked_document_path(&path.to_string_lossy(), "vault") {
-                if std::path::Path::new(&p).is_file() && !out.contains(&p) {
-                    if out.len() == DISK_VAULT_MAX_FILES {
+                if std::path::Path::new(&p).is_file() && !w.out.contains(&p) {
+                    if w.out.len() == DISK_VAULT_MAX_FILES {
                         return true;
                     }
-                    out.push(p);
+                    w.out.push(p);
                 }
             }
         }
         false
     }
-    let mut out = Vec::new();
-    let mut depth_cut = false;
-    let file_cap = walk(dir, 0, &mut out, &mut depth_cut);
+    let mut w = Walk {
+        out: Vec::new(),
+        depth_cut: false,
+        non_utf8: Vec::new(),
+    };
+    let file_cap = walk(dir, 0, &mut w);
+    w.non_utf8.sort();
+    w.non_utf8.dedup();
     DiskVaultScan {
-        paths: out,
+        paths: w.out,
         file_cap,
-        depth_cut,
+        depth_cut: w.depth_cut,
+        non_utf8: w.non_utf8,
     }
 }
 
@@ -3630,6 +3674,9 @@ struct VaultFiles {
     depth_cut: Option<bool>,
     /// The on-disk walk stopped at [`DISK_VAULT_MAX_FILES`].
     disk_file_cap: bool,
+    /// Markdown files the on-disk walk could not search: their path is not
+    /// UTF-8 ([`DiskVaultScan::non_utf8`]).
+    disk_non_utf8: Vec<String>,
 }
 
 impl VaultFiles {
@@ -3701,6 +3748,10 @@ impl VaultFiles {
                  searched."
             ));
         }
+        if let Some(note_part) = non_utf8_note(&self.disk_non_utf8) {
+            note.push(' ');
+            note.push_str(&note_part);
+        }
         if app_auth_failed(&self.app_error) {
             note.push(' ');
             note.push_str(search_auth_failed_fix());
@@ -3725,6 +3776,31 @@ impl VaultFiles {
     }
 }
 
+/// Names the Markdown files a disk walk skipped because their path is not
+/// UTF-8 (the first few, and how many), with the fix.
+fn non_utf8_note(skipped: &[String]) -> Option<String> {
+    const SHOWN: usize = 5;
+    let (first, rest) = skipped.split_first()?;
+    let mut names = format!("'{first}'");
+    for p in rest.iter().take(SHOWN - 1) {
+        names.push_str(&format!(", '{p}'"));
+    }
+    let n = skipped.len();
+    if n > SHOWN {
+        names.push_str(&format!(" and {} more", n - SHOWN));
+    }
+    let (files, are) = if n == 1 {
+        ("file", "is")
+    } else {
+        ("files", "are")
+    };
+    Some(format!(
+        "{n} Markdown {files} {are} not searched because the path is not valid UTF-8 \
+         (the bytes that are not are shown as \u{FFFD}), and Ashlr MD works only \
+         with UTF-8 paths: {names}. Rename the file or folder to a UTF-8 name to search it."
+    ))
+}
+
 /// The vault file list from the app, or from walking `vault` on disk when the
 /// app cannot be reached. A refusal or other failure is still an error.
 fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<VaultFiles, String> {
@@ -3738,6 +3814,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
             app_scan_cut: listing.scan_cut,
             depth_cut: listing.depth_cut,
             disk_file_cap: false,
+            disk_non_utf8: Vec::new(),
         }),
         // An app that refused this server's token (HTTP 401) holds the vault
         // list this server cannot read, so `vault` is searched on disk too,
@@ -3753,6 +3830,7 @@ fn vault_files(ipc: &dyn IpcClient, vault: Option<&std::path::Path>) -> Result<V
                 app_scan_cut: false,
                 depth_cut: Some(scan.depth_cut),
                 disk_file_cap: scan.file_cap,
+                disk_non_utf8: scan.non_utf8,
             })
         }
         (Err(e), _) => Err(e),
@@ -5946,6 +6024,35 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
     tcp_roundtrip_within(host, port, request, IPC_READ_TIMEOUT)
 }
 
+/// How long [`tcp_roundtrip`] waits for the connection itself, as `mdopen`
+/// does (500 ms). A plain `connect` had no limit: a port whose listener does
+/// not take connections (its queue full, a stopped app) held the tool call
+/// for the system's own connect timeout, a minute or more.
+pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Connect to `host:port`, trying each address it resolves to for at most
+/// `timeout`, and return the last error when none answers.
+fn connect_within(
+    host: &str,
+    port: u16,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::net::TcpStream> {
+    use std::net::ToSocketAddrs as _;
+    let mut last = None;
+    for addr in (host, port).to_socket_addrs()? {
+        match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the host name resolves to no address",
+        )
+    }))
+}
+
 /// [`tcp_roundtrip`] waiting up to `read_timeout` for the answer.
 pub fn tcp_roundtrip_within(
     host: &str,
@@ -5954,11 +6061,10 @@ pub fn tcp_roundtrip_within(
     read_timeout: std::time::Duration,
 ) -> Result<Vec<u8>, String> {
     use std::io::{Read as _, Write as _};
-    use std::net::TcpStream;
     use std::time::Duration;
 
     let addr = format!("{host}:{port}");
-    let mut stream = TcpStream::connect(&addr)
+    let mut stream = connect_within(host, port, IPC_CONNECT_TIMEOUT)
         .map_err(|e| format!("Could not connect to IPC server at {addr}: {e}"))?;
     stream.set_read_timeout(Some(read_timeout)).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();

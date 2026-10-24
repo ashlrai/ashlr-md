@@ -121,6 +121,30 @@ describe("classifyHref — link classification", () => {
   it("classifies absolute .md paths as internal", () => {
     expect(classifyHref("/vault/subdir/note.md")).toBe("internal");
   });
+
+  it("classifies every link a click opens as internal", () => {
+    for (const href of [
+      "notes/plan.md#Goals",
+      "notes/Plan",
+      "Plan.MD",
+      "notes/x.markdown",
+      "../up.md?raw=1",
+    ]) {
+      expect(classifyHref(href), href).toBe("internal");
+    }
+  });
+
+  it("classifies links a click does not open as none", () => {
+    for (const href of [
+      "notes/pic.png",
+      ".secret/x.md",
+      "irc://x",
+      "tel:123",
+      "?q=1",
+    ]) {
+      expect(classifyHref(href), href).toBe("none");
+    }
+  });
 });
 
 // ===========================================================================

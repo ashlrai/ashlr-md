@@ -7194,6 +7194,78 @@ fn a_path_that_resolves_to_a_non_utf8_name_is_refused_saying_so() {
     assert!(ipc.calls.lock().unwrap().is_empty());
 }
 
+/// The disk vault walk passed each path on lossily, so a Markdown file in a
+/// folder whose name is not UTF-8 (or a symlink to one) named no file and was
+/// dropped without a word: a search said nothing of it. Such files are now
+/// listed in `non_utf8` and named in the search's note, and a `vault` that is
+/// itself such a folder is refused, saying why. (Linux: macOS refuses such
+/// names.)
+#[cfg(target_os = "linux")]
+#[test]
+fn the_disk_vault_walk_reports_markdown_files_with_non_utf8_paths() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
+    let bad = dir.path().join(std::ffi::OsStr::from_bytes(b"bad\xffdir"));
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::write(bad.join("x.md"), "the target topic\n").unwrap();
+    std::fs::write(bad.join("notes.txt"), "the target topic\n").unwrap();
+    std::fs::write(
+        dir.path().join(std::ffi::OsStr::from_bytes(b"caf\xe9.md")),
+        "the target topic\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(bad.join("x.md"), dir.path().join("link.md")).unwrap();
+
+    let scan = mdopener_mcp::disk_vault_scan(dir.path());
+    let canon = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(
+        scan.paths,
+        vec![canon.join("a.md").to_string_lossy().into_owned()]
+    );
+    let lossy = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+    let mut want = vec![
+        lossy(bad.join("x.md")),
+        lossy(dir.path().join(std::ffi::OsStr::from_bytes(b"caf\xe9.md"))),
+        lossy(dir.path().join("link.md")),
+    ];
+    want.sort();
+    assert_eq!(scan.non_utf8, want, "{scan:?}");
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args =
+        json!({ "query": "target", "semantic": false, "vault": dir.path().to_str().unwrap() });
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.contains("3 Markdown files are not searched because the path is not valid UTF-8"),
+        "{note}"
+    );
+    assert!(note.contains(&format!("'{}'", want[0])), "{note}");
+    assert!(
+        note.contains("Rename the file or folder to a UTF-8 name"),
+        "{note}"
+    );
+
+    // A vault that is itself such a folder is refused, not searched empty.
+    let args = json!({ "query": "target", "semantic": false, "vault": lossy(bad.clone()) });
+    let err = tool_error_text(&tool_search_vault(id(2), &args, &ipc));
+    assert!(
+        err.contains("does not exist"),
+        "a lossy name names nothing: {err}"
+    );
+    let err = mdopener_mcp::disk_vault_dir(&lossy(dir.path().join("vlink"))).unwrap_err();
+    assert!(err.contains("does not exist"), "{err}");
+    std::os::unix::fs::symlink(&bad, dir.path().join("vlink")).unwrap();
+    let err = mdopener_mcp::disk_vault_dir(&lossy(dir.path().join("vlink"))).unwrap_err();
+    assert!(err.contains("not valid UTF-8"), "{err}");
+}
+
 #[test]
 fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
     let (_dir, env, host, notes, link) = secret_fixture();
@@ -14938,4 +15010,59 @@ fn edit_canvas_is_listed_as_destructive() {
     let ann = def.annotations.as_ref().expect("annotations");
     assert_eq!(ann["destructiveHint"].as_bool(), Some(true));
     assert_eq!(ann["readOnlyHint"].as_bool(), Some(false));
+}
+
+/// The IPC connection had no connect timeout: a port whose listener takes no
+/// more connections (its accept queue full, as a stopped or wedged app's is)
+/// held the call for the system's own connect timeout, a minute or more. It
+/// now gives up after `IPC_CONNECT_TIMEOUT` (500 ms, as mdopen does) and says
+/// it could not connect.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_ipc_connection_gives_up_after_the_connect_timeout() {
+    use std::time::{Duration, Instant};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    // Fill the accept queue (never accepted) until a connection hangs.
+    let mut held = Vec::new();
+    let mut full = false;
+    for _ in 0..4096 {
+        match std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+            Ok(s) => held.push(s),
+            Err(_) => {
+                full = true;
+                break;
+            }
+        }
+    }
+    assert!(full, "the accept queue never filled");
+    assert_eq!(
+        mdopener_mcp::IPC_CONNECT_TIMEOUT,
+        Duration::from_millis(500)
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    let start = Instant::now();
+    std::thread::spawn(move || {
+        let got = mdopener_mcp::tcp_roundtrip_within(
+            "127.0.0.1",
+            addr.port(),
+            b"GET / HTTP/1.0\r\n\r\n",
+            Duration::from_secs(5),
+        );
+        let _ = tx.send(got);
+    });
+    let got = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the connection did not give up within 5 s");
+    let err = got.unwrap_err();
+    assert!(
+        err.starts_with(&format!("Could not connect to IPC server at {addr}: ")),
+        "{err}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    drop(held);
 }

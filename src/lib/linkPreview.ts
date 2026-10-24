@@ -21,7 +21,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { resolveLinkTarget } from "./docLinks";
+import { linkTarget, resolveLinkTarget } from "./docLinks";
 import { atxHeadings, markdownLines } from "./outline";
 import { splitFragment } from "./transclude";
 
@@ -113,12 +113,17 @@ export function extractPreviewSnippet(content: string): string {
 export function classifyHref(href: string): LinkKind {
   if (!href) return "none";
   if (/^https?:\/\//i.test(href)) return "external";
-  // Anchor-only links, mailto:, javascript:, data:, etc.
-  if (/^(#|mailto:|javascript:|data:)/i.test(href)) return "none";
-  // Path to a .md file, or a bare wikilink target passed as href.
-  if (href.endsWith(".md") || /^[^/\\:*?"<>|]+$/.test(href)) return "internal";
-  return "none";
+  // Internal exactly when a click opens a document from it (linkTarget, here
+  // from a stand-in document, as only the kind matters): a Markdown path or
+  // a bare note name. The test of its own missed links a click follows, so
+  // `notes/plan.md#Goals`, `notes/Plan`, `Plan.MD` and `x.markdown` showed
+  // no preview.
+  const target = linkTarget(href, CLASSIFY_FROM);
+  return target.kind === "document" || target.kind === "note" ? "internal" : "none";
 }
+
+/** The stand-in document {@link classifyHref} reads a relative link from. */
+const CLASSIFY_FROM = "/classify/doc.md";
 
 /**
  * Extract the hostname from an http(s) URL for the external stub message.

@@ -13,7 +13,12 @@ vi.mock("@tauri-apps/api/event", () => ({
 import { Renderer } from "../components/viewer/Renderer";
 import { useDocumentStore } from "../store/documentStore";
 import { useToastStore } from "../store/toastStore";
-import { imageSource, linkTarget, resolveFromDocument } from "./docLinks";
+import {
+  anchorElement,
+  imageSource,
+  linkTarget,
+  resolveFromDocument,
+} from "./docLinks";
 import { invalidateWikilinkCache } from "./wikilink";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -86,6 +91,43 @@ describe("linkTarget", () => {
     expect(linkTarget("report.pdf", doc).kind).toBe("blocked");
     expect(linkTarget("", doc).kind).toBe("blocked");
     expect(linkTarget("other.md", null).kind).toBe("blocked");
+  });
+});
+
+describe("anchorElement", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  /** A document whose embedded note, shown first, has a heading it shares. */
+  function page() {
+    document.body.innerHTML =
+      '<main class="app-content"><div class="markdown-body" id="doc">' +
+      '<div class="wikiembed"><div class="markdown-body" id="embed">' +
+      '<h2 id="setup">Setup</h2></div></div>' +
+      '<h2 id="setup">Setup</h2><p id="own">x</p></div></main>';
+    const doc = document.getElementById("doc") as HTMLElement;
+    const embed = document.getElementById("embed") as HTMLElement;
+    return { doc, embed, own: doc.lastElementChild?.previousElementSibling };
+  }
+
+  it("takes the document's own heading over an embedded note's with that id", () => {
+    const { doc, own } = page();
+    expect(anchorElement("setup", doc)).toBe(own);
+    expect(anchorElement("Setup", doc)).toBe(own);
+    // From the whole page too (a link opened from another document).
+    expect(anchorElement("setup")).toBe(own);
+  });
+
+  it("takes the embed's heading for a link inside that embed", () => {
+    const { embed } = page();
+    expect(anchorElement("setup", embed)).toBe(embed.firstElementChild);
+  });
+
+  it("still finds a heading that only an embed has", () => {
+    const { doc, embed } = page();
+    doc.lastElementChild?.previousElementSibling?.remove();
+    expect(anchorElement("setup", doc)).toBe(embed.firstElementChild);
   });
 });
 
@@ -188,7 +230,9 @@ describe("the read view follows links and shows local images", () => {
       "[Other](other%20note.md#Intro) [Top](#My%20Heading) [Slug](#my-heading) [Web](https://x.org) [App](irc://x)\n\n# My Heading\n",
     );
     expect(click("Other")).toBe(true);
-    expect(openPath).toHaveBeenCalledWith("/v/other note.md");
+    expect(openPath).toHaveBeenCalledWith("/v/other note.md", {
+      keepViewOnError: true,
+    });
     // A fragment is the heading's text or its slug.
     expect(click("Top")).toBe(true);
     click("Slug");
@@ -224,7 +268,9 @@ describe("the read view follows links and shows local images", () => {
       target: "Plan",
       vaultRoot: null,
     });
-    expect(openPath).toHaveBeenCalledWith("/v/notes/Plan.md");
+    expect(openPath).toHaveBeenCalledWith("/v/notes/Plan.md", {
+      keepViewOnError: true,
+    });
     expect(click("Gone")).toBe(true);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));
@@ -236,6 +282,23 @@ describe("the read view follows links and shows local images", () => {
         .toasts.map((t) => t.message)
         .join(),
     ).toMatch(/No note named “Gone”/);
+  });
+
+  it("scrolls to a heading of this document from [[#Heading]]", async () => {
+    await render("Go to [[#My Heading]] or [[#Nowhere]].\n\n# My Heading\n");
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>("button.wikilink")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["My Heading", "Nowhere"]);
+    act(() => buttons[0].click());
+    expect(scrolled).toEqual(["my-heading"]);
+    act(() => buttons[1].click());
+    expect(scrolled).toEqual(["my-heading"]);
+    expect(
+      useToastStore
+        .getState()
+        .toasts.map((t) => t.message)
+        .join(),
+    ).toMatch(/No heading or block “Nowhere”/);
+    expect(openPath).not.toHaveBeenCalled();
   });
 
   it("shows a relative image through Rust, and says when one is missing", async () => {
