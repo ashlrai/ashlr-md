@@ -127,6 +127,11 @@ interface ActivityState {
   loadFiles: () => Promise<void>;
   /** Apply a live event: upsert to top, mark unseen when the drawer is closed. */
   applyEvent: (ev: ActivityEvent) => void;
+  /**
+   * Drop `path` from the list: a file found gone when opened (the watcher
+   * reports no deletions, so it stayed listed).
+   */
+  removeFile: (path: string) => void;
   /** Clear the unseen badge (drawer viewed). */
   markAllSeen: () => void;
   /** Stop watching: clear folder, files, and unseen. */
@@ -244,6 +249,12 @@ export const useActivityStore = create<ActivityState>()(
           scheduleEmbedIndex(ev.path);
         }
       },
+
+      removeFile: (path) =>
+        set((s) => ({
+          files: s.files.filter((f) => f.path !== path),
+          unseen: s.unseen.filter((p) => p !== path),
+        })),
 
       markAllSeen: () => set({ unseen: [] }),
 

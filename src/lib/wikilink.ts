@@ -6,12 +6,16 @@
  * back to the current document's directory. Results are memoized per
  * (vaultRoot, baseDir, target) so hover/render don't spam IPC.
  *
- * A RESOLVED path is cached for the session (it won't spontaneously break). A
+ * A RESOLVED path is cached until a file changes, appears or is renamed on
+ * disk ({@link watchWikilinkChanges}): it was cached for the session, so a
+ * link to a note deleted or renamed since still showed as a working link. A
  * BROKEN (null) result is cached only briefly, so creating the missing note then
  * re-rendering picks it up instead of showing "broken" forever.
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useSyncExternalStore } from "react";
 import { useDocumentStore } from "../store/documentStore";
 import { effectiveVaultRoot } from "./vault";
 
@@ -24,9 +28,57 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
-/** Drop every cached resolution — call after bulk vault changes if needed. */
+/** Bumped when the cache is dropped, so rendered links resolve again. */
+let version = 0;
+const listeners = new Set<() => void>();
+
+/** Drop every cached resolution, and have rendered links resolve again. */
 export function invalidateWikilinkCache(): void {
   cache.clear();
+  version++;
+  for (const l of listeners) l();
+}
+
+/**
+ * A number that changes whenever the cache is dropped: a link that keys
+ * its resolution on it shows a note deleted or renamed since as broken.
+ */
+export function useWikilinkCacheVersion(): number {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => version,
+  );
+}
+
+/** How long a burst of file events is gathered before links resolve again. */
+const CHANGE_SETTLE_MS = 250;
+
+/**
+ * Drop the cache when a file changes, appears or is renamed on disk: the
+ * open file's watcher (`file-changed`, also sent when it is deleted, and
+ * `file-renamed`) and the watched folder's (`activity://file`, a note
+ * created or renamed into it). A burst of events drops it once. Returns a
+ * function that stops listening.
+ */
+export async function watchWikilinkChanges(): Promise<() => void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const changed = () => {
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      invalidateWikilinkCache();
+    }, CHANGE_SETTLE_MS);
+  };
+  const stops = await Promise.all(
+    ["file-changed", "file-renamed", "activity://file"].map((e) => listen(e, changed)),
+  );
+  return () => {
+    if (timer !== null) clearTimeout(timer);
+    for (const stop of stops) stop();
+  };
 }
 
 function baseDirOf(path: string | null): string | null {

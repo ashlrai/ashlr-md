@@ -38,6 +38,7 @@ import {
 } from "../../lib/docLinks";
 import { smoothScrollBehavior } from "../../lib/motion";
 import type { OtOperation } from "../../lib/ot";
+import { rehypeSourceLines } from "../../lib/rehype-source-lines";
 import { rehypeTaskLines } from "../../lib/rehype-task-lines";
 import { remarkBlockIds } from "../../lib/remark-block-ids";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
@@ -339,6 +340,8 @@ interface HeadingProps {
   node?: { properties?: { id?: string } };
   children?: ReactNode;
   id?: string;
+  /** The line the heading is on (rehype-source-lines), for a search hit. */
+  "data-source-line"?: number;
 }
 
 /** Render h1–h6 with a hover-revealed copy-anchor button keyed off the slug id. */
@@ -346,7 +349,7 @@ function heading(level: number, props: HeadingProps) {
   const id = props.id ?? props.node?.properties?.id;
   return createElement(
     `h${level}`,
-    { id },
+    { id, "data-source-line": props["data-source-line"] },
     props.children,
     id ? <HeadingAnchor key="anchor" slug={id} /> : null,
   );
@@ -634,11 +637,13 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
           // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
           // (its trusted styled output bypasses the sanitizer), then headings get
           // slug ids. See SANITIZE_SCHEMA for the rationale. Task checkboxes
-          // get their source line after the sanitizer, so raw HTML cannot set it.
+          // get their source line after the sanitizer, so raw HTML cannot set it,
+          // and so do the top-level blocks (a search hit scrolls to its line).
           rehypePlugins={[
             rehypeRaw,
             [rehypeSanitize, SANITIZE_SCHEMA],
             rehypeTaskLines,
+            rehypeSourceLines,
             rehypeKatex,
             rehypeSlug,
           ]}

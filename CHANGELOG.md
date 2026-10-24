@@ -128,6 +128,60 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Switching tabs keeps your place in the read view.** Every switch scrolled
+  the read view to the top, so going back to a long document lost where it
+  was being read. A tab switched back to now returns to where it was; a newly
+  opened document still starts at the top.
+- **Opening a recent, search hit or related note that is gone keeps the
+  document in view.** A file deleted or moved since the command palette's
+  recents, the file search or the AI sidebar's related notes listed it put
+  "Could not read …" in place of the open document, and with one tab open
+  (no tab bar) the document could not be got back without opening another
+  file. The document now stays and a toast says why.
+- **An Agent Activity entry whose file is gone keeps the document in view.**
+  The folder watcher reports no deletions, so a file deleted or moved since it
+  was listed stayed in the drawer, and clicking it replaced the open document
+  with "Could not read …". The document now stays, a toast says why, and the
+  entry leaves the list.
+- **The read view shows a document's changes after Find was used.** Find put
+  its highlights in place of the text React had rendered, and clearing them
+  put new text in its place again. A later change to that text (an agent's
+  edit, a reload from disk) went to a node no longer in the page, so the read
+  view kept the old words, and removing such a line threw. Find now puts
+  React's own text back, and clears its highlights before a change renders.
+- **A wikilink to a note deleted or renamed since shows as broken.** A
+  resolved link was cached for the whole session, so it kept looking like a
+  working link and a click failed. A file change, rename or new note seen by
+  the open file's or the watched folder's watcher now drops the cache, and the
+  links on screen resolve again. A note deleted elsewhere in the vault, which
+  no watcher reports, is still seen only when the link is clicked.
+- **A canvas card whose file is gone keeps the canvas in view.** Clicking the
+  title of a file card whose file was deleted or moved since the card found
+  it replaced the canvas with "Could not read …". The canvas now stays, and a
+  toast says why, as for a link in a note.
+- **A Markdown link to a note with a dot in its name opens it.**
+  `[x](v1.2%20plan)` or `[x](2024.01.05)` was taken to name a file with the
+  extension `2 plan` or `05`, so it was refused as not a Markdown document.
+  As for wikilinks, only an extension a link may resolve to (a note, image,
+  canvas, PDF or text file) now makes the name a file name; the rest is
+  looked up as a note.
+- **Find in the read view finds text in inline code.** Find skipped every
+  `code` element, so an identifier written as `` `parseConfig()` `` could not
+  be found. Inline code is searched now; code blocks are still skipped. A match
+  must still lie within one element (`foo` and `` `bar` `` do not match
+  "foo bar").
+- **A file search that fails says so.** Any error from the search was shown as
+  "0 matches in 0 files", so a failed search looked like a word that is in no
+  file. The panel now shows "Couldn’t search the files" and the reason. The AI
+  library context still treats a failed search as no excerpts.
+- **A search hit opens its file at the hit's line.** Clicking a match in the
+  file search ("Line 7") opened the file at its top. Read view now scrolls to
+  the block holding that line, and Source view puts the cursor on it. Edit
+  view still opens at the top.
+- **A big cross-file search no longer freezes the window.** `search_files` was
+  a sync command, which Tauri runs on the main thread, so typing, scrolling and
+  the spinner stopped until a search over a large folder finished. It now runs
+  on a background thread.
 - **A wikilink to a note with a dot in its name resolves.** `[[v1.2 plan]]`
   or `[[2024.01.05]]` was taken to name a file with the extension `2 plan`
   or `05`, so it was looked up as a file of that full name and showed as a

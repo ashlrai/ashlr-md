@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMMAND_GROUPS, type Command, getCommands } from "../lib/commands";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../lib/keymap";
+import { openKeepingView } from "../lib/openKeepingView";
 import { useFocusTrap } from "../lib/useFocusTrap";
-import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useUiStore } from "../store/uiStore";
 
@@ -108,7 +108,6 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
 
   // Subscribe so the list re-derives if recents change while open.
   const recents = useRecentStore((s) => s.recents);
-  const openPath = useDocumentStore((s) => s.openPath);
 
   // Build the available, filtered, grouped rows.
   const rows = useMemo<PaletteRow[]>(() => {
@@ -123,7 +122,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         hint: r.path,
         group: RECENTS_GROUP,
         run: async () => {
-          await openPath(r.path);
+          await openKeepingView(r.path);
         },
       }));
       const commandRows = available.map(commandToRow).sort(byGroupOrder);
@@ -146,7 +145,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             hint: r.path,
             group: RECENTS_GROUP,
             run: async () => {
-              await openPath(r.path);
+              await openKeepingView(r.path);
             },
           },
           score: score + 1, // gentle nudge so a matching recent ranks well
@@ -155,7 +154,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.map((s) => s.row);
-  }, [query, recents, openPath]);
+  }, [query, recents]);
 
   // Keep the active index in bounds when the result set changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every query change

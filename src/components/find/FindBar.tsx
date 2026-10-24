@@ -33,6 +33,17 @@ export function FindBar() {
     };
   }, []);
 
+  // Clear the marks as soon as the document changes, before React renders
+  // the change: a text node a mark replaced is not in the page, so React's
+  // update to it was lost (the old text stayed) or its removal threw.
+  useEffect(
+    () =>
+      useDocumentStore.subscribe((s, prev) => {
+        if (s.content !== prev.content) clearHighlights();
+      }),
+    [],
+  );
+
   // Re-highlight on query or document change; clear on unmount.
   useEffect(() => {
     const n = highlight(query);

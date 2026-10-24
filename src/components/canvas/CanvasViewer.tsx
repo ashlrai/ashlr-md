@@ -28,9 +28,11 @@ import {
   resolveCanvasColor,
   type ViewTransform,
 } from "../../lib/canvas";
+import { linkOpenError } from "../../lib/docLinks";
 import { extractSection, isImageTarget } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
+import { toast } from "../../store/toastStore";
 import { Renderer } from "../viewer/Renderer";
 import "../../styles/canvas.css";
 
@@ -413,7 +415,16 @@ function CanvasFileNodeView({
           <button
             type="button"
             className="canvas-node__open"
-            onClick={() => useDocumentStore.getState().openPath(absPath)}
+            // A file deleted or moved since the card resolved it is said in
+            // a toast; the canvas stays in view. It was replaced by the error.
+            onClick={() => {
+              void useDocumentStore
+                .getState()
+                .openPath(absPath, { keepViewOnError: true })
+                .then((error) => {
+                  if (error !== null) toast.error(linkOpenError(absPath, error));
+                });
+            }}
             title={`Open ${fileName}`}
           >
             {fileName}

@@ -46,12 +46,31 @@ const SNIPPET_RADIUS: usize = 48;
 /// 16 MiB ([`MAX_DOCUMENT_BYTES`]): a FIFO in the list blocked the search
 /// forever, and a huge file was read whole into memory. `limit` caps the
 /// number of files returned (default 200).
+///
+/// An async command, run on a blocking thread: Tauri v2 runs a sync command
+/// on the main thread, so a search over a big folder froze the whole window
+/// (typing, scrolling, the spinner) until it finished.
 #[tauri::command]
-pub fn search_files(
+pub async fn search_files(
     paths: Vec<String>,
     query: String,
     limit: Option<usize>,
-) -> Vec<FileSearchResult> {
+) -> Result<Vec<FileSearchResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || search_paths(paths, query, limit))
+        .await
+        .map_err(|e| format!("search failed: {e}"))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many searches ran on this thread, so a test can tell where one ran.
+    static SEARCHES_HERE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The search behind [`search_files`], on the calling thread.
+fn search_paths(paths: Vec<String>, query: String, limit: Option<usize>) -> Vec<FileSearchResult> {
+    #[cfg(test)]
+    SEARCHES_HERE.with(|n| n.set(n.get() + 1));
     search_with(
         paths,
         query,
@@ -205,13 +224,13 @@ mod tests {
     #[test]
     fn empty_query_returns_nothing() {
         let path = temp_md("empty", "hello world");
-        assert!(search_files(vec![path], "  ".into(), None).is_empty());
+        assert!(search_paths(vec![path], "  ".into(), None).is_empty());
     }
 
     #[test]
     fn finds_case_insensitive_matches_with_line_numbers() {
         let path = temp_md("hit", "alpha\nBeta Gamma\ndelta");
-        let res = search_files(vec![path], "beta".into(), None);
+        let res = search_paths(vec![path], "beta".into(), None);
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].matches.len(), 1);
         assert_eq!(res[0].matches[0].line_no, 2);
@@ -223,7 +242,7 @@ mod tests {
     #[test]
     fn counts_lone_cr_as_a_line_break() {
         let path = temp_md("cr", "alpha\rbeta\r\ngamma beta\ndelta\rbeta");
-        let res = search_files(vec![path], "beta".into(), None);
+        let res = search_paths(vec![path], "beta".into(), None);
         let lines: Vec<_> = res[0].matches.iter().map(|m| m.line_no).collect();
         assert_eq!(lines, vec![2, 3, 5]);
         assert_eq!(res[0].matches[0].snippet, "beta");
@@ -258,7 +277,7 @@ mod tests {
         paths.push(small.to_string_lossy().into_owned());
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(search_files(paths, "needle".into(), None));
+            let _ = tx.send(search_paths(paths, "needle".into(), None));
         });
         let res = rx
             .recv_timeout(std::time::Duration::from_secs(5))
@@ -270,7 +289,7 @@ mod tests {
 
     #[test]
     fn skips_missing_files() {
-        let res = search_files(vec!["/no/such/file.md".into()], "x".into(), None);
+        let res = search_paths(vec!["/no/such/file.md".into()], "x".into(), None);
         assert!(res.is_empty());
     }
 
@@ -292,8 +311,25 @@ mod tests {
     fn snippet_elides_long_lines() {
         let long = format!("{}NEEDLE{}", "a".repeat(100), "b".repeat(100));
         let path = temp_md("long", &long);
-        let res = search_files(vec![path], "needle".into(), None);
+        let res = search_paths(vec![path], "needle".into(), None);
         assert!(res[0].matches[0].snippet.starts_with('…'));
         assert!(res[0].matches[0].snippet.ends_with('…'));
+    }
+
+    /// `search_files` was a sync command, which Tauri v2 runs on the main
+    /// thread, so a big search froze the window. The search now runs on a
+    /// blocking thread, and the thread that awaits the command never runs it.
+    #[test]
+    fn search_files_runs_off_the_calling_thread() {
+        let path = temp_md("async", "one\ntwo needle\n");
+        let res = tauri::async_runtime::block_on(search_files(vec![path], "needle".into(), None))
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].matches[0].line_no, 2);
+        assert_eq!(
+            SEARCHES_HERE.with(|n| n.get()),
+            0,
+            "the search ran on the calling thread"
+        );
     }
 }

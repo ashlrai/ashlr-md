@@ -16,6 +16,7 @@ import {
   startKeepingBuffers,
 } from "./lib/unsavedBuffers";
 import { checkForUpdates } from "./lib/updater";
+import { watchWikilinkChanges } from "./lib/wikilink";
 import { useMcpBridge } from "./mcp/bridge";
 import { useActivationStore } from "./store/activationStore";
 import { useAIStore } from "./store/aiStore";
@@ -170,6 +171,21 @@ export default function App() {
       });
     })();
     return () => unlisten?.();
+  }, []);
+
+  // A file changed, appeared or was renamed on disk: links resolve again, so
+  // one to a note deleted or renamed since shows as broken.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let gone = false;
+    void watchWikilinkChanges().then((fn) => {
+      if (gone) fn();
+      else stop = fn;
+    });
+    return () => {
+      gone = true;
+      stop?.();
+    };
   }, []);
 
   // Check for updates shortly after launch (no-op in dev / offline).

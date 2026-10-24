@@ -16,7 +16,7 @@ import {
 } from "../../lib/docLinks";
 import { smoothScrollBehavior } from "../../lib/motion";
 import { splitFragment } from "../../lib/transclude";
-import { resolveWikilink } from "../../lib/wikilink";
+import { resolveWikilink, useWikilinkCacheVersion } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
 import { useDocPath } from "./docPath";
@@ -72,8 +72,12 @@ function NoteLink({ target, alias }: WikilinkProps) {
   const cancelScrollRef = useRef<(() => void) | null>(null);
   // In an embed, the embedded note's file: its links resolve from there.
   const docPath = useDocPath();
+  // Resolved again when a file changes on disk, so a note deleted or renamed
+  // since shows as broken.
+  const cacheVersion = useWikilinkCacheVersion();
 
   useEffect(() => {
+    void cacheVersion;
     let cancelled = false;
     resolveWikilink(target, docPath).then((p) => {
       if (!cancelled) setResolved(p);
@@ -82,7 +86,7 @@ function NoteLink({ target, alias }: WikilinkProps) {
       cancelled = true;
       cancelScrollRef.current?.();
     };
-  }, [target, docPath]);
+  }, [target, docPath, cacheVersion]);
 
   const broken = resolved === null;
   const label = alias ?? target;

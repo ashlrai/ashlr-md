@@ -75,6 +75,24 @@ describe("linkTarget", () => {
     expect(linkTarget(".env", doc).kind).toBe("blocked");
   });
 
+  /** A dot in a note's name made it a file name, so the link was refused. */
+  it("reads a note name that holds a dot as a note to look up", () => {
+    expect(linkTarget("v1.2%20plan", doc)).toEqual({
+      kind: "note",
+      name: "v1.2 plan",
+      fragment: null,
+    });
+    expect(linkTarget("daily/2024.01.05#Morning", doc)).toEqual({
+      kind: "note",
+      name: "daily/2024.01.05",
+      fragment: "Morning",
+    });
+    // A real extension still names the file itself.
+    expect(linkTarget("v1.2%20plan.md", doc)).toMatchObject({ kind: "document" });
+    expect(linkTarget("pic.PNG", doc).kind).toBe("blocked");
+    expect(linkTarget("notes.txt", doc).kind).toBe("blocked");
+  });
+
   it("refuses other schemes, other files and hidden folders", () => {
     for (const h of [
       "obsidian://open?vault=x",

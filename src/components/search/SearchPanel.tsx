@@ -8,11 +8,12 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type FileSearchResult, searchFiles } from "../../lib/crossSearch";
+import { type FileSearchResult, searchFilesOrThrow } from "../../lib/crossSearch";
 import { isDismissEscape } from "../../lib/keymap";
+import { openKeepingView } from "../../lib/openKeepingView";
+import { revealLine } from "../../lib/revealLine";
 import { useReturnFocus } from "../../lib/useReturnFocus";
 import { useActivityStore } from "../../store/activityStore";
-import { useDocumentStore } from "../../store/documentStore";
 import { useRecentStore } from "../../store/recentStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/search.css";
@@ -22,11 +23,12 @@ export function SearchPanel() {
   const close = useUiStore((s) => s.closeSearch);
   const recents = useRecentStore((s) => s.recents);
   const activityFiles = useActivityStore((s) => s.files);
-  const openPath = useDocumentStore((s) => s.openPath);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Why the last search failed; it used to read as "0 matches". */
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
@@ -54,6 +56,7 @@ export function SearchPanel() {
     if (!q) {
       setResults([]);
       setBusy(false);
+      setError(null);
       return;
     }
     setBusy(true);
@@ -61,11 +64,20 @@ export function SearchPanel() {
     // for an earlier query used to replace the newer query's results.
     let current = true;
     const handle = window.setTimeout(() => {
-      searchFiles(paths, q).then((r) => {
-        if (!current) return;
-        setResults(r);
-        setBusy(false);
-      });
+      searchFilesOrThrow(paths, q).then(
+        (r) => {
+          if (!current) return;
+          setResults(r);
+          setError(null);
+          setBusy(false);
+        },
+        (e: unknown) => {
+          if (!current) return;
+          setResults([]);
+          setError(e instanceof Error ? e.message : String(e));
+          setBusy(false);
+        },
+      );
     }, 180);
     return () => {
       current = false;
@@ -113,12 +125,17 @@ export function SearchPanel() {
       </div>
 
       {query.trim() && (
-        <div className="search-panel__summary">
+        <div
+          className="search-panel__summary"
+          role={error && !busy ? "alert" : undefined}
+        >
           {busy
             ? "Searching…"
-            : `${total} match${total === 1 ? "" : "es"} in ${results.length} file${
-                results.length === 1 ? "" : "s"
-              }`}
+            : error
+              ? `Couldn’t search the files: ${error}`
+              : `${total} match${total === 1 ? "" : "es"} in ${results.length} file${
+                  results.length === 1 ? "" : "s"
+                }`}
         </div>
       )}
 
@@ -134,7 +151,10 @@ export function SearchPanel() {
                 type="button"
                 className="search-match"
                 onClick={() => {
-                  openPath(file.path);
+                  // Open the file at the line the hit names, not at its top.
+                  void openKeepingView(file.path).then((err) => {
+                    if (err === null) revealLine(m.lineNo);
+                  });
                   close();
                 }}
                 title={`Line ${m.lineNo}`}
