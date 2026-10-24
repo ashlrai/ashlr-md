@@ -271,4 +271,22 @@ describe("settingsStore — loading a damaged, partial or newer settings file", 
     expect(s.theme).toBe("paper");
     expect(s.loadRemoteImages).toBe(true);
   });
+
+  it("keeps a newer version's version number when it saves", async () => {
+    // Written back as 8, the newer app re-ran its migrations on the next run.
+    const s = await load(
+      JSON.stringify({ state: { theme: "sepia", fromTheFuture: 1 }, version: 12 }),
+    );
+    s.setFontSize(19);
+    const stored = getStoredState<Record<string, unknown>>("mdopener-settings");
+    expect(stored?.version).toBe(12);
+    expect(stored?.state.fromTheFuture).toBe(1);
+    expect(stored?.state.fontSize).toBe(19);
+  });
+
+  it("writes its own version over an older file's", async () => {
+    const s = await load(JSON.stringify({ state: { theme: "sepia" }, version: 7 }));
+    s.setFontSize(18);
+    expect(getStoredState("mdopener-settings")?.version).toBe(8);
+  });
 });

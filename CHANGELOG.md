@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Settings from a newer version keep their version.** Settings written by
+  a newer Ashlr MD were saved back as version 8 by this one, so the newer
+  app, run again, re-ran its migrations over them. The higher version is now
+  kept (with the keys this version does not know, as before).
 - **Unsaved text survives a crash or forced quit.** The text of every tab
   with unsaved edits is now kept in the app's local storage half a second
   after the last change, and put back in its tab (still unsaved) on the next

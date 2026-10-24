@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { type PersistStorage, persist, type StorageValue } from "zustand/middleware";
 import type { ExportProfileId, ExportTemplate } from "../lib/exportTemplates";
 import { ALL_PROFILE_IDS, NO_TEMPLATE_ID, newTemplateId } from "../lib/exportTemplates";
 import type { LintRuleConfig } from "../lib/mdlint";
@@ -301,6 +301,60 @@ export function mergePersistedSettings(
   return out as unknown as SettingsState;
 }
 
+/** The localStorage key of the settings, and the version this app writes. */
+export const SETTINGS_KEY = "mdopener-settings";
+export const SETTINGS_VERSION = 8;
+
+/** The version of the settings as last read (0: none, or not readable). */
+let fileVersion = 0;
+
+function settingsLocalStorage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The settings' storage (`persist`'s): JSON in localStorage, as before,
+ * except that a file a newer version wrote keeps its higher version when this one
+ * saves it (its unknown keys are kept by {@link mergePersistedSettings}):
+ * it used to be written back as version 8, so the newer app, run again,
+ * re-ran its migrations over settings already migrated.
+ */
+export const settingsStorage: PersistStorage<SettingsState> = {
+  getItem: (name) => {
+    fileVersion = 0;
+    const ls = settingsLocalStorage();
+    const raw = ls?.getItem(name) ?? null;
+    if (ls == null || raw === null) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!isRecord(parsed)) return null;
+    const v = parsed.version;
+    if (typeof v === "number" && Number.isFinite(v)) fileVersion = v;
+    return parsed as unknown as StorageValue<SettingsState>;
+  },
+  setItem: (name, value) => {
+    const ls = settingsLocalStorage();
+    if (!ls) return;
+    const version = Math.max(value.version ?? 0, fileVersion);
+    try {
+      ls.setItem(name, JSON.stringify({ ...value, version }));
+    } catch {
+      // Storage full or unavailable: the settings still apply this run.
+    }
+  },
+  removeItem: (name) => {
+    settingsLocalStorage()?.removeItem(name);
+  },
+};
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -423,8 +477,9 @@ export const useSettingsStore = create<SettingsState>()(
         })),
     }),
     {
-      name: "mdopener-settings",
-      version: 8,
+      name: SETTINGS_KEY,
+      version: SETTINGS_VERSION,
+      storage: settingsStorage,
       merge: mergePersistedSettings,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
