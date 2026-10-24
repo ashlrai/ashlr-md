@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The status bar's word count reads code and containers as the page does.**
+  A fence was any line starting with three backticks or tildes, at any
+  indentation, closed by any later one of the same character, so a ```` ```` ````
+  block holding a ```` ``` ```` line ended early and its code was counted, and a
+  quoted fence (`> ````) was counted as text. List and blockquote markers, a
+  heading's `#`s, setext underlines and thematic breaks counted as words. The
+  count now reads lines by the rule of the Outline and the task checkboxes.
 - **Runbook prerequisites and steps follow the page's list rule.** Plain
   prerequisites (`- x`, `1. x`) and ordered steps were matched on raw lines, so
   a `- x` or `1. x` line in fenced or indented code was one, `-x` (no list item)
