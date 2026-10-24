@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Two quick changes on disk end on the newer text.** Each change the file
+  watcher reports is read again, and the reads run side by side, so for two
+  quick saves in another app the first read could answer last: the window
+  showed the older text and took it as the file's, so its next save was
+  refused as a conflict. Only the last read's answer is used now.
 - **Reordering images by dragging survives the next keystroke.** Dragging an
   image onto another in the WYSIWYG view reordered them in the Markdown but
   not in the editor, so the next thing typed put the old order back. The

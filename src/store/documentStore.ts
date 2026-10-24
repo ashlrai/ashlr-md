@@ -368,19 +368,37 @@ function recheckDisk(
   id: string,
   path: string,
 ) {
+  const read = nextDiskRead();
   invoke<MarkdownFile>("read_markdown_file", { path })
     .then((file) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path) {
+      if (read === diskReads && cur.activeId === id && cur.path === path) {
         cur.handleDiskUpdate(file.content, file.version ?? null);
       }
     })
     .catch((e) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path && isMissingFileError(e)) {
+      if (
+        read === diskReads &&
+        cur.activeId === id &&
+        cur.path === path &&
+        isMissingFileError(e)
+      ) {
         markMissing(get, set, path);
       }
     });
+}
+
+/**
+ * Reads of the active file after a change on disk, counted: only the last
+ * one's answer is used. Reads run side by side, so for two quick changes
+ * (a save in another app, then another) the first read could answer last,
+ * and the window showed, and took as its baseline, the older text.
+ */
+let diskReads = 0;
+function nextDiskRead(): number {
+  diskReads += 1;
+  return diskReads;
 }
 
 type SetState = (partial: Partial<DocumentState>) => void;
@@ -930,11 +948,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   refreshFromDisk: async (path) => {
     if (get().path !== path) return;
+    const read = nextDiskRead();
     try {
       const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      // A later read answers for a later change (see nextDiskRead).
+      if (read !== diskReads) return;
       if (get().path === path)
         get().handleDiskUpdate(file.content, file.version ?? null);
     } catch (e) {
+      if (read !== diskReads) return;
       // Deleted, or moved away: say so. Any other failure may be a write in
       // progress, which the next event settles.
       if (isMissingFileError(e)) markMissing(get, set, path);
