@@ -417,6 +417,18 @@ describe("rule:max-heading-depth", () => {
 // ─── 3f. Rule: wikilink-targets-exist ────────────────────────────────────────
 
 describe("rule:wikilink-targets-exist", () => {
+  it("reads `[[note\\|alias]]` (a table cell's link) as a link to `note`", () => {
+    // The page shows the link to `note` with the alias; the backslash was
+    // read as part of the target, so a link that resolves was reported.
+    const doc =
+      "| a | b |\n|---|---|\n| [[note\\|alias]] | [[n#h\\|x]] |\n\n[[Gone\\|y]]\n";
+    const v = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(["note.md", "n.md"]),
+    });
+    expect(v.map((x) => x.message)).toEqual(['Wikilink target not found: "Gone"']);
+  });
+
   it("skips wikilinks in code spans and indented code", () => {
     // The page shows them as code, and export_metadata leaves them out;
     // they used to be reported.

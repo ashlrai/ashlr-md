@@ -655,6 +655,54 @@ describe("handlers integration — edits with save: true", () => {
     errSpy.mockRestore();
   });
 
+  it("edit: a save is of the edited tab, whichever tab is active when it lands", async () => {
+    // Two tabs; the user switches to the other while the edited file is
+    // written. The save succeeded but was read back from the now-active tab's
+    // baseline, so the agent was told it failed.
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      if (cmd === "read_markdown_file") {
+        const p = args?.path ?? "";
+        return Promise.resolve({
+          path: p,
+          file_name: p.slice(1),
+          content: p === "/a.md" ? "hello world" : "other",
+          size: 5,
+          version: `v:${p}`,
+          canonical_path: p,
+        });
+      }
+      if (cmd === "write_markdown_file") {
+        const store = useDocumentStore.getState();
+        const other = store.tabs.find((t) => t.id !== store.activeId);
+        if (other) store.switchTab(other.id);
+        return Promise.resolve("v:written");
+      }
+      return Promise.resolve(undefined);
+    });
+    useDocumentStore.setState({ path: null, tabs: [], activeId: null });
+    await useDocumentStore.getState().openPath("/b.md");
+    await useDocumentStore.getState().openPath("/a.md");
+    invokeMock.mockClear();
+    await fireEvent("mcp://edit", {
+      editId: "e1",
+      find: "hello",
+      replace: "hi",
+      save: true,
+    });
+    const write = invokeMock.mock.calls.find((c) => c[0] === "write_markdown_file");
+    expect(write?.[1]).toMatchObject({ path: "/a.md", content: "hi world" });
+    expect(reply("mcp_edit_result")).toMatchObject({
+      ok: true,
+      replaced: 1,
+      error: null,
+    });
+    const s = useDocumentStore.getState();
+    expect(s.path).toBe("/b.md");
+    const a = s.tabs.find((t) => t.path === "/a.md");
+    expect(a?.diskContent).toBe("hi world");
+    expect(a?.isDirty).toBe(false);
+  });
+
   it("stream-edit-apply: a failed save is not reported as ok", async () => {
     failWrites();
     await fireEvent("mcp://stream-edit-apply", {

@@ -14653,3 +14653,88 @@ fn a_byte_order_mark_is_no_text_of_the_first_line() {
     assert_eq!(texts("\u{FEFF}# Top\n"), ["Top"]);
     assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
 }
+
+/// `strip_inline_markdown` kept character references as written (`&amp;`
+/// read `&amp;`, not `&`) and dropped every `*` or `_` run that was not
+/// between spaces or inside a word, so an unpaired `*note` lost its star.
+/// References are decoded as CommonMark does, and emphasis markers are
+/// dropped only when they pair, by micromark's delimiter rules.
+#[test]
+fn strip_inline_decodes_references_and_keeps_unpaired_emphasis() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(strip_inline_markdown("R&amp;D &lt;b&gt;"), "R&D <b>");
+    assert_eq!(
+        strip_inline_markdown("&#123;x&#125; &#x1F600;"),
+        "{x} \u{1F600}"
+    );
+    assert_eq!(strip_inline_markdown("&#0; &#xD800;"), "\u{FFFD} \u{FFFD}");
+    assert_eq!(
+        strip_inline_markdown("&copy; &nosuch; &amp"),
+        "© &nosuch; &amp"
+    );
+    // A reference is no markup, and an escaped `&` is no reference.
+    assert_eq!(strip_inline_markdown("&#42;a&#42;"), "*a*");
+    assert_eq!(strip_inline_markdown("\\&amp;"), "&amp;");
+    // Code keeps references as written.
+    assert_eq!(strip_inline_markdown("`&amp;`"), "&amp;");
+    // Emphasis that pairs is dropped; markers that do not are kept.
+    assert_eq!(strip_inline_markdown("*a* and **b**"), "a and b");
+    assert_eq!(strip_inline_markdown("*note"), "*note");
+    assert_eq!(strip_inline_markdown("a* b"), "a* b");
+    assert_eq!(strip_inline_markdown("**a*"), "*a");
+    assert_eq!(strip_inline_markdown("*a**"), "a*");
+    assert_eq!(strip_inline_markdown("2 * 3 = 6"), "2 * 3 = 6");
+    assert_eq!(
+        strip_inline_markdown("snake_case and _it_"),
+        "snake_case and it"
+    );
+    assert_eq!(strip_inline_markdown("_a*"), "_a*");
+    // The rule of three: `*a**b*` is one emphasis holding `a**b`.
+    assert_eq!(strip_inline_markdown("*a**b*"), "a**b");
+}
+
+/// A line indented four columns after a table's rows is indented code, as
+/// mdast reads it, not a row: `strip_markdown` read the rows trimmed, so
+/// `    | c | d |` became the cells `c` and `d`, and `    [[x]]` read `x`.
+/// The app's `maskInlineCode` masks those lines whole, and the link and
+/// image counts drop them; a header or delimiter row indented that far
+/// starts no table.
+#[test]
+fn a_line_indented_four_columns_after_a_table_is_code_not_a_row() {
+    use mdopener_mcp::{count_embedded_images, strip_markdown};
+    assert_eq!(
+        strip_markdown("| a | b |\n| - | - |\n    | c | d |\n"),
+        "a\tb\n| c | d |"
+    );
+    assert_eq!(
+        strip_markdown("| a |\n| - |\n\t[[x]] `y`\n"),
+        "a\n[[x]] `y`"
+    );
+    // Three spaces is still a row; the code ends at a line that is not.
+    assert_eq!(strip_markdown("| a |\n| - |\n   | c |\n"), "a\nc");
+    assert_eq!(
+        strip_markdown("| a |\n| - |\n    x\n    y\n| d |\n"),
+        "a\nx\ny\n| d |"
+    );
+    // In a blockquote, past its marker.
+    assert_eq!(
+        strip_markdown("> | a |\n> | - |\n>     | c |\n"),
+        "a\n| c |"
+    );
+    // An indented header row starts no table.
+    assert_eq!(
+        strip_markdown("x\n    | a | b |\n| - | - |\n"),
+        "x\n| a | b |\n| - | - |"
+    );
+    assert_eq!(count_embedded_images("| a |\n| - |\n    ![i](i.png)\n"), 0);
+}
+
+/// `[[note\|alias]]`, the form a wikilink with an alias takes in a table
+/// cell, was read as a link to `note\`; the page links `note`.
+#[test]
+fn an_escaped_alias_pipe_is_no_part_of_the_wikilink_target() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    let doc = "| a | b |\n|---|---|\n| [[note\\|alias]] | [[n#h\\|x]] |\n\n[[p\\|q]]\n";
+    assert_eq!(extract_wikilinks(doc), ["n", "note", "p"]);
+    assert_eq!(strip_markdown(doc), "a\tb\nalias\tx\n\nq");
+}

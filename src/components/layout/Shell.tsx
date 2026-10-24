@@ -21,6 +21,7 @@ import { Renderer } from "../viewer/Renderer";
 import { Welcome } from "../Welcome";
 import { Breadcrumb } from "./Breadcrumb";
 import { ExternalChangeBanner } from "./ExternalChangeBanner";
+import { MissingFileBanner } from "./MissingFileBanner";
 import { StatusBar } from "./StatusBar";
 import { TabBar } from "./TabBar";
 import { TitleBar } from "./TitleBar";
@@ -58,6 +59,7 @@ export function Shell({ dragOver }: ShellProps) {
   const zenMode = useUiStore((s) => s.zenMode);
   const reloadNonce = useDocumentStore((s) => s.reloadNonce);
   const externalChange = useDocumentStore((s) => s.externalChange);
+  const missing = useDocumentStore((s) => s.missing);
   const exportOpen = useUiStore((s) => s.exportOpen);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const findOpen = useUiStore((s) => s.findOpen);
@@ -125,6 +127,7 @@ export function Shell({ dragOver }: ShellProps) {
       {/* Renders nothing unless 2+ docs are open — single-doc layout unchanged. */}
       <TabBar />
       {externalChange && <ExternalChangeBanner />}
+      {missing && !externalChange && <MissingFileBanner />}
       <DefaultHandlerBanner />
       <ActivationBanner />
       <DigestCard />

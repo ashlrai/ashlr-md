@@ -131,6 +131,15 @@ export function domainOf(href: string): string {
   }
 }
 
+/** `s` percent-decoded, or as written when it is not valid encoding. */
+function decodeLinkPath(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -181,7 +190,10 @@ export async function resolveLinkPreview(
   // correct base directory. resolveWikilink reads `documentStore.getState().path`
   // internally; in the preview flow we rely on the store already holding the
   // current path, which is the normal runtime state.
-  const resolvedPath = await resolveWikilink(file);
+  // A Markdown link's destination is percent-encoded (`My%20Note.md`), as
+  // a click on it decodes it (docLinks.ts); it was resolved as written and
+  // so never found.
+  const resolvedPath = await resolveWikilink(decodeLinkPath(file));
   if (!resolvedPath) {
     cache.set(cacheKey, { value: null, at: Date.now() });
     return null;

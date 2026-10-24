@@ -22,6 +22,42 @@ interface MarkdownFile {
   file_name: string;
   content: string;
   size: number;
+  /** What the read saw; handed back to `write_markdown_file` as `expected`. */
+  version?: string;
+  /** `path` with links resolved: which file this is (see {@link fileKey}). */
+  canonical_path?: string;
+  /** The file's filesystem ignores case. */
+  case_insensitive?: boolean;
+  /** The file's filesystem ignores Unicode normalization (macOS). */
+  normalization_insensitive?: boolean;
+}
+
+/**
+ * What identifies the file a read named, to find its tab: the canonical path,
+ * in NFC where the filesystem ignores normalization and lower-cased where it
+ * ignores case. Tabs were matched by the path as given, so one file opened
+ * through a symbolic link, with `..`, in the other Unicode form or in other
+ * case opened twice, and each tab's save overwrote the other's. A filesystem
+ * that tells `a.md` from `A.md` (or NFC from NFD) keeps them apart.
+ */
+export function fileKey(file: MarkdownFile): string {
+  let key = file.canonical_path || file.path;
+  if (file.normalization_insensitive) key = key.normalize("NFC");
+  if (file.case_insensitive) key = key.toLowerCase();
+  return key;
+}
+
+/**
+ * Tags in a `write_markdown_file` error (src-tauri/src/document.rs): the
+ * file changed on disk since it was read, or is gone. Either way nothing
+ * was written.
+ */
+export const SAVE_CONFLICT_TAG = "[save-conflict]";
+export const SAVE_MISSING_TAG = "[save-missing]";
+
+/** The error without its tag, for a toast. */
+function untagged(error: string): string {
+  return error.replace(SAVE_CONFLICT_TAG, "").replace(SAVE_MISSING_TAG, "").trim();
 }
 
 /**
@@ -34,6 +70,8 @@ interface MarkdownFile {
  */
 export interface Tab {
   id: string;
+  /** Which file the tab holds, whatever path opened it ({@link fileKey}). */
+  key: string;
   path: string;
   fileName: string;
   content: string;
@@ -43,6 +81,20 @@ export interface Tab {
   isDirty: boolean;
   externalChange: boolean;
   pendingDisk: string | null;
+  /**
+   * The `version` of the read `diskContent` came from, sent with a save so
+   * it is refused when the file changed on disk since (null: unknown, the
+   * save is not checked).
+   */
+  diskVersion: string | null;
+  /** The `version` of `pendingDisk`. */
+  pendingVersion: string | null;
+  /**
+   * The file was deleted or moved outside the app while open. The text is
+   * kept, and a save asks before writing the file again (or the banner
+   * offers Save As).
+   */
+  missing: boolean;
   reloadNonce: number;
   /** When true, show a live read-preview pane beside the editor. */
   splitView: boolean;
@@ -69,6 +121,12 @@ interface DocumentState {
   externalChange: boolean;
   /** The on-disk content pending the user's reload/keep decision. */
   pendingDisk: string | null;
+  /** See {@link Tab.diskVersion}. */
+  diskVersion: string | null;
+  /** See {@link Tab.pendingVersion}. */
+  pendingVersion: string | null;
+  /** See {@link Tab.missing}. */
+  missing: boolean;
   /** Bumped to force editors to remount with fresh content (e.g. after reload). */
   reloadNonce: number;
   /** When true, render a live read preview beside the editor (per-document). */
@@ -150,8 +208,26 @@ interface DocumentState {
   clearOpLog: (docPath: string) => void;
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
-  save: () => Promise<void>;
-  handleDiskUpdate: (diskContent: string) => void;
+  /**
+   * Save the active document (or `opts.tabId`'s). Resolves to `null` once it is on disk, or to
+   * why it is not (also set as `error` and toasted). A file deleted or moved
+   * since it was read is written again only after the user confirms;
+   * `agent` saves never ask, and are refused instead.
+   */
+  save: (opts?: SaveOptions) => Promise<string | null>;
+  /**
+   * Save the active document under a name the user picks, which the tab
+   * then follows. Resolves like `save` (`"cancelled"` when no name was picked).
+   */
+  saveAs: () => Promise<string | null>;
+  /**
+   * Read the active document's file again after the watcher reported a
+   * change to `path`: hand its text to `handleDiskUpdate`, or flag the tab
+   * `missing` when the file is gone.
+   */
+  refreshFromDisk: (path: string) => Promise<void>;
+  /** `version` is the read's (`read_markdown_file`), when known. */
+  handleDiskUpdate: (diskContent: string, version?: string | null) => void;
   acceptExternalChange: () => void;
   dismissExternalChange: () => void;
   close: () => void;
@@ -163,8 +239,22 @@ interface DocumentState {
   prevTab: () => void;
 }
 
+export interface SaveOptions {
+  /** A save an agent asked for: never shows a dialog. */
+  agent?: boolean;
+  /**
+   * The tab to save (default: the active one). A save is of the document
+   * it was asked for, whichever tab is active by the time it is written.
+   */
+  tabId?: string;
+}
+
+/** Why an agent save of a deleted or moved file is refused. */
+export const MISSING_FILE_REASON =
+  "the file was deleted or moved outside Ashlr MD; it is written again only when the user confirms (Save, or Save As)";
+
 /** Fields a Tab and the top-level mirror share, sans `id`. */
-type TabFields = Omit<Tab, "id">;
+type TabFields = Omit<Tab, "id" | "key">;
 
 const EMPTY_TOP = {
   path: null,
@@ -176,6 +266,9 @@ const EMPTY_TOP = {
   isDirty: false,
   externalChange: false,
   pendingDisk: null,
+  diskVersion: null,
+  pendingVersion: null,
+  missing: false,
   viewMode: "read" as ViewMode,
   splitView: false,
 };
@@ -198,6 +291,9 @@ function topToTabFields(s: DocumentState): TabFields {
     isDirty: s.isDirty,
     externalChange: s.externalChange,
     pendingDisk: s.pendingDisk,
+    diskVersion: s.diskVersion,
+    pendingVersion: s.pendingVersion,
+    missing: s.missing,
     reloadNonce: s.reloadNonce,
     splitView: s.splitView,
   };
@@ -215,6 +311,9 @@ function tabFieldsToTop(t: TabFields) {
     isDirty: t.isDirty,
     externalChange: t.externalChange,
     pendingDisk: t.pendingDisk,
+    diskVersion: t.diskVersion,
+    pendingVersion: t.pendingVersion,
+    missing: t.missing,
     reloadNonce: t.reloadNonce,
     splitView: t.splitView,
   };
@@ -238,13 +337,75 @@ function syncActiveTab(s: DocumentState): Tab[] {
  * over the change). Now it reloads a clean tab, or offers the change when
  * the tab has edits, as a watched change does.
  */
-function recheckDisk(get: () => DocumentState, id: string, path: string) {
+function recheckDisk(
+  get: () => DocumentState,
+  set: SetState,
+  id: string,
+  path: string,
+) {
   invoke<MarkdownFile>("read_markdown_file", { path })
     .then((file) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path) cur.handleDiskUpdate(file.content);
+      if (cur.activeId === id && cur.path === path) {
+        cur.handleDiskUpdate(file.content, file.version ?? null);
+      }
     })
-    .catch(() => {});
+    .catch((e) => {
+      const cur = get();
+      if (cur.activeId === id && cur.path === path && isMissingFileError(e)) {
+        markMissing(get, set, path);
+      }
+    });
+}
+
+type SetState = (partial: Partial<DocumentState>) => void;
+
+/**
+ * Flag the active tab's file (`path`) as gone: the window used to show
+ * nothing, and the next save silently wrote the file again.
+ */
+function markMissing(
+  get: () => DocumentState,
+  set: SetState,
+  path: string,
+  id?: string | null,
+) {
+  const s = get();
+  if (id != null && id !== s.activeId) {
+    set({
+      tabs: s.tabs.map((t) =>
+        t.id === id && t.path === path ? { ...t, missing: true } : t,
+      ),
+    });
+    return;
+  }
+  if (s.path !== path || s.missing) return;
+  const next = { ...s, missing: true };
+  set({ missing: true, tabs: syncActiveTab(next) });
+}
+
+/** Ask before writing a file that was deleted or moved since it was read. */
+async function confirmRecreate(fileName: string): Promise<boolean> {
+  try {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    return await ask(
+      `"${fileName}" was deleted or moved outside Ashlr MD. Save it again at its old location? (Or use Save As in the banner.)`,
+      {
+        title: "File not found",
+        kind: "warning",
+        okLabel: "Recreate",
+        cancelLabel: "Cancel",
+      },
+    );
+  } catch {
+    // No dialog, no recreate: the text stays in the window.
+    return false;
+  }
+}
+
+/** The last path component, for a tab title. */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
 }
 
 export const useDocumentStore = create<DocumentState>((set, get) => ({
@@ -259,6 +420,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   isDirty: false,
   externalChange: false,
   pendingDisk: null,
+  diskVersion: null,
+  pendingVersion: null,
+  missing: false,
   reloadNonce: 0,
   splitView: false,
 
@@ -280,9 +444,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      const key = fileKey(file);
+      // The same file by another path (a link, `..`, other case on a
+      // filesystem that ignores it): switch to its tab, as for its own path.
+      const same = get().tabs.find((t) => t.key === key);
+      if (same) {
+        set({ isLoading: false });
+        get().switchTab(same.id);
+        return null;
+      }
       const id = newTabId();
       const tab: Tab = {
         id,
+        key,
         path: file.path,
         fileName: file.file_name,
         content: file.content,
@@ -292,6 +466,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        diskVersion: file.version ?? null,
+        pendingVersion: null,
+        missing: false,
         // Bump nonce so editors keying on path+reloadNonce remount fresh.
         reloadNonce: get().reloadNonce + 1,
         splitView: false,
@@ -465,11 +642,31 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return { splitView, tabs: syncActiveTab(next) };
     }),
 
-  save: async () => {
-    const { path, content, activeId } = get();
-    if (!path) return;
+  save: async (opts) => {
+    // The document to save: the tab named (an agent's edit names the tab
+    // it changed, which may no longer be active), else the active one.
+    const st = get();
+    const id = opts?.tabId ?? st.activeId;
+    const tab = id === st.activeId ? null : st.tabs.find((t) => t.id === id);
+    if (id !== st.activeId && !tab) return "the document is no longer open";
+    const { path, content, diskVersion, missing, fileName } = tab ?? st;
+    if (!path) return "no document is open";
+    let recreate = false;
+    if (missing) {
+      // Gone since it was read: write it again only when the user says so.
+      if (opts?.agent) return MISSING_FILE_REASON;
+      if (!(await confirmRecreate(fileName))) return "cancelled";
+      recreate = true;
+    }
     try {
-      await invoke("write_markdown_file", { path, content });
+      const written = await invoke<unknown>("write_markdown_file", {
+        path,
+        content,
+        // Refused when the file changed on disk since this text's read, or
+        // is gone. A recreate the user confirmed is not checked.
+        expected: recreate ? undefined : (diskVersion ?? undefined),
+      });
+      const version = typeof written === "string" ? written : null;
       set((s) => {
         // What was written is the tab's disk baseline, and it is clean only
         // if nothing was typed since: an edit made while the write was in
@@ -480,13 +677,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         // edits read as saved.
         const saved = {
           diskContent: content,
+          diskVersion: version,
           externalChange: false,
           pendingDisk: null,
+          pendingVersion: null,
+          missing: false,
         };
-        if (s.activeId !== activeId || s.path !== path) {
+        if (s.activeId !== id || s.path !== path) {
           return {
             tabs: s.tabs.map((t) =>
-              t.id === activeId && t.path === path
+              t.id === id && t.path === path
                 ? { ...t, ...saved, isDirty: t.content !== content }
                 : t,
             ),
@@ -497,30 +697,138 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
       toast.success("Saved");
+      return null;
     } catch (e) {
-      set({ error: String(e) });
-      toast.error(`Couldn’t save: ${String(e)}`);
+      const error = String(e);
+      if (error.includes(SAVE_CONFLICT_TAG)) {
+        // Another app changed the file since it was read: nothing was
+        // written. Offer its text (the banner) as a watched change does, so
+        // the user picks; it used to be overwritten without a word.
+        toast.error(
+          "Not saved: the file changed on disk. Reload it, or keep your version and save again.",
+        );
+        recheckDisk(get, set, id ?? "", path);
+        return untagged(error);
+      }
+      if (error.includes(SAVE_MISSING_TAG)) {
+        // Gone, and the watcher has not said so yet: show it, and ask.
+        markMissing(get, set, path, id);
+        const now = get();
+        if (opts?.agent || now.activeId !== id || !now.missing) {
+          return MISSING_FILE_REASON;
+        }
+        return now.save(opts);
+      }
+      set({ error: untagged(error) });
+      toast.error(`Couldn’t save: ${untagged(error)}`);
+      return untagged(error);
+    }
+  },
+
+  saveAs: async () => {
+    const { path, content, activeId } = get();
+    if (!path || activeId == null) return "no document is open";
+    let dest: string | null;
+    try {
+      const { save: pick } = await import("@tauri-apps/plugin-dialog");
+      dest = await pick({
+        defaultPath: path,
+        filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx", "txt"] }],
+      });
+    } catch (e) {
+      return String(e);
+    }
+    if (!dest) return "cancelled";
+    try {
+      // The dialog asked before replacing an existing file, so no check.
+      const written = await invoke<unknown>("write_markdown_file", {
+        path: dest,
+        content,
+      });
+      const version = typeof written === "string" ? written : null;
+      const fileName = baseName(dest);
+      set((s) => {
+        const saved = {
+          path: dest,
+          fileName,
+          diskContent: content,
+          diskVersion: version,
+          externalChange: false,
+          pendingDisk: null,
+          pendingVersion: null,
+          missing: false,
+        };
+        if (s.activeId !== activeId) {
+          return {
+            tabs: s.tabs.map((t) =>
+              t.id === activeId
+                ? { ...t, ...saved, isDirty: t.content !== content }
+                : t,
+            ),
+          };
+        }
+        const isDirty = s.content !== content;
+        const next = { ...s, ...saved, isDirty };
+        return { ...saved, isDirty, tabs: syncActiveTab(next) };
+      });
+      // The tab holds another file now. Its key is the path the dialog gave
+      // (a real path), until a read names its canonical form.
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key: dest } : t)),
+      }));
+      useRecentStore.getState().add(dest, fileName, Date.now());
+      if (get().activeId === activeId) {
+        invoke("watch_file", { path: dest }).catch(() => {});
+      }
+      toast.success(`Saved as ${fileName}`);
+      return null;
+    } catch (e) {
+      toast.error(`Couldn’t save: ${untagged(String(e))}`);
+      return untagged(String(e));
+    }
+  },
+
+  refreshFromDisk: async (path) => {
+    if (get().path !== path) return;
+    try {
+      const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      if (get().path === path)
+        get().handleDiskUpdate(file.content, file.version ?? null);
+    } catch (e) {
+      // Deleted, or moved away: say so. Any other failure may be a write in
+      // progress, which the next event settles.
+      if (isMissingFileError(e)) markMissing(get, set, path);
     }
   },
 
   // Called when the watcher reports the file changed on disk and we've re-read it.
-  handleDiskUpdate: (disk) => {
+  handleDiskUpdate: (disk, version) => {
+    const s0 = get();
+    if (!s0.path) return;
+    // The file is there (again): a tab flagged missing no longer is.
+    if (s0.missing) {
+      set({ missing: false, tabs: syncActiveTab({ ...s0, missing: false }) });
+    }
     const s = get();
-    if (!s.path) return;
+    const diskVersion = version === undefined ? s.diskVersion : version;
     // Our own save (or no real change) — just resync the disk baseline.
     if (disk === s.content) {
       const next = {
         ...s,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
       };
       set({
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
         tabs: syncActiveTab(next),
       });
       return;
@@ -530,17 +838,35 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     // banner offering it is gone. It used to be flagged as a conflict while
     // the user had edits, as if another app had changed the file.
     if (disk === s.diskContent) {
-      if (!s.externalChange && s.pendingDisk == null) return;
-      const next = { ...s, externalChange: false, pendingDisk: null };
-      set({ externalChange: false, pendingDisk: null, tabs: syncActiveTab(next) });
+      if (!s.externalChange && s.pendingDisk == null && diskVersion === s.diskVersion) {
+        return;
+      }
+      const next = {
+        ...s,
+        diskVersion,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
+      };
+      set({
+        diskVersion,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
+        tabs: syncActiveTab(next),
+      });
       return;
     }
     if (s.isDirty) {
-      // Conflict: keep the user's edits, surface a banner.
-      const next = { ...s, externalChange: true, pendingDisk: disk };
+      // Conflict: keep the user's edits, surface a banner. The baseline
+      // version stays the old read's, so a save before the user picks is
+      // refused rather than written over the change.
+      const pendingVersion = version ?? null;
+      const next = { ...s, externalChange: true, pendingDisk: disk, pendingVersion };
       set({
         externalChange: true,
         pendingDisk: disk,
+        pendingVersion,
         tabs: syncActiveTab(next),
       });
     } else {
@@ -549,12 +875,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         ...s,
         content: disk,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         reloadNonce: s.reloadNonce + 1,
       };
       set({
         content: disk,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         reloadNonce: s.reloadNonce + 1,
         tabs: syncActiveTab(next),
@@ -573,28 +901,51 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       ...s,
       content: s.pendingDisk,
       diskContent: s.pendingDisk,
+      diskVersion: s.pendingVersion,
       isDirty: false,
       externalChange: false,
       pendingDisk: null,
+      pendingVersion: null,
       reloadNonce: s.reloadNonce + 1,
     };
     set({
       content: next.content,
       diskContent: next.diskContent,
+      diskVersion: next.diskVersion,
       isDirty: false,
       externalChange: false,
       pendingDisk: null,
+      pendingVersion: null,
       reloadNonce: next.reloadNonce,
       tabs: syncActiveTab(next),
     });
   },
 
+  // "Keep mine": the user has seen the change on disk and chose their text,
+  // so the next save may replace it. The disk text becomes the baseline
+  // (the edits stay unsaved), and its version is what a save checks.
   dismissExternalChange: () =>
     set((s) => {
-      const next = { ...s, externalChange: false, pendingDisk: null };
-      return {
+      const seen =
+        s.pendingDisk == null
+          ? {}
+          : {
+              diskContent: s.pendingDisk,
+              diskVersion: s.pendingVersion,
+              isDirty: s.content !== s.pendingDisk,
+            };
+      const next = {
+        ...s,
+        ...seen,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
+      };
+      return {
+        ...seen,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
         tabs: syncActiveTab(next),
       };
     }),
@@ -639,7 +990,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     });
     // Re-issue the watch so the active doc is the one being watched.
     invoke("watch_file", { path: target.path }).catch(() => {});
-    recheckDisk(get, id, target.path);
+    recheckDisk(get, set, id, target.path);
   },
 
   /**
@@ -683,7 +1034,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         error: null,
       });
       invoke("watch_file", { path: neighbor.path }).catch(() => {});
-      recheckDisk(get, neighbor.id, neighbor.path);
+      recheckDisk(get, set, neighbor.id, neighbor.path);
     };
 
     if (dirty) {

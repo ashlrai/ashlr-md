@@ -32,7 +32,9 @@ pub enum LineKind {
     Text,
 }
 
-/// Each line of `content` (as [`str::lines`] splits it) with its
+/// Each line of `content` (as [`crate::line_breaks::lines`] splits it:
+/// `\n`, `\r\n` and a lone `\r` each end one, as CommonMark and the
+/// editor read them; `str::lines` split only at `\n`) with its
 /// [`LineKind`]. Front matter is a first line of `---` closed by a later
 /// `---` or `...` line; a `---` never closed is a thematic break, not front
 /// matter. A fence is at most three spaces, then three or more backticks or
@@ -215,7 +217,9 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     // Whether the line before was in a blockquote or ended a bare item:
     // indented code after it closes a container.
     let mut closer = false;
-    content.lines().enumerate().map(move |(i, line)| {
+    // `\n`, `\r\n` and a lone `\r` each end a line, as in outline.ts.
+    let lines = crate::line_breaks::lines(content);
+    lines.enumerate().map(move |(i, line)| {
         if i < front_matter {
             return Scanned {
                 kind: LineKind::FrontMatter,
@@ -1071,7 +1075,7 @@ pub fn front_matter_len(content: &str) -> usize {
         line.trim_end_matches([' ', '\t', '\r'])
     }
     let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
-    let mut lines = content.lines();
+    let mut lines = crate::line_breaks::lines(content);
     if lines.next().map(delimiter) != Some("---") {
         return 0;
     }
@@ -1181,5 +1185,38 @@ fn past_columns(line: &str, columns: usize) -> Cow<'_, str> {
         Cow::Owned(" ".repeat(col - columns))
     } else {
         Cow::Borrowed("")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scan split lines at `\n` only, so an old Mac file (lone `\r`
+    /// breaks) was one text line: its fence, code and front matter were not
+    /// seen, while the editor and outline.ts read many lines.
+    #[test]
+    fn a_lone_cr_ends_a_line_as_lf_and_crlf_do() {
+        for br in ["\n", "\r\n", "\r"] {
+            let doc = ["---", "t: 1", "---", "# A", "```", "# not", "```", "b"].join(br);
+            let kinds: Vec<_> = markdown_lines(&doc).map(|(k, _)| k).collect();
+            assert_eq!(
+                kinds,
+                [
+                    LineKind::FrontMatter,
+                    LineKind::FrontMatter,
+                    LineKind::FrontMatter,
+                    LineKind::Text,
+                    LineKind::Fence,
+                    LineKind::Code,
+                    LineKind::Fence,
+                    LineKind::Text,
+                ],
+                "{br:?}"
+            );
+            assert_eq!(front_matter_len(&doc), 3, "{br:?}");
+            let lines: Vec<_> = markdown_lines(&doc).map(|(_, l)| l).collect();
+            assert_eq!(lines[5], "# not", "{br:?}");
+        }
     }
 }

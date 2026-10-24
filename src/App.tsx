@@ -120,18 +120,10 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     (async () => {
-      unlisten = await listen<string>("file-changed", async (e) => {
-        const changedPath = e.payload;
-        const current = useDocumentStore.getState();
-        if (current.path !== changedPath) return;
-        try {
-          const file = await invoke<{ content: string }>("read_markdown_file", {
-            path: changedPath,
-          });
-          useDocumentStore.getState().handleDiskUpdate(file.content);
-        } catch {
-          /* file may be mid-write; the next event will settle it */
-        }
+      unlisten = await listen<string>("file-changed", (e) => {
+        // Re-read it, or flag it missing when it was deleted or moved: the
+        // window used to show nothing, and the next save wrote it again.
+        void useDocumentStore.getState().refreshFromDisk(e.payload);
       });
     })();
     return () => unlisten?.();

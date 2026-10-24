@@ -6,6 +6,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+// Native dialogs: the recreate confirmation and the Save As picker.
+const askMock = vi.fn();
+const pickMock = vi.fn();
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: (...args: unknown[]) => askMock(...args),
+  save: (...args: unknown[]) => pickMock(...args),
+}));
+
 // Isolate the document store from the persisted recents store.
 const recentAdd = vi.fn();
 const recentRemove = vi.fn();
@@ -30,6 +38,9 @@ function reset() {
     isDirty: false,
     externalChange: false,
     pendingDisk: null,
+    diskVersion: null,
+    pendingVersion: null,
+    missing: false,
     reloadNonce: 0,
     tabs: [],
     activeId: null,
@@ -899,5 +910,250 @@ describe("documentStore — saves and disk changes stay with their tab", () => {
     const s = useDocumentStore.getState();
     expect(s.content).toBe("b mine");
     expect(s.pendingDisk).toBe("b theirs");
+  });
+});
+
+/**
+ * A fake disk with `write_markdown_file`'s check: a file's version is its
+ * text, and a write whose `expected` is not the file's version (or whose file
+ * is gone) is refused with the backend's tag.
+ */
+function versionedDisk(files: Record<string, string>) {
+  const writes: { path: string; content: string; expected?: string }[] = [];
+  invokeMock.mockImplementation(
+    (cmd: string, args?: { path?: string; content?: string; expected?: string }) => {
+      const p = args?.path ?? "";
+      if (cmd === "read_markdown_file") {
+        if (!(p in files))
+          return Promise.reject("No such file or directory (os error 2)");
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: files[p],
+          size: files[p].length,
+          version: `v:${files[p]}`,
+        });
+      }
+      if (cmd === "write_markdown_file") {
+        writes.push({
+          path: p,
+          content: args?.content ?? "",
+          expected: args?.expected,
+        });
+        if (args?.expected !== undefined) {
+          if (!(p in files)) {
+            return Promise.reject(`Could not save ${p}: it was deleted [save-missing]`);
+          }
+          if (`v:${files[p]}` !== args.expected) {
+            return Promise.reject(`Could not save ${p}: it changed [save-conflict]`);
+          }
+        }
+        files[p] = args?.content ?? "";
+        return Promise.resolve(`v:${files[p]}`);
+      }
+      return Promise.resolve();
+    },
+  );
+  return writes;
+}
+
+describe("documentStore — a save never overwrites a change it has not seen", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("sends the read's version, and offers the disk text when the save is refused", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    const writes = versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    // Another app writes while the tab is open (no watcher event seen yet).
+    files["/a.md"] = "theirs";
+    await useDocumentStore.getState().save();
+    expect(writes[0].expected).toBe("v:v0");
+    expect(files["/a.md"]).toBe("theirs");
+    await vi.waitFor(() =>
+      expect(useDocumentStore.getState().externalChange).toBe(true),
+    );
+    let s = useDocumentStore.getState();
+    expect(s.pendingDisk).toBe("theirs");
+    expect(s.content).toBe("mine");
+    expect(s.isDirty).toBe(true);
+
+    // "Keep mine": the change was seen, so the next save replaces it.
+    useDocumentStore.getState().dismissExternalChange();
+    await useDocumentStore.getState().save();
+    expect(writes[1].expected).toBe("v:theirs");
+    expect(files["/a.md"]).toBe("mine");
+    s = useDocumentStore.getState();
+    expect(s.isDirty).toBe(false);
+    expect(s.diskVersion).toBe("v:mine");
+
+    // The saved version is the baseline for the save after it.
+    useDocumentStore.getState().setContent("mine 2");
+    await useDocumentStore.getState().save();
+    expect(writes[2].expected).toBe("v:mine");
+    expect(files["/a.md"]).toBe("mine 2");
+  });
+});
+
+describe("documentStore — a file deleted or moved while open", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    askMock.mockReset();
+    pickMock.mockReset();
+    reset();
+  });
+
+  it("is shown as missing, and a save writes it again only when the user confirms", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    const writes = versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    // Deleted in Finder: the watcher reports it and the re-read fails.
+    delete files["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    let s = useDocumentStore.getState();
+    expect(s.missing).toBe(true);
+    expect(s.tabs[0].missing).toBe(true);
+    expect(s.content).toBe("mine");
+
+    // Declined: nothing written, the text kept.
+    askMock.mockResolvedValueOnce(false);
+    expect(await useDocumentStore.getState().save()).toBe("cancelled");
+    expect(askMock).toHaveBeenCalledTimes(1);
+    expect(writes).toHaveLength(0);
+    expect("/a.md" in files).toBe(false);
+
+    // An agent's save never asks, and is refused.
+    expect(await useDocumentStore.getState().save({ agent: true })).toMatch(
+      /deleted or moved/,
+    );
+    expect(askMock).toHaveBeenCalledTimes(1);
+    expect(writes).toHaveLength(0);
+
+    // Confirmed: written again, and no longer missing.
+    askMock.mockResolvedValueOnce(true);
+    expect(await useDocumentStore.getState().save()).toBeNull();
+    expect(files["/a.md"]).toBe("mine");
+    s = useDocumentStore.getState();
+    expect(s.missing).toBe(false);
+    expect(s.isDirty).toBe(false);
+  });
+
+  it("asks even when the save is what finds the file gone", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    const writes = versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    delete files["/a.md"];
+    askMock.mockResolvedValueOnce(false);
+    expect(await useDocumentStore.getState().save()).toBe("cancelled");
+    expect(useDocumentStore.getState().missing).toBe(true);
+    // The checked write was refused; nothing was written without asking.
+    expect(writes).toHaveLength(1);
+    expect("/a.md" in files).toBe(false);
+  });
+
+  it("Save As writes the text under a new name, which the tab follows", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    delete files["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    pickMock.mockResolvedValueOnce("/moved/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    expect(files["/moved/b.md"]).toBe("mine");
+    const s = useDocumentStore.getState();
+    expect(s.path).toBe("/moved/b.md");
+    expect(s.fileName).toBe("b.md");
+    expect(s.tabs[0].path).toBe("/moved/b.md");
+    expect(s.missing).toBe(false);
+    expect(s.isDirty).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/moved/b.md" });
+  });
+
+  it("a file that comes back is no longer missing", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    delete files["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    expect(useDocumentStore.getState().missing).toBe(true);
+    files["/a.md"] = "back";
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    const s = useDocumentStore.getState();
+    expect(s.missing).toBe(false);
+    expect(s.content).toBe("back");
+  });
+});
+
+describe("documentStore — one file opened by two paths is one tab", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  /** read_markdown_file names `canonical` for every path, with `rules`. */
+  function sameFile(
+    canonical: (p: string) => string,
+    rules: { case_insensitive?: boolean; normalization_insensitive?: boolean } = {},
+  ) {
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      const p = args?.path ?? "";
+      if (cmd === "read_markdown_file") {
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: "text",
+          size: 4,
+          version: "v",
+          canonical_path: canonical(p),
+          ...rules,
+        });
+      }
+      return Promise.resolve();
+    });
+  }
+
+  it("switches to the tab of a file opened through a symbolic link", async () => {
+    sameFile(() => "/real/notes.md");
+    await useDocumentStore.getState().openPath("/vault/notes.md");
+    await useDocumentStore.getState().openPath("/vault/link-to-notes.md");
+    const s = useDocumentStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    // The tab keeps the path it was opened by (links resolve from there).
+    expect(s.path).toBe("/vault/notes.md");
+    expect(s.isLoading).toBe(false);
+  });
+
+  it("folds case only where the filesystem ignores it", async () => {
+    sameFile((p) => p, { case_insensitive: true });
+    await useDocumentStore.getState().openPath("/v/Notes.md");
+    await useDocumentStore.getState().openPath("/v/notes.md");
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    reset();
+    sameFile((p) => p, { case_insensitive: false });
+    await useDocumentStore.getState().openPath("/v/Notes.md");
+    await useDocumentStore.getState().openPath("/v/notes.md");
+    expect(useDocumentStore.getState().tabs).toHaveLength(2);
+  });
+
+  it("treats composed and decomposed names as one where the filesystem does", async () => {
+    const nfc = "/v/café.md";
+    const nfd = "/v/café.md";
+    sameFile((p) => p, { normalization_insensitive: true });
+    await useDocumentStore.getState().openPath(nfc);
+    await useDocumentStore.getState().openPath(nfd);
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    reset();
+    sameFile((p) => p);
+    await useDocumentStore.getState().openPath(nfc);
+    await useDocumentStore.getState().openPath(nfd);
+    expect(useDocumentStore.getState().tabs).toHaveLength(2);
   });
 });

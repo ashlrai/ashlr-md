@@ -77,6 +77,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **A wikilink can no longer show or open any file on the computer.**
+  `resolve_wikilink` returned whatever existing file a target named, so a
+  note from a cloned repository or a shared vault holding
+  `![[../../.ssh/config]]` or `![[/etc/hosts]]` showed that file inline in
+  the read view with no click (and put it into exports and the clipboard),
+  and a click on `[[../../.aws/credentials]]` opened it in a tab, where
+  agents read it. A wikilink now resolves only to a Markdown note, an image,
+  a canvas or a PDF, inside the vault when there is one, through no hidden
+  folder or file, and never by an absolute path.
 - **`ANTHROPIC_BASE_URL` is validated before the key is sent (changes #131).**
   The override was used as given. It now must be `https://`, or plain
   `http://` only for `127.0.0.1` or `[::1]` (not the name `localhost`). Any
@@ -96,6 +105,84 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- Hovering a read-view link whose path is percent-encoded (`[x](My%20Note.md)`) now previews the note; the preview looked the path up as written and found nothing.
+- **A heading's copied link opens at that heading.** The "copy link" button
+  on a heading copies `mdopener://open?path=…&heading=<slug>`, but the link
+  handler ignored `heading`, so the link opened the document at its top. The
+  heading now waits for the window like the link's `mode` does, and the
+  window scrolls to it once the document has opened.
+- **Links and images in the read view work.** A `[x](#heading)` link did
+  nothing (every link opens in a new context, which only web and mail links
+  had a handler for), a link to another Markdown file did nothing, or on
+  Windows opened the app's own origin in the browser, and a Markdown image
+  with a relative path (`![](assets/x.png)`, which pasting an image inserts)
+  never showed. A `#fragment` now scrolls to the heading (its id, or the slug
+  of its text), a link to a Markdown document opens it in a tab (relative to
+  the document, percent-decoded, `#heading` included), and a local image is
+  read through Rust as `![[x.png]]` embeds are, with spaces and non-ASCII
+  names, and a "Missing image" note when it is not there. Links to other
+  schemes, to files that are no Markdown, or into hidden folders
+  (`../.ssh/x`) are not followed, and a toast says why.
+- **`[[note\|alias]]` links to `note`.** In a table cell an alias's pipe is
+  written `\|`; mdopener-mcp's `export_metadata` and the app's
+  "Wikilink targets exist" lint read the target as `note\`, so a link that
+  resolves was listed (and flagged) as a missing note.
+- **A line indented four columns after a table is code, in the app and for
+  agents.** mdast reads `| a |`, `| - |`, then `    | c |` as a table and a
+  code block. The app's prose masking (`maskInlineCode`, which lint reads
+  links from) left those lines as text, so a `[[link]]` or URL in that code
+  was read, while mdopener-mcp's link and image counts dropped them; and
+  `export_text` read them trimmed, as a table row (`c`) or as Markdown. Both
+  now treat them as code: the app masks them whole, `export_text` keeps them
+  as written, and an indented header or delimiter row starts no table.
+- **Agents' plain text decodes character references and keeps unpaired
+  emphasis markers.** mdopener-mcp's inline stripping (export text, titles,
+  headings) kept `&amp;`, `&#123;` and `&#x1F600;` as written where the page
+  shows `&`, `{` and 😀, and dropped every `*` and `_` run that was not
+  between spaces or inside a word, so `*note` lost its star. References are
+  now decoded as CommonMark does (numeric ones, and a table of the common
+  named ones; an unknown name stays as written), and markers are dropped only
+  when they pair as emphasis by micromark's rules (flanking, `_` in words,
+  the rule of three), fuzzed against remark-parse.
+- **A lone CR ends a line for the Rust Markdown scanners too.** The shared
+  line scanner (`markdown_lines.rs`: front matter, fences, headings, tasks,
+  wikilinks, export text, semantic-search chunks) split lines at LF only, so
+  an old Mac file (CR line breaks) was one line: its code was read as
+  Markdown and its front matter was missed, while the editor and the Outline
+  saw many lines. It now uses the shared `line_breaks` rule, as search
+  already did, and so do the search chunker and `frontmatter_lines`.
+- **An agent's save is reported as saved when the user switches tabs during
+  it.** `save: true` on an edit read its outcome back from the active tab, so
+  switching tabs while the file was written told the agent the save failed
+  (and a retry applied the edit again). The save now names the edited tab and
+  reports its own result.
+- **One file opened by two paths is one tab.** Tabs were matched by the path
+  as given, so a note opened through a symbolic link, with `..`, in the other
+  Unicode form or in other case opened in a second tab, and each tab's save
+  overwrote the other's. The read now names the file's canonical path and
+  whether its filesystem ignores case (probed) and Unicode normalization
+  (macOS), and opening a file already open switches to its tab. Case and
+  normalization are folded only where the filesystem folds them. The tab keeps
+  the path it was opened by, so its relative links and vault are unchanged.
+- **A file deleted or moved while open is shown, and is not silently
+  recreated.** The window showed nothing when the open file was deleted or
+  moved by another app, and the next save wrote it back at its old place. The
+  tab is now flagged and a banner says so, keeping the text, with Save As… and
+  Recreate…. A save asks before writing the file again; an agent's save
+  (`save: true`) is refused instead of asking. A file that comes back clears
+  the flag. "Save As…" is also in the command palette.
+- **A save no longer overwrites a change made on disk since the file was
+  read.** The window sent its text and the file was replaced, whatever was
+  there: a change another app (or a sync client) made while the tab was open,
+  before the watcher reported it, was lost. A save now carries the version of
+  the read its text is based on, and when the file on disk no longer matches
+  it nothing is written: the change is offered in the banner ("Keep mine",
+  then save again, replaces it). Touching the file without changing it is not
+  a change. After the rename the folder is synced on Unix, so a crash just
+  after a save cannot bring the old file back, and the owner and group are
+  kept where the process may set them, as the mode already was. Hard links,
+  extended attributes, ACLs and Finder tags are not carried over to the new
+  file (documented at `write_atomic`).
 - **A read-only file is no longer overwritten.** A save (or an export over
   an existing file) wrote a new file and renamed it into place, which needs
   only the folder to be writable, so a note with no write permission

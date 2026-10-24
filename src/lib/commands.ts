@@ -131,7 +131,19 @@ export function getCommands(): Command[] {
       keywords: ["save", "write", "disk"],
       shortcut: "mod+s",
       when: hasDoc,
-      run: () => doc().save(),
+      run: async () => {
+        await doc().save();
+      },
+    },
+    {
+      id: "file.saveAs",
+      title: "Save As…",
+      group: "File",
+      keywords: ["save", "as", "rename", "copy", "write", "disk"],
+      when: hasDoc,
+      run: async () => {
+        await doc().saveAs();
+      },
     },
     {
       id: "file.export.html",

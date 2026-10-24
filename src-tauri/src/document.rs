@@ -11,6 +11,116 @@ pub struct MarkdownFile {
     /// Size in bytes — the frontend uses this to decide whether to default
     /// a very large document into the lighter source-only view.
     pub size: u64,
+    /// What the read saw ([`content_version`]): the frontend hands it back to
+    /// [`write_markdown_file`] so a save never overwrites a change it has
+    /// not seen.
+    pub version: String,
+    /// `path` with every symbolic link resolved (and `.`/`..` gone), so the
+    /// frontend can tell that two paths name one file and switch to its tab
+    /// rather than open it twice. `path` stays as named: relative links and
+    /// the vault are judged from where the document was opened.
+    pub canonical_path: String,
+    /// The filesystem holding the file ignores case (`Notes.md` and
+    /// `notes.md` are one file), so two canonical paths that differ only in
+    /// case name one file.
+    pub case_insensitive: bool,
+    /// The filesystem ignores Unicode normalization (macOS: `é` composed and
+    /// decomposed are one name).
+    pub normalization_insensitive: bool,
+}
+
+/// Whether the filesystem holding `canonical` (an existing, canonical path)
+/// ignores case: the same path with one ASCII letter's case flipped, in the
+/// last component that has one, names the same file. Windows always does.
+/// A component with no ASCII letter anywhere on the path cannot be probed and
+/// counts as case-sensitive, so two tabs stay two.
+fn ignores_case(canonical: &Path) -> bool {
+    if cfg!(windows) {
+        return true;
+    }
+    let Ok(meta) = std::fs::metadata(canonical) else {
+        return false;
+    };
+    let comps: Vec<_> = canonical.components().collect();
+    for i in (0..comps.len()).rev() {
+        let std::path::Component::Normal(name) = comps[i] else {
+            continue;
+        };
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(pos) = name.find(|c: char| c.is_ascii_alphabetic()) else {
+            continue;
+        };
+        let mut flipped = name.to_string();
+        // An ASCII letter is one byte, so flipping it keeps the string valid.
+        let c = flipped.as_bytes()[pos] as char;
+        let other = if c.is_ascii_lowercase() {
+            c.to_ascii_uppercase()
+        } else {
+            c.to_ascii_lowercase()
+        };
+        flipped.replace_range(pos..pos + 1, &other.to_string());
+        let mut alt = std::path::PathBuf::new();
+        for c in &comps[..i] {
+            alt.push(c.as_os_str());
+        }
+        alt.push(&flipped);
+        for c in &comps[i + 1..] {
+            alt.push(c.as_os_str());
+        }
+        return std::fs::metadata(&alt).is_ok_and(|m| {
+            crate::doc_read::FileIdentity::of(&m) == crate::doc_read::FileIdentity::of(&meta)
+                && cfg!(unix)
+        });
+    }
+    false
+}
+
+/// Marks a save refused because the file on disk is not the one the window
+/// last read: another app changed it. The frontend reads the file again and
+/// offers the change (`src/store/documentStore.ts`).
+pub const SAVE_CONFLICT_TAG: &str = "[save-conflict]";
+/// Marks a save refused because the file was deleted or moved since it was
+/// read. The frontend asks before recreating it.
+pub const SAVE_MISSING_TAG: &str = "[save-missing]";
+
+/// A short fingerprint of a document's text: its length and a 64-bit hash.
+/// Only compared within one run of the app (the frontend gets it from a read
+/// and hands it back to a save), so `DefaultHasher`, which is fixed for one
+/// build, is enough. Modification times are not part of it: a touch, or a
+/// sync client that rewrites the same bytes, is not a change to offer.
+pub(crate) fn content_version(content: &str) -> String {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut h);
+    format!("{}:{:016x}", content.len(), h.finish())
+}
+
+/// Refuse to save over `target` unless it still holds what the read that
+/// produced `expected` saw. A file that is gone is refused too (the frontend
+/// asks before recreating it). There is a window between this check and the
+/// rename in [`write_atomic`] in which another writer still wins; it is the
+/// length of one read, where it used to be the whole time the tab was open.
+fn check_unchanged(target: &Path, expected: &str, shown: &str) -> Result<(), String> {
+    match std::fs::metadata(target) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "Could not save {shown}: it was deleted or moved since it was opened \
+                 {SAVE_MISSING_TAG}"
+            ));
+        }
+        _ => {}
+    }
+    let now = crate::doc_read::read_document_following(target, crate::doc_read::MAX_DOCUMENT_BYTES)
+        .map_err(|e| format!("Could not save {shown}: could not check the file on disk ({e})"))?;
+    if content_version(&now) != expected {
+        return Err(format!(
+            "Could not save {shown}: it changed on disk since it was last read, so it was \
+             not overwritten {SAVE_CONFLICT_TAG}"
+        ));
+    }
+    Ok(())
 }
 
 /// Read a Markdown file from disk and return its content plus light metadata.
@@ -28,11 +138,18 @@ pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Untitled.md".to_string());
+    let version = content_version(&content);
+    let canonical = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let case_insensitive = ignores_case(&canonical);
     Ok(MarkdownFile {
         path,
         file_name,
         content,
         size,
+        version,
+        canonical_path: canonical.to_string_lossy().into_owned(),
+        case_insensitive,
+        normalization_insensitive: cfg!(target_os = "macos"),
     })
 }
 
@@ -46,12 +163,29 @@ pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
 /// elsewhere (a dotfiles repository, a synced folder) and linked into a vault
 /// kept its old text there, and the link was gone. The guards judge the file
 /// the link points to.
+///
+/// With `expected` (the `version` of the read the window's text is based
+/// on), the save is refused when the file on disk changed since
+/// ([`SAVE_CONFLICT_TAG`]) or is gone ([`SAVE_MISSING_TAG`]): it used to be
+/// overwritten, so a change another app made while the tab was open was lost
+/// without a word. Without it (an export, or a recreate the user confirmed)
+/// the file is written whatever is there. Returns the version of what was
+/// written, the baseline for the next save.
 #[tauri::command]
-pub fn write_markdown_file(path: String, content: String) -> Result<(), String> {
+pub fn write_markdown_file(
+    path: String,
+    content: String,
+    expected: Option<String>,
+) -> Result<String, String> {
     let target =
         link_target(Path::new(&path)).map_err(|e| format!("Could not save {path}: {e}"))?;
+    if let Some(expected) = expected.as_deref() {
+        check_unchanged(&target, expected, &path)?;
+    }
+    let version = content_version(&content);
     write_document(&target.to_string_lossy(), content)
-        .map_err(|e| e.replace(&*target.to_string_lossy(), &path))
+        .map_err(|e| e.replace(&*target.to_string_lossy(), &path))?;
+    Ok(version)
 }
 
 /// `path`, or when it is a symbolic link the file it points to (resolved
@@ -102,12 +236,20 @@ fn write_document(path: &str, content: String) -> Result<(), String> {
 /// only the folder to be writable, so saving a read-only (`0444`) note, or
 /// exporting over a read-only file, used to replace it with a new read-only
 /// file holding the new text, as if it had been writable.
+///
+/// On Unix the folder is synced after the rename, so the new name is on disk
+/// too: a crash right after a save could otherwise come back with the old
+/// file (or none, for a new one). The owner and group are carried over where
+/// the process may set them (best effort: only root can give a file away).
+///
+/// Not preserved, because the file is a new one: other hard links to the old
+/// file keep the old text (the saved name is no longer one of them), and
+/// extended attributes, ACLs, macOS Finder tags and the creation time stay
+/// with the old file.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
-    let keep = std::fs::metadata(path)
-        .ok()
-        .filter(|m| m.is_file())
-        .map(|m| m.permissions());
+    let old = std::fs::metadata(path).ok().filter(|m| m.is_file());
+    let keep = old.as_ref().map(|m| m.permissions());
     if keep.as_ref().is_some_and(std::fs::Permissions::readonly) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
@@ -115,6 +257,12 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         ));
     }
     let (tmp, mut file) = create_temp_sibling(path)?;
+    #[cfg(unix)]
+    if let Some(m) = &old {
+        use std::os::unix::fs::MetadataExt as _;
+        // Best effort: fails (and is ignored) unless the process may set them.
+        let _ = std::os::unix::fs::fchown(&file, Some(m.uid()), Some(m.gid()));
+    }
     let written = keep
         .map_or(Ok(()), |p| file.set_permissions(p))
         .and_then(|()| file.write_all(bytes))
@@ -126,8 +274,28 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if written.is_err() {
         // Best-effort cleanup of the temp file if the write or rename failed.
         let _ = std::fs::remove_file(&tmp);
+        return written;
     }
-    written
+    sync_parent_dir(path);
+    Ok(())
+}
+
+/// Sync the folder holding `path`, so a rename into it survives a crash.
+/// Best effort: the file is already saved, and some filesystems refuse to
+/// sync a folder. A no-op off Unix, where a folder cannot be opened this way.
+fn sync_parent_dir(path: &Path) {
+    #[cfg(unix)]
+    {
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Create a new, empty `<path>.<random>.mdopener.tmp` next to `path` (the
@@ -228,6 +396,15 @@ pub fn detect_vault_root(start: String) -> Option<String> {
 /// A target carrying an explicit extension (e.g. an image embed
 /// `![[diagram.png]]`) is matched by full file name; otherwise by stem against
 /// Markdown files. Returns `None` for a broken link.
+///
+/// Only a file a note may link to is returned ([`linkable`]): a Markdown
+/// note, an image, a canvas or a PDF, inside the vault when there is one,
+/// reached through no hidden folder or file, and never by an absolute
+/// target. Any existing file used to be returned, so a note (from a cloned
+/// repository or a shared vault) holding `![[../../.ssh/config]]` or
+/// `![[/etc/hosts]]` showed that file inline in the read view, with no
+/// click, and put it into exports and the clipboard; a click on
+/// `[[../../.aws/credentials]]` opened it in a tab, where agents read it.
 #[tauri::command]
 pub fn resolve_wikilink(
     base_dir: String,
@@ -236,12 +413,70 @@ pub fn resolve_wikilink(
 ) -> Option<String> {
     // Drop any "#heading" / "#^block" fragment — we resolve the file only.
     let target = target.split('#').next().unwrap_or(&target).trim();
-    if target.is_empty() {
+    if target.is_empty() || is_absolute_target(target) {
         return None;
     }
     let base = Path::new(&base_dir);
     let root = vault_root.as_deref().map(Path::new);
+    let found = resolve_wikilink_in(base, target, root)?;
+    linkable(Path::new(&found), base, root).then_some(found)
+}
 
+/// Whether a wikilink target names an absolute path (`/etc/hosts`,
+/// `C:\x`, `\\server\share`), which joining to a folder would follow
+/// out of it. Obsidian reads targets relative to the vault.
+fn is_absolute_target(target: &str) -> bool {
+    let b = target.as_bytes();
+    target.starts_with(['/', '\\'])
+        || Path::new(target).is_absolute()
+        || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
+}
+
+/// The extensions a link from a note may resolve to: notes, images, canvases
+/// and PDFs. Anything else (`config`, `id_rsa`, `.env`, `.json`) is no
+/// attachment a note shows, and was a way to read any text file.
+const LINKABLE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif", "canvas", "pdf",
+];
+
+/// Whether `found` (a canonical path a wikilink resolved to) is one a note
+/// may show or open: a linkable type ([`MD_EXTENSIONS`],
+/// [`LINKABLE_EXTENSIONS`]), inside the vault root when there is one, and
+/// with no hidden component (`.ssh`, `.git`, `.env.md`) past the folder it
+/// shares with the note's own folder (or the vault): the vault-wide search
+/// already skipped hidden folders, but a relative target did not.
+fn linkable(found: &Path, base: &Path, root: Option<&Path>) -> bool {
+    let ext_ok = found
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .is_some_and(|e| {
+            MD_EXTENSIONS.contains(&e.as_str()) || LINKABLE_EXTENSIONS.contains(&e.as_str())
+        });
+    if !ext_ok {
+        return false;
+    }
+    let scope = match root {
+        Some(r) => match r.canonicalize() {
+            Ok(r) if found.starts_with(&r) => r,
+            _ => return false,
+        },
+        None => base.canonicalize().unwrap_or_else(|_| base.to_path_buf()),
+    };
+    // The components the link travels into, past what it shares with scope.
+    let shared = scope
+        .components()
+        .zip(found.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    !found.components().skip(shared).any(|c| match c {
+        std::path::Component::Normal(name) => name.to_string_lossy().starts_with('.'),
+        _ => false,
+    })
+}
+
+/// [`resolve_wikilink`] without the [`linkable`] check.
+fn resolve_wikilink_in(base: &Path, target: &str, root: Option<&Path>) -> Option<String> {
     // 1. Exact relative path from the current file's directory.
     let direct = base.join(target);
     if direct.is_file() {
@@ -936,7 +1171,7 @@ mod tests {
         let planted = root.join("notes.md.mdopener.tmp");
         std::os::unix::fs::symlink(&outside, &planted).unwrap();
 
-        write_markdown_file(s(&doc), "new".into()).unwrap();
+        write_markdown_file(s(&doc), "new".into(), None).unwrap();
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
         assert!(!std::fs::symlink_metadata(&doc)
             .unwrap()
@@ -972,7 +1207,7 @@ mod tests {
         let doc = root.join("private.md");
         std::fs::write(&doc, "old").unwrap();
         std::fs::set_permissions(&doc, std::fs::Permissions::from_mode(0o600)).unwrap();
-        write_markdown_file(s(&doc), "new".into()).unwrap();
+        write_markdown_file(s(&doc), "new".into(), None).unwrap();
         let mode = std::fs::metadata(&doc).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "{mode:o}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
@@ -1003,7 +1238,7 @@ mod tests {
         let link2 = root.join("again.md");
         std::os::unix::fs::symlink(&link, &link2).unwrap();
 
-        write_markdown_file(s(&link2), "new".into()).unwrap();
+        write_markdown_file(s(&link2), "new".into(), None).unwrap();
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
         for l in [&link, &link2] {
             assert!(std::fs::symlink_metadata(l)
@@ -1026,7 +1261,7 @@ mod tests {
         // A link to nothing is refused, not replaced.
         let dangling = root.join("gone.md");
         std::os::unix::fs::symlink(root.join("missing.md"), &dangling).unwrap();
-        let err = write_markdown_file(s(&dangling), "x".into()).unwrap_err();
+        let err = write_markdown_file(s(&dangling), "x".into(), None).unwrap_err();
         assert!(err.contains("symbolic link"), "{err}");
         assert!(err.contains("gone.md"), "{err}");
         assert!(std::fs::symlink_metadata(&dangling)
@@ -1041,7 +1276,7 @@ mod tests {
         std::fs::write(cfg.join("app.json"), "{}").unwrap();
         let sneaky = root.join("settings.md");
         std::os::unix::fs::symlink(cfg.join("app.json"), &sneaky).unwrap();
-        let err = write_markdown_file(s(&sneaky), "x".into()).unwrap_err();
+        let err = write_markdown_file(s(&sneaky), "x".into(), None).unwrap_err();
         assert!(err.contains(".obsidian"), "{err}");
         assert_eq!(std::fs::read_to_string(cfg.join("app.json")).unwrap(), "{}");
         let _ = std::fs::remove_dir_all(&root);
@@ -1057,7 +1292,7 @@ mod tests {
         let mut perms = std::fs::metadata(&doc).unwrap().permissions();
         perms.set_readonly(true);
         std::fs::set_permissions(&doc, perms).unwrap();
-        let err = write_markdown_file(s(&doc), "new".into()).unwrap_err();
+        let err = write_markdown_file(s(&doc), "new".into(), None).unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
         let err = crate::export::write_file_bytes(s(&doc), b"PK".to_vec()).unwrap_err();
@@ -1083,7 +1318,7 @@ mod tests {
         let cfg = root.join(".obsidian");
         std::fs::create_dir_all(&cfg).unwrap();
         let target = cfg.join("app.json");
-        let err = write_markdown_file(s(&target), "{}".into()).unwrap_err();
+        let err = write_markdown_file(s(&target), "{}".into(), None).unwrap_err();
         assert!(err.contains(".obsidian"), "got: {err}");
         assert!(!target.exists(), "must not have written the file");
     }
@@ -1313,7 +1548,126 @@ mod tests {
         let link = root.join("cfg");
         std::os::unix::fs::symlink(&cfg, &link).unwrap();
         let target = link.join("app.json");
-        let err = write_markdown_file(s(&target), "{}".into()).unwrap_err();
+        let err = write_markdown_file(s(&target), "{}".into(), None).unwrap_err();
         assert!(err.contains(".obsidian"), "got: {err}");
+    }
+
+    /// A save overwrote whatever was on disk: a change another app made while
+    /// the tab was open was lost. With the version of the read it is based
+    /// on, a save over a changed file is refused, a touch (same text) is not
+    /// a change, and a file that is gone is not silently recreated.
+    #[test]
+    fn a_save_refuses_to_overwrite_a_change_it_has_not_seen() {
+        let root = make_tree();
+        let doc = root.join("notes.md");
+        std::fs::write(&doc, "v0").unwrap();
+        let read = read_markdown_file(s(&doc)).unwrap();
+
+        // Unchanged (and only touched): saved, and the new version returned.
+        std::fs::write(&doc, "v0").unwrap();
+        let v1 = write_markdown_file(s(&doc), "v1".into(), Some(read.version.clone())).unwrap();
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "v1");
+        assert_eq!(v1, read_markdown_file(s(&doc)).unwrap().version);
+
+        // Another app writes; a save based on the old read is refused.
+        std::fs::write(&doc, "theirs").unwrap();
+        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1.clone())).unwrap_err();
+        assert!(err.contains(SAVE_CONFLICT_TAG), "{err}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "theirs");
+
+        // Gone: refused, not recreated, until the caller drops the check.
+        std::fs::remove_file(&doc).unwrap();
+        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1)).unwrap_err();
+        assert!(err.contains(SAVE_MISSING_TAG), "{err}");
+        assert!(!doc.exists());
+        write_markdown_file(s(&doc), "mine".into(), None).unwrap();
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "mine");
+    }
+
+    /// The new file keeps the old one's mode; nothing else is left behind.
+    #[cfg(unix)]
+    #[test]
+    fn a_save_keeps_the_mode_and_leaves_no_temp_file() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = make_tree();
+        let doc = root.join("private.md");
+        std::fs::write(&doc, "old").unwrap();
+        std::fs::set_permissions(&doc, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_atomic(&doc, b"new").unwrap();
+        let mode = std::fs::metadata(&doc).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let leftovers: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".mdopener.tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+    }
+
+    /// Opening one file by two paths (a symbolic link, `..`) opened it in two
+    /// tabs, whose saves overwrote each other. The read names the file it
+    /// read, links resolved, and whether its filesystem ignores case.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_names_the_canonical_file_and_its_case_rule() {
+        let root = make_tree();
+        let doc = root.join("Notes.md");
+        std::fs::write(&doc, "x").unwrap();
+        let link = root.join("link.md");
+        std::os::unix::fs::symlink(&doc, &link).unwrap();
+        let canon = s(&std::fs::canonicalize(&doc).unwrap());
+        let direct = read_markdown_file(s(&doc)).unwrap();
+        let via_link = read_markdown_file(s(&link)).unwrap();
+        let via_dots = read_markdown_file(s(&root.join("notes/../Notes.md"))).unwrap();
+        assert_eq!(direct.canonical_path, canon);
+        assert_eq!(via_link.canonical_path, canon);
+        assert_eq!(via_dots.canonical_path, canon);
+        // `path` stays as named, for links and the vault.
+        assert_eq!(via_link.path, s(&link));
+        // The probe agrees with the filesystem the test runs on.
+        let other_case = root.join("notes.md");
+        let folds = std::fs::metadata(&other_case).is_ok();
+        assert_eq!(direct.case_insensitive, folds);
+        // A sibling that differs only in case is another file, not a fold.
+        if !folds {
+            std::fs::write(&other_case, "y").unwrap();
+            assert!(!read_markdown_file(s(&doc)).unwrap().case_insensitive);
+        }
+    }
+
+    /// A wikilink resolved to any existing file: `![[../../.ssh/config]]`
+    /// in a note showed that file inline, and `[[/etc/hosts]]` opened it.
+    /// Only notes, images, canvases and PDFs resolve, inside the vault when
+    /// there is one, through no hidden folder, and never by absolute path.
+    #[test]
+    fn wikilinks_resolve_only_to_files_a_note_may_link_to() {
+        let root = make_tree();
+        let vault = root.join("vault");
+        std::fs::create_dir_all(vault.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".ssh")).unwrap();
+        std::fs::write(root.join(".ssh").join("config"), "Host *").unwrap();
+        std::fs::write(root.join(".ssh").join("notes.md"), "# hidden").unwrap();
+        std::fs::write(root.join("secret.md"), "# outside the vault").unwrap();
+        std::fs::write(root.join("plain.txt"), "text").unwrap();
+        std::fs::write(vault.join("sub").join("Note.md"), "# n").unwrap();
+        std::fs::write(vault.join("pic.png"), "png").unwrap();
+        let base = s(&vault.join("sub"));
+        let vr = Some(s(&vault));
+
+        // In the vault: a note and an image still resolve.
+        assert!(resolve_wikilink(base.clone(), "Note".into(), vr.clone()).is_some());
+        assert!(resolve_wikilink(base.clone(), "../pic.png".into(), vr.clone()).is_some());
+        // Out of the vault, by `..` or an absolute path: refused.
+        assert!(resolve_wikilink(base.clone(), "../../secret".into(), vr.clone()).is_none());
+        let abs = s(&root.join("secret.md"));
+        assert!(resolve_wikilink(base.clone(), abs.clone(), vr.clone()).is_none());
+        assert!(resolve_wikilink(base.clone(), abs, None).is_none());
+        // With no vault: a hidden folder, or a file that is no note, is refused.
+        let nb = s(&root.join("notes"));
+        assert!(resolve_wikilink(nb.clone(), "../.ssh/config".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../.ssh/notes".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../plain.txt".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../secret".into(), None).is_some());
+        assert!(resolve_wikilink(nb, "../Alpha".into(), None).is_some());
     }
 }

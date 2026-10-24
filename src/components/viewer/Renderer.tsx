@@ -1,4 +1,14 @@
-import { createElement, isValidElement, memo, type ReactNode, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  createElement,
+  isValidElement,
+  type MouseEvent,
+  memo,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -10,6 +20,12 @@ import remarkMath from "remark-math";
 import { useUiStore } from "../../store/uiStore";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
+import {
+  anchorElement,
+  imageSource,
+  linkTarget,
+  scrollToFragment,
+} from "../../lib/docLinks";
 import type { OtOperation } from "../../lib/ot";
 import { rehypeTaskLines } from "../../lib/rehype-task-lines";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
@@ -19,6 +35,7 @@ import { remarkWikilinks } from "../../lib/remark-wikilinks";
 import { detectReviewDoc } from "../../lib/reviewDoc";
 import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
 import { useDocumentStore } from "../../store/documentStore";
+import { toast } from "../../store/toastStore";
 import "../../styles/callouts.css";
 import "../../styles/reading.css";
 import "../../styles/review-doc.css";
@@ -63,12 +80,100 @@ function LinkPreviewAnchor({
           rel="noreferrer noopener"
           {...handlers}
           {...rest}
+          onClick={(e) => followLink(e, href)}
         >
           {children}
         </a>
       )}
     </LinkPreviewPopover>
   );
+}
+
+/**
+ * Follow a read-view link ({@link linkTarget}): a web or mail link is left
+ * to the opener plugin, a `#heading` scrolls this document, and a link to a
+ * Markdown document opens it in a tab (scrolling to its `#heading`). Any
+ * other link is not followed, with a toast saying why. They used to do
+ * nothing, or open the app's own origin in the browser.
+ */
+export function followLink(e: MouseEvent<HTMLAnchorElement>, href: string | undefined) {
+  const target = linkTarget(href, useDocumentStore.getState().path);
+  if (target.kind === "external") return;
+  e.preventDefault();
+  if (target.kind === "blocked") {
+    toast.info(target.reason);
+    return;
+  }
+  if (target.kind === "anchor") {
+    const root = e.currentTarget.closest(".markdown-body") ?? document;
+    anchorElement(target.id, root)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    return;
+  }
+  const { path, fragment } = target;
+  void useDocumentStore
+    .getState()
+    .openPath(path)
+    .then((error) => {
+      if (error === null && fragment) scrollToFragment(fragment);
+    });
+}
+
+/**
+ * A Markdown image: a web image as written, a local one (relative to the
+ * document, or absolute) read through Rust as a `data:` URL, as `![[x.png]]`
+ * embeds are. A relative path used to load from the app's own origin, so a
+ * pasted image (`![](assets/x.png)`) never showed. A missing or refused image
+ * shows its alt text and why.
+ */
+function MarkdownImage({
+  src,
+  alt,
+  title,
+}: {
+  src?: string;
+  alt?: string;
+  title?: string;
+}) {
+  const docPath = useDocumentStore((s) => s.path);
+  const source = useMemo(() => imageSource(src, docPath), [src, docPath]);
+  const [local, setLocal] = useState<{ path: string; url: string | null } | null>(null);
+  useEffect(() => {
+    if (source.kind !== "local") return;
+    let cancelled = false;
+    invoke<string>("read_image_data_url", { path: source.path })
+      .then((url) => {
+        if (!cancelled) setLocal({ path: source.path, url });
+      })
+      .catch(() => {
+        if (!cancelled) setLocal({ path: source.path, url: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+  if (source.kind === "remote") return <img src={source.src} alt={alt} title={title} />;
+  const name = alt || src || "image";
+  if (source.kind === "blocked") {
+    return (
+      <span className="wikiembed wikiembed--broken" title={source.reason}>
+        ⚠ {name}
+      </span>
+    );
+  }
+  if (local?.path !== source.path) {
+    return <span className="wikiembed wikiembed--loading">Loading {name}…</span>;
+  }
+  if (local.url === null) {
+    return (
+      <span className="wikiembed wikiembed--broken" title={source.path}>
+        ⚠ Missing image “{name}”
+      </span>
+    );
+  }
+  return <img src={local.url} alt={alt} title={title} loading="lazy" />;
 }
 
 /** Recursively collect plain text from React children (for fenced code). */
@@ -156,6 +261,15 @@ const components: Components = {
       <LinkPreviewAnchor href={href} {...rest}>
         {children}
       </LinkPreviewAnchor>
+    );
+  },
+  img({ src, alt, title }) {
+    return (
+      <MarkdownImage
+        src={typeof src === "string" ? src : undefined}
+        alt={alt}
+        title={title}
+      />
     );
   },
   h1: (p) => heading(1, p),

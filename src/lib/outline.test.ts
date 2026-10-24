@@ -5,6 +5,7 @@ import {
   markdownLines,
   maskInlineCode,
   parseHeadings,
+  proseText,
 } from "./outline";
 
 describe("parseHeadings", () => {
@@ -697,6 +698,25 @@ describe("maskInlineCode reads a GFM table cell by cell", () => {
     expect(masked("`a|b\nc`|-\n:-\n")).toEqual(["####", "##|-", ":-", ""]);
     // A lazy line in a blockquote is no delimiter row.
     expect(masked("> `a | b\n`-|-\n")).toEqual(["> ######", "#-|-", ""]);
+  });
+
+  it("masks the lines indented four columns after a table whole: they are code", () => {
+    // mdast: a table, then a code block holding `[[x]] `y``; then a paragraph.
+    expect(masked("| a |\n| - |\n    [[x]] `y`\n\t| z |\n| d |\n")).toEqual([
+      "| a |",
+      "| - |",
+      "#".repeat(13),
+      "#".repeat(6),
+      "| d |",
+      "",
+    ]);
+    // In a blockquote, past its marker; three spaces is still a row.
+    expect(masked("> | a |\n> | - |\n>     https://x\n")[2]).toBe("#".repeat(15));
+    expect(masked("| a |\n| - |\n   | `c` |\n")[2]).toBe("   | ### |");
+    // So the page's prose holds none of it (where lint reads links).
+    expect(proseText("| a |\n| - |\n    [[x]]\n")).toBe(
+      "| a |\n| - |\n\0\0\0\0\0\0\0\0\0\n",
+    );
   });
 });
 
