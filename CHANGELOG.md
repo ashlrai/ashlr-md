@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Task toggles follow the page's task rule.** The app's checkbox write-back
+  matched `- [ ]` with its own pattern, so a task in a blockquote
+  (`> - [ ] t`), after a `1)` marker or on a bare item's next line (`-`, then
+  `  [ ] t`) could not be toggled, while `    - [ ] t` (indented code on the
+  page), a `- [ ]` line in fenced code and `- [ ]` alone could. It now reads
+  tasks by the rule of `get_user_annotations` (`task_list::task_marks`), from
+  the Outline's line scan, and changes only the character inside the brackets.
+  Checked against the renderer on generated documents.
 - **The editor splits off the front matter the Outline skips.** The WYSIWYG
   editor hid front matter by its own pattern, so a closer with text after it
   (`---abc`) ended the block and left `abc` in the body, while a delimiter with
