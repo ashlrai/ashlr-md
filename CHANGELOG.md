@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen's timeout test no longer flakes under load.** It answered 500 ms
+  after mdopen's 6 s read timeout, and an mdopen that started its read late
+  got the answer in time and failed the test. The fake app now never answers
+  and waits for mdopen to hang up.
 - **The PDF waits for its fonts.** The print frame was printed 150 ms after
   it loaded, whatever was still loading, so a PDF's math could come out in
   fallback fonts. It now waits for the frame's fonts (up to 3 seconds).
