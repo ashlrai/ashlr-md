@@ -105,6 +105,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`[[wikilinks]]` in the read view are links again.** The HTML sanitizer's
+  rule for links allows only GitHub's footnote class, which replaced the
+  general class rule, so the `wikilink` class was stripped: `[[note]]` rendered
+  as a link with no destination and a click only said so. Wikilinks render as
+  wikilinks again (resolved, broken ones marked, a click opens the note).
 - **Wikilinks to plain-text attachments resolve.** `[[notes.txt]]` and
   `![[data.csv]]` were refused like `config` or `.json` files, so they showed
   as broken links. `.txt`, `.text`, `.csv` and `.tsv` now resolve, inside the
