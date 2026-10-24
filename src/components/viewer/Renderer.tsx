@@ -36,6 +36,7 @@ import {
   resolveLinkTarget,
   scrollToFragment,
 } from "../../lib/docLinks";
+import { smoothScrollBehavior } from "../../lib/motion";
 import type { OtOperation } from "../../lib/ot";
 import { rehypeTaskLines } from "../../lib/rehype-task-lines";
 import { remarkBlockIds } from "../../lib/remark-block-ids";
@@ -127,8 +128,10 @@ export function followLink(
   }
   if (target.kind === "anchor") {
     const root = e.currentTarget.closest(".markdown-body") ?? document;
+    // As the system's reduced-motion setting asks (a `"smooth"` here
+    // animated the jump anyway).
     anchorElement(target.id, root)?.scrollIntoView({
-      behavior: "smooth",
+      behavior: smoothScrollBehavior(),
       block: "start",
     });
     return;

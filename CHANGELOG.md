@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A `#heading` link jumps without animation under reduced motion.** A
+  click on a link to a heading of the same document scrolled smoothly even
+  when the system asks to reduce motion; links into other documents, the
+  outline and find already went by the setting.
 - **A link to a missing file leaves the document in view.** Clicking a link
   (or a wikilink) to a file that is not there replaced the document holding
   it with the read error, which stayed until another tab was chosen; with
