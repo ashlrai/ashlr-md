@@ -15,6 +15,66 @@ pub struct MarkdownFile {
     /// [`write_markdown_file`] so a save never overwrites a change it has
     /// not seen.
     pub version: String,
+    /// `path` with every symbolic link resolved (and `.`/`..` gone), so the
+    /// frontend can tell that two paths name one file and switch to its tab
+    /// rather than open it twice. `path` stays as named: relative links and
+    /// the vault are judged from where the document was opened.
+    pub canonical_path: String,
+    /// The filesystem holding the file ignores case (`Notes.md` and
+    /// `notes.md` are one file), so two canonical paths that differ only in
+    /// case name one file.
+    pub case_insensitive: bool,
+    /// The filesystem ignores Unicode normalization (macOS: `é` composed and
+    /// decomposed are one name).
+    pub normalization_insensitive: bool,
+}
+
+/// Whether the filesystem holding `canonical` (an existing, canonical path)
+/// ignores case: the same path with one ASCII letter's case flipped, in the
+/// last component that has one, names the same file. Windows always does.
+/// A component with no ASCII letter anywhere on the path cannot be probed and
+/// counts as case-sensitive, so two tabs stay two.
+fn ignores_case(canonical: &Path) -> bool {
+    if cfg!(windows) {
+        return true;
+    }
+    let Ok(meta) = std::fs::metadata(canonical) else {
+        return false;
+    };
+    let comps: Vec<_> = canonical.components().collect();
+    for i in (0..comps.len()).rev() {
+        let std::path::Component::Normal(name) = comps[i] else {
+            continue;
+        };
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(pos) = name.find(|c: char| c.is_ascii_alphabetic()) else {
+            continue;
+        };
+        let mut flipped = name.to_string();
+        // An ASCII letter is one byte, so flipping it keeps the string valid.
+        let c = flipped.as_bytes()[pos] as char;
+        let other = if c.is_ascii_lowercase() {
+            c.to_ascii_uppercase()
+        } else {
+            c.to_ascii_lowercase()
+        };
+        flipped.replace_range(pos..pos + 1, &other.to_string());
+        let mut alt = std::path::PathBuf::new();
+        for c in &comps[..i] {
+            alt.push(c.as_os_str());
+        }
+        alt.push(&flipped);
+        for c in &comps[i + 1..] {
+            alt.push(c.as_os_str());
+        }
+        return std::fs::metadata(&alt).is_ok_and(|m| {
+            crate::doc_read::FileIdentity::of(&m) == crate::doc_read::FileIdentity::of(&meta)
+                && cfg!(unix)
+        });
+    }
+    false
 }
 
 /// Marks a save refused because the file on disk is not the one the window
@@ -79,12 +139,17 @@ pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Untitled.md".to_string());
     let version = content_version(&content);
+    let canonical = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let case_insensitive = ignores_case(&canonical);
     Ok(MarkdownFile {
         path,
         file_name,
         content,
         size,
         version,
+        canonical_path: canonical.to_string_lossy().into_owned(),
+        case_insensitive,
+        normalization_insensitive: cfg!(target_os = "macos"),
     })
 }
 
@@ -1470,5 +1535,36 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().ends_with(".mdopener.tmp"))
             .collect();
         assert!(leftovers.is_empty());
+    }
+
+    /// Opening one file by two paths (a symbolic link, `..`) opened it in two
+    /// tabs, whose saves overwrote each other. The read names the file it
+    /// read, links resolved, and whether its filesystem ignores case.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_names_the_canonical_file_and_its_case_rule() {
+        let root = make_tree();
+        let doc = root.join("Notes.md");
+        std::fs::write(&doc, "x").unwrap();
+        let link = root.join("link.md");
+        std::os::unix::fs::symlink(&doc, &link).unwrap();
+        let canon = s(&std::fs::canonicalize(&doc).unwrap());
+        let direct = read_markdown_file(s(&doc)).unwrap();
+        let via_link = read_markdown_file(s(&link)).unwrap();
+        let via_dots = read_markdown_file(s(&root.join("notes/../Notes.md"))).unwrap();
+        assert_eq!(direct.canonical_path, canon);
+        assert_eq!(via_link.canonical_path, canon);
+        assert_eq!(via_dots.canonical_path, canon);
+        // `path` stays as named, for links and the vault.
+        assert_eq!(via_link.path, s(&link));
+        // The probe agrees with the filesystem the test runs on.
+        let other_case = root.join("notes.md");
+        let folds = std::fs::metadata(&other_case).is_ok();
+        assert_eq!(direct.case_insensitive, folds);
+        // A sibling that differs only in case is another file, not a fold.
+        if !folds {
+            std::fs::write(&other_case, "y").unwrap();
+            assert!(!read_markdown_file(s(&doc)).unwrap().case_insensitive);
+        }
     }
 }

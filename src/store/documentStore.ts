@@ -24,6 +24,27 @@ interface MarkdownFile {
   size: number;
   /** What the read saw; handed back to `write_markdown_file` as `expected`. */
   version?: string;
+  /** `path` with links resolved: which file this is (see {@link fileKey}). */
+  canonical_path?: string;
+  /** The file's filesystem ignores case. */
+  case_insensitive?: boolean;
+  /** The file's filesystem ignores Unicode normalization (macOS). */
+  normalization_insensitive?: boolean;
+}
+
+/**
+ * What identifies the file a read named, to find its tab: the canonical path,
+ * in NFC where the filesystem ignores normalization and lower-cased where it
+ * ignores case. Tabs were matched by the path as given, so one file opened
+ * through a symbolic link, with `..`, in the other Unicode form or in other
+ * case opened twice, and each tab's save overwrote the other's. A filesystem
+ * that tells `a.md` from `A.md` (or NFC from NFD) keeps them apart.
+ */
+export function fileKey(file: MarkdownFile): string {
+  let key = file.canonical_path || file.path;
+  if (file.normalization_insensitive) key = key.normalize("NFC");
+  if (file.case_insensitive) key = key.toLowerCase();
+  return key;
 }
 
 /**
@@ -49,6 +70,8 @@ function untagged(error: string): string {
  */
 export interface Tab {
   id: string;
+  /** Which file the tab holds, whatever path opened it ({@link fileKey}). */
+  key: string;
   path: string;
   fileName: string;
   content: string;
@@ -226,7 +249,7 @@ export const MISSING_FILE_REASON =
   "the file was deleted or moved outside Ashlr MD; it is written again only when the user confirms (Save, or Save As)";
 
 /** Fields a Tab and the top-level mirror share, sans `id`. */
-type TabFields = Omit<Tab, "id">;
+type TabFields = Omit<Tab, "id" | "key">;
 
 const EMPTY_TOP = {
   path: null,
@@ -403,9 +426,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      const key = fileKey(file);
+      // The same file by another path (a link, `..`, other case on a
+      // filesystem that ignores it): switch to its tab, as for its own path.
+      const same = get().tabs.find((t) => t.key === key);
+      if (same) {
+        set({ isLoading: false });
+        get().switchTab(same.id);
+        return null;
+      }
       const id = newTabId();
       const tab: Tab = {
         id,
+        key,
         path: file.path,
         fileName: file.file_name,
         content: file.content,
@@ -714,6 +747,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const next = { ...s, ...saved, isDirty };
         return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
+      // The tab holds another file now. Its key is the path the dialog gave
+      // (a real path), until a read names its canonical form.
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key: dest } : t)),
+      }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
         invoke("watch_file", { path: dest }).catch(() => {});

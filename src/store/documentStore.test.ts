@@ -1089,3 +1089,71 @@ describe("documentStore — a file deleted or moved while open", () => {
     expect(s.content).toBe("back");
   });
 });
+
+describe("documentStore — one file opened by two paths is one tab", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  /** read_markdown_file names `canonical` for every path, with `rules`. */
+  function sameFile(
+    canonical: (p: string) => string,
+    rules: { case_insensitive?: boolean; normalization_insensitive?: boolean } = {},
+  ) {
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      const p = args?.path ?? "";
+      if (cmd === "read_markdown_file") {
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: "text",
+          size: 4,
+          version: "v",
+          canonical_path: canonical(p),
+          ...rules,
+        });
+      }
+      return Promise.resolve();
+    });
+  }
+
+  it("switches to the tab of a file opened through a symbolic link", async () => {
+    sameFile(() => "/real/notes.md");
+    await useDocumentStore.getState().openPath("/vault/notes.md");
+    await useDocumentStore.getState().openPath("/vault/link-to-notes.md");
+    const s = useDocumentStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    // The tab keeps the path it was opened by (links resolve from there).
+    expect(s.path).toBe("/vault/notes.md");
+    expect(s.isLoading).toBe(false);
+  });
+
+  it("folds case only where the filesystem ignores it", async () => {
+    sameFile((p) => p, { case_insensitive: true });
+    await useDocumentStore.getState().openPath("/v/Notes.md");
+    await useDocumentStore.getState().openPath("/v/notes.md");
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    reset();
+    sameFile((p) => p, { case_insensitive: false });
+    await useDocumentStore.getState().openPath("/v/Notes.md");
+    await useDocumentStore.getState().openPath("/v/notes.md");
+    expect(useDocumentStore.getState().tabs).toHaveLength(2);
+  });
+
+  it("treats composed and decomposed names as one where the filesystem does", async () => {
+    const nfc = "/v/café.md";
+    const nfd = "/v/café.md";
+    sameFile((p) => p, { normalization_insensitive: true });
+    await useDocumentStore.getState().openPath(nfc);
+    await useDocumentStore.getState().openPath(nfd);
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    reset();
+    sameFile((p) => p);
+    await useDocumentStore.getState().openPath(nfc);
+    await useDocumentStore.getState().openPath(nfd);
+    expect(useDocumentStore.getState().tabs).toHaveLength(2);
+  });
+});

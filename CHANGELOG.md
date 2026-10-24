@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **One file opened by two paths is one tab.** Tabs were matched by the path
+  as given, so a note opened through a symbolic link, with `..`, in the other
+  Unicode form or in other case opened in a second tab, and each tab's save
+  overwrote the other's. The read now names the file's canonical path and
+  whether its filesystem ignores case (probed) and Unicode normalization
+  (macOS), and opening a file already open switches to its tab. Case and
+  normalization are folded only where the filesystem folds them. The tab keeps
+  the path it was opened by, so its relative links and vault are unchanged.
 - **A file deleted or moved while open is shown, and is not silently
   recreated.** The window showed nothing when the open file was deleted or
   moved by another app, and the next save wrote it back at its old place. The
