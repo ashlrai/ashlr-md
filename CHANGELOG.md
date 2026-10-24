@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The table wizard inserts a table.** Insert in the WYSIWYG table wizard
+  (⌘⇧T outside a table) typed the table's Markdown into the document as
+  text, so it showed as a paragraph of pipes and was saved with every pipe
+  escaped. It now inserts a real table after the cursor's block (or in
+  place of an empty line).
 - **A nested list keeps its own marker.** The list marker is one setting for
   the whole edited list, so typing in `- a` with `* b` nested under it saved
   the nested list as `- b`, and a `1)` list nested in a `1.` list became

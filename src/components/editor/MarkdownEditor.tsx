@@ -37,6 +37,7 @@ import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { listEnterTransaction } from "../../lib/milkdownListEnter";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import {
+  insertTableTransaction,
   syncTableTransaction,
   tableIndexOfOffset,
   tableOffsetAt,
@@ -1054,15 +1055,24 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
               className="table-wizard-btn table-wizard-btn-primary"
               onClick={() => {
                 const view = proseRef.current;
-                if (!view || !tableWizard) return;
+                const editor = get();
+                if (!view || !editor || !tableWizard) return;
                 const tableMd = buildTableMarkdown(tableWizard.rows, tableWizard.cols);
-                const { from, to } = view.state.selection;
-                // Insert on its own line — prepend/append newlines as needed.
-                const docText = view.state.doc.textContent;
-                const charBefore = docText[from - 1];
-                const prefix = charBefore && charBefore !== "\n" ? "\n\n" : "\n";
-                const insert = `${prefix}${tableMd}\n\n`;
-                view.dispatch(view.state.tr.insertText(insert, from, to));
+                // A real table, parsed as the editor reads Markdown: the
+                // Markdown inserted as text showed (and saved) as an escaped
+                // paragraph of pipes.
+                try {
+                  editor.action((ctx) => {
+                    const tr = insertTableTransaction(
+                      view.state,
+                      ctx.get(parserCtx)(tableMd),
+                    );
+                    if (tr) view.dispatch(tr);
+                  });
+                } catch {
+                  // Not parsed: nothing is inserted.
+                }
+                view.focus();
                 setTableWizard(null);
               }}
             >

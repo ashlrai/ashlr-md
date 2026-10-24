@@ -109,3 +109,31 @@ function tablesOf(doc: Node): number {
   });
   return n;
 }
+
+/**
+ * A transaction that inserts the first table of `parsed` (the table
+ * wizard's Markdown, as the editor's parser reads it) as a table at the
+ * cursor: in place of the cursor's top-level block when that is an empty
+ * paragraph, else after it. The wizard used to insert the Markdown as
+ * typed text, which the editor showed (and saved) as an escaped paragraph
+ * of pipes. Null when `parsed` holds no table.
+ */
+export function insertTableTransaction(
+  state: EditorState,
+  parsed: Node,
+): Transaction | null {
+  const found = nthTablePos(parsed, 0);
+  if (!found) return null;
+  const { $from } = state.selection;
+  if ($from.depth < 1) {
+    return state.tr.insert($from.pos, found.node).scrollIntoView();
+  }
+  const block = $from.node(1);
+  const before = $from.before(1);
+  const after = $from.after(1);
+  const tr =
+    block.type.name === "paragraph" && block.content.size === 0
+      ? state.tr.replaceWith(before, after, found.node)
+      : state.tr.insert(after, found.node);
+  return tr.scrollIntoView();
+}
