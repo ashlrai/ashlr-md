@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` strips markup inside link and image text.** A link's text and
+  an image's alt text were copied as written, so `[**a**](u)` read `**a**` and
+  ``[`code`](u)`` kept its backticks, where the page shows `a` and `code`. They
+  now lose their inline marks, as the rest of the line does.
 - **`export_text` drops link reference definitions and reads autolinks as
   CommonMark does.** A definition line (`[ref]: /url "title"`) read
   `ref: /url "title"`, although the page shows nothing for it. Definitions are

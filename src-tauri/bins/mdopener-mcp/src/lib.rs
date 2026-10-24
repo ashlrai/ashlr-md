@@ -8405,7 +8405,9 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
             }
         }
         // Inline image: ![alt](url), or a reference ![alt][ref] whose label
-        // is defined → alt text only. Any other `![alt]` is text.
+        // is defined → alt text only, with its own inline markup read
+        // (`![*a*](i)` reads `a`, as the page's alt text does). Any other
+        // `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
                 let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
@@ -8415,7 +8417,7 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
                     reference_end(&chars, &alt, end, refs)
                 };
                 if let Some(after) = after {
-                    out.push_str(&alt);
+                    out.push_str(&strip_inline_with(&alt, refs));
                     i = after;
                     continue;
                 }
@@ -8451,7 +8453,9 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
             }
         }
         // Link: [text](url), or a reference link whose label the document
-        // defines ([`reference_end`]) → text only. Any other `[text]` is
+        // defines ([`reference_end`]) → text only, with its own inline
+        // markup read (`[**a**](u)` reads `a`; it used to keep its `**`).
+        // Any other `[text]` is
         // text: its `[` is kept and the text after it is read on, so
         // `[**b**]` reads `[b]`. strip_markdown drops a task checkbox before
         // this, so `[ ] not a task` keeps its brackets, and so does
@@ -8465,7 +8469,7 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
                     reference_end(&chars, &text, end, refs)
                 };
                 if let Some(after) = after {
-                    out.push_str(&text);
+                    out.push_str(&strip_inline_with(&text, refs));
                     i = after;
                     continue;
                 }

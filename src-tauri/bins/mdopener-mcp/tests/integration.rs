@@ -8682,6 +8682,24 @@ fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
     assert!(docs.contains("an autolink reads its URL or address"));
 }
 
+/// A link's text and an image's alt text kept their inline markup:
+/// `[**a**](u)` read `**a**`, where the page shows `a`.
+#[test]
+fn export_text_strips_markup_inside_link_and_image_text() {
+    let cases = [
+        ("[**a**](u) and ![*alt*](i)", "a and alt"),
+        ("[`code`](u) [~~old~~](u) [b <i>x</i>](u)", "code old b x"),
+        ("[_e_][r] ![**l**][r]\n\n[r]: /u", "e l"),
+        ("![a [b](c)](d)", "a b"),
+        ("[2 * 3](u)", "2 * 3"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("without their inline marks (`[**a**](u)` reads `a`"));
+}
+
 /// After a bare item's end, indented code that opens a blockquote
 /// (`-`, a blank line, then `>     code`) was taken to close a container,
 /// so it did not hold the next line's markers: `> 2) ```` opened an item
