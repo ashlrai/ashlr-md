@@ -101,6 +101,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **`export_text` says how it keeps code.** Its description said code
+  block contents are kept as-is, though code in a blockquote or a list
+  item loses the `>` markers and indentation it sits in, and indented
+  code its four columns, so an agent could match the text against the
+  source with them. It now says what is taken off.
 - **Docs: `stream_edit` with `path` reads only the open path.** The
   `docs/AGENTS.md` row said a `path` made it fetch the whole document to
   compare, which it stopped doing when the app gained a path-only route,

@@ -1340,7 +1340,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_text",
             description: "Extract the plain text of a Markdown document. All Markdown syntax \
                 (headings, bold/italic, links, images, blockquotes, horizontal rules, HTML tags) is \
-                stripped while code block contents are preserved as-is. Strikethrough keeps its \
+                stripped while code is kept as written, its `#`s and `*`s included: fenced and \
+                indented code lose only the blockquote markers and list item indentation they sit \
+                in and the fence's or the four columns' indentation. Strikethrough keeps its \
                 text, table rows become tab-separated cells, and footnotes read [1]. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \

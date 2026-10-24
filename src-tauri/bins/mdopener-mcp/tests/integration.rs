@@ -8420,6 +8420,18 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     assert_eq!(v["text"], "Notes\n\n# keep");
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("is kept as code without them and its indent"));
+    // The description said code was "preserved as-is", though it loses its
+    // containers and indentation.
+    let d = mdopener_mcp::tool_registry()
+        .into_iter()
+        .find(|t| t.name == "export_text")
+        .unwrap()
+        .description;
+    assert!(!d.contains("as-is"), "{d}");
+    assert!(
+        d.contains("lose only the blockquote markers and list item indentation they sit in"),
+        "{d}"
+    );
 }
 
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
