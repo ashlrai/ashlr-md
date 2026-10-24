@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Opening the outline or agent activity moves focus into it.** Opened
+  from a shortcut, either panel left focus where it was, so a keyboard user
+  had to find it. Focus now goes to the current heading's entry (else the
+  first, else the close button) in the outline, and to the open file's
+  entry (else the newest, else "Watch a folder…") in agent activity. On
+  close it goes back, as before.
 - **Command palette groups are real groups.** The group headings were plain
   elements among the palette's options, which a list box may not hold. Each
   group's commands now sit in a group labelled by its heading, so a screen

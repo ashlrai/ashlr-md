@@ -26,3 +26,36 @@ export function useReturnFocus(
     };
   }, [open, panelRef]);
 }
+
+/** What a panel's first focusable control is, when no preferred one is there. */
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Move focus into a side panel when it opens: to the first element matching
+ * one of `preferred` (in order), else its first focusable control. Opening
+ * the outline or agent activity from a shortcut used to leave focus where it
+ * was, so a keyboard user had to find the panel. Focus already inside the
+ * panel is left alone. Declare it after {@link useReturnFocus}, which must
+ * see what had focus first. Pass a constant `preferred` (a new array each
+ * render would move focus again).
+ */
+export function useFocusOnOpen(
+  open: boolean,
+  panelRef: RefObject<HTMLElement | null>,
+  preferred: readonly string[],
+): void {
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel || panel.contains(document.activeElement)) return;
+    for (const sel of preferred) {
+      const el = panel.querySelector<HTMLElement>(sel);
+      if (el) {
+        el.focus({ preventScroll: true });
+        return;
+      }
+    }
+    panel.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+  }, [open, panelRef, preferred]);
+}

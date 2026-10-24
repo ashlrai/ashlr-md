@@ -12,7 +12,7 @@ import "../styles/outline.css";
 import { formatShortcut } from "../lib/keymap";
 import { smoothScrollBehavior } from "../lib/motion";
 import { type HeadingItem, parseHeadings } from "../lib/outline";
-import { useReturnFocus } from "../lib/useReturnFocus";
+import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
 
@@ -38,6 +38,8 @@ function scrollToSlug(slug: string) {
   el?.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
 }
 
+const OUTLINE_FOCUS = [".outline-item--active", ".outline-item"] as const;
+
 export function Outline() {
   const open = useUiStore((s) => s.outlineOpen);
   const closeOutline = useUiStore((s) => s.closeOutline);
@@ -54,6 +56,8 @@ export function Outline() {
   const panelRef = useRef<HTMLElement>(null);
   // Closed, the panel is inert: give focus back to what had it.
   useReturnFocus(open, panelRef);
+  // Opened, focus the current heading's entry (else the first, else close).
+  useFocusOnOpen(open, panelRef, OUTLINE_FOCUS);
 
   // Scrollspy (read view only): mark the heading nearest the top of the
   // viewport as active using an IntersectionObserver over the rendered headings.

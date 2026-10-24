@@ -14,7 +14,7 @@ import {
   watchDirectory,
 } from "../lib/activity";
 import { formatShortcut } from "../lib/keymap";
-import { useReturnFocus } from "../lib/useReturnFocus";
+import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -97,6 +97,12 @@ function DocIcon() {
 // ActivityDrawer
 // ---------------------------------------------------------------------------
 
+const ACTIVITY_FOCUS = [
+  ".activity-item--active",
+  ".activity-item",
+  ".activity-empty__cta",
+] as const;
+
 export function ActivityDrawer() {
   const open = useUiStore((s) => s.activityOpen);
   const closeActivity = useUiStore((s) => s.closeActivity);
@@ -117,6 +123,9 @@ export function ActivityDrawer() {
   const panelRef = useRef<HTMLElement>(null);
   // Closed, the panel is inert: give focus back to what had it.
   useReturnFocus(open, panelRef);
+  // Opened, focus the open file's entry (else the newest, else the call to
+  // action, else close).
+  useFocusOnOpen(open, panelRef, ACTIVITY_FOCUS);
   const activePath = useDocumentStore((s) => s.path);
 
   // A ticking clock so relative timestamps stay fresh while the drawer is open.
