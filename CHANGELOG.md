@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports name the document's language.** Every exported page said
+  `<html lang="en">`, so a screen reader read a French document with English
+  rules. The front matter's `lang` (`lang: fr-CA`) now names it, in HTML
+  exports, export profiles, DOCX and EPUB, when it is a language tag in the
+  BCP 47 shape (`en_US` reads as `en-US`); anything else, or none, is `en`.
 - **Copy as rich text waits for images still loading.** A local image or
   embed shows "Loading…" until Rust has read it, and a rich copy taken then
   carried its name instead of the image. Both rich copy commands now wait

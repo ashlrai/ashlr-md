@@ -268,7 +268,7 @@ export function buildStandaloneHtml(
     : "";
 
   return `<!doctype html>
-<html lang="en" data-theme="${theme}"${template ? ` data-export-template="${escapeHtml(template.id)}"` : ""}>
+<html lang="${escapeHtml(openDocumentLang())}" data-theme="${theme}"${template ? ` data-export-template="${escapeHtml(template.id)}"` : ""}>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -352,12 +352,47 @@ export function buildStandaloneHtmlWithActiveTemplate(title: string): string {
 export function exportMetadata(fallbackTitle: string): {
   title: string;
   author: string;
+  lang: string;
 } {
   const content = useDocumentStore.getState().content ?? "";
   return {
     title: frontmatterText(content, "title") ?? fallbackTitle,
     author: frontmatterText(content, "author") ?? "",
+    lang: exportLang(content),
   };
+}
+
+/** The language exports name when the front matter names none (or no valid one). */
+export const DEFAULT_EXPORT_LANG = "en";
+
+/**
+ * `value` as a language tag, when it is one in the shape BCP 47 gives
+ * (`en`, `pt-BR`, `zh-Hant-TW`, `sr-Latn`): a primary subtag of 2 to 8
+ * letters, then subtags of 1 to 8 letters and digits, joined by hyphens, at
+ * most 35 characters. `en_US` reads as `en-US`. Anything else (a sentence,
+ * markup, quotes) is null: it is written into an attribute.
+ */
+export function languageTag(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const tag = value.trim().replace(/_/g, "-");
+  if (tag.length === 0 || tag.length > 35) return null;
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(tag) ? tag : null;
+}
+
+/**
+ * The language of the document's export: its front matter `lang` (as
+ * Pandoc and most static site generators read it), else
+ * {@link DEFAULT_EXPORT_LANG}. Every export said `lang="en"`, so a screen
+ * reader read a French document with English rules, and a browser offered
+ * to translate it from English.
+ */
+export function exportLang(content: string): string {
+  return languageTag(frontmatterText(content, "lang")) ?? DEFAULT_EXPORT_LANG;
+}
+
+/** {@link exportLang} of the open document. */
+function openDocumentLang(): string {
+  return exportLang(useDocumentStore.getState().content ?? "");
 }
 
 /** Minimal HTML-entity escaping for the document title. */
@@ -451,6 +486,8 @@ export async function exportDocx(
   const result = await HTMLtoDOCX(bodyHtml, null, {
     title: meta.title,
     ...(meta.author ? { creator: meta.author } : {}),
+    // The document's language (front matter `lang`), for Word's proofing.
+    lang: meta.lang,
     // Margins in twips (1 inch = 1440 twips).
     margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
     // Embed a minimal set of font hints so Word renders reasonably.
@@ -802,6 +839,8 @@ export async function exportEpub(
         title: meta.title,
         // The front matter's `author`, else none.
         author: meta.author,
+        // The front matter's `lang`, else "en" (the library's default was "en").
+        lang: meta.lang,
         // Use the theme-aware chapter CSS as the stylesheet.
         css,
         // EPUB 3 for widest modern reader support.
@@ -873,7 +912,7 @@ export function buildExportHtml(
     profileId === "email-html" ? inlineEmailStyles(bodyHtml) : bodyHtml;
 
   return `<!doctype html>
-<html lang="en" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
+<html lang="${escapeHtml(openDocumentLang())}" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
