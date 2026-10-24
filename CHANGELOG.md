@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The WYSIWYG table menu opens in a built app.** The editor's table menu
+  (right-click or double-click in a table, ⌘⇧T) and Enter continuing a list
+  were wired up in a step that ran before the editor's view was known, found
+  none and never listened. Development builds run that step twice, which hid
+  it. The view is now known first.
 - **A block the editor cannot map no longer rewrites the whole file.** When
   the WYSIWYG editor's blocks did not line up one to one with the file's, any
   edit wrote the whole document the serializer's way. The blocks are now

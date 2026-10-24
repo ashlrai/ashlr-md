@@ -394,6 +394,25 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     return crepe;
   }, []);
 
+  // Once the editor has finished loading, capture the ProseMirror view so
+  // inline AI can read selections and dispatch in-place replacements. It
+  // comes before every effect that reads it: effects run in order, and the
+  // table menu's (context menu, ⌘⇧T, Enter in a list) ran first, found no
+  // view and never listened, so in a build (no StrictMode second run) the
+  // table menu never opened.
+  useEffect(() => {
+    if (loading) return;
+    const editor = get();
+    if (!editor) return;
+    try {
+      editor.action((ctx) => {
+        proseRef.current = ctx.get(editorViewCtx);
+      });
+    } catch {
+      proseRef.current = null;
+    }
+  }, [loading, get]);
+
   // ── Table context-menu trigger ───────────────────────────────────────────
 
   useEffect(() => {
@@ -515,21 +534,6 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
   }, [loading, getBodyCursorOffset]);
 
   // ── End table helpers ────────────────────────────────────────────────────
-
-  // Once the editor has finished loading, capture the ProseMirror view so
-  // inline AI can read selections and dispatch in-place replacements.
-  useEffect(() => {
-    if (loading) return;
-    const editor = get();
-    if (!editor) return;
-    try {
-      editor.action((ctx) => {
-        proseRef.current = ctx.get(editorViewCtx);
-      });
-    } catch {
-      proseRef.current = null;
-    }
-  }, [loading, get]);
 
   // Paste an image → save it to the configured location and insert the Markdown
   // reference at the cursor. Bound on the ProseMirror DOM (capture phase) so it
