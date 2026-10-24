@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`replace_document` keeps a CRLF document's line breaks and its byte order
+  mark.** An agent writes the whole text with LF and no mark, so replacing a
+  CRLF file (`replace_document` or `set_content`) changed every line of it on
+  save and dropped its BOM. The new text now takes CRLF line breaks when the
+  open document uses CRLF throughout and the text has no `\r` of its own, and
+  the open document's BOM when it has none. Text with its own line breaks, and
+  a mixed or LF document, are written as given.
 - **A byte order mark no longer hides a document's first line.** A file
   saved with a UTF-8 BOM (Notepad saves one) kept it before its first line,
   so a `# Title` there was missing from the Outline, front matter after it

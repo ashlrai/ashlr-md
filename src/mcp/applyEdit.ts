@@ -92,6 +92,22 @@ function inDocumentLineBreaks(
     : replace;
 }
 
+/**
+ * `content`, the whole new text of a document, in the style of `live`, the
+ * text it replaces: CRLF line breaks when `live` is a CRLF document (it has
+ * `\r\n` and no lone `\n`) and `content` has no `\r`, and the byte order
+ * mark of `live` when `content` has none. An agent writes the whole text
+ * with LF and no mark, so replacing a CRLF file changed every line of it on
+ * save and dropped its mark. A `content` that carries `\r` or the mark of
+ * its own is written as given.
+ */
+export function inDocumentStyle(live: string, content: string): string {
+  const crlf = /\r\n/.test(live) && !/(^|[^\r])\n/.test(live);
+  let out = crlf && !content.includes("\r") ? content.replace(/\n/g, "\r\n") : content;
+  if (live.startsWith("\uFEFF") && !out.startsWith("\uFEFF")) out = `\uFEFF${out}`;
+  return out;
+}
+
 /** `content` with `match` replaced by `replace`, in its line breaks. */
 function replaceMatch(content: string, match: FindMatch, replace: string): string {
   return (
