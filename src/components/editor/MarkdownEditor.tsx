@@ -709,6 +709,10 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         );
         const newBody = reorderImageInMarkdown(body, dragFromIndex, toIndex);
         if (newBody !== body) {
+          // The editor shows the new order too: given to the store only,
+          // it was undone by the next keystroke, as a table menu edit was.
+          showBodyInEditor(newBody, null);
+          lastBodyRef.current = newBody;
           setContentRef.current(joinFrontmatter(frontmatter, newBody));
         }
       }

@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Reordering images by dragging survives the next keystroke.** Dragging an
+  image onto another in the WYSIWYG view reordered them in the Markdown but
+  not in the editor, so the next thing typed put the old order back. The
+  editor now shows the new order, as for a table menu edit.
 - **A table menu edit survives the next keystroke.** The WYSIWYG table menu
   (insert or delete a row or column, align a column) changed the Markdown
   but not the editor, which kept the old table, so the next thing typed
