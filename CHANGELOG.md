@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Find in the read view finds words in a `==highlight==`.** Find skipped
+  every `<mark>` so as not to mark its own hits twice, and a highlight
+  renders as a `<mark>`, so the highlighted words of a note, often the ones
+  that matter most, were never found. Only find's own marks are skipped now.
 - **A task item that starts with `> [!TIP]` keeps it when edited.** The
   editor writes a task item's text as if it began a line, so `- [ ] > [!TIP]`
   was saved as `- [ ] \> \[!TIP]` once the item was edited (and `# x` as

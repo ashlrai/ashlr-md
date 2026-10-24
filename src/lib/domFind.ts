@@ -10,7 +10,10 @@ import { smoothScrollBehavior } from "./motion";
 
 const HIT = "find-hit";
 const ACTIVE = "find-hit--active";
-const SKIP_SELECTOR = "pre, code, .katex, .katex-display, .mermaid-block, mark";
+// Only find's own marks are skipped: a `==highlight==` renders as a
+// `<mark class="highlight">`, and skipping every `mark` left its words
+// unfound.
+const SKIP_SELECTOR = `pre, code, .katex, .katex-display, .mermaid-block, mark.${HIT}`;
 
 function container(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".app-content .markdown-body");

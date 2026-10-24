@@ -31,6 +31,15 @@ describe("domFind", () => {
     expect(highlight("alpha")).toBe(1);
   });
 
+  it("finds text inside a ==highlight== mark", () => {
+    setup('<p>plain <mark class="highlight">key idea</mark> and idea</p>');
+    expect(highlight("idea")).toBe(2);
+    const hit = document.querySelector("mark.highlight mark.find-hit");
+    expect(hit?.textContent).toBe("idea");
+    clearHighlights();
+    expect(document.querySelector("mark.highlight")?.textContent).toBe("key idea");
+  });
+
   it("clears highlights and restores the original text", () => {
     setup("<p>find me here</p>");
     highlight("find");
