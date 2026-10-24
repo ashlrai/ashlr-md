@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edit before a last list, table or rule leaves that block alone.** On
+  the first edit the WYSIWYG editor adds an empty paragraph after a last
+  block that is not a paragraph, so every edit looked like a change at the
+  end of the file and that block was rewritten: a `- - -` rule became `***`,
+  `+` bullets became `*`, a table was re-padded. The added paragraph is no
+  longer taken for a change.
 - **Unsaved text for a file that cannot be opened is kept.** At launch, the
   text kept for a file that was deleted, moved or cannot be read was reported
   ("could not be restored") and dropped. It now opens in a tab of its own,

@@ -169,6 +169,18 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     expect(ed.saved()).toBe("Setext\n======\n\n+ plus\n+ list\n");
   });
 
+  it("an edit before a last list, table or rule leaves that block as it was", async () => {
+    // The editor adds an empty paragraph after such a block on the first
+    // edit, which made the edit reach the end: the rule was written `***`.
+    for (const last of ["- - -", "+ a\n+ b", "| a |\n|---|\n| b |"]) {
+      const raw = `Para here.\n\n${last}\n`;
+      const ed = await open(raw);
+      typeInto(ed.crepe, "Para here.", 4, "X");
+      await settle();
+      expect(ed.saved()).toBe(raw.replace("Para here.", "ParaX here."));
+    }
+  });
+
   it("undoing the only edit saves the file as it was", async () => {
     const raw = "Setext\n======\n\n* a\n* b\n\nEdit me here.\n";
     const ed = await open(raw);

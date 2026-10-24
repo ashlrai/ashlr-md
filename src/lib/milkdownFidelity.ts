@@ -113,7 +113,14 @@ export function spliceEdited(input: SpliceInput): string {
   const { original, map, initial, current } = input;
   const { blocks } = map;
   const n = initial.childCount;
-  const c = current.childCount;
+  // The empty paragraph the editor adds after a last block that is not a
+  // paragraph (a list, a table, a rule) on the first edit is not text of
+  // the file: it made every edit look like a change at the end, so the
+  // last block was rewritten whatever was edited.
+  const c =
+    current.childCount > n && addedTrailingParagraph(initial, current)
+      ? current.childCount - 1
+      : current.childCount;
   // Leading and trailing top-level nodes that did not change.
   let k = 0;
   while (k < n && k < c && initial.child(k).eq(current.child(k))) k++;
@@ -174,6 +181,14 @@ export function spliceEdited(input: SpliceInput): string {
     return head + before + tail;
   }
   return head + before + parts.join("\n\n") + after + tail;
+}
+
+/** Whether `current` ends with an empty paragraph `initial` did not end with. */
+function addedTrailingParagraph(initial: PmNode, current: PmNode): boolean {
+  const last = current.child(current.childCount - 1);
+  if (last.type.name !== "paragraph" || last.content.size !== 0) return false;
+  const n = initial.childCount;
+  return n === 0 || !initial.child(n - 1).eq(last);
 }
 
 /**
