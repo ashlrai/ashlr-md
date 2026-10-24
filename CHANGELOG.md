@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Large DOCX and EPUB exports are written without a JSON detour.** Their
+  bytes crossed to the app as a JSON array of numbers, about 3.6 bytes of
+  JSON for each byte of the file: a 32 MiB EPUB became 114 MiB of JSON, and
+  building and parsing it took about 2.4 s (1.3 s and 1 s; 8 MiB: 0.6 s).
+  The bytes are now the request's raw body (about 25 ms for 32 MiB), with
+  the path in a percent-encoded header.
 - **Exports never write into an Obsidian config folder.** A Markdown save
   refused `.obsidian/`, but a DOCX or EPUB export (`write_file_bytes`) did
   not, so an export saved as `.obsidian/app.json` replaced the vault's

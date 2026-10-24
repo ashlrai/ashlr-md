@@ -1199,7 +1199,7 @@ mod tests {
 
         let out = root.join("out.docx");
         std::os::unix::fs::symlink(&outside, root.join("out.docx.mdopener.tmp")).unwrap();
-        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        crate::export::write_export_file(&s(&out), b"PK").unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), b"PK");
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
 
@@ -1233,7 +1233,7 @@ mod tests {
         let out = root.join("private.docx");
         std::fs::write(&out, "old").unwrap();
         std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o640)).unwrap();
-        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        crate::export::write_export_file(&s(&out), b"PK").unwrap();
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640, "{mode:o}");
     }
@@ -1313,7 +1313,7 @@ mod tests {
         let err = write_markdown_file(s(&doc), "new".into(), None).unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
-        let err = crate::export::write_file_bytes(s(&doc), b"PK".to_vec()).unwrap_err();
+        let err = crate::export::write_export_file(&s(&doc), b"PK").unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
         // No temp file is left.

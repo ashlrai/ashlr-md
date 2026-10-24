@@ -1,8 +1,8 @@
 //! Export helper: write arbitrary bytes to disk atomically.
 //!
-//! Used by the DOCX export path (html-to-docx returns a binary Blob/ArrayBuffer
-//! that cannot go through the text-oriented `write_markdown_file`).  The HTML
-//! and PDF paths do not need this command.
+//! Used by the DOCX and EPUB export paths, whose libraries return binary
+//! files that cannot go through the text-oriented `write_markdown_file`.
+//! The PDF path does not need this command.
 //!
 //! The atomic write strategy mirrors `document.rs`: write to a sibling temp
 //! file first, then rename.  A rename on the same filesystem is atomic on
@@ -11,18 +11,50 @@
 
 use std::path::Path;
 
-/// Write `data` bytes to `path` atomically via a temp-file rename.
+/// The request header naming the file [`write_file_bytes`] writes,
+/// percent-encoded UTF-8 (`encodeURIComponent`): a header value is ASCII.
+pub const EXPORT_PATH_HEADER: &str = "x-export-path";
+
+/// Write the request's raw body to the file named by its
+/// [`EXPORT_PATH_HEADER`] header, atomically via a temp-file rename.
 ///
 /// Invoked from the frontend as:
 /// ```ts
-/// await invoke("write_file_bytes", { path, data: Array.from(uint8Array) });
+/// await invoke("write_file_bytes", bytes, {
+///   headers: { "x-export-path": encodeURIComponent(path) },
+/// });
 /// ```
-/// `data` is a `Vec<u8>` — Tauri's JSON deserialiser accepts a JSON array of
-/// integers `[0..255]` for that type, which is what `Array.from(Uint8Array)`
-/// produces.
+/// The bytes cross the IPC as they are. They used to be a JSON array of
+/// numbers (`{ path, data: Array.from(bytes) }`), about 3.6 bytes of JSON
+/// for each byte of the file, built and parsed on both sides: a 32 MiB EPUB
+/// sent 114 MiB of JSON, and the conversion alone took over two seconds.
 #[tauri::command]
-pub fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
-    write_export_file(&path, &data)
+pub fn write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = export_path_header(
+        request
+            .headers()
+            .get(EXPORT_PATH_HEADER)
+            .map(|v| v.as_bytes()),
+    )?;
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err("write_file_bytes takes the file's bytes as a raw request body".into());
+    };
+    write_export_file(&path, data)
+}
+
+/// The path in an [`EXPORT_PATH_HEADER`] value, which must be there, decode
+/// as percent-encoded UTF-8 and not be empty.
+fn export_path_header(raw: Option<&[u8]>) -> Result<String, String> {
+    let raw =
+        raw.ok_or_else(|| format!("write_file_bytes needs the {EXPORT_PATH_HEADER} header"))?;
+    let text = std::str::from_utf8(raw)
+        .ok()
+        .and_then(|t| urlencoding::decode(t).ok())
+        .ok_or_else(|| format!("the {EXPORT_PATH_HEADER} header is not percent-encoded UTF-8"))?;
+    if text.is_empty() {
+        return Err(format!("the {EXPORT_PATH_HEADER} header is empty"));
+    }
+    Ok(text.into_owned())
 }
 
 /// [`write_file_bytes`] without the IPC: the guards Markdown saves apply
@@ -37,7 +69,21 @@ pub(crate) fn write_export_file(path: &str, data: &[u8]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::write_export_file;
+    use super::{export_path_header, write_export_file};
+
+    /// The path travels percent-encoded, so any file name survives a
+    /// header; a missing, malformed or empty one is refused.
+    #[test]
+    fn the_path_header_is_percent_decoded() {
+        let encoded = b"%2Ftmp%2FR%C3%A9sum%C3%A9%20%F0%9F%93%9D.docx";
+        assert_eq!(
+            export_path_header(Some(encoded)).unwrap(),
+            "/tmp/R\u{e9}sum\u{e9} \u{1f4dd}.docx"
+        );
+        assert!(export_path_header(None).is_err());
+        assert!(export_path_header(Some(b"")).is_err());
+        assert!(export_path_header(Some(b"%FF")).is_err());
+    }
 
     fn temp_root(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(

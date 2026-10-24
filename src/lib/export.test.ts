@@ -460,9 +460,13 @@ describe("exportDocx", () => {
     const { exportDocx: exportDocxFresh } = await import("./export");
     await exportDocxFresh("My Doc");
 
-    expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", {
-      path: "/home/user/my-doc.docx",
-      data: expect.any(Array),
+    // The bytes are the raw request body, the path a header: they used to
+    // be a JSON array of numbers, 3.6 bytes of JSON per byte.
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    expect(call?.[1]).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(call?.[1])).toBe("DOCX bytes");
+    expect(call?.[2]).toEqual({
+      headers: { "x-export-path": encodeURIComponent("/home/user/my-doc.docx") },
     });
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       expect.stringContaining("my-doc.docx"),
@@ -480,7 +484,20 @@ describe("exportDocx", () => {
 
     const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
     expect(call).toBeDefined();
-    expect(call![1].data).toBeInstanceOf(Array);
+    expect(call![1]).toBeInstanceOf(Uint8Array);
+  });
+
+  it("sends any file name as an ASCII header the backend decodes", async () => {
+    vi.doMock("html-to-docx", () => ({
+      default: vi.fn().mockResolvedValue(new Blob(["x"])),
+    }));
+    saveMock.mockResolvedValue("/home/user/Résumé 📝.docx");
+    const { exportDocx: exportDocxFresh } = await import("./export");
+    await exportDocxFresh("Résumé");
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    const header = call?.[2].headers["x-export-path"] as string;
+    expect(header).toMatch(/^[\x21-\x7e]+$/);
+    expect(decodeURIComponent(header)).toBe("/home/user/Résumé 📝.docx");
   });
 
   it("shows an error toast and re-throws when write_file_bytes fails", async () => {
@@ -1791,7 +1808,11 @@ describe("exportEpub", () => {
       expect(page).not.toContain("data:");
       expect(blocked).not.toHaveBeenCalled();
       expect(globalThis.fetch).toBe(blocked);
-      expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", expect.anything());
+      expect(invokeMock).toHaveBeenCalledWith(
+        "write_file_bytes",
+        expect.any(Uint8Array),
+        expect.anything(),
+      );
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -1828,9 +1849,11 @@ describe("exportEpub", () => {
     const { exportEpub: fresh } = await import("./export");
     await fresh("My Book");
 
-    expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", {
-      path: "/out/my-doc.epub",
-      data: expect.any(Array),
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    expect(call?.[1]).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(call?.[1])).toBe("EPUB content");
+    expect(call?.[2]).toEqual({
+      headers: { "x-export-path": encodeURIComponent("/out/my-doc.epub") },
     });
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       expect.stringContaining("my-doc.epub"),
@@ -1846,7 +1869,7 @@ describe("exportEpub", () => {
 
     const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
     expect(call).toBeDefined();
-    expect(call![1].data).toBeInstanceOf(Array);
+    expect(call![1]).toBeInstanceOf(Uint8Array);
   });
 
   it("requests a .epub file filter in the save dialog", async () => {

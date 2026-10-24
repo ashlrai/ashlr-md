@@ -387,7 +387,7 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await invoke("write_file_bytes", { path, data: Array.from(bytes) });
+    await writeExportBytes(path, bytes);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -734,7 +734,7 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await invoke("write_file_bytes", { path, data: Array.from(bytes) });
+    await writeExportBytes(path, bytes);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -930,6 +930,19 @@ export async function exportWithProfile(
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────
+
+/**
+ * Write `bytes` to `path` through `write_file_bytes` (src-tauri/src/export.rs):
+ * the bytes are the request's raw body and the path a percent-encoded
+ * header. They used to cross the IPC as a JSON array of numbers
+ * (`Array.from(bytes)`), about 3.6 bytes of JSON per byte, built and parsed
+ * on both sides: a 32 MiB EPUB sent 114 MiB of JSON.
+ */
+export async function writeExportBytes(path: string, bytes: Uint8Array): Promise<void> {
+  await invoke("write_file_bytes", bytes, {
+    headers: { "x-export-path": encodeURIComponent(path) },
+  });
+}
 
 /** Normalise an unknown error into a user-readable string. */
 function errMsg(e: unknown): string {
