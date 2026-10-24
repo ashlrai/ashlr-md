@@ -396,6 +396,15 @@ pub fn detect_vault_root(start: String) -> Option<String> {
 /// A target carrying an explicit extension (e.g. an image embed
 /// `![[diagram.png]]`) is matched by full file name; otherwise by stem against
 /// Markdown files. Returns `None` for a broken link.
+///
+/// Only a file a note may link to is returned ([`linkable`]): a Markdown
+/// note, an image, a canvas or a PDF, inside the vault when there is one,
+/// reached through no hidden folder or file, and never by an absolute
+/// target. Any existing file used to be returned, so a note (from a cloned
+/// repository or a shared vault) holding `![[../../.ssh/config]]` or
+/// `![[/etc/hosts]]` showed that file inline in the read view, with no
+/// click, and put it into exports and the clipboard; a click on
+/// `[[../../.aws/credentials]]` opened it in a tab, where agents read it.
 #[tauri::command]
 pub fn resolve_wikilink(
     base_dir: String,
@@ -404,12 +413,70 @@ pub fn resolve_wikilink(
 ) -> Option<String> {
     // Drop any "#heading" / "#^block" fragment — we resolve the file only.
     let target = target.split('#').next().unwrap_or(&target).trim();
-    if target.is_empty() {
+    if target.is_empty() || is_absolute_target(target) {
         return None;
     }
     let base = Path::new(&base_dir);
     let root = vault_root.as_deref().map(Path::new);
+    let found = resolve_wikilink_in(base, target, root)?;
+    linkable(Path::new(&found), base, root).then_some(found)
+}
 
+/// Whether a wikilink target names an absolute path (`/etc/hosts`,
+/// `C:\x`, `\\server\share`), which joining to a folder would follow
+/// out of it. Obsidian reads targets relative to the vault.
+fn is_absolute_target(target: &str) -> bool {
+    let b = target.as_bytes();
+    target.starts_with(['/', '\\'])
+        || Path::new(target).is_absolute()
+        || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
+}
+
+/// The extensions a link from a note may resolve to: notes, images, canvases
+/// and PDFs. Anything else (`config`, `id_rsa`, `.env`, `.json`) is no
+/// attachment a note shows, and was a way to read any text file.
+const LINKABLE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif", "canvas", "pdf",
+];
+
+/// Whether `found` (a canonical path a wikilink resolved to) is one a note
+/// may show or open: a linkable type ([`MD_EXTENSIONS`],
+/// [`LINKABLE_EXTENSIONS`]), inside the vault root when there is one, and
+/// with no hidden component (`.ssh`, `.git`, `.env.md`) past the folder it
+/// shares with the note's own folder (or the vault): the vault-wide search
+/// already skipped hidden folders, but a relative target did not.
+fn linkable(found: &Path, base: &Path, root: Option<&Path>) -> bool {
+    let ext_ok = found
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .is_some_and(|e| {
+            MD_EXTENSIONS.contains(&e.as_str()) || LINKABLE_EXTENSIONS.contains(&e.as_str())
+        });
+    if !ext_ok {
+        return false;
+    }
+    let scope = match root {
+        Some(r) => match r.canonicalize() {
+            Ok(r) if found.starts_with(&r) => r,
+            _ => return false,
+        },
+        None => base.canonicalize().unwrap_or_else(|_| base.to_path_buf()),
+    };
+    // The components the link travels into, past what it shares with scope.
+    let shared = scope
+        .components()
+        .zip(found.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    !found.components().skip(shared).any(|c| match c {
+        std::path::Component::Normal(name) => name.to_string_lossy().starts_with('.'),
+        _ => false,
+    })
+}
+
+/// [`resolve_wikilink`] without the [`linkable`] check.
+fn resolve_wikilink_in(base: &Path, target: &str, root: Option<&Path>) -> Option<String> {
     // 1. Exact relative path from the current file's directory.
     let direct = base.join(target);
     if direct.is_file() {
@@ -1566,5 +1633,41 @@ mod tests {
             std::fs::write(&other_case, "y").unwrap();
             assert!(!read_markdown_file(s(&doc)).unwrap().case_insensitive);
         }
+    }
+
+    /// A wikilink resolved to any existing file: `![[../../.ssh/config]]`
+    /// in a note showed that file inline, and `[[/etc/hosts]]` opened it.
+    /// Only notes, images, canvases and PDFs resolve, inside the vault when
+    /// there is one, through no hidden folder, and never by absolute path.
+    #[test]
+    fn wikilinks_resolve_only_to_files_a_note_may_link_to() {
+        let root = make_tree();
+        let vault = root.join("vault");
+        std::fs::create_dir_all(vault.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".ssh")).unwrap();
+        std::fs::write(root.join(".ssh").join("config"), "Host *").unwrap();
+        std::fs::write(root.join(".ssh").join("notes.md"), "# hidden").unwrap();
+        std::fs::write(root.join("secret.md"), "# outside the vault").unwrap();
+        std::fs::write(root.join("plain.txt"), "text").unwrap();
+        std::fs::write(vault.join("sub").join("Note.md"), "# n").unwrap();
+        std::fs::write(vault.join("pic.png"), "png").unwrap();
+        let base = s(&vault.join("sub"));
+        let vr = Some(s(&vault));
+
+        // In the vault: a note and an image still resolve.
+        assert!(resolve_wikilink(base.clone(), "Note".into(), vr.clone()).is_some());
+        assert!(resolve_wikilink(base.clone(), "../pic.png".into(), vr.clone()).is_some());
+        // Out of the vault, by `..` or an absolute path: refused.
+        assert!(resolve_wikilink(base.clone(), "../../secret".into(), vr.clone()).is_none());
+        let abs = s(&root.join("secret.md"));
+        assert!(resolve_wikilink(base.clone(), abs.clone(), vr.clone()).is_none());
+        assert!(resolve_wikilink(base.clone(), abs, None).is_none());
+        // With no vault: a hidden folder, or a file that is no note, is refused.
+        let nb = s(&root.join("notes"));
+        assert!(resolve_wikilink(nb.clone(), "../.ssh/config".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../.ssh/notes".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../plain.txt".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../secret".into(), None).is_some());
+        assert!(resolve_wikilink(nb, "../Alpha".into(), None).is_some());
     }
 }

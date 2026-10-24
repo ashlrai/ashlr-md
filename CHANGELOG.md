@@ -77,6 +77,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **A wikilink can no longer show or open any file on the computer.**
+  `resolve_wikilink` returned whatever existing file a target named, so a
+  note from a cloned repository or a shared vault holding
+  `![[../../.ssh/config]]` or `![[/etc/hosts]]` showed that file inline in
+  the read view with no click (and put it into exports and the clipboard),
+  and a click on `[[../../.aws/credentials]]` opened it in a tab, where
+  agents read it. A wikilink now resolves only to a Markdown note, an image,
+  a canvas or a PDF, inside the vault when there is one, through no hidden
+  folder or file, and never by an absolute path.
 - **`ANTHROPIC_BASE_URL` is validated before the key is sent (changes #131).**
   The override was used as given. It now must be `https://`, or plain
   `http://` only for `127.0.0.1` or `[::1]` (not the name `localhost`). Any
