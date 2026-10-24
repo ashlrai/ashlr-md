@@ -220,10 +220,13 @@ export async function editorImageUrl(
   src: string,
   docPath: string | null,
   read: (path: string) => Promise<string>,
+  remoteAllowed = true,
 ): Promise<string> {
   if (/^(data:image\/|blob:)/i.test(src.trim())) return src;
   const source = imageSource(src, docPath);
-  if (source.kind === "remote") return source.src;
+  // A web image is not fetched while remote images are blocked
+  // (remoteImagesStore.ts).
+  if (source.kind === "remote") return remoteAllowed ? source.src : "";
   if (source.kind === "blocked") return "";
   try {
     return await read(source.path);

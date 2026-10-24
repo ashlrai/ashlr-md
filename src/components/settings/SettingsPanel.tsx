@@ -23,6 +23,7 @@ import {
   ContentWidthStepper,
   FontSizeStepper,
   NotificationToggle,
+  RemoteImagesToggle,
   ThemePicker,
 } from "./sections/AppearanceControls";
 import { CliSection } from "./sections/CliSection";
@@ -127,6 +128,11 @@ export function SettingsPanel() {
             <div className="settings-row">
               <label className="settings-label">Agent notifications</label>
               <NotificationToggle />
+            </div>
+
+            <div className="settings-row">
+              <label className="settings-label">Load remote images</label>
+              <RemoteImagesToggle />
             </div>
           </section>
 

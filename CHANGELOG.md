@@ -77,6 +77,19 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **Setting: Load remote images.** A web image in a document
+  (`![](https://host/pixel.png)`, or an `<img>` or `<picture>` in its HTML) is
+  fetched as the document renders, which tells that host the document was
+  opened. Settings now has "Load remote images". It is on by default, which
+  keeps today's behaviour so no document's images go missing. Off, web images
+  in the read view, the editor and link previews are not fetched: they show as
+  placeholders, and a bar over the document offers "Load remote images" for
+  that document for the session. The choice is enforced in the renderer, not
+  the webview's Content Security Policy: the policy (`img-src ... https:` in
+  `src-tauri/tauri.conf.json`) is fixed when the app starts and cannot follow a
+  setting, so it is unchanged. Exports and copies show what the read view shows:
+  a blocked image is exported as its placeholder text, so load the images
+  first to include them.
 - **A wikilink can no longer show or open any file on the computer.**
   `resolve_wikilink` returned whatever existing file a target named, so a
   note from a cloned repository or a shared vault holding

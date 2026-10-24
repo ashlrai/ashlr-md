@@ -94,3 +94,44 @@
 .app-shell.zen .breadcrumb {
   display: none;
 }
+
+/* ── Blocked remote images (Settings: "Load remote images" off) ─────────── */
+
+.remote-image-blocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px dashed var(--border, rgba(0, 0, 0, 0.2));
+  border-radius: 6px;
+  font-size: 0.9em;
+  color: var(--text-muted, #8a8a8a);
+}
+
+.remote-images-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  font-size: 0.9em;
+  color: var(--text-muted, #8a8a8a);
+}
+
+.remote-image-load {
+  font: inherit;
+  font-size: 0.95em;
+  padding: 1px 8px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.2));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+}
+
+.link-preview-card__image {
+  font-style: italic;
+  color: var(--text-muted, #8a8a8a);
+}

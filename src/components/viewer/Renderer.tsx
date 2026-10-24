@@ -5,8 +5,11 @@ import {
   type MouseEvent,
   memo,
   type ReactNode,
+  type RefObject,
+  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -17,6 +20,10 @@ import rehypeSlug from "rehype-slug";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import {
+  useRemoteImagesAllowed,
+  useRemoteImagesStore,
+} from "../../store/remoteImagesStore";
 import { useUiStore } from "../../store/uiStore";
 import "katex/dist/katex.min.css";
 import { type DocKind, detectDocKind } from "../../lib/agent-detect";
@@ -47,7 +54,7 @@ import { LinkPreviewPopover } from "../LinkPreviewPopover";
 import { Callout } from "./Callout";
 import { CodeBlock } from "./CodeBlock";
 import { DiffBlock } from "./DiffBlock";
-import { useDocPath } from "./docPath";
+import { DocPathContext, useDocPath } from "./docPath";
 import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
 import { MermaidBlock } from "./MermaidBlock";
@@ -183,7 +190,9 @@ function MarkdownImage({
       cancelled = true;
     };
   }, [source]);
-  if (source.kind === "remote") return <img src={source.src} alt={alt} title={title} />;
+  if (source.kind === "remote") {
+    return <RemoteImage src={source.src} alt={alt} title={title} />;
+  }
   const name = alt || src || "image";
   if (source.kind === "blocked") {
     return (
@@ -203,6 +212,95 @@ function MarkdownImage({
     );
   }
   return <img src={local.url} alt={alt} title={title} loading="lazy" />;
+}
+
+/**
+ * A web image, loaded only when remote images load for the open document
+ * (Settings, or the document's "Load remote images"; remoteImagesStore.ts).
+ * Otherwise a placeholder names it and offers to load the document's remote
+ * images: the CSP allows `https:` images and cannot change at run time, so
+ * the renderer does not render the `<img>`.
+ */
+function RemoteImage({
+  src,
+  alt,
+  title,
+}: {
+  src: string;
+  alt?: string;
+  title?: string;
+}) {
+  const openPath = useDocumentStore((s) => s.path);
+  const allowed = useRemoteImagesAllowed(openPath);
+  if (allowed) return <img src={src} alt={alt} title={title} />;
+  return (
+    <span className="remote-image-blocked" title={src}>
+      <span aria-hidden="true">🖼 </span>
+      {alt || "Remote image"}
+      <button
+        type="button"
+        className="remote-image-load"
+        onClick={() => useRemoteImagesStore.getState().allow(openPath)}
+      >
+        Load remote images
+      </button>
+    </span>
+  );
+}
+
+/**
+ * A `<source srcset>` in raw HTML (`<picture>`), whose web image loads like
+ * an `<img>`'s: dropped while remote images are blocked.
+ */
+function MarkdownSource(props: Record<string, unknown>) {
+  const openPath = useDocumentStore((s) => s.path);
+  const allowed = useRemoteImagesAllowed(openPath);
+  const { node: _node, srcSet, ...rest } = props;
+  const remote = typeof srcSet === "string" && /(^|,)\s*https?:/i.test(srcSet);
+  if (remote && !allowed) return null;
+  return <source srcSet={typeof srcSet === "string" ? srcSet : undefined} {...rest} />;
+}
+
+/**
+ * The bar over a document with blocked web images: "Load remote images"
+ * loads them for this document (and its embeds) for the session. It is
+ * found from the rendered page (embeds render their images later), and is
+ * left out of exports and copies (export.ts).
+ */
+function RemoteImagesBanner({
+  rootRef,
+}: {
+  rootRef: RefObject<HTMLDivElement | null>;
+}) {
+  const openPath = useDocumentStore((s) => s.path);
+  const allowed = useRemoteImagesAllowed(openPath);
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (allowed || !root) {
+      setBlocked(false);
+      return;
+    }
+    const check = () =>
+      setBlocked(root.querySelector(".remote-image-blocked") !== null);
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [allowed, rootRef]);
+  if (allowed || !blocked) return null;
+  return (
+    <div className="remote-images-banner" role="status">
+      Remote images in this document are not loaded.
+      <button
+        type="button"
+        className="remote-image-load"
+        onClick={() => useRemoteImagesStore.getState().allow(openPath)}
+      >
+        Load remote images
+      </button>
+    </div>
+  );
 }
 
 /** Recursively collect plain text from React children (for fenced code). */
@@ -291,6 +389,9 @@ const components: Components = {
         {children}
       </LinkPreviewAnchor>
     );
+  },
+  source(props) {
+    return <MarkdownSource {...(props as Record<string, unknown>)} />;
   },
   img({ src, alt, title }) {
     return (
@@ -480,8 +581,13 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
   // changes but the ops themselves haven't.
   const hasBadges = pendingOps.length > 0;
 
+  // The open document's renderer (not an embed's) shows the remote images bar.
+  const embedded = useContext(DocPathContext) !== undefined;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <div
+      ref={rootRef}
       className="markdown-body"
       data-doc-kind={info.kind ?? undefined}
       data-doc-type-classified={currentDocType}
@@ -500,6 +606,7 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
         )
       )}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
+      {!embedded && <RemoteImagesBanner rootRef={rootRef} />}
       <TaskSourceContext.Provider value={content}>
         <ReactMarkdown
           remarkPlugins={[

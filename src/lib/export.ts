@@ -140,13 +140,18 @@ function currentLayoutVars(): string {
 
 /**
  * Clone an element and strip Ashlr-injected UI chrome that lives inside
- * `.markdown-body` but is NOT part of the document — currently the review
- * summary card. Exports and rich-text copies should contain the document, not
+ * `.markdown-body` but is NOT part of the document: the review summary card
+ * and the remote images bar (with its buttons). Exports and rich-text copies should contain the document, not
  * the app's rendering overlay.
  */
 export function cloneWithoutInjectedChrome(el: Element): Element {
   const clone = el.cloneNode(true) as Element;
-  for (const node of clone.querySelectorAll(".review-card")) node.remove();
+  // The remote images bar and its "Load remote images" buttons are the
+  // app's too; a blocked image keeps its placeholder text.
+  for (const node of clone.querySelectorAll(
+    ".review-card, .remote-images-banner, .remote-image-load",
+  ))
+    node.remove();
   return clone;
 }
 

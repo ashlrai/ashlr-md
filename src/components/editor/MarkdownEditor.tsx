@@ -40,6 +40,7 @@ import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/paste
 import { applyTableEdit, type ColAlignment } from "../../lib/tableEditor";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
+import { remoteImagesAllowed } from "../../store/remoteImagesStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/editor.css";
@@ -366,10 +367,15 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         // Images load as in the read view (relative to the document,
         // through Rust); the src written back is the one in the Markdown.
         [Crepe.Feature.ImageBlock]: {
-          proxyDomURL: (url: string) =>
-            editorImageUrl(url, useDocumentStore.getState().path, (path) =>
-              invoke<string>("read_image_data_url", { path }),
-            ),
+          proxyDomURL: (url: string) => {
+            const path = useDocumentStore.getState().path;
+            return editorImageUrl(
+              url,
+              path,
+              (p) => invoke<string>("read_image_data_url", { path: p }),
+              remoteImagesAllowed(path),
+            );
+          },
         },
       },
     });
