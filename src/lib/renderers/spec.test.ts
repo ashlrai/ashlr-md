@@ -328,3 +328,27 @@ describe("parseSpec — malformed input", () => {
     expect(r.sections.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("parseSpec: criteria by the page's task rule", () => {
+  // Criteria were matched on raw lines: a quoted task and a `1)` item were
+  // missed, and `    - [ ] t` (indented code) was a criterion.
+  it("collects the tasks the page shows, with their lines", () => {
+    const doc = [
+      "## Acceptance Criteria",
+      "    - [ ] code",
+      "",
+      "> - [ ] quoted",
+      "1) [x] paren",
+      "-",
+      "  [ ] next line",
+    ].join("\n");
+    const r = parseSpec(doc);
+    expect(r.criteria).toEqual([
+      { text: "quoted", done: false, line: 4 },
+      { text: "paren", done: true, line: 5 },
+      { text: "next line", done: false, line: 7 },
+    ]);
+    expect(r.criteriaTotal).toBe(3);
+    expect(r.criteriaDone).toBe(1);
+  });
+});

@@ -25,6 +25,8 @@
  * prompts, renderer selection) rather than agent-badge display.
  */
 
+import { taskMarks } from "./tasklist";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -195,18 +197,17 @@ const WORD_HIT_WEIGHT = 2;
 // GFM task-list density
 // ---------------------------------------------------------------------------
 
-const TASK_LINE_RE = /^[ \t]*(?:[-*+]|\d+\.)\s+\[[ xX]\]/gm;
-
 /**
  * Compute the ratio of task-list lines to total non-blank lines.
- * Returns a value in [0, 1].
+ * Returns a value in [0, 1]. Task lines are those the page shows a
+ * checkbox on ({@link taskMarks}); a raw-line pattern used to count
+ * `- [ ]` lines in fenced or indented code and miss `> - [ ] t`.
  */
 function checklistDensity(content: string): number {
   const lines = content.split("\n");
   const nonBlank = lines.filter((l) => l.trim().length > 0).length;
   if (nonBlank === 0) return 0;
-  const taskMatches = content.match(TASK_LINE_RE);
-  const taskLines = taskMatches ? taskMatches.length : 0;
+  const taskLines = taskMarks(content).filter((m) => m != null).length;
   return taskLines / nonBlank;
 }
 

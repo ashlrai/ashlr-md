@@ -365,3 +365,25 @@ describe("parseRunbook — malformed input", () => {
     expect(r.verification).toContain("Check health.");
   });
 });
+
+describe("parseRunbook: prerequisites by the page's task rule", () => {
+  // Prerequisite tasks were matched on raw lines, so an ordered task read as
+  // an unchecked `[x] text` step and a quoted task was not a prerequisite.
+  it("reads ordered and quoted tasks as checkable prerequisites", () => {
+    const doc = [
+      "# Deploy",
+      "",
+      "## Prerequisites",
+      "1. [x] ordered",
+      "> - [x] quoted",
+      "- plain",
+      "",
+    ].join("\n");
+    const r = parseRunbook(doc);
+    expect(r.prerequisites).toEqual([
+      { text: "ordered", done: true, line: 4 },
+      { text: "quoted", done: true, line: 5 },
+      { text: "plain", done: false, line: 6 },
+    ]);
+  });
+});

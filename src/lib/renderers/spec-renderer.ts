@@ -15,6 +15,8 @@
  * equivalent) section as a list of structured items with their completion state.
  */
 
+import { taskMarks } from "../tasklist";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -92,7 +94,6 @@ const CRITERIA_TITLES = new Set([
 // ---------------------------------------------------------------------------
 
 const HEADING_RE = /^(#{1,6})\s+(.+)/;
-const TASK_ITEM_RE = /^[ \t]*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.+)/;
 
 function normaliseTitle(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -111,6 +112,8 @@ function normaliseTitle(text: string): string {
  */
 export function parseSpec(content: string): ParsedSpec {
   const lines = content.split("\n");
+  // The page's task checkboxes, one entry per line.
+  const marks = taskMarks(content);
   const sections: SpecSection[] = [];
   const criteria: CriterionItem[] = [];
   let title = "";
@@ -181,14 +184,8 @@ export function parseSpec(content: string): ParsedSpec {
 
     // Inside a criteria section: collect task items.
     if (inCriteriaSection) {
-      const taskMatch = TASK_ITEM_RE.exec(line);
-      if (taskMatch) {
-        criteria.push({
-          text: taskMatch[2].trim(),
-          done: taskMatch[1].trim().toLowerCase() === "x",
-          line: lineNum,
-        });
-      }
+      const mark = marks[i];
+      if (mark) criteria.push({ text: mark.text, done: mark.checked, line: lineNum });
       continue;
     }
 

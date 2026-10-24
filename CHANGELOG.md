@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Task counts follow the page's task rule.** The doc-kind badge, the status
+  bar's task count, the classifier's checklist signal, a spec's acceptance
+  criteria and a runbook's prerequisites matched `- [ ]` on raw lines, so a
+  quoted task (`> - [ ] t`), a `1)` item and a checkbox on a bare item's next
+  line were missed or read as plain text, while `    - [ ] t` (indented code)
+  and `- [ ]` alone counted. They now read tasks by `taskMarks`, the rule the
+  checkbox toggle uses, so they agree with the checkboxes on the page.
 - **`export_text` keeps brackets that are not reference links.** Any `[text]`
   with no `(url)` after it lost its brackets, so `[sic]`, `[TODO]` or `[1]` in
   prose read `sic`, `TODO` and `1`, where the page shows the brackets. A

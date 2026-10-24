@@ -24,6 +24,7 @@
  */
 
 import { type AtxHeading, atxHeading, atxHeadings, markdownLines } from "./outline";
+import { taskMarks } from "./tasklist";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,9 +63,6 @@ export interface DocInfo {
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
-
-/** Matches a line that is a GFM task-list item (checked or unchecked). */
-const TASK_RE = /^[ \t]*(?:[-*+]|\d+\.)[ \t]+\[([ xX])\](?:\s|$)/;
 
 /** Matches a fenced diff block opening fence. */
 const DIFF_FENCE_RE = /^```diff\b/m;
@@ -224,7 +222,8 @@ function extractAcceptanceCriteria(content: string): string[] {
   let inCriteriaSection = false;
 
   // Front matter and fenced code are neither headings nor criteria.
-  for (const { kind, text: line } of markdownLines(content)) {
+  const marks = taskMarks(content);
+  for (const [i, { kind, text: line }] of markdownLines(content).entries()) {
     if (kind !== "text") continue;
     const h = atxHeading(line);
     // Enter criteria section when we hit a criteria heading.
@@ -238,30 +237,26 @@ function extractAcceptanceCriteria(content: string): string[] {
       continue;
     }
     // Collect task items inside the criteria section.
-    if (inCriteriaSection) {
-      const m = /^[ \t]*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.+)/.exec(line);
-      if (m) {
-        results.push(m[2].trim());
-      }
-    }
+    const mark = marks[i];
+    if (inCriteriaSection && mark) results.push(mark.text);
   }
   return results;
 }
 
 /**
- * Count GFM task-list items in a markdown string, outside front matter and
- * fenced code ({@link markdownLines}): a `- [ ]` line in a code sample is
- * not a task, and it used to count toward the badge and the status bar.
+ * Count GFM task-list items in a markdown string by the page's task rule
+ * ({@link taskMarks}): a `- [ ]` line in a code sample or indented code is
+ * not a task, while `> - [ ] t`, `1) [ ] t` and a checkbox on a bare item's
+ * next line are. Tasks used to be matched on raw lines, so the badge and
+ * the status bar disagreed with the page.
  */
 function countTasks(content: string): { total: number; done: number } {
   let total = 0;
   let done = 0;
-  for (const l of markdownLines(content)) {
-    if (l.kind !== "text") continue;
-    const m = TASK_RE.exec(l.text);
-    if (!m) continue;
+  for (const mark of taskMarks(content)) {
+    if (!mark) continue;
     total++;
-    if (m[1] !== " ") done++;
+    if (mark.checked) done++;
   }
   return { total, done };
 }
