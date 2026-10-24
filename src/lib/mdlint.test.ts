@@ -437,6 +437,23 @@ describe("rule:wikilink-targets-exist", () => {
     expect(open).toHaveLength(1);
   });
 
+  it("skips wikilinks in inline math and reads code spans per paragraph", () => {
+    // The page renders `$[[Gone]]$` as math (remark-math), and a backtick
+    // pairs with none in another paragraph, so `[[Real]]` is a link.
+    const doc = "Math $[[Gone]]$ here.\n\nOpen ` tick\n\n[[Real]] then `.\n";
+    const v = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(v.map((x) => x.message)).toEqual(['Wikilink target not found: "Real"']);
+    // A code span runs over the line breaks of its paragraph.
+    const spanning = lintDocument("a `x\n[[Code]] y` b\n", {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(spanning).toHaveLength(0);
+  });
+
   it("passes when all wikilinks are in knownTargets", () => {
     const doc = "See [[MyNote]] and [[Other Note]].\n";
     const knownTargets = new Set(["MyNote", "Other Note"]);
@@ -957,6 +974,17 @@ describe("lint fixes leave code and line breaks alone", () => {
     expect(lintDocument("See [x](#) and ![](c.png).\n", rules)).toHaveLength(2);
   });
 
+  it("flags no link or image in inline math, and reads a link's `$` as its URL", () => {
+    // remark-math renders `$...$` as math, so these are no link or image;
+    // they used to be flagged and their fixes rewrote the formula.
+    const rules = { rules: [ruleInvalidLinkTarget, ruleMissingAltText] };
+    expect(lintDocument("Math $[x](#) and ![](a.png)$ here.\n", rules)).toHaveLength(0);
+    // A `$` in a link's destination opens no math, so the link after it
+    // is still read.
+    const v = lintDocument("[a](p?q=$1) costs $2 and [b](#).\n", rules);
+    expect(v.map((x) => x.ruleId)).toEqual(["invalid-link-target"]);
+  });
+
   it("reads trailing spaces before a CRLF and keeps them in code", () => {
     const rules = { rules: [ruleNoTrailingSpaces] };
     expect(fixAll("a   \r\nb\r\n", rules)).toBe("a\r\nb\r\n");
@@ -971,6 +999,16 @@ describe("lint fixes leave code and line breaks alone", () => {
     expect(fixAll("```\na\n\n\n\nb\n```\n", rules)).toBe("```\na\n\n\n\nb\n```\n");
     expect(fixAll("a\r\n\r\n\r\n\r\nb\r\n", rules)).toBe("a\r\n\r\nb\r\n");
     expect(fixAll("a\n\n  \n\nb\n\n\n\nc\n", rules)).toBe("a\n\nb\n\nc\n");
+    // The blank lines between the parts of an indented code block are code.
+    const code = "Text\n\n    a()\n\n\n    b()\n";
+    expect(lintDocument(code, rules)).toHaveLength(0);
+    const item = "- x\n\n      a()\n\n\n      b()\n";
+    expect(lintDocument(item, rules)).toHaveLength(0);
+    // Two blocks in two blockquotes, and the run after a block, are gaps.
+    expect(fixAll("> ····a\n\n\n> ····b\n".replace(/·/g, " "), rules)).toBe(
+      ">     a\n\n>     b\n",
+    );
+    expect(fixAll("    a\n\n\n\nText\n", rules)).toBe("    a\n\nText\n");
   });
 
   it("adds front matter in the document's line breaks", () => {

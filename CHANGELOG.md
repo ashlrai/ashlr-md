@@ -96,6 +96,66 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`replace_document` keeps a CRLF document's line breaks and its byte order
+  mark.** An agent writes the whole text with LF and no mark, so replacing a
+  CRLF file (`replace_document` or `set_content`) changed every line of it on
+  save and dropped its BOM. The new text now takes CRLF line breaks when the
+  open document uses CRLF throughout and the text has no `\r` of its own, and
+  the open document's BOM when it has none. Text with its own line breaks, and
+  a mixed or LF document, are written as given.
+- **A byte order mark no longer hides a document's first line.** A file
+  saved with a UTF-8 BOM (Notepad saves one) kept it before its first line,
+  so a `# Title` there was missing from the Outline, front matter after it
+  was read as Markdown by the Outline, the lint rules, the task checkboxes and
+  the visual editor, and a visual edit saved the file without its BOM (the
+  editor drops it). The mark is now read as no text, and the visual editor
+  keeps it.
+- **Agent edits match line breaks either way.** `edit_document`,
+  `stream_edit` and `stream_edit_apply` needed `find` to match a CRLF
+  document's `\r\n`s exactly, so an agent's LF `find` was "not found" there
+  (the docs said so), and an LF `replace` added LF lines to a CRLF file. A
+  line break in `find` now matches LF or CRLF, everything else still matches
+  exactly, and `replace` is written in the line breaks of the line it
+  starts on, so CRLF and mixed files keep theirs.
+- **Indented code counts as code when a document is classified.** The
+  document type the AI sidebar hints at measured code by fenced blocks only,
+  so a runbook of indented commands read as prose. Indented code now counts
+  too.
+- **`no-consecutive-blank-lines` keeps indented code whole.** Blank lines
+  between two parts of an indented code block belong to the code, but the
+  rule flagged them and its fix collapsed them, changing the code. They are
+  now read as code, as micromark reads them.
+- **Snippet completion reads only up to the cursor.** The check that keeps
+  snippets out of code read the whole document on every keystroke. It now
+  reads up to the end of the cursor's line, with the same answers (front
+  matter that closes after the cursor is still front matter).
+- **A new table row has as many cells as its row.** Typing `|` at the end of
+  a table row in the source editor split the row on every `|`, so a cell
+  holding an escaped `\|` gave the new row one cell more. Cells are now read
+  as GFM reads them.
+- **`export_text` reads inline Markdown per paragraph.** It read a line at a
+  time, so a code span, inline math or a link over two lines of a paragraph
+  kept its backticks or brackets, and the `*` and `_` in that code were taken
+  off as emphasis. A paragraph's lines are now read together.
+- **Inline math is read as the page renders it.** The read view renders `$x$`
+  and `$$x$$` with remark-math, but the Outline, the lint rules,
+  `export_text` and `export_metadata` read the formula as Markdown. A
+  heading's slug missed the KaTeX text the page takes it from (`# Energy
+  $E=mc^2$` linked to `energy-emc2`, not `energy-emc2emc2emc2`), `$a*b*c$`
+  lost its `*`s, and a `[x](#)`, `![](a.png)` or `[[link]]` in a formula was
+  linted, counted or reordered. Inline math is now read as micromark reads
+  it, by the rule of code spans, and an escaped `$`, a run never closed and
+  a `$` in a link's destination are text. Code spans are read the same way,
+  within one paragraph: a backtick used to pair with one paragraphs later.
+- **Enter on an empty list item in the visual editor leaves a blank line.**
+  Enter after a `- ` typed as text replaced the line, from the position before
+  its block, with a newline character, so the line kept a literal line break
+  in its text. Only the marker is now deleted.
+- **The visual editor's table menu edits the table under the cursor.** It read
+  the cursor's ProseMirror position as an offset into the Markdown, though a
+  position counts node boundaries, so after a few lines of text the menu,
+  `⌘⇧T` and the cell toolbar found another table, or none. The table is now
+  found by its index among the document's tables.
 - **The visual editor keeps a CRLF file's line breaks.** It writes Markdown
   with LF, so a CRLF file edited there was saved with CRLF front matter and an
   LF body, and every line of the body showed as changed. The body now keeps

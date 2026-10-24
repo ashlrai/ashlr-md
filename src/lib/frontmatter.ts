@@ -21,11 +21,20 @@ export interface SplitDocument {
  * and mdopener-mcp skip. It used to have its own pattern, so a closer such
  * as `---abc` ended the block (leaving `abc` in the body), while `--- ` with
  * a trailing space, a `...` closer and an empty block (`---` then `---`)
- * did not.
+ * did not. A leading byte order mark stays in `frontmatter` (alone, when
+ * there is no block), so the body the visual editor gets has none: it
+ * dropped the mark, so a saved edit lost it, and the mark hid the block
+ * behind it, which the editor then got as Markdown in the body.
  */
 export function splitFrontmatter(raw: string): SplitDocument {
   const { lines, offset } = stripFrontmatter(raw);
-  if (offset === 0) return { frontmatter: "", body: raw };
+  // A byte order mark with no front matter is kept with the front matter
+  // (""), so the visual editor, which drops it, does not lose it on save.
+  if (offset === 0) {
+    return raw.startsWith("\uFEFF")
+      ? { frontmatter: "\uFEFF", body: raw.slice(1) }
+      : { frontmatter: "", body: raw };
+  }
   const all = raw.split("\n");
   const frontmatter = all.slice(0, offset).join("\n") + (lines.length > 0 ? "\n" : "");
   return { frontmatter, body: lines.join("\n") };
@@ -71,7 +80,10 @@ export function stripFrontmatter(markdown: string): {
   offset: number;
 } {
   const lines = markdown.split("\n");
-  if (lines.length === 0 || delimiter(lines[0]) !== "---") return { lines, offset: 0 };
+  // A byte order mark before it (Notepad saves one) is no text: micromark
+  // drops it, so the page reads the block as front matter.
+  const first = lines[0]?.replace(/^\uFEFF/, "") ?? "";
+  if (lines.length === 0 || delimiter(first) !== "---") return { lines, offset: 0 };
   for (let i = 1; i < lines.length; i++) {
     const t = delimiter(lines[i]);
     if (t === "---" || t === "...") return { lines: lines.slice(i + 1), offset: i + 1 };

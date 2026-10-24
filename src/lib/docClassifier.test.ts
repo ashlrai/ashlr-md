@@ -657,6 +657,16 @@ describe("classify: code is not structure", () => {
     expect(classify("---\nkind: runbook\n--- not a close\n")).toBe("GENERIC");
   });
 
+  it("reads indented code as code", () => {
+    // Only fenced code counted, so the same code indented four spaces (with
+    // blank lines between its parts) did not make a note a runbook.
+    const code = Array.from({ length: 12 }, (_, i) => `x = f(${i})`);
+    const fenced = `# Notes\n\nSome lines:\n\n\`\`\`\n${code.join("\n")}\n\`\`\`\n`;
+    const indented = `# Notes\n\nSome lines:\n\n${code.map((c) => `    ${c}`).join("\n\n")}\n`;
+    expect(classify(fenced)).toBe("RUNBOOK");
+    expect(classify(indented)).toBe("RUNBOOK");
+  });
+
   it("does not read a $$ math block as code", () => {
     // The line rule reads a math block as fenced code is read, but its
     // lines are TeX, not code, so they do not make a note a runbook.

@@ -14481,3 +14481,65 @@ fn a_math_block_is_read_as_fenced_code() {
     assert_eq!(texts("$$x$$\n# Real\n"), ["Real"]);
     assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
 }
+
+/// The page renders inline math (`$x$`, `$$x$$`) with remark-math, which
+/// micromark reads as it reads a code span: export_text read its TeX as
+/// Markdown, so `$a*b*c$` lost its `*`s, and export_metadata counted a
+/// `[[link]]` or an image in a formula. A `$` that opens no math (escaped,
+/// never closed, or in a link's destination) is text.
+#[test]
+fn inline_math_is_read_as_remark_math_reads_it() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    assert_eq!(
+        strip_markdown("Math $a*b*c$ and $$x_1$$.\n").trim(),
+        "Math a*b*c and x_1."
+    );
+    // The span that opens first holds the other's character.
+    assert_eq!(strip_markdown("`$a` and $`b$\n").trim(), "$a and `b");
+    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost \\$5 now");
+    assert_eq!(strip_markdown("One $ alone *x*\n").trim(), "One $ alone x");
+    assert_eq!(
+        strip_markdown("[a](p?q=$1) costs $2\n").trim(),
+        "a costs $2"
+    );
+    // A link's text holds a span whose `]` is not the link's.
+    assert_eq!(
+        strip_markdown("[a `]` b](u) and $[x](u)$\n").trim(),
+        "a ] b and [x](u)"
+    );
+    assert_eq!(extract_wikilinks("$[[Gone]]$ and [[Real]]\n"), ["Real"]);
+    assert_eq!(count_embedded_images("$![](m.png)$ ![](a.png)\n"), 1);
+}
+
+/// Inline Markdown is read per paragraph, as the page reads it, so a code
+/// span, inline math, emphasis or a link may run over the line breaks of
+/// its paragraph. export_text read it one line at a time, so a code span
+/// over two lines kept its backticks and its `*`s were read as emphasis.
+#[test]
+fn export_text_reads_inline_markdown_per_paragraph() {
+    assert_eq!(strip_markdown("a `b\nc*d*` e\n"), "a b\nc*d* e");
+    assert_eq!(strip_markdown("x $a\n*b*$ y\n"), "x a\n*b* y");
+    assert_eq!(strip_markdown("- a `b\nc` d\n"), "a b\nc d");
+    assert_eq!(strip_markdown("[a\nb](u) c\n"), "a\nb c");
+    assert_eq!(strip_markdown("[^1]: a `x\n    y` b\n"), "[1] a x\ny b");
+    // A span is read in its paragraph only.
+    assert_eq!(strip_markdown("a `b\n\nc` d\n"), "a `b\n\nc` d");
+    assert_eq!(strip_markdown("# a `b\nc` d\n"), "a `b\nc` d");
+}
+
+/// A UTF-8 byte order mark before the first line is no text of it, as
+/// micromark reads it: the line rule read `\u{FEFF}# Top` as text and the
+/// front matter after a mark as Markdown, wherever a caller did not take
+/// the mark off first (the task checkboxes of `get_user_annotations`).
+#[test]
+fn a_byte_order_mark_is_no_text_of_the_first_line() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(texts("\u{FEFF}# Top\n"), ["Top"]);
+    assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
+}

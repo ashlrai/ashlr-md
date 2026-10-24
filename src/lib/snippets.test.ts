@@ -689,3 +689,29 @@ describe("tableRowKeymap in code", () => {
     expect(press(table, table.length).handled).toBe(true);
   });
 });
+
+describe("tableRowKeymap cell count", () => {
+  it("counts an escaped pipe as cell text, as GFM reads it", async () => {
+    const { EditorState } = await import("@codemirror/state");
+    const { EditorView, runScopeHandlers } = await import("@codemirror/view");
+    const press = (doc: string) => {
+      const view = new EditorView({
+        state: EditorState.create({
+          doc,
+          selection: { anchor: doc.length },
+          extensions: [tableRowKeymap()],
+        }),
+      });
+      runScopeHandlers(view, new KeyboardEvent("keydown", { key: "|" }), "editor");
+      const out = view.state.doc.toString();
+      view.destroy();
+      return out.slice(doc.length);
+    };
+    // Two cells: `a \| b` is one. Every `|` used to split a cell, so the
+    // new row had three.
+    expect(press("| a \\| b | c |")).toBe("\n|   |   |");
+    expect(press("| a | b | c |")).toBe("\n|   |   |   |");
+    // An escaped backslash before a pipe escapes no pipe.
+    expect(press("| a \\\\| b |")).toBe("\n|   |   |");
+  });
+});

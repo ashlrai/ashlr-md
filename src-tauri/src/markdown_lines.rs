@@ -180,6 +180,10 @@ struct Scanned<'a> {
 /// [`markdown_lines`], with each code line's code ([`line_code`]), whether
 /// each line sits in a container and whether it is indented code.
 fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
+    // A byte order mark before the first line is not its text (micromark
+    // drops it), so `\u{FEFF}# Title` is a heading and front matter after
+    // one is front matter.
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     let front_matter = front_matter_len(content);
     // The open fence (its character, its length and how far it is
     // indented), with the containers its code lines stay in.
@@ -1061,6 +1065,7 @@ pub fn front_matter_len(content: &str) -> usize {
     fn delimiter(line: &str) -> &str {
         line.trim_end_matches([' ', '\t', '\r'])
     }
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     let mut lines = content.lines();
     if lines.next().map(delimiter) != Some("---") {
         return 0;

@@ -580,6 +580,26 @@ describe("handlers integration — edits with save: true", () => {
     expect(reply("mcp_edit_result")).toMatchObject({ editId: "c1", ok: true });
   });
 
+  it("set-content: a CRLF document keeps its line breaks and byte order mark", async () => {
+    // The agent writes LF with no mark: replacing a CRLF file changed every
+    // line of it on save and dropped its mark.
+    const set = (content: string) =>
+      useDocumentStore.setState({ content } as Parameters<
+        typeof useDocumentStore.setState
+      >[0]);
+    set("\uFEFF# A\r\n\r\nold\r\n");
+    await fireEvent("mcp://set-content", { editId: "c1", content: "# B\n\nnew\n" });
+    expect(useDocumentStore.getState().content).toBe("\uFEFF# B\r\n\r\nnew\r\n");
+    // Content with line breaks of its own, and a mixed or LF document, are
+    // written as given.
+    set("# A\r\n");
+    await fireEvent("mcp://set-content", { editId: "c2", content: "x\r\ny\nz" });
+    expect(useDocumentStore.getState().content).toBe("x\r\ny\nz");
+    set("a\r\nb\nc");
+    await fireEvent("mcp://set-content", { editId: "c3", content: "x\ny" });
+    expect(useDocumentStore.getState().content).toBe("x\ny");
+  });
+
   it("set-content: a successful save is reported as ok", async () => {
     await fireEvent("mcp://set-content", { editId: "c1", content: "new", save: true });
     expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(

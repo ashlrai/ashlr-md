@@ -1809,16 +1809,79 @@ fn apply_unique_edit(content: &str, find: &str, replace: &str) -> Result<String,
     if find.is_empty() {
         return Err("`find` must not be empty.".into());
     }
-    match content.matches(find).count() {
+    let matches = find_matches(content, find);
+    match matches.len() {
         0 => Err("`find` string not found in the current document. It must match the document \
-                  exactly, whitespace and line breaks included: read the live text with \
-                  get_current_content and copy `find` from it."
+                  exactly, whitespace included (a line break matches LF or CRLF): read the live \
+                  text with get_current_content and copy `find` from it."
             .into()),
-        1 => Ok(content.replacen(find, replace, 1)),
+        1 => {
+            let (start, end) = matches[0];
+            // The replacement takes the line break of the line it starts on.
+            let line_end = content[start..]
+                .find('\n')
+                .map(|i| start + i)
+                .or_else(|| content[..start].rfind('\n'));
+            let eol = match line_end {
+                Some(i) if i > 0 && content.as_bytes()[i - 1] == b'\r' => "\r\n",
+                _ => "\n",
+            };
+            let replace = replace.replace("\r\n", "\n").replace('\n', eol);
+            Ok(format!("{}{replace}{}", &content[..start], &content[end..]))
+        }
         n => Err(format!(
             "`find` string is not unique ({n} matches). Include more surrounding context to disambiguate."
         )),
     }
+}
+
+/// The non-overlapping matches of `find` in `content`, as byte ranges: a
+/// line break in `find` (`\n` or `\r\n`) matches either in `content`, and
+/// every other character matches exactly, as `findMatches` in
+/// `src/mcp/applyEdit.ts` reads them. A match never starts between the
+/// `\r` and the `\n` of a line break.
+#[cfg_attr(not(test), allow(dead_code))]
+fn find_matches(content: &str, find: &str) -> Vec<(usize, usize)> {
+    let parts: Vec<&str> = find
+        .split('\n')
+        .map(|p| p.strip_suffix('\r').unwrap_or(p))
+        .collect();
+    // The end of a match of `parts` at `at`, if one starts there.
+    let match_at = |at: usize| -> Option<usize> {
+        let mut i = at;
+        for (k, part) in parts.iter().enumerate() {
+            if !content[i..].starts_with(part) {
+                return None;
+            }
+            i += part.len();
+            if k + 1 < parts.len() {
+                if content[i..].starts_with("\r\n") {
+                    i += 2;
+                } else if content[i..].starts_with('\n') {
+                    i += 1;
+                } else {
+                    return None;
+                }
+            }
+        }
+        Some(i)
+    };
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at <= content.len() {
+        if !content.is_char_boundary(at) {
+            at += 1;
+            continue;
+        }
+        match match_at(at) {
+            Some(end) if end > at => {
+                out.push((at, end));
+                at = end;
+            }
+            _ => at += 1,
+        }
+    }
+    out
 }
 
 /// How long the IPC worker thread parks waiting for the frontend to apply an
@@ -2677,6 +2740,32 @@ mod tests {
         let err = apply_unique_edit("the cat sat on the mat", "the", "a").unwrap_err();
         assert!(err.contains("not unique"), "got: {err}");
         assert!(err.contains('2'), "should report the match count: {err}");
+    }
+
+    #[test]
+    fn edit_matches_line_breaks_either_way() {
+        // An LF `find` matches a CRLF document, and the replacement takes
+        // CRLF there; it used to be "not found".
+        let doc = "\u{feff}# T\r\n\r\nOne\r\nTwo\r\n";
+        assert_eq!(
+            apply_unique_edit(doc, "One\nTwo", "Uno\nDos\nTres").unwrap(),
+            "\u{feff}# T\r\n\r\nUno\r\nDos\r\nTres\r\n"
+        );
+        assert_eq!(
+            apply_unique_edit("a\nb\n", "a\r\nb", "x\r\ny").unwrap(),
+            "x\ny\n"
+        );
+        let err = apply_unique_edit("a\r\nb a\nb", "a\nb", "q").unwrap_err();
+        assert!(err.contains("(2 matches)"), "got: {err}");
+        assert_eq!(
+            apply_unique_edit("a\r\nb\r\n", "\nb", "\nc").unwrap(),
+            "a\r\nc\r\n"
+        );
+        let mixed = "lf one\nlf two\ncr one\r\ncr two\r\n";
+        assert_eq!(
+            apply_unique_edit(mixed, "cr one\ncr", "x\ny").unwrap(),
+            "lf one\nlf two\nx\r\ny two\r\n"
+        );
     }
 
     #[test]

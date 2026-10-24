@@ -320,6 +320,15 @@ describe("image refs read as the page reads them", () => {
     ]);
   });
 
+  it("leaves out images in inline math", () => {
+    // remark-math renders `$...$` as math, with no image in it.
+    const md = "Math $![](m.png)$ and ![](a.png)\n\n![](b.png)\n";
+    expect(extractImageRefs(md).map((r) => r.token)).toEqual([
+      "![](a.png)",
+      "![](b.png)",
+    ]);
+  });
+
   it("keeps CRLF line breaks", () => {
     const md = "![](a.png)\r\n\r\n![](b.png)\r\n";
     const moved = reorderImageInMarkdown(md, 1, 0);

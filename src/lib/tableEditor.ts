@@ -95,7 +95,7 @@ function renderSeparator(alignments: ColAlignment[]): string {
  * Split a pipe-delimited row into trimmed cell strings. An escaped pipe
  * (`\\|`) is cell text, as GFM reads it; it used to split the cell.
  */
-function splitRow(line: string): string[] {
+export function splitRow(line: string): string[] {
   // Strip optional leading/trailing `|`, then split on `|`.
   const trimmed = line.trim();
   const inner = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
@@ -133,14 +133,13 @@ export function isInsideTable(markdown: string, cursorOffset: number): boolean {
 }
 
 /**
- * Find the contiguous GFM table block that contains `cursorOffset`.
- *
- * Returns `null` when the cursor is not inside a table.
+ * The GFM tables of `markdown`, in document order, each with the indices
+ * (in {@link markdownLines}) of its header row and last row.
  */
-export function findTableRange(
-  markdown: string,
-  cursorOffset: number,
-): TableRange | null {
+function tableBlocks(markdown: string): {
+  lines: ReturnType<typeof markdownLines>;
+  blocks: [number, number][];
+} {
   // Lines are read by the Outline's rule (markdownLines): a table is made
   // of text lines outside front matter, code, HTML blocks and containers.
   // A `---` line in front matter or code, or a setext underline, used to
@@ -150,6 +149,54 @@ export function findTableRange(
     const l = lines[i];
     return l !== undefined && l.kind === "text" && !l.contained ? l : null;
   };
+  const blocks: [number, number][] = [];
+
+  // A GFM table is a header row, a delimiter row with as many cells, then
+  // the data rows: the lines after it that would go on with a paragraph,
+  // up to a blank line or a line that starts another block (a heading, a
+  // list item, a blockquote, indented code).
+  for (let sepIdx = 1; sepIdx < lines.length; sepIdx++) {
+    const header = row(sepIdx - 1);
+    const sep = row(sepIdx);
+    if (!header || !sep || header.content.trim() === "") continue;
+    if (!isDelimiterRow(sep.content, splitRow(header.content).length)) continue;
+    let lastDataIdx = sepIdx;
+    for (let r = sepIdx + 1; r < lines.length; r++) {
+      const l = row(r);
+      if (!l?.continues || l.content.trim() === "" || /^ {4}/.test(l.content)) break;
+      lastDataIdx = r;
+    }
+    blocks.push([sepIdx - 1, lastDataIdx]);
+    sepIdx = lastDataIdx;
+  }
+  return { lines, blocks };
+}
+
+/** The {@link TableRange} of the table on lines `headerIdx` to `lastIdx`. */
+function tableRange(
+  markdown: string,
+  lines: ReturnType<typeof markdownLines>,
+  [headerIdx, lastIdx]: [number, number],
+): TableRange {
+  const start = lines[headerIdx].start;
+  // The table ends with its last row's text: the line break after it
+  // (`\r\n` too) stays, as an edit's table has none. It used to be
+  // taken, so the line after the table was joined to its last row.
+  const last = lines[lastIdx];
+  const end = last.start + last.text.replace(/\r$/, "").length;
+  return { start, end, source: markdown.slice(start, end) };
+}
+
+/**
+ * Find the contiguous GFM table block that contains `cursorOffset`.
+ *
+ * Returns `null` when the cursor is not inside a table.
+ */
+export function findTableRange(
+  markdown: string,
+  cursorOffset: number,
+): TableRange | null {
+  const { lines, blocks } = tableBlocks(markdown);
 
   // Find which line the cursor is on.
   let cursorLine = lines.length - 1;
@@ -163,35 +210,20 @@ export function findTableRange(
     }
   }
 
-  // A GFM table is a header row, a delimiter row with as many cells, then
-  // the data rows: the lines after it that would go on with a paragraph,
-  // up to a blank line or a line that starts another block (a heading, a
-  // list item, a blockquote, indented code).
-  for (let sepIdx = 1; sepIdx < lines.length; sepIdx++) {
-    const header = row(sepIdx - 1);
-    const sep = row(sepIdx);
-    if (!header || !sep || header.content.trim() === "") continue;
-    if (!isDelimiterRow(sep.content, splitRow(header.content).length)) continue;
-    const headerIdx = sepIdx - 1;
-    let lastDataIdx = sepIdx;
-    for (let r = sepIdx + 1; r < lines.length; r++) {
-      const l = row(r);
-      if (!l?.continues || l.content.trim() === "" || /^ {4}/.test(l.content)) break;
-      lastDataIdx = r;
-    }
-    if (cursorLine >= headerIdx && cursorLine <= lastDataIdx) {
-      const start = lines[headerIdx].start;
-      // The table ends with its last row's text: the line break after it
-      // (`\r\n` too) stays, as an edit's table has none. It used to be
-      // taken, so the line after the table was joined to its last row.
-      const last = lines[lastDataIdx];
-      const end = last.start + last.text.replace(/\r$/, "").length;
-      return { start, end, source: markdown.slice(start, end) };
-    }
-    sepIdx = lastDataIdx;
-  }
+  const block = blocks.find(([h, l]) => cursorLine >= h && cursorLine <= l);
+  return block ? tableRange(markdown, lines, block) : null;
+}
 
-  return null;
+/**
+ * The offset in `markdown` of the start of its `index`th table (0-based,
+ * in document order, the tables {@link findTableRange} finds), or `null`
+ * when it has no such table. The visual editor finds the Markdown table
+ * of its cursor's table by its index.
+ */
+export function nthTableStart(markdown: string, index: number): number | null {
+  const { lines, blocks } = tableBlocks(markdown);
+  const block = blocks[index];
+  return block ? lines[block[0]].start : null;
 }
 
 // ── Parse / serialize ──────────────────────────────────────────────────────────

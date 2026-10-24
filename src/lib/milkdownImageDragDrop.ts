@@ -18,7 +18,7 @@
  */
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
-import { markdownLines, maskCodeSpans } from "./outline";
+import { proseText } from "./outline";
 
 // ── Regex patterns ─────────────────────────────────────────────────────────────
 
@@ -52,17 +52,11 @@ export interface ImageRef {
 /**
  * `markdown` with every character the page does not read as Markdown text
  * replaced by a NUL, line breaks kept, so offsets stay: front matter,
- * fenced and indented code and HTML blocks (by the Outline's line rule,
- * {@link markdownLines}), and code spans ({@link maskCodeSpans}).
+ * fenced and indented code, HTML blocks, code spans and inline math
+ * (`$![](a.png)$` is math), by the Outline's rule ({@link proseText}).
  */
 function maskNonText(markdown: string): string {
-  const text = markdownLines(markdown)
-    .map((l) => (l.kind === "text" ? l.text : l.text.replace(/[^\r]/g, "\0")))
-    .join("\n");
-  const spans = maskCodeSpans(text);
-  let out = "";
-  for (let i = 0; i < text.length; i++) out += spans[i] === text[i] ? text[i] : "\0";
-  return out;
+  return proseText(markdown);
 }
 
 /**

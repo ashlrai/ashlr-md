@@ -17,9 +17,11 @@
 import {
   type AtxHeading,
   atxHeading,
+  inIndentedCode,
   type MarkdownLine,
   markdownLines,
-  maskCodeSpans,
+  maskInlineCode,
+  proseText,
 } from "./outline";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -324,10 +326,14 @@ export const ruleWikilinkTargetsExist: LintRule = {
     // matter property such as `related: "[[Plan]]"` is a link, as Obsidian
     // and export_metadata read it, and a front matter line never opens a
     // fence.
-    const lines = markdownLines(doc).filter(
-      (l) => l.kind === "text" || l.kind === "frontmatter",
-    );
-    const text = maskCodeSpans(lines.map((l) => l.text).join("\n"));
+    const all = markdownLines(doc);
+    const masked = maskInlineCode(all);
+    const lines = all.filter((l) => l.kind === "text" || l.kind === "frontmatter");
+    const text = all
+      .flatMap((l, i) =>
+        l.kind === "text" || l.kind === "frontmatter" ? [masked[i]] : [],
+      )
+      .join("\n");
     // Where each line starts in `text`.
     const starts: number[] = [];
     let at = 0;
@@ -477,13 +483,16 @@ export const ruleNoConsecutiveBlankLines: LintRule = {
     let blankRunStart = 0;
     // Where the run's second blank line starts.
     let secondBlank = 0;
-    // Blank lines in code are code, not gaps between sections.
+    // Blank lines in code are code, not gaps between sections, also those
+    // between the lines of an indented code block (inIndentedCode), which
+    // the fix used to collapse.
     const kinds = markdownLines(doc);
+    const indented = inIndentedCode(kinds);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const kind = kinds[i]?.kind;
-      if (line.trim() === "" && kind !== "code" && kind !== "indented") {
+      if (line.trim() === "" && kind !== "code" && !indented[i]) {
         if (blankRun === 0) blankRunStart = offset;
         if (blankRun === 1) secondBlank = offset;
         blankRun++;
@@ -728,22 +737,17 @@ export function applyFix(doc: string, violation: LintViolation): string {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
- * `doc` with front matter, fenced and indented code, HTML blocks and code
- * spans replaced by NULs, so the URL, link and image rules neither flag
+ * `doc` with front matter, fenced and indented code, HTML blocks, code
+ * spans and inline math replaced by NULs, so the URL, link and image rules neither flag
  * content inside code or a property nor match across it (where an autofix
  * would break the code or the YAML). Preserves character offsets and line
- * breaks. Lines are read by markdownLines (outline.ts) and code spans by
- * maskCodeSpans, as the outline and mdopener-mcp read them. Spans used to
+ * breaks. Lines are read by markdownLines (outline.ts) and code spans and
+ * inline math (`$[x](#)$` is math) by proseText, per paragraph, as the
+ * outline and mdopener-mcp read them. Spans used to
  * be one backtick on one line, so ``` `` a`b `` ``` was linted, and the
  * link and image rules read the raw document, so a `[x](#)` or `![](a.png)`
  * in a code sample was flagged and its fix rewrote the code.
  */
 function stripCodeBlocks(doc: string): string {
-  const text = markdownLines(doc)
-    .map((l) => (l.kind === "text" ? l.text : l.text.replace(/[^\r]/g, "\0")))
-    .join("\n");
-  const spans = maskCodeSpans(text);
-  let out = "";
-  for (let i = 0; i < text.length; i++) out += spans[i] === text[i] ? text[i] : "\0";
-  return out;
+  return proseText(doc);
 }

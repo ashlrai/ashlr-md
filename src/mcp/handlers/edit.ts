@@ -14,6 +14,7 @@ import {
   applyUniqueEdit,
   computeStreamEditDiff,
   findAllOccurrences,
+  inDocumentStyle,
 } from "../applyEdit";
 import type {
   EditPayload,
@@ -156,7 +157,9 @@ export function handleSetContent(syncNow: () => void): Promise<UnlistenFn> {
       error = NO_DOCUMENT_OPEN;
     } else {
       try {
-        useDocumentStore.getState().setContent(content);
+        // A CRLF document keeps its line breaks and its byte order mark.
+        const live = useDocumentStore.getState().content;
+        useDocumentStore.getState().setContent(inDocumentStyle(live, content));
         if (save) {
           const reason = await saveForAgent();
           if (reason !== null) error = notSaved(reason, "Content replaced in");

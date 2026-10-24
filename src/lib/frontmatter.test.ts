@@ -6,6 +6,7 @@ import {
   stripFrontmatter,
   usesCrlf,
 } from "./frontmatter";
+import { listItem, markdownLines, parseHeadings } from "./outline";
 
 describe("frontmatter", () => {
   it("splits a frontmatter block from the body", () => {
@@ -112,5 +113,40 @@ describe("the visual editor's line breaks", () => {
     expect(usesCrlf("a\nb")).toBe(false);
     expect(usesCrlf("a\r\nb\nc")).toBe(false);
     expect(inLineBreaks("a\nb", false)).toBe("a\nb");
+  });
+});
+
+describe("a byte order mark", () => {
+  it("keeps the front matter behind it and stays out of the editor's body", () => {
+    // Notepad saves a BOM; micromark drops it, so the page reads the block
+    // as front matter. It used to hide the block from the split.
+    const doc = "\uFEFF---\ntitle: x\n---\n# A\n";
+    expect(splitFrontmatter(doc)).toEqual({
+      frontmatter: "\uFEFF---\ntitle: x\n---\n",
+      body: "# A\n",
+    });
+    expect(splitFrontmatter("\uFEFF# A\n")).toEqual({
+      frontmatter: "\uFEFF",
+      body: "# A\n",
+    });
+    for (const d of [doc, "\uFEFF# A\n", "# A\n"]) {
+      const { frontmatter, body } = splitFrontmatter(d);
+      expect(joinFrontmatter(frontmatter, body)).toBe(d);
+    }
+  });
+
+  it("is no text of the first line for the Outline", () => {
+    expect(parseHeadings("\uFEFF# Top\n").map((h) => h.slug)).toEqual(["top"]);
+    expect(parseHeadings("\uFEFF---\ntitle: x\n---\n# A\n").map((h) => h.line)).toEqual(
+      [4],
+    );
+    expect(markdownLines("\uFEFF---\nt: 1\n---\n").map((l) => l.kind)).toEqual([
+      "frontmatter",
+      "frontmatter",
+      "frontmatter",
+      "text",
+    ]);
+    const item = markdownLines("\uFEFF- [ ] task\n")[0];
+    expect(listItem(item)).toEqual({ ordered: false, text: "[ ] task" });
   });
 });

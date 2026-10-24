@@ -14,6 +14,7 @@
  */
 
 import GithubSlugger from "github-slugger";
+import katex from "katex";
 import { stripFrontmatter } from "./frontmatter";
 
 export interface HeadingItem {
@@ -28,19 +29,86 @@ export interface HeadingItem {
 }
 
 /**
+ * The text the page shows for inline math `value`: the read view renders
+ * it with KaTeX (rehype-katex, default options) and takes a heading's slug
+ * from the text of the result, which holds the formula three times (its
+ * MathML, its TeX source and its HTML), so `$E=mc^2$` reads `E=mc2`,
+ * `E=mc^2` and `E=mc2`. A formula KaTeX refuses is rendered again as
+ * rehype-katex does, without strict checks and as an error, and one that
+ * fails that too reads as written.
+ */
+function mathText(value: string): string {
+  let html: string;
+  try {
+    html = katex.renderToString(value, { displayMode: false, throwOnError: true });
+  } catch {
+    try {
+      html = katex.renderToString(value, {
+        displayMode: false,
+        strict: "ignore",
+        throwOnError: false,
+      });
+    } catch {
+      return value;
+    }
+  }
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (_, e: string) => {
+      const k = e.toLowerCase();
+      if (k.startsWith("#x"))
+        return String.fromCodePoint(Number.parseInt(k.slice(2), 16));
+      if (k.startsWith("#"))
+        return String.fromCodePoint(Number.parseInt(k.slice(1), 10));
+      return (
+        { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" }[k] ?? ""
+      );
+    });
+}
+
+/**
  * Reduce inline markdown to its plain rendered text so slugs/labels match the
  * DOM. Mirrors what a reader sees: emphasis/strong/strikethrough markers gone,
- * inline-code backticks gone, links/images reduced to their visible label.
+ * inline-code backticks gone, links/images reduced to their visible label,
+ * and inline math (`$x$`) its TeX source, or with `slug` the text KaTeX
+ * renders for it ({@link mathText}), from which the page takes the slug.
+ * Code spans and inline math are read first, over the whole text, by
+ * {@link inlineSpans}, so the markers in them are kept: `$a*b*c$` used to
+ * lose its `*`s and read `$abc$`, and its slug missed the rendered formula.
+ * Lines are read one by one otherwise, as before.
  */
-function stripInline(text: string): string {
+function stripInline(text: string, slug = false): string {
+  const spans = inlineSpans(text);
+  const values: string[] = [];
+  let s = "";
+  let at = 0;
+  for (const span of spans) {
+    s += `${text.slice(at, span.start)}\uE000${values.length}\uE001`;
+    values.push(
+      span.kind === "code"
+        ? span.value.replace(/\r?\n|\r/g, " ")
+        : slug
+          ? mathText(span.value)
+          : span.value,
+    );
+    at = span.end;
+  }
+  s += text.slice(at);
+  return s
+    .split("\n")
+    .map(stripInlineLine)
+    .join("\n")
+    .replace(/\uE000(\d+)\uE001/g, (_, i: string) => values[Number(i)]);
+}
+
+/** {@link stripInline} for one line, its code spans and math taken out. */
+function stripInlineLine(text: string): string {
   let s = text;
   // Images: ![alt](url) -> alt
   s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
   // Links: [label](url) -> label  and  [label][ref] -> label
   s = s.replace(/\[([^\]]*)\]\((?:[^)]*)\)/g, "$1");
   s = s.replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1");
-  // Inline code: `code` -> code (handles 1+ backtick fences)
-  s = s.replace(/(`+)(.+?)\1/g, "$2");
   // Strong / emphasis / strikethrough markers.
   s = s.replace(/(\*\*\*|___)(.+?)\1/g, "$2");
   s = s.replace(/(\*\*|__)(.+?)\1/g, "$2");
@@ -49,45 +117,351 @@ function stripInline(text: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** A code span or inline math in a block's inline text ({@link inlineSpans}). */
+export interface InlineSpan {
+  kind: "code" | "math";
+  /** Offset of its opening run. */
+  start: number;
+  /** Offset past its closing run. */
+  end: number;
+  /**
+   * Its content, one space or line break taken off each side when both
+   * sides have one and it is not all spaces, as micromark reads it.
+   */
+  value: string;
+}
+
 /**
- * `text` with each code span in it (`` `x` ``, ` `` a`b `` `) masked by
- * `\r`s, line breaks kept, so it keeps its length: a run of backticks is
- * closed by the next run of exactly as many, and one never closed is
- * text. The rule of mdopener-mcp's `prose_chars`, where `export_metadata`
- * reads wikilinks and images.
+ * The code spans (`` `a` ``, ` `` a`b `` `) and, with `math`, the inline
+ * math (`$x$`, `$$x$$`) of `text`, one block's inline content (a
+ * paragraph's lines joined by line breaks, or a heading's text), as
+ * micromark reads them with remark-math, which the read view enables with
+ * its default `singleDollarTextMath`: a run of backticks or dollars that
+ * no backslash escapes opens one, the next run of exactly as many of the
+ * same character closes it, and a run never closed is text. The one that
+ * opens first holds the other's character as content (`` `$` `` is code,
+ * `` $`$ `` math). The rule of mdopener-mcp's `inline_spans`.
  */
-export function maskCodeSpans(text: string): string {
-  let out = "";
+export function inlineSpans(text: string, math = true): InlineSpan[] {
+  const out: InlineSpan[] = [];
+  // Link texts open (`[` or `![`) and not yet closed.
+  let brackets = 0;
   let i = 0;
   while (i < text.length) {
-    if (text[i] !== "`") {
-      out += text[i];
+    const c = text[i];
+    // A backslash escapes the punctuation after it: `\`` and `\$` are
+    // text, and the run after them may still open one.
+    if (c === "\\") {
+      i += /[!-/:-@[-`{-~]/.test(text[i + 1] ?? "") ? 2 : 1;
+      continue;
+    }
+    // An autolink or inline HTML is read first: `<a title="$">` holds no
+    // math.
+    if (c === "<") {
+      i = autolinkEnd(text, i) ?? inlineHtmlEnd(text, i) ?? i + 1;
+      continue;
+    }
+    if (c === "[") brackets++;
+    if (c === "]" && brackets > 0) {
+      brackets--;
+      // A link's `(destination "title")` holds no span: `[a](b$c) $d$`.
+      const end = text[i + 1] === "(" ? inlineLinkEnd(text, i + 1) : null;
+      if (end !== null) {
+        i = end;
+        continue;
+      }
+    }
+    if (c !== "`" && !(math && c === "$")) {
       i++;
       continue;
     }
     let run = 0;
-    while (text[i + run] === "`") run++;
-    // The next run of exactly as many backticks closes the span.
+    while (text[i + run] === c) run++;
+    // The next run of exactly as many closes it.
     let j = i + run;
     let close = -1;
     while (j < text.length) {
+      if (text[j] !== c) {
+        j++;
+        continue;
+      }
       let n = 0;
-      while (text[j + n] === "`") n++;
+      while (text[j + n] === c) n++;
       if (n === run) {
-        close = j + n;
+        close = j;
         break;
       }
-      j += Math.max(n, 1);
+      j += n;
     }
     if (close < 0) {
-      out += text.slice(i, i + run);
       i += run;
+      continue;
+    }
+    let value = text.slice(i + run, close);
+    if (/^[ \r\n]/.test(value) && /[ \r\n]$/.test(value) && /[^ \r\n]/.test(value)) {
+      value = value.replace(/^(\r\n|[ \r\n])/, "").replace(/(\r\n|[ \r\n])$/, "");
+    }
+    out.push({ kind: c === "`" ? "code" : "math", start: i, end: close + run, value });
+    i = close + run;
+  }
+  return out;
+}
+
+/** Whether `ch` is an ASCII control character. */
+function isControl(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c < 0x20 || c === 0x7f;
+}
+
+/**
+ * The offset past the autolink (`<https://x>`, `<me@x.org>`) that starts at
+ * `start` (its `<`), as CommonMark reads one, or `null`. The rule of
+ * mdopener-mcp's `autolink_end`.
+ */
+function autolinkEnd(text: string, start: number): number | null {
+  const close = text.indexOf(">", start + 1);
+  if (close < 0) return null;
+  const inner = text.slice(start + 1, close);
+  const colon = inner.indexOf(":");
+  if (
+    colon >= 2 &&
+    colon <= 32 &&
+    /^[A-Za-z][A-Za-z0-9+.-]*$/.test(inner.slice(0, colon)) &&
+    ![...inner.slice(colon + 1)].some((ch) => ch === " " || ch === "<" || isControl(ch))
+  ) {
+    return close + 1;
+  }
+  const at = inner.indexOf("@");
+  if (at < 0) return null;
+  const local = inner.slice(0, at);
+  const domain = inner.slice(at + 1);
+  const ok =
+    /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local) &&
+    domain
+      .split(".")
+      .every((l) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l));
+  return ok ? close + 1 : null;
+}
+
+/**
+ * The offset past the inline HTML that starts at `start` (its `<`), as
+ * CommonMark reads it: an open or closing tag, a comment, a processing
+ * instruction, a declaration or a CDATA section, or `null`. The rule of
+ * mdopener-mcp's `html_end`.
+ */
+function inlineHtmlEnd(text: string, start: number): number | null {
+  const find = (from: number, end: string) => {
+    const k = text.indexOf(end, from);
+    return k < 0 ? null : k + end.length;
+  };
+  const nameEnd = (j: number) => {
+    if (!/[A-Za-z]/.test(text[j] ?? "")) return null;
+    while (/[A-Za-z0-9-]/.test(text[j] ?? "")) j++;
+    return j;
+  };
+  const spaces = (j: number) => {
+    while (text[j] === " " || text[j] === "\t") j++;
+    return j;
+  };
+  const j = start + 1;
+  const rest = text.slice(j);
+  if (text[j] === "/") {
+    const n = nameEnd(j + 1);
+    if (n === null) return null;
+    const k = spaces(n);
+    return text[k] === ">" ? k + 1 : null;
+  }
+  if (text[j] === "?") return find(j + 1, "?>");
+  if (rest.startsWith("!-->")) return j + 4;
+  if (rest.startsWith("!--->")) return j + 5;
+  if (rest.startsWith("!--")) return find(j + 3, "-->");
+  if (rest.startsWith("![CDATA[")) return find(j + 8, "]]>");
+  if (text[j] === "!")
+    return /[A-Za-z]/.test(text[j + 1] ?? "") ? find(j + 1, ">") : null;
+  let k = nameEnd(j);
+  if (k === null) return null;
+  for (;;) {
+    const gap = spaces(k);
+    if (gap >= text.length) return null;
+    if (text[gap] === ">") return gap + 1;
+    if (text[gap] === "/" && text[gap + 1] === ">") return gap + 2;
+    if (gap === k) return null;
+    // An attribute name, then an optional value.
+    if (!/[A-Za-z_:]/.test(text[gap])) return null;
+    k = gap + 1;
+    while (/[A-Za-z0-9_.:-]/.test(text[k] ?? "")) k++;
+    const eq = spaces(k);
+    if (text[eq] === "=") {
+      const v = spaces(eq + 1);
+      const q = text[v];
+      if (q === undefined) return null;
+      if (q === '"' || q === "'") {
+        const e = text.indexOf(q, v + 1);
+        if (e < 0) return null;
+        k = e + 1;
+      } else {
+        let e = v;
+        while (e < text.length && !/[\s"'=<>`]/.test(text[e])) e++;
+        if (e === v) return null;
+        k = e;
+      }
+    }
+  }
+}
+
+/**
+ * The offset past the `(destination "title")` tail of an inline link that
+ * starts at `start` (its `(`), as CommonMark reads one, or `null`. The rule
+ * of mdopener-mcp's `inline_link_end`.
+ */
+function inlineLinkEnd(text: string, start: number): number | null {
+  const punct = (ch: string | undefined) =>
+    ch !== undefined && /[!-/:-@[-`{-~]/.test(ch);
+  const spaces = (j: number) => {
+    while (text[j] === " " || text[j] === "\t") j++;
+    return j;
+  };
+  if (text[start] !== "(") return null;
+  let j = spaces(start + 1);
+  if (text[j] === "<") {
+    j++;
+    for (;;) {
+      const ch = text[j];
+      if (ch === undefined || ch === "<") return null;
+      if (ch === "\\" && punct(text[j + 1])) j += 2;
+      else if (ch === ">") break;
+      else j++;
+    }
+    j++;
+  } else {
+    let depth = 0;
+    while (j < text.length) {
+      const ch = text[j];
+      if (ch === "\\" && punct(text[j + 1])) j++;
+      else if (ch === "(") depth++;
+      else if (ch === ")" && depth === 0) break;
+      else if (ch === ")") depth--;
+      else if (ch === " " || isControl(ch)) break;
+      j++;
+    }
+    if (depth > 0) return null;
+  }
+  const k = spaces(j);
+  if (text[k] === ")") return k + 1;
+  if (k === j) return null;
+  const close = { '"': '"', "'": "'", "(": ")" }[text[k] ?? ""];
+  if (close === undefined) return null;
+  let t = k + 1;
+  for (;;) {
+    const ch = text[t];
+    if (ch === undefined) return null;
+    if (ch === "\\" && punct(text[t + 1])) t += 2;
+    else if (ch === close) break;
+    else if (ch === "(" && close === ")") return null;
+    else t++;
+  }
+  const end = spaces(t + 1);
+  return text[end] === ")" ? end + 1 : null;
+}
+
+/**
+ * The text of each of `lines` ({@link markdownLines}) with its code spans
+ * and inline math ({@link inlineSpans}) masked by `\r`s, so it keeps its
+ * length and line breaks. They are read over each block's inline content:
+ * a paragraph's lines (a text line and the lines that go on with it, its
+ * `continues`) together, so a span may run over its line breaks, and a
+ * front matter block, which is no Markdown, for code spans only, as
+ * mdopener-mcp's `prose_chars` reads it. Other lines are as they are. A
+ * code span used to be read over the whole document, so a backtick could
+ * pair with one paragraphs later, and inline math was not read.
+ */
+export function maskInlineCode(lines: MarkdownLine[]): string[] {
+  const out = lines.map((l) => l.text);
+  let i = 0;
+  while (i < lines.length) {
+    const kind = lines[i].kind;
+    let j = i + 1;
+    if (kind === "frontmatter") {
+      while (j < lines.length && lines[j].kind === "frontmatter") j++;
+    } else if (kind === "text") {
+      while (j < lines.length && lines[j].kind === "text" && lines[j].continues) j++;
     } else {
-      out += text.slice(i, close).replace(/[^\n]/g, "\r");
-      i = close;
+      i = j;
+      continue;
+    }
+    const block = out.slice(i, j).join("\n");
+    let masked = "";
+    let at = 0;
+    for (const span of inlineSpans(block, kind === "text")) {
+      masked +=
+        block.slice(at, span.start) +
+        block.slice(span.start, span.end).replace(/[^\n]/g, "\r");
+      at = span.end;
+    }
+    masked += block.slice(at);
+    masked.split("\n").forEach((t, k) => {
+      out[i + k] = t;
+    });
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * For each of `lines` ({@link markdownLines}), whether it is in an
+ * indented code block: an `indented` line, or a blank line between two of
+ * them in the same containers, which CommonMark reads as one block holding
+ * the blank lines. markdownLines marks those blank lines `text`, as a
+ * blank line alone cannot tell, so a caller that took them for gaps
+ * between blocks split the code (a blank line at the end of the block, or
+ * one that leaves a blockquote, is not in it). Fuzzed against mdast.
+ */
+export function inIndentedCode(lines: MarkdownLine[]): boolean[] {
+  const out = lines.map((l) => l.kind === "indented");
+  const blank = (l: MarkdownLine) => l.kind === "text" && l.content.trim() === "";
+  // The containers of a line, as far as a blank line shows them: whether
+  // it is in one, and how many blockquotes deep.
+  const quotes = (l: MarkdownLine) =>
+    (/^(?:[ \t]*>)*/.exec(l.text)?.[0].match(/>/g) ?? []).length;
+  const same = (a: MarkdownLine, b: MarkdownLine) =>
+    a.contained === b.contained && quotes(a) === quotes(b);
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].kind !== "indented") continue;
+    // A code line right after a blockquote's line, outside it, is a block
+    // of its own line, as micromark reads it (it tries the line as a lazy
+    // one of the quote first).
+    const prev = lines[i - 1];
+    if (prev?.contained && !lines[i].contained && /^ {0,3}>/.test(prev.text)) continue;
+    let j = i + 1;
+    while (j < lines.length && blank(lines[j]) && same(lines[j], lines[i])) j++;
+    if (j > i + 1 && lines[j]?.kind === "indented" && same(lines[j], lines[i])) {
+      out.fill(true, i + 1, j);
     }
   }
   return out;
+}
+
+/**
+ * `markdown` with every character the page does not read as Markdown text
+ * replaced by a NUL, line breaks (and a `\r` before one) kept, so offsets
+ * stay: front matter, fenced and indented code and HTML blocks (by the
+ * line rule, {@link markdownLines}), and code spans and inline math
+ * ({@link maskInlineCode}). Where the lint rules and the image reorder read
+ * links, URLs and images.
+ */
+export function proseText(markdown: string): string {
+  const lines = markdownLines(markdown);
+  const masked = maskInlineCode(lines);
+  return lines
+    .map((l, i) => {
+      if (l.kind !== "text") return l.text.replace(/[^\r]/g, "\0");
+      const m = masked[i];
+      let t = "";
+      for (let k = 0; k < l.text.length; k++)
+        t += m[k] === l.text[k] ? l.text[k] : "\0";
+      return t;
+    })
+    .join("\n");
 }
 
 /** An ATX heading's level and text, from {@link atxHeading}. */
@@ -599,6 +973,11 @@ export interface MarkdownLine {
   footnote?: true;
 }
 
+/** `line` without a leading UTF-8 byte order mark. */
+function withoutBom(line: string): string {
+  return line.startsWith("\uFEFF") ? line.slice(1) : line;
+}
+
 /**
  * The lines of `markdown`, each marked front matter, fence, fenced code or
  * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
@@ -635,7 +1014,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   const out: MarkdownLine[] = [];
   let start = 0;
   for (let i = 0; i < offset; i++) {
-    const content = all[i].endsWith("\r") ? all[i].slice(0, -1) : all[i];
+    const bare = all[i].endsWith("\r") ? all[i].slice(0, -1) : all[i];
+    const content = i === 0 ? withoutBom(bare) : bare;
     out.push({
       kind: "frontmatter",
       text: all[i],
@@ -675,7 +1055,10 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
-    const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
+    // A byte order mark before the first line is not its text (micromark
+    // drops it), so `\uFEFF# Title` is a heading.
+    const unmarked = line === 1 ? withoutBom(text) : text;
+    const raw = unmarked.endsWith("\r") ? unmarked.slice(0, -1) : unmarked;
     const expanded = expandTabs(raw);
     let kind: MarkdownLine["kind"] = "text";
     // A line of an open HTML block: one that stays in its containers and,
@@ -867,7 +1250,8 @@ export function listItem(
   l: MarkdownLine | undefined,
 ): { ordered: boolean; text: string } | null {
   if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
-  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  const text = l.line === 1 ? withoutBom(l.text) : l.text;
+  const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
   const expanded = expandTabs(raw);
   const prefix = expanded.slice(0, expanded.length - l.content.length);
   // The marker right before the text; a line after a bare marker (`-`,
@@ -957,17 +1341,18 @@ export function parseHeadings(markdown: string): HeadingItem[] {
     if (l.setext) {
       // A setext heading takes its slug from its lines, joined by line
       // breaks as the renderer's heading text is, but is not listed.
-      const text = lines
+      const source = lines
         .slice(l.setext.from, i)
-        .map((p) => stripInline(p.content))
+        .map((p) => p.content)
         .join("\n");
-      if (text.replace(/\n/g, "") !== "") slugger.slug(text);
+      if (stripInline(source).replace(/\n/g, "") !== "")
+        slugger.slug(stripInline(source, true));
       return;
     }
     const h = atxHeading(l.content);
     const text = h ? stripInline(h.text) : "";
     if (!h || text === "") return; // empty heading -> no anchor rendered
-    const slug = slugger.slug(text);
+    const slug = slugger.slug(stripInline(h.text, true));
     // In a blockquote or a list item, it takes its slug but is not listed.
     if (l.contained) return;
     out.push({ depth: h.depth, text, slug, line: l.line });
