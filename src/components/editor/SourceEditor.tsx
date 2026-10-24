@@ -171,10 +171,13 @@ export function SourceEditor({ initialContent }: { initialContent: string }) {
         setAnchor(null);
         setPhase({ kind: "menu" });
       } catch (e) {
-        // Restore the original text on any failure or cancel so nothing is lost.
+        // Restore the original text on any failure or cancel so nothing is
+        // lost. It replaces [start, end): before any output that is still
+        // the selection, which [start, start + acc.length) left in place,
+        // so a failure before the first delta doubled the selected text.
         try {
           view.dispatch({
-            changes: { from: start, to: start + acc.length, insert: original },
+            changes: { from: start, to: end, insert: original },
             selection: { anchor: start, head: start + original.length },
           });
           setContentRef.current(view.state.doc.toString());

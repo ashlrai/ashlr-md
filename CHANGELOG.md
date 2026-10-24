@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A failed inline AI edit no longer doubles the selected text.** When
+  an inline AI action failed or was cancelled before any output arrived
+  (a refused key, an empty account, a network error), both editors put
+  the selection back in front of itself, so `hello world` with `hello`
+  selected read `hellohello world`. The selection is now left as it was.
 - **`export_text` strips a list item's indentation from its code.** Code
   from a fence in a list item kept the item's indentation in the plain
   text agents read, while code in a blockquote lost its `>` markers. Both
