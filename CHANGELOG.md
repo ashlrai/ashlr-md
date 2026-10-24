@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited code block keeps its fence and info string.** The WYSIWYG
+  editor's code block holds only the language, so typing in a block fenced
+  with `~~~` wrote it with backticks, and an info string such as
+  ```` ```ts title="a.ts" ```` lost everything after the language. The block's
+  own opening and closing fence lines are kept (a changed language replaces
+  only the first word), and an indented fence keeps its indentation.
 - **What was just typed in the WYSIWYG view is never dropped.** The editor
   reports a change 200 ms after the last keystroke, and drops the report
   when it closes. A change on disk in that time (a sync client, an agent)

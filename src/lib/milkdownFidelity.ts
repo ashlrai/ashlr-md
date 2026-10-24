@@ -31,7 +31,9 @@
  * setext heading stays setext (with its underline) and `## x ##` keeps its
  * closing `##`, a block that ends lines with two spaces for a hard break
  * keeps doing so, and `&nbsp;`, `&copy;` and other character references stay
- * as they were written ({@link keepSpellings}).
+ * as they were written ({@link keepSpellings}). An edited code block keeps
+ * its fence (`~~~` or backticks, at its length) and its whole info string
+ * ({@link codeBlockText}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -73,6 +75,8 @@ export interface MdNode {
   ordered?: boolean | null;
   /** A heading's level. */
   depth?: number;
+  /** A code block's language (the info string's first word). */
+  lang?: string | null;
 }
 
 /** The parts of a ProseMirror node this module reads. */
@@ -171,13 +175,20 @@ export function sourceRanges(
   tree: MdNode,
   pmCount: number,
   pmTypes?: readonly string[],
+  original?: string,
 ): SourceMap | null {
   const blocks: BlockRange[] = [];
   const nodes: MdNode[] = [];
   const definitions: BlockRange[] = [];
+  const text = typeof original === "string" ? original : "";
   for (const child of tree.children ?? []) {
     const r = range(child);
     if (!r) return null;
+    // A block's range takes in the indentation of its first line: a
+    // position starts after it, so a block written anew (or kept after
+    // one that was) lost it.
+    const lineStart = text.lastIndexOf("\n", r.start - 1) + 1;
+    if (text && /^[ \t]+$/.test(text.slice(lineStart, r.start))) r.start = lineStart;
     if (child.type === "definition") definitions.push(r);
     else {
       blocks.push(r);
@@ -489,7 +500,7 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
     initial.forEach((node) => {
       types.push(node.type.name);
     });
-    map = sourceRanges(tree, initial.childCount, types);
+    map = sourceRanges(tree, initial.childCount, types, original);
   } catch {
     return (written) => written;
   }
@@ -511,8 +522,18 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
           return nodes.length ? serializer(current.copy(Fragment.from(nodes))) : "";
         },
         serializeBlock: (index) => {
-          const node = current.copy(Fragment.from(current.child(index)));
+          const block = current.child(index);
+          const node = current.copy(Fragment.from(block));
           const source = blocks.nodes?.[index];
+          if (source?.type === "code" && block.type.name === "code_block") {
+            const kept = codeBlockText(
+              original,
+              source,
+              String(block.attrs.language ?? ""),
+              block.textContent,
+            );
+            if (kept !== null) return kept;
+          }
           return source ? styled(node, source) : serializer(node);
         },
       });
@@ -520,6 +541,57 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
       return written;
     }
   };
+}
+
+/**
+ * A code block's text as its source wrote it, with `code` (the editor's
+ * text for it now) in it: the fence (backticks or `~~~`, at its length and
+ * indentation) and the whole info string are kept. The editor's code block
+ * holds only the language, so the serializer wrote every edited block with
+ * backticks and dropped the rest of the info string (`title="a.ts"`). A
+ * changed language replaces the first word of the info string only. Null
+ * when the source is no closed fence, or `code` holds a line that would
+ * close it.
+ */
+export function codeBlockText(
+  original: string,
+  node: MdNode,
+  language: string,
+  code: string,
+): string | null {
+  const r = range(node);
+  if (!r || node.type !== "code") return null;
+  // The node's position starts after its indentation (the block's range,
+  // see sourceRanges, takes it in): the fence is written with it.
+  const lineStart = original.lastIndexOf("\n", r.start - 1) + 1;
+  const lead = original.slice(lineStart, r.start);
+  if (!/^ *$/.test(lead)) return null;
+  const lines = original.slice(lineStart, r.end).split("\n");
+  const open = /^( {0,3})(`{3,}|~{3,})([^\r]*)(\r?)$/.exec(lines[0]);
+  if (!open || lines.length < 2) return null;
+  const [, indent, fence, info] = open;
+  const close = lines[lines.length - 1];
+  if (!isClosingFence(close, fence)) return null;
+  const codeLines = code === "" ? [] : code.split("\n");
+  if (codeLines.some((line) => isClosingFence(line, fence))) return null;
+  let opening = lines[0];
+  const lang = node.lang ?? "";
+  if (language !== lang) {
+    // A new language: the first word of the info string changes.
+    if (fence[0] === "`" && language.includes("`")) return null;
+    if (/\s/.test(language)) return null;
+    const rest = info.trim().slice(lang.length).trim();
+    const words = [language, rest].filter((w) => w !== "").join(" ");
+    opening = `${indent}${fence}${words}${open[4]}`;
+  }
+  const body = codeLines.map((line) => (line === "" ? line : indent + line));
+  return [opening, ...body, close].join("\n");
+}
+
+/** Whether `line` closes a fence opened with `fence` (same character, as long or longer). */
+function isClosingFence(line: string, fence: string): boolean {
+  const m = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+  return m !== null && m[1][0] === fence[0] && m[1].length >= fence.length;
 }
 
 /**

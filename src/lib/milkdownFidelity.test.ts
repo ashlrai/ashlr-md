@@ -38,6 +38,7 @@ import {
   alignBlocks,
   type BlockRange,
   blockStyle,
+  codeBlockText,
   dropEmptyLineBreaks,
   keepSourceOnSave,
   keepSpellings,
@@ -564,6 +565,26 @@ describe("sourceRanges / spliceEdited", () => {
     };
     dropEmptyLineBreaks(tree);
     expect(tree.children.map((c) => c.children.length)).toEqual([0, 2, 0]);
+  });
+
+  it("writes an edited code block with its own fence and info string", () => {
+    const code = (src: string, lang: string | null) => ({
+      type: "code",
+      lang,
+      position: { start: { offset: 0 }, end: { offset: src.length } },
+    });
+    const src = '~~~ts title="a.ts"\nold\n~~~~';
+    expect(codeBlockText(src, code(src, "ts"), "ts", "new\nline")).toBe(
+      '~~~ts title="a.ts"\nnew\nline\n~~~~',
+    );
+    // A new language replaces the first word only.
+    expect(codeBlockText(src, code(src, "ts"), "js", "x")).toBe(
+      '~~~js title="a.ts"\nx\n~~~~',
+    );
+    // Code that would close the fence, or an unclosed fence: the serializer's.
+    expect(codeBlockText(src, code(src, "ts"), "ts", "a\n~~~~~\nb")).toBeNull();
+    const open = "```\nnever closed";
+    expect(codeBlockText(open, code(open, null), "", "x")).toBeNull();
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {
