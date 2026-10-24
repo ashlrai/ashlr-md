@@ -123,6 +123,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Export file names are always valid.** The suggested name cut long titles
+  by UTF-16 units, which could split an emoji into half a surrogate pair that
+  the save dialog rejects, and kept leading dots (a hidden `.env.html`),
+  trailing dots, control characters and Windows device names such as `nul`.
+  It now cuts by whole characters, drops those, and turns a tab into a
+  separator.
 - **`export_text` reads tables by GFM's rules.** It took any line with a `|`
   over a delimiter-like line as a table, and ended a table at the first line
   without a `|`. A table now starts only at a header over a delimiter row with

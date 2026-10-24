@@ -813,12 +813,28 @@ function baseName(p: string): string {
   return idx === -1 ? p : p.slice(idx + 1);
 }
 
-/** Strip characters unsafe for file names, replace spaces with hyphens. */
-function sanitizeFileName(name: string): string {
-  return (
-    name
-      .replace(/[/\\:*?"<>|]/g, "")
-      .replace(/\s+/g, "-")
-      .slice(0, 80) || "export"
-  );
+/** Names Windows reserves for devices, whatever the extension. */
+const RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/**
+ * The default file name of an export for a document titled `name`: no
+ * characters a file name cannot hold (`/\\:*?"<>|` and control
+ * characters), spaces as hyphens, no leading dot (a hidden file) and no
+ * trailing dot, at most 80 characters, and never a Windows device name.
+ * The cut used to count UTF-16 units, so a title with emoji or other
+ * characters past U+FFFF could end in half a character, which the save
+ * dialog's IPC refused, failing the export; a title like `.env` named a
+ * hidden `.env.html`.
+ */
+export function sanitizeFileName(name: string): string {
+  const cleaned = name
+    .replace(/\s+/g, "-")
+    .replace(/[/\\:*?"<>|\p{Cc}]/gu, "")
+    .replace(/^[.-]+/, "");
+  const cut = Array.from(cleaned)
+    .slice(0, 80)
+    .join("")
+    .replace(/[.\s]+$/, "");
+  if (cut === "") return "export";
+  return RESERVED_NAME.test(cut) ? `${cut}-export` : cut;
 }

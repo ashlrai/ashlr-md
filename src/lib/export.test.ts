@@ -336,6 +336,34 @@ describe("exportHtml", () => {
     );
   });
 
+  it("names a valid file for unicode, dotted and reserved titles", async () => {
+    const names: string[] = [];
+    for (const title of [
+      `a${"😀".repeat(100)}`,
+      ".env",
+      "Report.",
+      "nul",
+      "Tab\there\u0007",
+      "Ünïcødé 日本語",
+    ]) {
+      saveMock.mockClear();
+      await exportHtml(title);
+      names.push(saveMock.mock.calls[0][0].defaultPath as string);
+    }
+    // No half of a surrogate pair: the dialog's IPC refuses one.
+    const loneSurrogate =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const n of names) expect(n).not.toMatch(loneSurrogate);
+    expect(names[0]).toBe(`a${"😀".repeat(79)}.html`);
+    expect(names.slice(1)).toEqual([
+      "env.html",
+      "Report.html",
+      "nul-export.html",
+      "Tab-here.html",
+      "Ünïcødé-日本語.html",
+    ]);
+  });
+
   it("falls back to 'export.html' when title is empty", async () => {
     await exportHtml("");
     expect(saveMock).toHaveBeenCalledWith(
