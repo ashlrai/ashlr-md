@@ -8787,6 +8787,39 @@ fn export_text_does_not_start_with_a_line_break() {
     }
 }
 
+/// strip_inline_markdown took any `(...)` after `[text]` as a link's
+/// destination, so `[t](a b)` (no link in CommonMark: a destination has no
+/// space, and `b` is no title) read `t`, and it read a wikilink before a
+/// link, so `[[[W]]](u)`, a link whose text is `[[W]]` (which the page
+/// does not read as a wikilink inside a link), read `[W](u)`.
+#[test]
+fn export_text_reads_inline_links_as_commonmark() {
+    use mdopener_mcp::{count_embedded_images, strip_inline_markdown, strip_markdown};
+    let cases = [
+        ("[t](a b)", "[t](a b)"),
+        ("[t](a \"b\" c)", "[t](a \"b\" c)"),
+        ("[t](a(b)", "[t](a(b)"),
+        ("[t](a \"b\")", "t"),
+        ("[t]( a )", "t"),
+        ("[t](<a b>)", "t"),
+        ("[t](a(b)c)", "t"),
+        ("[t](a 'b')", "t"),
+        ("[t](a (b))", "t"),
+        ("[t]()", "t"),
+        ("[[[W]]](u)", "[[W]]"),
+        ("[[W]](u)", "[W]"),
+        ("[[W]] and [[A|b]]", "W and b"),
+        // A link holds no link: the outer brackets are text.
+        ("[a [b](c)](d)", "[a b](d)"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_inline_markdown(doc), want, "{doc:?}");
+    }
+    assert_eq!(strip_markdown("![i](a b) ![j](a \"t\")"), "![i](a b) j");
+    // export_metadata's image count reads images by the same rule.
+    assert_eq!(count_embedded_images("![i](a b) ![j](a \"t\") ![k](u)"), 2);
+}
+
 /// A link's text and an image's alt text kept their inline markup:
 /// `[**a**](u)` read `**a**`, where the page shows `a`.
 #[test]

@@ -7906,7 +7906,13 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
-/// - Links `[text](url)` and `[text][ref]` → link text only. A reference
+/// - Links `[text](url)` and `[text][ref]` → link text only. An inline
+///   link's `(url "title")` tail is read as CommonMark reads it
+///   ([`inline_link_end`]): `[t](a b)` is no link (a destination has no
+///   space and `b` is no title) and keeps its text as written, a link
+///   holds no link (`[a [b](c)](d)` reads `[a b](d)`), and a link's text
+///   is no wikilink (`[[[W]]](u)` reads `[[W]]`). Any `(...)` used to be a
+///   tail, and a wikilink was read before a link. A reference
 ///   link (`[text][ref]`, `[text][]` or `[text]` alone) is a link only when
 ///   the document defines its label (`[ref]: /url`), as CommonMark reads it
 ///   ([`reference_definitions`]); any other `[text]` keeps its brackets, as
@@ -8449,9 +8455,107 @@ fn reference_end(
     }
 }
 
+/// The end of the link whose text `[...]` ends at `end` (just past its
+/// `]`): an inline link's `(...)` tail ([`inline_link_end`]), or a
+/// reference whose label `refs` defines ([`reference_end`]).
+fn link_end(
+    chars: &[char],
+    text: &str,
+    end: usize,
+    refs: &std::collections::HashSet<String>,
+) -> Option<usize> {
+    inline_link_end(chars, end).or_else(|| reference_end(chars, text, end, refs))
+}
+
+/// Whether `text` (a link's text) holds a link ([`link_end`]).
+fn holds_link(text: &str, refs: &std::collections::HashSet<String>) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len()).any(|i| {
+        parse_bracket_content(&chars, i)
+            .is_some_and(|(inner, end)| link_end(&chars, &inner, end, refs).is_some())
+    })
+}
+
+/// The index just past the `(destination "title")` tail of an inline link
+/// that starts at `start` (its `(`), as CommonMark reads one: spaces, an
+/// optional destination (`<...>` with no `<`, or a run with no space or
+/// control character whose unescaped parentheses balance), then, after a
+/// space, an optional title in `"`, `'` or parentheses, then spaces and
+/// `)`. `(a b)` is no tail: a destination has no space and `b` is no
+/// title.
+fn inline_link_end(chars: &[char], start: usize) -> Option<usize> {
+    let at = |j: usize| chars.get(j).copied();
+    let spaces = |mut j: usize| {
+        while at(j).is_some_and(|c| c == ' ' || c == '\t') {
+            j += 1;
+        }
+        j
+    };
+    if at(start) != Some('(') {
+        return None;
+    }
+    let mut j = spaces(start + 1);
+    if at(j) == Some('<') {
+        j += 1;
+        loop {
+            match at(j)? {
+                '\\' if at(j + 1).is_some_and(|c| c.is_ascii_punctuation()) => j += 2,
+                '>' => break,
+                '<' => return None,
+                _ => j += 1,
+            }
+        }
+        j += 1;
+    } else {
+        let mut depth = 0usize;
+        while let Some(c) = at(j) {
+            match c {
+                '\\' if at(j + 1).is_some_and(|c| c.is_ascii_punctuation()) => j += 1,
+                '(' => depth += 1,
+                ')' if depth == 0 => break,
+                ')' => depth -= 1,
+                c if c == ' ' || c.is_ascii_control() => break,
+                _ => {}
+            }
+            j += 1;
+        }
+        if depth > 0 {
+            return None;
+        }
+    }
+    let k = spaces(j);
+    if at(k) == Some(')') {
+        return Some(k + 1);
+    }
+    let close = match at(k)? {
+        _ if k == j => return None,
+        '"' => '"',
+        '\'' => '\'',
+        '(' => ')',
+        _ => return None,
+    };
+    let mut t = k + 1;
+    loop {
+        match at(t)? {
+            '\\' if at(t + 1).is_some_and(|c| c.is_ascii_punctuation()) => t += 2,
+            c if c == close => break,
+            '(' if close == ')' => return None,
+            _ => t += 1,
+        }
+    }
+    let end = spaces(t + 1);
+    (at(end) == Some(')')).then_some(end + 1)
+}
+
 /// [`strip_inline_markdown`], with `refs` the labels the document defines
 /// ([`reference_definitions`]).
 fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> String {
+    strip_inline_in(s, refs, true)
+}
+
+/// [`strip_inline_with`], reading wikilinks only when `wikilinks` is set:
+/// the page reads none in a link's text or an image's alt text.
+fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
@@ -8472,24 +8576,26 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         // `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
-                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
-                let after = if inline {
-                    Some(skip_link_tail(&chars, end))
-                } else {
-                    reference_end(&chars, &alt, end, refs)
-                };
-                if let Some(after) = after {
-                    out.push_str(&strip_inline_with(&alt, refs));
+                if let Some(after) = link_end(&chars, &alt, end, refs) {
+                    out.push_str(&strip_inline_in(&alt, refs, false));
                     i = after;
                     continue;
                 }
             }
         }
+        // A link whose text is a wikilink (`[[[W]]](u)`) is a link with
+        // the text `[[W]]`, which the page does not read as a wikilink.
+        // A link holds no link, so `[a [b](c)](d)` is a `[` and a link.
+        let link = (chars[i] == '[')
+            .then(|| parse_bracket_content(&chars, i))
+            .flatten()
+            .filter(|(text, _)| !holds_link(text, refs))
+            .and_then(|(text, end)| Some((text.clone(), link_end(&chars, &text, end, refs)?)));
         // Wikilink [[target]] → target, [[target|alias]] → alias and
         // [[target#heading]] → `target › heading`, as the read view shows
-        // it. It is read before a `[text]` link, which took `[[Real]]` as a
-        // link with text `[Real]`.
-        if let Some(link) = parse_wikilink(&chars, i) {
+        // it. It is read before a `[text]` with no link after it, which took
+        // `[[Real]]` as a link with text `[Real]`.
+        if let Some(link) = parse_wikilink(&chars, i).filter(|_| wikilinks && link.is_none()) {
             match (&link.alias, &link.heading) {
                 (Some(alias), _) => out.push_str(alias),
                 (None, Some(heading)) => {
@@ -8523,18 +8629,12 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         // this, so `[ ] not a task` keeps its brackets, and so does
         // `[label]` with no `[label]: /url` in the document.
         if chars[i] == '[' {
-            if let Some((text, end)) = parse_bracket_content(&chars, i) {
-                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
-                let after = if inline {
-                    Some(skip_link_tail(&chars, end))
-                } else {
-                    reference_end(&chars, &text, end, refs)
-                };
-                if let Some(after) = after {
-                    out.push_str(&strip_inline_with(&text, refs));
-                    i = after;
-                    continue;
-                }
+            if let Some((text, after)) = link {
+                out.push_str(&strip_inline_in(&text, refs, false));
+                i = after;
+                continue;
+            }
+            if parse_bracket_content(&chars, i).is_some() {
                 out.push('[');
                 i += 1;
                 continue;
@@ -8789,48 +8889,6 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
         i += 1;
     }
     None
-}
-
-// Helper: skip the `(url)` or `[ref]` tail after a link/image `]`. A
-// `<...>` destination (`(<a)b>)`) is skipped whole, as CommonMark reads it:
-// a parenthesis inside it does not end the link.
-fn skip_link_tail(chars: &[char], start: usize) -> usize {
-    let opener = chars.get(start);
-    let (open, close) = match opener {
-        Some(&'(') => ('(', ')'),
-        Some(&'[') => ('[', ']'),
-        _ => return start,
-    };
-    let mut depth = 0usize;
-    let mut i = start;
-    if open == '(' {
-        let dest = start
-            + 1
-            + chars[start + 1..]
-                .iter()
-                .take_while(|&&c| c == ' ' || c == '\t')
-                .count();
-        if chars.get(dest) == Some(&'<') {
-            if let Some(len) = chars[dest + 1..].iter().position(|&c| c == '<' || c == '>') {
-                if chars[dest + 1 + len] == '>' {
-                    depth = 1;
-                    i = dest + 2 + len;
-                }
-            }
-        }
-    }
-    while i < chars.len() {
-        if chars[i] == open {
-            depth += 1;
-        } else if chars[i] == close {
-            depth -= 1;
-            if depth == 0 {
-                return i + 1;
-            }
-        }
-        i += 1;
-    }
-    start
 }
 
 /// A `[[target#heading|alias]]` wikilink, from [`parse_wikilink`].
@@ -9473,10 +9531,11 @@ pub fn count_embedded_images(content: &str) -> usize {
                         continue;
                     }
                 } else if let Some((_, end)) = parse_bracket_content(&chars, i + 1) {
-                    // Check for trailing (url) to confirm it's an image not just `![`
-                    if chars.get(end) == Some(&'(') {
+                    // A `(url)` tail, by the inline link rule of export_text
+                    // ([`inline_link_end`]), makes it an image: any `(`
+                    // used to, so `![a](b c)`, text on the page, counted.
+                    if let Some(after) = inline_link_end(&chars, end) {
                         count += 1;
-                        let after = skip_link_tail(&chars, end);
                         i = after;
                         continue;
                     }

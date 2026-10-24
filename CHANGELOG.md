@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` reads inline links as CommonMark does.** Any `(...)` after
+  `[text]` was read as a link's destination, so `[t](a b)`, which is no link (a
+  destination has no space and `b` is no title), read `t`, and `export_metadata`
+  counted `![a](b c)` as an image. A wikilink was read before a link, so
+  `[[[W]]](u)`, a link whose text is `[[W]]`, read `[W](u)`, and a link inside a
+  link's text made the outer one a link too. The `(destination "title")` tail is
+  now read by the CommonMark rule, a link holds no link, and a link's or an
+  image's text is no wikilink, as on the page.
 - **`export_text` no longer starts with a line break.** The text began with
   `\n` when the document started with blank lines, with front matter and a
   blank line, or with a line that reads nothing (a link reference definition,
