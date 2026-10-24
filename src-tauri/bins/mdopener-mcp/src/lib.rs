@@ -815,8 +815,9 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 /// `list_ai_actions` discovery tool — no other wiring needed.
 ///
 /// Order is the `tools/list` order, which clients show and agents read top
-/// down: the destructive tools (`ToolTier::Destructive`: `export`, which can
-/// replace a file, and the two that replace the whole document) come last,
+/// down: the destructive tools (`ToolTier::Destructive`: `edit_canvas`, which
+/// rewrites a canvas file in place, `export`, which can replace a file, and
+/// the two that replace the whole document) come last,
 /// after every read-only and targeted tool, so an agent meets
 /// `edit_document` before `replace_document` and `set_content`.
 pub fn tool_registry() -> Vec<ToolDef> {
@@ -1108,78 +1109,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
             tier: ToolTier::ReadOnly,
         },
         ToolDef {
-            name: "edit_canvas",
-            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node color, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas (in any case, as `Board.CANVAS`).",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "Path to the .canvas file to edit (absolute, `~/...` for the home directory, or relative to this server's working directory)."
-                    },
-                    "ops": {
-                        "type": "array",
-                        "minItems": 1,
-                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",
-                                    "enum": [
-                                        "move_node", "resize_node",
-                                        "edit_text", "edit_link", "edit_group_label",
-                                        "set_node_color",
-                                        "add_node", "delete_node",
-                                        "add_edge", "delete_edge",
-                                        "edit_edge_label", "reorder_edges"
-                                    ],
-                                    "description": "Operation type."
-                                },
-                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty or blank one is refused before the file is read." },
-                                "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
-                                "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
-                                "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
-                                "height": { "type": "number", "description": "New height (resize_node); a whole number is written as an integer." },
-                                "text": { "type": "string", "description": "New text content (edit_text)." },
-                                "url": { "type": "string", "description": "New URL (edit_link)." },
-                                "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
-                                "color": { "type": "string", "description": "Color preset '1' to '6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
-                                "node": {
-                                    "type": "object",
-                                    "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
-                                },
-                                "edge": {
-                                    "type": "object",
-                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and non-empty fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
-                                },
-                                "ids": {
-                                    "type": "array",
-                                    "items": { "type": "string", "minLength": 1 },
-                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty or blank id is refused."
-                                }
-                            },
-                            "required": ["type"]
-                        }
-                    },
-                    "save": {
-                        "type": "boolean",
-                        "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`."
-                    }
-                },
-                "required": ["path", "ops"]
-            }),
-            annotations: Some(json!({
-                "title": "Edit Canvas",
-                "readOnlyHint": false,
-                "destructiveHint": false,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Modifier,
-        },
-        ToolDef {
             name: "stream_edit",
             description: "Preview a find/replace edit as a unified diff before committing. \
                 When `preview` is true (default), returns a minimal unified diff with `preview_lines` \
@@ -1391,6 +1320,83 @@ pub fn tool_registry() -> Vec<ToolDef> {
             tier: ToolTier::ReadOnly,
         },
         ToolDef {
+            name: "edit_canvas",
+            description: "Mutate a JSON Canvas (.canvas) file by applying one or more typed edit operations (move/resize nodes, edit text/link/group-label content, set node color, add/delete nodes and edges, reorder edges) and write changes back to disk. The ops apply all or nothing: if any one fails, the file is left unchanged. Returns { ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }: the ids left in the canvas for follow-up ops, the edges delete_node removed with their node, `saved` whether the file was written, and `content` null once it was; with `save: false` nothing is written and `content` is the canvas JSON (a string) that would have been. Safe for remote/agent use: only operates on files ending in .canvas (in any case, as `Board.CANVAS`).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Path to the .canvas file to edit (absolute, `~/...` for the home directory, or relative to this server's working directory)."
+                    },
+                    "ops": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "move_node", "resize_node",
+                                        "edit_text", "edit_link", "edit_group_label",
+                                        "set_node_color",
+                                        "add_node", "delete_node",
+                                        "add_edge", "delete_edge",
+                                        "edit_edge_label", "reorder_edges"
+                                    ],
+                                    "description": "Operation type."
+                                },
+                                "id": { "type": "string", "minLength": 1, "description": "Node or edge id (required for most ops); an empty or blank one is refused before the file is read." },
+                                "x": { "type": "number", "description": "New x coordinate (move_node); a whole number is written as an integer." },
+                                "y": { "type": "number", "description": "New y coordinate (move_node); a whole number is written as an integer." },
+                                "width": { "type": "number", "description": "New width (resize_node); a whole number is written as an integer." },
+                                "height": { "type": "number", "description": "New height (resize_node); a whole number is written as an integer." },
+                                "text": { "type": "string", "description": "New text content (edit_text)." },
+                                "url": { "type": "string", "description": "New URL (edit_link)." },
+                                "label": { "type": "string", "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear)." },
+                                "color": { "type": "string", "description": "Color preset '1' to '6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color)." },
+                                "node": {
+                                    "type": "object",
+                                    "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`."
+                                },
+                                "edge": {
+                                    "type": "object",
+                                    "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and non-empty fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused."
+                                },
+                                "ids": {
+                                    "type": "array",
+                                    "items": { "type": "string", "minLength": 1 },
+                                    "description": "Complete ordered list of all edge ids (reorder_edges); an empty or blank id is refused."
+                                }
+                            },
+                            "required": ["type"]
+                        }
+                    },
+                    "save": {
+                        "type": "boolean",
+                        "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`."
+                    }
+                },
+                "required": ["path", "ops"]
+            }),
+            // It writes the canvas file back in place (`save` defaults to
+            // true), and `remove_node` / `remove_edge` delete from it, so it
+            // is listed as destructive: it used to say `destructiveHint:
+            // false`, and a client that confirms destructive tools let it
+            // rewrite a canvas unasked.
+            annotations: Some(json!({
+                "title": "Edit Canvas",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Destructive,
+        },
+        ToolDef {
             name: "export",
             description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view (from Edit or Source view the export is refused, saying to call open_file with its path and mode 'read' first). Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme. Returns { ok, format, path, bytes } once the file is written (`path` absolute, `bytes` its size), or { ok, format, dialog: true } when the dialog was opened. A file not written within 30 s is an error, and so is a second headless export sent while one is being written (retry once it finishes). A file already at `output_path` is replaced only with `overwrite: true`: without it the call is refused (isError) and nothing is written.",
             input_schema: json!({
@@ -1488,11 +1494,11 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "get_conversation_context",
     "save_conversation_message",
     "diff_documents",
-    "edit_canvas",
     "stream_edit",
     "stream_edit_apply",
     "export_text",
     "export_metadata",
+    "edit_canvas",
     "export",
     "replace_document",
     "set_content",

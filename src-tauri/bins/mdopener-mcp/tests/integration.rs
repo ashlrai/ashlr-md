@@ -333,6 +333,7 @@ fn destructive_tools_are_listed_last() {
     let pos = |n: &str| names.iter().position(|&x| x == n).unwrap();
     assert!(pos("edit_document") < pos("set_content"));
     assert!(pos("edit_document") < pos("replace_document"));
+    assert!(pos("export_metadata") < pos("edit_canvas"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -14862,4 +14863,21 @@ fn an_escaped_alias_pipe_is_no_part_of_the_wikilink_target() {
     let doc = "| a | b |\n|---|---|\n| [[note\\|alias]] | [[n#h\\|x]] |\n\n[[p\\|q]]\n";
     assert_eq!(extract_wikilinks(doc), ["n", "note", "p"]);
     assert_eq!(strip_markdown(doc), "a\tb\nalias\tx\n\nq");
+}
+
+/// `edit_canvas` writes the canvas back in place (`save` defaults to true)
+/// and can remove nodes and edges, but was listed `destructiveHint: false`
+/// (a Modifier), so a client that confirms destructive tools let it rewrite
+/// a canvas unasked.
+#[test]
+fn edit_canvas_is_listed_as_destructive() {
+    let reg = tool_registry();
+    let def = reg
+        .iter()
+        .find(|d| d.name == "edit_canvas")
+        .expect("edit_canvas must be in registry");
+    assert_eq!(def.tier, ToolTier::Destructive);
+    let ann = def.annotations.as_ref().expect("annotations");
+    assert_eq!(ann["destructiveHint"].as_bool(), Some(true));
+    assert_eq!(ann["readOnlyHint"].as_bool(), Some(false));
 }

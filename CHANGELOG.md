@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `edit_canvas` is listed as destructive.** It writes the canvas
+  file back in place (`save` defaults to true) and can remove nodes and
+  edges, but said `destructiveHint: false`, so a client that confirms
+  destructive tools let it rewrite a canvas unasked. It now says `true`, is
+  in the destructive tier, and is listed with the destructive tools after
+  `export_metadata` (docs/AGENTS.md moves its row).
 - **Opening the outline or agent activity moves focus into it.** Opened
   from a shortcut, either panel left focus where it was, so a keyboard user
   had to find it. Focus now goes to the current heading's entry (else the
