@@ -21,8 +21,6 @@ import {
 import {
   buildLinkMarkdown,
   buildTableMarkdown,
-  continueList,
-  detectListContext,
   isUrl,
 } from "../../lib/editorShortcuts";
 import {
@@ -33,6 +31,7 @@ import {
 } from "../../lib/frontmatter";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
+import { listEnterTransaction } from "../../lib/milkdownListEnter";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
 import { tableOffsetAt } from "../../lib/milkdownTable";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
@@ -406,38 +405,13 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
       // ── List continuation (Enter at end of a list item) ────────────────────
       // Not an Enter that commits an IME composition (isActionEnter).
       if (isActionEnter(e) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        const sel = view.state.selection;
-        if (sel.from === sel.to) {
-          // Resolve the current line by walking back to the nearest \n.
-          const doc = view.state.doc;
-          const pos = sel.from;
-          // Get the resolved position info to find the line.
-          const resolvedPos = doc.resolve(pos);
-          const lineStart = resolvedPos.start();
-          const lineText = doc.textBetween(lineStart, pos, "\n");
-          // Not in a code block, whose `- x` lines are code: Enter there
-          // used to add a list marker to the code.
-          const listCtx = resolvedPos.parent.type.spec.code
-            ? null
-            : detectListContext(lineText);
-          if (listCtx) {
-            e.preventDefault();
-            const continuation = continueList(listCtx);
-            if (continuation === "") {
-              // Empty item — replace the list marker with a blank line.
-              const lineEnd = resolvedPos.end();
-              view.dispatch(
-                view.state.tr.replaceWith(
-                  lineStart - 1, // include the preceding newline
-                  lineEnd,
-                  view.state.schema.text("\n"),
-                ),
-              );
-            } else {
-              view.dispatch(view.state.tr.insertText(continuation, pos, pos));
-            }
-            return;
-          }
+        // Not in a code block, whose `- x` lines are code: Enter there
+        // used to add a list marker to the code (listEnterTransaction).
+        const tr = listEnterTransaction(view.state);
+        if (tr) {
+          e.preventDefault();
+          view.dispatch(tr);
+          return;
         }
       }
 

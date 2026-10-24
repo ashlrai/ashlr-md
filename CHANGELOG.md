@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Enter on an empty list item in the visual editor leaves a blank line.**
+  Enter after a `- ` typed as text replaced the line, from the position before
+  its block, with a newline character, so the line kept a literal line break
+  in its text. Only the marker is now deleted.
 - **The visual editor's table menu edits the table under the cursor.** It read
   the cursor's ProseMirror position as an offset into the Markdown, though a
   position counts node boundaries, so after a few lines of text the menu,
