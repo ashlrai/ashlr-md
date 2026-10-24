@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Outline jumps to the right heading after one inside a numbered
+  item.** A heading indented four spaces under `1. x` (after a blank line)
+  is a heading in the item, and the page gives it an id, but the Outline
+  read it as code and counted no id for it, so a later heading with the
+  same text jumped to the wrong place.
 - **Code inside a list item is code.** A fence that opens a list item
   (`- ` then a fence) was read as text, so a `# comment` in the item's
   code was listed in the Outline and `- [ ] x` in it read as a task. It

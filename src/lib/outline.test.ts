@@ -192,6 +192,27 @@ describe("parseHeadings", () => {
       "text",
     ]);
   });
+  it("counts the slug of a heading indented in a list item as the renderer does", () => {
+    // `    # Sub` after `1. x` is a heading in the item (at most three
+    // columns past its text), which rehype-slug gives the id `sub`, so the
+    // real `# Sub` is `sub-1`. Four columns past the text is code.
+    const doc = [
+      "1. x",
+      "",
+      "    # Sub",
+      "",
+      "- y",
+      "",
+      "      # Code",
+      "",
+      "# Sub",
+      "# Code",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Sub", "sub-1", 9],
+      ["Code", "code", 10],
+    ]);
+  });
   it("reads a fence in a list item as a fence", () => {
     // A list-item fence used to be text, so `  # comment` in the item's
     // code was listed in the Outline. A less indented line ends it.

@@ -327,6 +327,30 @@ function containerContent(line: string): string | null {
 }
 
 /**
+ * The content columns of the list items `line` opens (`- x` is 2, `10. x`
+ * is 4, `1. - x` is 3 then 5), or null when it opens none. A marker
+ * followed by five or more spaces, or by nothing, has its content one
+ * column past the marker, as in CommonMark.
+ */
+function listItemColumns(line: string): number[] | null {
+  const marker = /^( {0,3})([-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
+  const columns: number[] = [];
+  let rest = line.endsWith("\r") ? line.slice(0, -1) : line;
+  let column = 0;
+  let m = marker.exec(rest);
+  while (m) {
+    const end = column + m[0].length;
+    const after = leadingIndent(rest.slice(m[0].length));
+    const pad = after.rest === "" || after.columns > 4 ? 1 : after.columns;
+    column = end + pad;
+    columns.push(column);
+    rest = after.columns > 4 ? "" : after.rest;
+    m = marker.exec(rest);
+  }
+  return columns.length > 0 ? columns : null;
+}
+
+/**
  * Parse ATX headings (`#` to `######`) into an ordered outline.
  *
  * - Headings are read by {@link atxHeadings}: a leading YAML frontmatter
@@ -344,6 +368,12 @@ function containerContent(line: string): string | null {
  *   mdopener-mcp's `export_metadata` headings leave it out, but the
  *   renderer gives it an id, so it takes its slug the same way. It used to
  *   take none, so a later `# Step` was `step` here and `step-1` in the page.
+ * - A heading indented four or more columns as a list item's continuation
+ *   (`1. x`, a blank line, then `    # Sub`) is a heading in the item when
+ *   it is at most three columns past the item's content column, and the
+ *   renderer gives it an id, so it takes its slug the same way without
+ *   being listed. It used to take none (it was read as indented code), so
+ *   a later `# Sub` was `sub` here and `sub-1` in the page.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -356,13 +386,39 @@ export function parseHeadings(markdown: string): HeadingItem[] {
   const out: HeadingItem[] = [];
   // Quoted fences are fences ({@link markdownLines}), so quoted code is
   // skipped here with the rest of the code.
+  // The content columns of the open list items, outermost first.
+  let items: number[] = [];
+  let blank = true;
   for (const l of markdownLines(markdown)) {
+    if (l.kind === "frontmatter" || l.kind === "code") continue;
+    const ind = leadingIndent(l.text);
+    if (ind.rest.trim() === "") {
+      blank = true;
+      continue;
+    }
+    const wasBlank = blank;
+    blank = false;
+    const opened = l.kind === "text" ? listItemColumns(l.text) : null;
+    const h = l.kind === "text" ? atxHeading(l.text) : null;
+    // A line less indented than an item ends it, unless it is a lazy
+    // paragraph continuation (no blank line before it, not a heading or
+    // fence). A new item replaces the items at or past its marker.
+    if (opened || wasBlank || h || l.kind === "fence") {
+      items = items.filter((c) => c <= ind.columns);
+    }
+    if (opened) items.push(...opened);
     if (l.kind !== "text") continue;
-    const h = atxHeading(l.text);
     if (h) {
       const text = stripInline(h.text);
       if (text === "") continue; // empty heading -> no anchor rendered
       out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
+      continue;
+    }
+    const item = items[items.length - 1];
+    if (!opened && item !== undefined && ind.columns >= 4) {
+      const ih = ind.columns - item <= 3 ? atxHeading(ind.rest) : null;
+      const text = ih ? stripInline(ih.text) : "";
+      if (text !== "") slugger.slug(text);
       continue;
     }
     const inner = containerContent(l.text);
