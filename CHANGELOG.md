@@ -96,6 +96,86 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A read-only file is no longer overwritten.** A save (or an export over
+  an existing file) wrote a new file and renamed it into place, which needs
+  only the folder to be writable, so a note with no write permission
+  (`chmod 444`) was replaced with the new text. The save now fails with
+  "it is read-only" and leaves the file as it was.
+- **Changes made to a background tab's file are noticed, and unchanged files
+  raise no conflict.** Only the active tab's file is watched, and switching
+  back to a tab did not read its file again, so a change another app or an
+  agent made meanwhile was never shown and the next save wrote over it. A tab
+  now re-reads its file when it becomes active, reloading it when it has no
+  edits and offering the change when it has. A watcher event that re-read
+  the same text (a `touch`, a permission change) flagged a conflict while
+  the document had edits; it is now ignored, and a change undone on disk
+  takes its banner away.
+- **Edits made while a save is writing stay unsaved.** A save marked the
+  document clean when the write finished, even if more was typed during it,
+  so closing the tab then dropped those edits without asking. And when the
+  tab was switched during the write, the tab switched to took the saved
+  tab's text as its baseline and lost its unsaved mark. A finished save now
+  marks only the tab it wrote, and only as clean as what it wrote.
+- **Edits to a symlinked note's real file are noticed.** The window watched
+  only the folder of the path it opened, so when that path was a link (or
+  ran through a linked folder, as `/tmp` does on macOS, where events name
+  the real path) a change made by another app or an agent made no event: the
+  window kept the old text, and its next save wrote over the change. The
+  real file's folder is now watched too.
+- **Saving a symlinked note writes the note it links to.** The window reads
+  a document through a symbolic link, but a save renamed the new text over
+  the link, so the real file (in a dotfiles repository or a synced folder)
+  kept its old text and the link became a separate copy. A save now writes
+  the file the link points to (through every link), keeping its permissions,
+  and refuses a link to a missing file instead of replacing it. The
+  `.obsidian/` guard judges the linked file. "Apply hunk" still writes only
+  the path it checked.
+- **Plain text drops backslash escapes.** `strip_markdown` (the sidecar's
+  plain-text export and its word counts) kept the backslash of an escape, so
+  `\*not bold\*` read `\*not bold\*` and `Cost \$5` read `Cost \$5`, where
+  the page shows `*not bold*` and `Cost $5`. An escape is now the character
+  it escapes and no markup, a backslash before a line break (a hard break)
+  is dropped, and an escaped `]` no longer ends a link's text.
+- **A backtick or `$` in a bare URL no longer starts a code span.** GFM
+  reads `https://x.org/` followed by a backtick, or `www.x.org/$a$`, as part of a literal
+  autolink, but the lint rules, the Outline's slugs and the sidecar's link and
+  image counts paired that backtick with a later one and took the text
+  between for code, hiding a `[[link]]` after the URL. Literal autolinks
+  (`www.` and `http(s)://`, by remark-gfm's rules for where they start and
+  which trailing punctuation they leave out) now hold no span, in the app and
+  the sidecar, and a URL's `_` is no emphasis in a heading's slug. A line's
+  blockquote marker is no longer read as text before it (`>www.x.org`).
+- **A code span no longer runs across GFM table cells.** remark-gfm reads
+  each table cell as its own inline text, so `` | `a | b` | `` shows two
+  backticks as text. The lint rules (the Outline's `maskInlineCode`) and the
+  sidecar's link and image counts (`prose_chars`) read the text between them,
+  or a backtick in the next row, as code, so a `[[link]]` or `![[image]]` in
+  a table could go uncounted and a lint rule skipped text the page shows.
+  A table (a header row with as many cells as the delimiter row after it,
+  not on a lazy line) is now read cell by cell. Fuzzed against mdast.
+- **Outline links reach headings with HTML, entities, escapes or spacing.**
+  The Outline took a heading's slug from text with rough patterns, so it
+  differed from the page's id for `# a  b` (`a--b` on the page, `a-b` in the
+  Outline), `# Fish &amp; Chips`, `# \*x\*`, `# <b>Bold</b>`, `# snake_case`
+  (`_` inside a word is no emphasis), a tab, an image (no text on the page),
+  a reference link, and the read view's `%%comments%%`, `==highlights==` and
+  `[[wikilinks]]`; clicking such an entry did not scroll. The heading text is
+  now read as remark reads it (micromark's emphasis, strikethrough and link
+  rules, the document's reference definitions, decoded escapes and character
+  references, raw HTML dropped), and every heading, an empty one too, takes
+  a slug as rehype-slug gives one. Fuzzed against the read view's pipeline.
+- **`stream_edit` previews of a CRLF document have no stray `\r`.** Each
+  line of the preview diff ended in the `\r` of its CRLF line break, which
+  agents and terminals showed as `^M` or a carriage return over the line. A
+  diff line is now its line without the line break; the edit itself still
+  writes CRLF.
+- **A lone CR is a line break in search, diffs and edit previews.** A file
+  with old Mac line breaks (`\r` alone) was one line to the search panel,
+  the MCP `search_vault` grep and its snippets, `diff_documents` and the
+  `stream_edit` preview, while the editor showed many, so every match was on
+  line 1 and a one-line change replaced the whole file. `\r`, `\n` and
+  `\r\n` now each end one line, as CommonMark and the editor read them, in
+  the app and the sidecar alike.
 - **`replace_document` keeps a CRLF document's line breaks and its byte order
   mark.** An agent writes the whole text with LF and no mark, so replacing a
   CRLF file (`replace_document` or `set_content`) changed every line of it on

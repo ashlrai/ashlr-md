@@ -3425,6 +3425,15 @@ fn best_snippet_no_match_falls_back_to_first_nonempty_line() {
     );
 }
 
+/// `\r`, `\n` and `\r\n` are each one line break.
+#[test]
+fn best_snippet_counts_lone_cr_as_a_line_break() {
+    let (line_no, snippet) = best_snippet_for_query("one\rtwo\r\nthree needle\nfour", "needle");
+    assert_eq!((line_no, snippet.as_str()), (3, "three needle"));
+    let (line_no, snippet) = best_snippet_for_query("\r\r  first\rsecond", "absent");
+    assert_eq!((line_no, snippet.as_str()), (3, "first"));
+}
+
 #[test]
 fn best_snippet_empty_content_returns_line_one() {
     let (line_no, snippet) = best_snippet_for_query("", "anything");
@@ -3562,6 +3571,30 @@ fn grep_vault_with_real_temp_file_finds_match() {
     assert!(!first["path"].as_str().unwrap().is_empty());
     assert!(first["snippet"].as_str().unwrap().contains("quarterly"));
     assert!(first["score"].as_f64().unwrap() > 0.0);
+}
+
+/// A lone `\r` ends a line (an old Mac file), as CommonMark and the
+/// editor read it: the grep counted the whole file as line 1.
+#[test]
+fn grep_vault_splits_lone_cr_line_breaks() {
+    use std::io::Write;
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .expect("tempfile");
+    f.write_all(b"# Notes\rintro\r\nthe quarterly review\rtail")
+        .unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [{ "path": path, "name": "test.md" }], "recents": [] })),
+    );
+    let results = grep_vault("quarterly", 50, &ipc).expect("grep_vault ok");
+    assert_eq!(results[0]["lineNumber"], json!(3), "{results:?}");
+    assert_eq!(results[0]["snippet"], json!("the quarterly review"));
+    // One matching line of four.
+    assert_eq!(results[0]["score"], json!(0.25));
 }
 
 #[test]
@@ -6806,6 +6839,17 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
     );
 }
 
+/// A lone `\r` ends a line, so one changed line of an old Mac file is one
+/// changed line, not the whole file.
+#[test]
+fn diff_splits_lone_cr_line_breaks() {
+    let (diff, hunks, added, removed) =
+        compute_unified_diff("a", "b", "1\r2\r3\r", "1\rtwo\r3\r", 0);
+    assert_eq!((hunks, added, removed), (1, 1, 1), "{diff:?}");
+    assert!(diff.contains("@@ -2,1 +2,1 @@\n-2\r\n+two\r"), "{diff:?}");
+    assert!(!diff.contains("No newline"), "{diff:?}");
+}
+
 // ── text://vault-search: the documented fields are the real ones ─────────────
 
 /// The field names of a documented shape such as `{ a, b?, c? }`, each with
@@ -8462,6 +8506,44 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
         d.contains("lose only the blockquote markers and list item indentation they sit in"),
         "{d}"
     );
+}
+
+/// A GFM table's cells are separate inline contexts, as remark-gfm reads
+/// them: a backtick in one cell does not pair with one in another cell or
+/// row, so the link between them is a link on the page and here.
+#[test]
+fn code_spans_do_not_run_across_table_cells() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "| `a | [[Link]] | b` |\n|---|---|---|\n";
+    assert_eq!(extract_wikilinks(doc), ["Link"]);
+    let doc = "a|b\n-|-\n`x|![[i.png]]|y`\n";
+    assert_eq!(count_embedded_images(doc), 1);
+    // A code span inside one cell still hides what it holds.
+    assert!(extract_wikilinks("a|b\n-|-\n`[[No]]`|c\n").is_empty());
+    // Out of a table (no delimiter row), the span pairs over the pipes.
+    assert!(extract_wikilinks("`a | [[Hidden]] | b`\n").is_empty());
+    // A lazy line is no delimiter row.
+    assert!(extract_wikilinks("> `a | [[Hidden]]\n-|-\n`\n").is_empty());
+    // Without the quote it is a table, and the link shows.
+    assert_eq!(extract_wikilinks("`a | [[Shown]]\n-|-\n`\n"), ["Shown"]);
+}
+
+/// A GFM literal autolink (`https://…`, `www.…`) holds no code span or
+/// math, as remark-gfm reads it: its backtick paired with a later one, so
+/// the link after the URL was taken for code.
+#[test]
+fn literal_autolinks_hold_no_code_span() {
+    use mdopener_mcp::extract_wikilinks;
+    assert_eq!(
+        extract_wikilinks("see https://x.org/`a [[Link]] b`\n"),
+        ["Link"]
+    );
+    assert_eq!(extract_wikilinks("> www.x.org/`a [[Q]] b`\n"), ["Q"]);
+    assert_eq!(extract_wikilinks(">www.x.org/`a [[Q2]] b`\n"), ["Q2"]);
+    assert_eq!(extract_wikilinks("http://x.org/$a [[M]] b$\n"), ["M"]);
+    // After a letter, or in an open link text, it is no autolink.
+    assert!(extract_wikilinks("xhttp://x.org/`a [[No]] b`\n").is_empty());
+    assert!(extract_wikilinks("[http://x.org/`a [[No]] b`\n").is_empty());
 }
 
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
@@ -10904,11 +10986,16 @@ fn session_file_written_by_the_app_is_read_and_kept() {
     let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(on_disk["messages"].as_array().unwrap().len(), 2);
     // The write went through a temp file renamed into place; none is left.
+    // Only this session's temp files count (`persist_session` names them
+    // `<session file>.<pid>-<seq>.tmp`): the sessions directory is shared by
+    // the whole test process, so another test's append can have its own
+    // temp file there for a moment, which made this check fail at random.
+    let own_tmp = format!("{}.", path.file_name().unwrap().to_string_lossy());
     let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
+        .filter(|n| n.starts_with(&own_tmp) && n.ends_with(".tmp"))
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
@@ -14482,6 +14569,29 @@ fn a_math_block_is_read_as_fenced_code() {
     assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
 }
 
+/// A backslash escape is the character it escapes, as CommonMark reads it:
+/// the page shows `*`, not `\*`, and an escaped marker is no markup. The
+/// plain text kept the backslash. A backslash before anything else, or at
+/// the end of a line (a hard line break), is no escape there.
+#[test]
+fn strip_markdown_unescapes_backslash_escapes() {
+    assert_eq!(
+        strip_markdown("\\*not em\\* and \\_x\\_ and \\# and a\\\\b\n").trim(),
+        "*not em* and _x_ and # and a\\b"
+    );
+    assert_eq!(
+        strip_markdown("\\[not a link\\](u) and \\<b> and \\`code\\`\n").trim(),
+        "[not a link](u) and <b> and `code`"
+    );
+    // In a link's text too, and an escaped `]` does not end it.
+    assert_eq!(strip_markdown("[a\\]b](u)\n").trim(), "a]b");
+    // No escape: before a letter, or as a hard line break.
+    assert_eq!(strip_markdown("C:\\dir\n").trim(), "C:\\dir");
+    assert_eq!(strip_markdown("one\\\ntwo\n").trim(), "one\ntwo");
+    // A code span keeps its backslashes.
+    assert_eq!(strip_markdown("`a\\*b`\n").trim(), "a\\*b");
+}
+
 /// The page renders inline math (`$x$`, `$$x$$`) with remark-math, which
 /// micromark reads as it reads a code span: export_text read its TeX as
 /// Markdown, so `$a*b*c$` lost its `*`s, and export_metadata counted a
@@ -14496,7 +14606,7 @@ fn inline_math_is_read_as_remark_math_reads_it() {
     );
     // The span that opens first holds the other's character.
     assert_eq!(strip_markdown("`$a` and $`b$\n").trim(), "$a and `b");
-    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost \\$5 now");
+    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost $5 now");
     assert_eq!(strip_markdown("One $ alone *x*\n").trim(), "One $ alone x");
     assert_eq!(
         strip_markdown("[a](p?q=$1) costs $2\n").trim(),

@@ -3007,6 +3007,10 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 mod markdown_lines;
 use markdown_lines::LineKind;
 
+// `\r`, `\n` and `\r\n` line breaks, as CommonMark and the editor read them.
+#[path = "../../../src/line_breaks.rs"]
+mod line_breaks;
+
 // The task-checkbox parser is shared with the app's `/annotations`.
 #[path = "../../../src/task_list.rs"]
 mod task_list;
@@ -5718,7 +5722,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
         let mut match_count = 0usize;
         let mut first_line = 0usize;
         let mut first_snippet = String::new();
-        for (idx, line) in content.lines().enumerate() {
+        for (idx, line) in line_breaks::lines(&content).enumerate() {
             if line.to_lowercase().contains(&lower_query) {
                 match_count += 1;
                 if first_snippet.is_empty() {
@@ -5728,7 +5732,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
             }
         }
         if match_count > 0 {
-            let total_lines = content.lines().count().max(1);
+            let total_lines = line_breaks::lines(&content).count().max(1);
             let score = (match_count as f64 / total_lines as f64).min(1.0);
             results.push(SearchResult {
                 path: path.clone(),
@@ -5753,12 +5757,12 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
 /// Returns `(1-based line number, snippet text)`.
 pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
     let lower = query.to_lowercase();
-    for (idx, line) in content.lines().enumerate() {
+    for (idx, line) in line_breaks::lines(content).enumerate() {
         if line.to_lowercase().contains(&lower) {
             return (idx + 1, line.chars().take(200).collect());
         }
     }
-    for (idx, line) in content.lines().enumerate() {
+    for (idx, line) in line_breaks::lines(content).enumerate() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
             return (idx + 1, trimmed.chars().take(200).collect());
@@ -6333,9 +6337,10 @@ pub fn compute_unified_diff(
 ) -> (String, usize, usize, usize) {
     // Lines keep their terminators, so files that differ only in line
     // endings (CRLF vs LF) or in the final newline are not reported as
-    // identical, as they were with `str::lines`.
-    let lines_a: Vec<&str> = text_a.split_inclusive('\n').collect();
-    let lines_b: Vec<&str> = text_b.split_inclusive('\n').collect();
+    // identical, as they were with `str::lines`. A lone `\r` ends a line
+    // too, as CommonMark reads it, so an old Mac file is not one line.
+    let lines_a: Vec<&str> = line_breaks::split_lines_inclusive(text_a).collect();
+    let lines_b: Vec<&str> = line_breaks::split_lines_inclusive(text_b).collect();
 
     // Build the edit script via LCS (longest common subsequence).
     let lcs = lcs_diff(&lines_a, &lines_b);
@@ -6446,10 +6451,12 @@ pub fn compute_unified_diff(
         ));
 
         for e in slice {
-            // The `\n` is the joiner; a `\r` stays visible, and a last line
-            // without a newline is marked the way `diff -u` marks it.
+            // The `\n` is the joiner; a `\r` stays visible (a lone `\r`
+            // break too), and a last line without a line break is marked
+            // the way `diff -u` marks it.
             match e.text.strip_suffix('\n') {
                 Some(text) => diff_lines.push(format!("{}{}", e.kind, text)),
+                None if e.text.ends_with('\r') => diff_lines.push(format!("{}{}", e.kind, e.text)),
                 None => {
                     diff_lines.push(format!("{}{}", e.kind, e.text));
                     diff_lines.push("\\ No newline at end of file".to_string());
@@ -8454,6 +8461,23 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
             i = span.end;
             continue;
         }
+        // A backslash escape is the punctuation it escapes, which is no
+        // markup (`\*a\*` reads `*a*`), and a backslash before a line break
+        // is a hard break, as CommonMark reads them; the backslash was kept.
+        if chars[i] == '\\' {
+            match chars.get(i + 1) {
+                Some(&c) if c.is_ascii_punctuation() => {
+                    out.push(c);
+                    i += 2;
+                }
+                Some('\n') => i += 1,
+                _ => {
+                    out.push('\\');
+                    i += 1;
+                }
+            }
+            continue;
+        }
         // The text of `chars` between `from` and `to`.
         let text_of = |from: usize, to: usize| -> String { chars[from..to].iter().collect() };
         // Obsidian embed ![[…]] → empty (no useful text). It is read before
@@ -8650,6 +8674,14 @@ fn inline_spans(chars: &[char], math: bool) -> Vec<InlineSpan> {
             }
             _ => {}
         }
+        // A GFM literal autolink (`www.x.com/a`b`c`, `https://x/$y$`) holds
+        // none either, out of an open link text, as micromark reads it.
+        if brackets == 0 && matches!(c, 'w' | 'W' | 'h' | 'H') {
+            if let Some(end) = literal_autolink_end(chars, i) {
+                i = end;
+                continue;
+            }
+        }
         if c != '`' && !(math && c == '$') {
             i += 1;
             continue;
@@ -8693,6 +8725,152 @@ fn inline_spans(chars: &[char], math: bool) -> Vec<InlineSpan> {
         i = close + run;
     }
     out
+}
+
+/// Whether `c` is Unicode punctuation or a symbol, as micromark reads it:
+/// ASCII punctuation, or another character that is no letter, digit,
+/// whitespace or control (the std library has no Unicode punctuation class;
+/// `\p{P}|\p{S}` in the app's `outline.ts`).
+fn unicode_punctuation(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || (!c.is_ascii() && !c.is_alphanumeric() && !c.is_whitespace() && !c.is_control())
+}
+
+/// The index past the GFM literal autolink (`www.x.org/a`, `https://x.org`)
+/// that starts at `start`, by the rules of
+/// micromark-extension-gfm-autolink-literal: `www.` after the start, a
+/// space or one of `( * _ [ ] ~`, or `http://` or `https://` after anything
+/// but an ASCII letter, then a domain (no `_` in its last two segments) and
+/// a path up to whitespace or a `<`, without the punctuation that trails it
+/// ([`autolink_trail`]). Email literals hold no `` ` `` or `$`, so they are
+/// not read. The rule of `literalAutolinkEnd` in the app's `outline.ts`.
+fn literal_autolink_end(chars: &[char], start: usize) -> Option<usize> {
+    let at = |i: usize| chars.get(i).copied();
+    let prev = start.checked_sub(1).and_then(at);
+    let mut i = start;
+    match chars[start] {
+        'w' | 'W' => {
+            if prev.is_some_and(|p| !p.is_whitespace() && !"(*_[]~".contains(p)) {
+                return None;
+            }
+            let www = (0..3).all(|k| matches!(at(start + k), Some('w' | 'W')))
+                && at(start + 3) == Some('.');
+            if !www || start + 4 >= chars.len() {
+                return None;
+            }
+        }
+        'h' | 'H' => {
+            if prev.is_some_and(|p| p.is_ascii_alphabetic()) {
+                return None;
+            }
+            let lower: String = chars[start..chars.len().min(start + 8)]
+                .iter()
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let prefix = if lower.starts_with("https://") {
+                8
+            } else if lower.starts_with("http://") {
+                7
+            } else {
+                return None;
+            };
+            i = start + prefix;
+            match at(i) {
+                Some(n) if !n.is_control() && !n.is_whitespace() && !unicode_punctuation(n) => {}
+                _ => return None,
+            }
+        }
+        _ => return None,
+    }
+    // The domain.
+    let (mut seen, mut underscore_last, mut underscore_before) = (false, false, false);
+    loop {
+        match at(i) {
+            Some(c @ ('.' | '_')) => {
+                if autolink_trail(chars, i) {
+                    break;
+                }
+                if c == '_' {
+                    underscore_last = true;
+                } else {
+                    underscore_before = underscore_last;
+                    underscore_last = false;
+                }
+                i += 1;
+            }
+            None => break,
+            Some(c) if c.is_whitespace() || (c != '-' && unicode_punctuation(c)) => break,
+            Some(_) => {
+                seen = true;
+                i += 1;
+            }
+        }
+    }
+    if underscore_last || underscore_before || !seen {
+        return None;
+    }
+    // The path, its parentheses balanced.
+    let (mut open, mut close) = (0usize, 0usize);
+    loop {
+        match at(i) {
+            Some('(') => {
+                open += 1;
+                i += 1;
+            }
+            Some(')') if close < open => {
+                close += 1;
+                i += 1;
+            }
+            Some(c) if "!\"&')*,.:;<?]_~".contains(c) => {
+                if autolink_trail(chars, i) {
+                    return Some(i);
+                }
+                if c == ')' {
+                    close += 1;
+                }
+                i += 1;
+            }
+            None => return Some(i),
+            Some(c) if c.is_whitespace() => return Some(i),
+            Some(_) => i += 1,
+        }
+    }
+}
+
+/// Whether the chars at `i` are punctuation that trails a literal autolink
+/// rather than ends its path: a run of `!"')*,.:;?_~`, `&name;` and `]`
+/// (one followed by the end, a space, `(` or `[` ends it), up to the end,
+/// whitespace or a `<`.
+fn autolink_trail(chars: &[char], i: usize) -> bool {
+    let mut j = i;
+    loop {
+        match chars.get(j).copied() {
+            Some(c) if "!\"')*,.:;?_~".contains(c) => j += 1,
+            Some('&') => {
+                j += 1;
+                if !chars.get(j).is_some_and(|c| c.is_ascii_alphabetic()) {
+                    return false;
+                }
+                while chars.get(j).is_some_and(|c| c.is_ascii_alphabetic()) {
+                    j += 1;
+                }
+                if chars.get(j) != Some(&';') {
+                    return false;
+                }
+                j += 1;
+            }
+            Some(']') => {
+                j += 1;
+                match chars.get(j).copied() {
+                    None | Some('(' | '[') => return true,
+                    Some(c) if c.is_whitespace() => return true,
+                    _ => {}
+                }
+            }
+            None | Some('<') => return true,
+            Some(c) => return c.is_whitespace(),
+        }
+    }
 }
 
 /// `s` without the HTML tags, comments, processing instructions,
@@ -8842,7 +9020,9 @@ fn html_end(chars: &[char], start: usize) -> Option<usize> {
 }
 
 // Helper: parse `[…]` bracket content starting at `start` (which must be `[`).
-// Returns `(inner_text, index_after_closing_bracket)` or `None`.
+// Returns `(inner_text, index_after_closing_bracket)` or `None`. A bracket a
+// backslash escapes (`[a\]b]`) neither opens nor closes one, as CommonMark
+// reads a link text.
 fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)> {
     if chars.get(start) != Some(&'[') {
         return None;
@@ -8852,6 +9032,11 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
     let mut inner = String::new();
     while i < chars.len() {
         match chars[i] {
+            '\\' if chars.get(i + 1).is_some_and(char::is_ascii_punctuation) => {
+                inner.push('\\');
+                inner.push(chars[i + 1]);
+                i += 1;
+            }
             '[' => {
                 depth += 1;
                 if depth > 1 {
@@ -9530,16 +9715,23 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
     // The block being read: its lines, and whether it is text (not front
     // matter). Blocks are joined by line breaks, as their lines are.
-    let mut blocks: Vec<(Vec<&str>, bool)> = Vec::new();
+    let mut blocks: Vec<(Vec<ProseLine>, bool)> = Vec::new();
     let mut open = false;
-    for ((kind, line), start) in
-        markdown_lines::with_indented_code(content).zip(markdown_lines::item_starts(content))
+    for (((kind, line), start), text) in markdown_lines::with_indented_code(content)
+        .zip(markdown_lines::item_starts(content))
+        .zip(markdown_lines::line_text(content))
     {
         let front = kind == LineKind::FrontMatter;
         if kind != LineKind::Text && !(front_matter && front) {
             open = false;
             continue;
         }
+        let line = ProseLine {
+            line,
+            content: text.map(|(t, _)| t.into_owned()).unwrap_or_default(),
+            contained: start.contained,
+            underline: start.underline,
+        };
         // A front matter line goes on with the front matter, and a text
         // line that goes on with the paragraph before it with that.
         let joins = |text: bool| (front && !text) || (!front && text && start.continues);
@@ -9554,16 +9746,178 @@ fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
         if k > 0 {
             out.push('\n');
         }
-        let chars: Vec<char> = lines.join("\n").chars().collect();
-        let mut at = 0;
-        for span in inline_spans(&chars, *text) {
-            out.extend(&chars[at..span.start]);
-            out.push('\r');
-            at = span.end;
+        if *text {
+            out.extend(prose_text_block(lines));
+        } else {
+            let joined: Vec<&str> = lines.iter().map(|l| l.line).collect();
+            out.extend(masked_spans(&joined.join("\n"), false));
         }
-        out.extend(&chars[at..]);
     }
     out
+}
+
+/// A line of a [`prose_chars`] block: the line, its text past its
+/// containers ([`markdown_lines::line_text`]), whether it sits in a
+/// blockquote or a list item, and whether it is a setext underline.
+struct ProseLine<'a> {
+    line: &'a str,
+    content: String,
+    contained: bool,
+    underline: bool,
+}
+
+/// The line of `l` with the blockquote markers and list item indentation
+/// before its content as spaces: an inline block starts past them (`>www.x`
+/// is a link after the `>`). As it is when its content cannot be found in it
+/// (a tab expanded).
+fn prose_view(l: &ProseLine) -> String {
+    match l.line.strip_suffix(l.content.as_str()) {
+        Some(prefix) if l.contained && !prefix.is_empty() => {
+            format!("{}{}", " ".repeat(prefix.chars().count()), l.content)
+        }
+        _ => l.line.to_string(),
+    }
+}
+
+/// `text` with each code span (and with `math` inline math) read as a `\r`.
+fn masked_spans(text: &str, math: bool) -> Vec<char> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::with_capacity(chars.len());
+    let mut at = 0;
+    for span in inline_spans(&chars, math) {
+        out.extend(&chars[at..span.start]);
+        out.push('\r');
+        at = span.end;
+    }
+    out.extend(&chars[at..]);
+    out
+}
+
+/// The lines of a paragraph block ([`prose_chars`]) with their spans read
+/// as `\r`s, joined by line breaks. A GFM table in it ([`table_rows`]) is
+/// read cell by cell, as remark-gfm reads each cell's inline content on its
+/// own, and indented code after it is no text: a backtick used to pair
+/// with one in the next cell or row (`` | `a | [[b]] | c` | ``), so a
+/// link the page shows was taken for code. The rule of `maskInlineCode` in
+/// the app's `outline.ts`.
+fn prose_text_block(lines: &[ProseLine]) -> Vec<char> {
+    let join = |ls: &[ProseLine]| {
+        let joined: Vec<String> = ls.iter().map(prose_view).collect();
+        masked_spans(&joined.join("\n"), true)
+    };
+    let contained = lines.first().is_some_and(|l| l.contained);
+    let mut parts: Vec<Vec<char>> = Vec::new();
+    let mut from = 0;
+    let mut k = 0;
+    while k + 1 < lines.len() {
+        let rows = table_rows(lines, k, contained);
+        if rows == 0 {
+            k += 1;
+            continue;
+        }
+        if from < k {
+            parts.push(join(&lines[from..k]));
+        }
+        for (r, l) in lines[k..k + rows].iter().enumerate() {
+            if r == 1 {
+                // The delimiter row holds no text.
+                parts.push(l.line.chars().collect());
+                continue;
+            }
+            let mut cells = Vec::new();
+            for cell in split_cells(&prose_view(l)) {
+                cells.extend(masked_spans(cell, true));
+            }
+            parts.push(cells);
+        }
+        from = k + rows;
+        // Lines indented four columns after it are indented code.
+        while from < lines.len() && lines[from].content.starts_with("    ") {
+            parts.push(Vec::new());
+            from += 1;
+        }
+        k = from;
+    }
+    if from < lines.len() {
+        parts.push(join(&lines[from..]));
+    }
+    parts.join(&'\n')
+}
+
+/// `row` cut before each pipe that splits GFM table cells (one no
+/// backslash escapes, in a code span too), so the pieces join back to `row`.
+fn split_cells(row: &str) -> Vec<&str> {
+    let bytes = row.as_bytes();
+    let mut out = Vec::new();
+    let (mut at, mut i) = (0, 0);
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 1;
+        } else if bytes[i] == b'|' {
+            out.push(&row[at..i]);
+            at = i;
+        }
+        i += 1;
+    }
+    out.push(&row[at..]);
+    out
+}
+
+/// The number of GFM table cells of `content` (a row past its containers).
+fn cell_count(content: &str) -> usize {
+    let row = content.trim();
+    let pipes = split_cells(row).len() - 1;
+    let lead = usize::from(row.starts_with('|'));
+    // A closing pipe no backslash escapes; a lone `|` opens and closes no cell.
+    let trail =
+        usize::from(row.ends_with('|') && split_cells(&row[..row.len() - 1]).len() == pipes);
+    (pipes + 1).saturating_sub(lead + trail)
+}
+
+/// How many lines of a paragraph, `lines[k..]`, the GFM table that starts
+/// at `k` takes (its header row, its delimiter row and its body rows), or
+/// 0 when none starts there, as remark-gfm reads one: a header row of as
+/// many cells as the delimiter row after it (`:?-+:?` cells, not a setext
+/// underline), both in the paragraph's containers (not lazy), then the
+/// lines that go on in them, up to a blank line or one indented four
+/// columns. The rule of `tableRows` in the app's `outline.ts`.
+fn table_rows(lines: &[ProseLine], k: usize, contained: bool) -> usize {
+    let (head, delim) = (&lines[k], &lines[k + 1]);
+    if head.contained != contained
+        || delim.contained != contained
+        || delim.underline
+        || head.content.starts_with("    ")
+        || delim.content.starts_with("    ")
+    {
+        return 0;
+    }
+    let d = delim.content.trim();
+    let inner = d.strip_prefix('|').unwrap_or(d);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    let cells: Vec<&str> = split_cells(inner)
+        .into_iter()
+        .map(|c| c.strip_prefix('|').unwrap_or(c).trim())
+        .collect();
+    let delimiter = |c: &str| {
+        let c = c.strip_prefix(':').unwrap_or(c);
+        let c = c.strip_suffix(':').unwrap_or(c);
+        !c.is_empty() && c.bytes().all(|b| b == b'-')
+    };
+    if !cells.iter().all(|c| delimiter(c))
+        || (!d.contains('|') && !d.starts_with(':') && !d.ends_with(':'))
+        || cell_count(&head.content) != cells.len()
+    {
+        return 0;
+    }
+    let mut n = 2;
+    while k + n < lines.len()
+        && lines[k + n].contained == head.contained
+        && !lines[k + n].content.trim().is_empty()
+        && !lines[k + n].content.starts_with("    ")
+    {
+        n += 1;
+    }
+    n
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).

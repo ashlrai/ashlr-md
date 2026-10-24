@@ -15,6 +15,7 @@ import {
   applyUniqueEdit,
   computeStreamEditDiff,
   FIND_NOT_FOUND,
+  offsetToLine,
 } from "./applyEdit";
 
 describe("applyUniqueEdit — exact, unique find/replace contract", () => {
@@ -87,12 +88,15 @@ describe("applyUniqueEdit — exact, unique find/replace contract", () => {
   });
 
   it("previews an LF find in a CRLF document", () => {
-    const r = computeStreamEditDiff("a\r\nb\r\nc\r\n", "b\nc", "B\nC", 0);
+    // The diff's lines are the document's lines without their breaks: each
+    // used to end in the `\r` of its CRLF break.
+    const r = computeStreamEditDiff("a\r\nb\r\nc\r\nd\r\n", "b\nc", "B\nC", 1);
     expect(r.ok).toBe(true);
     expect(r.matchCount).toBe(1);
     expect(r.diff).toBe(
-      "--- a/document\n+++ b/document\n@@ -2,2 +2,2 @@\n-b\r\n-c\r\n+B\r\n+C\r\n",
+      "--- a/document\n+++ b/document\n@@ -1,4 +1,4 @@\n a\n-b\n-c\n+B\n+C\n d\n",
     );
+    expect(r.diff).not.toContain("\r");
   });
 
   it("errors when find is not unique and reports the count", () => {
@@ -191,5 +195,23 @@ describe("mcp://edit applies against the LIVE document, not a stale mirror", () 
     // full-document snapshot had been pushed back).
     expect(result).toContain("Intro paragraph.");
     expect(result).toContain("More fresh text.");
+  });
+});
+
+describe("line numbers follow CommonMark line breaks", () => {
+  it("counts a lone CR, LF and CRLF as one break each", () => {
+    const doc = "a\rb\r\nc\nd";
+    expect(offsetToLine(doc, doc.indexOf("a"))).toBe(1);
+    expect(offsetToLine(doc, doc.indexOf("b"))).toBe(2);
+    expect(offsetToLine(doc, doc.indexOf("c"))).toBe(3);
+    expect(offsetToLine(doc, doc.indexOf("d"))).toBe(4);
+  });
+
+  it("numbers a stream_edit candidate in an old Mac file by its line", () => {
+    const r = computeStreamEditDiff("one\rtwo x\rthree x\r", "x", "y", 0);
+    expect(r.candidates?.map((c) => c.startLine)).toEqual([2, 3]);
+    expect(r.diff).toBe(
+      "--- a/document\n+++ b/document\n@@ -2,1 +2,1 @@\n-two x\n+two y\n",
+    );
   });
 });

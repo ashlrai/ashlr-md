@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { atxHeading, atxHeadings, markdownLines, parseHeadings } from "./outline";
+import {
+  atxHeading,
+  atxHeadings,
+  markdownLines,
+  maskInlineCode,
+  parseHeadings,
+} from "./outline";
 
 describe("parseHeadings", () => {
   it("skips a leading YAML frontmatter block", () => {
@@ -597,5 +603,125 @@ describe("parseHeadings reads inline math as the page renders it", () => {
     // An escaped `$` and a run never closed are text.
     const h = parseHeadings("# Cost \\$5 and \\$10\n\n# One $ alone\n");
     expect(h.map((x) => x.slug)).toEqual(["cost-5-and-10", "one--alone"]);
+  });
+});
+
+describe("parseHeadings reads inline text as mdast does (rehype-slug parity)", () => {
+  // Each expected slug is the id the read view's pipeline gives the heading.
+  const slugs = (md: string) => parseHeadings(md).map((h) => h.slug);
+
+  it("keeps whitespace runs and tabs as the page's slug does", () => {
+    expect(slugs("# a  b\n")).toEqual(["a--b"]);
+    expect(slugs("# a\tb\n")).toEqual(["ab"]);
+    // The label still reads with one space.
+    expect(parseHeadings("# a  b\n")[0].text).toBe("a b");
+  });
+
+  it("decodes escapes and character references", () => {
+    expect(slugs("# Fish &amp; Chips\n")).toEqual(["fish--chips"]);
+    expect(slugs("# &#65;&#x42;C\n")).toEqual(["abc"]);
+    expect(slugs("# Caf&eacute;\n")).toEqual(["café"]);
+    expect(slugs("# \\*not em\\*\n")).toEqual(["not-em"]);
+    expect(parseHeadings("# Fish &amp; Chips\n")[0].text).toBe("Fish & Chips");
+  });
+
+  it("drops raw HTML and keeps autolink text", () => {
+    expect(slugs("# <b>Bold</b> <!-- c --> x\n")).toEqual(["bold--x"]);
+    expect(slugs("# see <https://a.b/c>\n")).toEqual(["see-httpsabc"]);
+    expect(parseHeadings("# <b>Bold</b> x\n")[0].text).toBe("Bold x");
+  });
+
+  it("reads emphasis by micromark's delimiter rules", () => {
+    expect(slugs("# snake_case_name\n")).toEqual(["snake_case_name"]);
+    expect(slugs("# a*b*c\n")).toEqual(["abc"]);
+    expect(slugs("# *a **b** c*\n")).toEqual(["a-b-c"]);
+    expect(slugs("# **a*\n")).toEqual(["a"]);
+    expect(slugs("# _a_b\n")).toEqual(["_a_b"]);
+    expect(slugs("# ~a~ ~~~b~~~\n")).toEqual(["a-b"]);
+  });
+
+  it("reads links and images, reference links by the document's definitions", () => {
+    expect(slugs("# ![alt](x.png) b\n")).toEqual(["-b"]);
+    expect(parseHeadings("# ![alt](x.png) b\n")[0].text).toBe("alt b");
+    expect(slugs("# [a] [b]\n\n[A]: /u\n")).toEqual(["a-b"]);
+    expect(slugs("# [x][a] [y][nope]\n\n[a]: /u\n")).toEqual(["x-ynope"]);
+  });
+
+  it("gives every heading a slug, an empty one too", () => {
+    // rehype-slug gives `#` the id "" and the next empty heading "-1".
+    expect(slugs("#\n# !!\n")).toEqual(["-1"]);
+    expect(slugs("# <b></b>\n# ?\n")).toEqual(["-1"]);
+  });
+
+  it("applies the read view's Obsidian syntax to the text", () => {
+    expect(slugs("# ==hi== %%note%% [[Target|alias]] ![[embed]]\n")).toEqual([
+      "hi--alias-",
+    ]);
+  });
+});
+
+describe("maskInlineCode reads a GFM table cell by cell", () => {
+  const masked = (md: string) =>
+    maskInlineCode(markdownLines(md)).map((t) => t.replace(/\r/g, "#"));
+
+  it("does not pair backticks across cells or rows", () => {
+    // remark-gfm reads `a and b` as text in two cells, and the rows apart.
+    expect(masked("| `a | b` |\n|---|---|\n| `c | d` |\n")).toEqual([
+      "| `a | b` |",
+      "|---|---|",
+      "| `c | d` |",
+      "",
+    ]);
+    expect(masked("a|b\n-|-\n`x|y\nz`|w\n")).toEqual([
+      "a|b",
+      "-|-",
+      "`x|y",
+      "z`|w",
+      "",
+    ]);
+  });
+
+  it("still masks a code span inside one cell, and an escaped pipe in it", () => {
+    expect(masked("| `a` | `b \\| c` |\n|-|-|\n")).toEqual([
+      "| ### | ######## |",
+      "|-|-|",
+      "",
+    ]);
+  });
+
+  it("reads the paragraph before the table, and no table without a matching delimiter row", () => {
+    // The line before the delimiter row is the header, out of the paragraph.
+    expect(masked("`x\ny` b|c\n-|-\n")).toEqual(["`x", "y` b|c", "-|-", ""]);
+    expect(masked("`x\ny`\nb|c\n-|-\n")).toEqual(["##", "##", "b|c", "-|-", ""]);
+    // Two header cells, one delimiter cell: a paragraph, so the span pairs.
+    expect(masked("`a|b\nc`|-\n:-\n")).toEqual(["####", "##|-", ":-", ""]);
+    // A lazy line in a blockquote is no delimiter row.
+    expect(masked("> `a | b\n`-|-\n")).toEqual(["> ######", "#-|-", ""]);
+  });
+});
+
+describe("GFM literal autolinks hold no code span or math", () => {
+  const masked = (md: string) =>
+    maskInlineCode(markdownLines(md)).map((t) => t.replace(/\r/g, "#"));
+
+  it("reads a backtick or a dollar in a URL as part of it, as remark-gfm does", () => {
+    expect(masked("see https://x.org/`a [[L]] b`\n")[0]).toBe(
+      "see https://x.org/`a [[L]] b`",
+    );
+    expect(masked("http://x.org/$a b$\n")[0]).toBe("http://x.org/$a b$");
+    expect(masked("a www.x.org/`a b`\n")[0]).toBe("a www.x.org/`a b`");
+    // After a blockquote marker, the line's inline text starts past it.
+    expect(masked(">www.x.org/`a b`\n")[0]).toBe(">www.x.org/`a b`");
+  });
+
+  it("is no autolink after a letter or in an open link text", () => {
+    expect(masked("xhttp://x.org/`a b`\n")[0]).toBe("xhttp://x.org/#####");
+    expect(masked("[http://x.org/`a b`\n")[0]).toBe("[http://x.org/#####");
+    // Trailing punctuation is not in the URL.
+    expect(masked("www.x.org. `a`\n")[0]).toBe("www.x.org. ###");
+  });
+
+  it("keeps a URL's underscores out of emphasis in a heading's slug", () => {
+    expect(parseHeadings("# see www.x.org/_a_\n")[0].slug).toBe("see-wwwxorg_a_");
   });
 });
