@@ -1,6 +1,7 @@
 /**
  * The AI sidebar's quick actions, context and failures say what is going
- * on: a disabled quick action names its reason in its tooltip.
+ * on: a disabled quick action names its reason in its tooltip, and a
+ * document cut to the context limit says so.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -40,7 +41,7 @@ vi.mock("../../ai/registry", async (importOriginal) => {
 
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
-import { AISidebar } from "./AISidebar";
+import { AISidebar, MAX_CONTEXT_CHARS } from "./AISidebar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -91,5 +92,15 @@ describe("AI sidebar notes", () => {
       expect(b.disabled).toBe(true);
       expect(b.title).toMatch(/wait for the current answer/);
     }
+  });
+  it("says when the document is cut before it is sent", async () => {
+    await mount("short");
+    expect(host.querySelector(".ai-context-note")).toBeNull();
+    act(() =>
+      useDocumentStore.setState({ content: "x".repeat(MAX_CONTEXT_CHARS + 500) }),
+    );
+    const note = host.querySelector(".ai-context-note")?.textContent ?? "";
+    expect(note).toContain("first 8,000");
+    expect(note).toContain("8,500 characters");
   });
 });

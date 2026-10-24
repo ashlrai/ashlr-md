@@ -72,7 +72,7 @@ export const MAX_RETRIES = 3;
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
 // ---------------------------------------------------------------------------
-const MAX_CONTEXT_CHARS = 8_000;
+export const MAX_CONTEXT_CHARS = 8_000;
 
 // ---------------------------------------------------------------------------
 // Privacy badge
@@ -720,6 +720,15 @@ export function AISidebar() {
             </button>
           ))}
         </div>
+      )}
+
+      {/* The document is cut to MAX_CONTEXT_CHARS before it is sent, which
+          used to happen with no word, so answers about its end were guesses. */}
+      {!isNoop && provider && docContent.length > MAX_CONTEXT_CHARS && (
+        <p className="ai-context-note" role="note">
+          The AI sees only the first {MAX_CONTEXT_CHARS.toLocaleString("en-US")} of this
+          document's {docContent.length.toLocaleString("en-US")} characters.
+        </p>
       )}
 
       {/* Body: nudge or chat */}

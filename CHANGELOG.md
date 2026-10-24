@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The AI sidebar says when a long document is cut.** Only the first
+  8,000 characters of the document go to the AI, and that was silent, so
+  questions about the rest got guesses. A short note under the quick
+  actions now says how much the AI sees.
 - **A greyed-out AI quick action says why.** Its tooltip repeated its
   label, so on an empty document or while an answer streamed the buttons
   were disabled with no reason. The tooltip now names it.
