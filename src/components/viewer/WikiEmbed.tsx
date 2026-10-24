@@ -5,6 +5,7 @@
  *   ![[note#Heading]]    → partial transclusion (just that section)
  *   ![[note#^blockid]]   → partial transclusion (just that block)
  *   ![[image.png|300]]   → inline image (optionally sized)
+ *   ![[notes.txt]]       → a plain-text attachment, shown as written
  *
  * Markdown embeds render inline through the same Renderer; a depth context caps
  * recursion so `![[a]]`→`![[b]]`→`![[a]]` cycles can't loop forever. Images are
@@ -14,7 +15,12 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { createContext, useContext, useEffect, useState } from "react";
-import { extractSection, isImageTarget, splitFragment } from "../../lib/transclude";
+import {
+  extractSection,
+  isImageTarget,
+  isPlainTextTarget,
+  splitFragment,
+} from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { Renderer } from "./Renderer";
 
@@ -40,6 +46,7 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
   const depth = useContext(EmbedDepthContext);
   const { file, fragment } = splitFragment(target);
   const isImage = isImageTarget(file);
+  const isText = isPlainTextTarget(file);
 
   // For images we hold the resolved path; for markdown, the (maybe-sliced) text.
   const [resolved, setResolved] = useState<string | null | undefined>(undefined);
@@ -66,7 +73,9 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
       }
       try {
         const doc = await invoke<{ content: string }>("read_markdown_file", { path });
-        const out = fragment ? extractSection(doc.content, fragment) : doc.content;
+        // A text attachment has no headings or blocks to take a section of.
+        const out =
+          fragment && !isText ? extractSection(doc.content, fragment) : doc.content;
         if (!cancelled) setResolved(out);
       } catch {
         if (!cancelled) setResolved(null);
@@ -75,7 +84,7 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     return () => {
       cancelled = true;
     };
-  }, [target, file, isImage, fragment, depth]);
+  }, [target, file, isImage, isText, fragment, depth]);
 
   // A blank target (e.g. the data attribute was stripped) — render nothing.
   if (!target) return null;
@@ -112,6 +121,15 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
   }
   if (resolved === null) {
     return <div className="wikiembed wikiembed--broken">⚠ Can't embed “{target}”</div>;
+  }
+
+  if (isText) {
+    return (
+      <div className="wikiembed">
+        <div className="wikiembed__title">{target}</div>
+        <pre className="wikiembed__text">{resolved}</pre>
+      </div>
+    );
   }
 
   return (

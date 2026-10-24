@@ -105,6 +105,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Wikilinks to plain-text attachments resolve.** `[[notes.txt]]` and
+  `![[data.csv]]` were refused like `config` or `.json` files, so they showed
+  as broken links. `.txt`, `.text`, `.csv` and `.tsv` now resolve, inside the
+  vault and through no hidden folder as before, and an embed shows the text as
+  written rather than reading it as Markdown.
 - Hovering a read-view link whose path is percent-encoded (`[x](My%20Note.md)`) now previews the note; the preview looked the path up as written and found nothing.
 - **A heading's copied link opens at that heading.** The "copy link" button
   on a heading copies `mdopener://open?path=…&heading=<slug>`, but the link
