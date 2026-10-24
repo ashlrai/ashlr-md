@@ -7929,7 +7929,11 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   past it as a container that holds the lines indented four columns
 ///   after it, as remark-gfm reads it ([`markdown_lines`]).
 /// - Horizontal rules (`---`, `***`, `___` on their own line) are removed.
-/// - Blank lines are collapsed to a single blank line between paragraphs.
+/// - Blank lines are collapsed to a single blank line between paragraphs,
+///   and those before the first text and after the last are left out. The
+///   text used to start with a line break when the document started with
+///   blank lines, front matter and a blank line, or a line that reads
+///   nothing (a link reference definition).
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
@@ -8114,7 +8118,9 @@ pub fn strip_markdown(content: &str) -> String {
             collapsed.push('\n');
         }
     }
-    collapsed.trim_end().to_string()
+    // Blank lines before the first text are left out, as those after the
+    // last are; the first line keeps its own indentation (code).
+    collapsed.trim_end().trim_start_matches('\n').to_string()
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.

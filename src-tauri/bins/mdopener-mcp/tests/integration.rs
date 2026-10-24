@@ -8767,6 +8767,26 @@ fn export_text_keeps_an_equals_line_the_page_shows_as_text() {
     }
 }
 
+/// export_text's text started with a line break when the document did:
+/// after blank lines, after front matter and a blank line, or after a
+/// link reference definition or an HTML block that reads nothing. The
+/// blank lines before the first text are now left out, as the end's are.
+#[test]
+fn export_text_does_not_start_with_a_line_break() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        ("\n\nText", "Text"),
+        ("---\ntitle: x\n---\n\n# Title\n\nBody", "Title\n\nBody"),
+        ("[a]: /u\n\nText [a]", "Text a"),
+        ("<!-- note -->\n\nText", "Text"),
+        ("    code\n\nText", "code\n\nText"),
+        ("\n```\n  indented\n```", "  indented"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
 /// A link's text and an image's alt text kept their inline markup:
 /// `[**a**](u)` read `**a**`, where the page shows `a`.
 #[test]

@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` no longer starts with a line break.** The text began with
+  `\n` when the document started with blank lines, with front matter and a
+  blank line, or with a line that reads nothing (a link reference definition,
+  an HTML comment). Blank lines before the first text are now left out, as
+  those after the last are; the first line keeps its indentation.
 - **`export_text` keeps an `===` line the page shows as text.** Every line of
   only `=` or `-` was dropped as a setext heading underline, so an `===` line
   after link reference definitions, one with no paragraph before it and a lazy
