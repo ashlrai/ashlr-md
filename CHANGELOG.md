@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` and `export_metadata` read no wikilink across inline HTML.**
+  A `[[...]]` holding a tag, an autolink or a code span (`[[a<b>c]]`) was
+  read as a link across it, so `export_text` read `a<b>c` and
+  `export_metadata` listed it, although the page reads wikilinks only in its
+  text and shows `[[ac]]`. It is now text around them, as on the page.
 - **Block embeds find a `^id` only in text.** A partial embed
   (`![[note#^id]]`) took the first line ending with ` ^id`, also in front
   matter or in fenced or indented code, and its block then ran back over the

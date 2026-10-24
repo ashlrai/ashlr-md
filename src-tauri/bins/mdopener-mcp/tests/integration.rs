@@ -14427,3 +14427,27 @@ fn an_underline_after_reference_definitions_starts_a_paragraph() {
     assert_eq!(strip_markdown("[a]: /u\n===\nb\n").trim(), "===\nb");
     assert_eq!(strip_markdown("[a]: /u\nx\n===\nb\n").trim(), "x\nb");
 }
+
+/// The page reads wikilinks in its text nodes (remark-wikilinks.ts), so a
+/// `[[...]]` that holds the start of inline HTML, an autolink or a code
+/// span is text around them, not a link. export_text and export_metadata
+/// read it as a link across them, so `[[a<b>c]]` read `a<b>c` and was
+/// listed as a wikilink.
+#[test]
+fn a_wikilink_does_not_hold_inline_html_or_code_spans() {
+    use mdopener_mcp::extract_wikilinks;
+    assert_eq!(strip_markdown("[[a<b>c]]\n").trim(), "[[ac]]");
+    assert_eq!(
+        strip_markdown("[[a<https://x>]]\n").trim(),
+        "[[ahttps://x]]"
+    );
+    assert_eq!(strip_markdown("x ![[a<b>c]] y\n").trim(), "x ![[ac]] y");
+    // A `<` that starts no tag is text in the link.
+    assert_eq!(strip_markdown("[[a < b]]\n").trim(), "a < b");
+    assert_eq!(strip_markdown("[[a<b>[[c]]\n").trim(), "[[ac");
+    assert_eq!(
+        extract_wikilinks("[[a<b>c]] [[x `y` z]] [[a`b]] [[ok]]\n"),
+        ["a`b", "ok"]
+    );
+    assert_eq!(mdopener_mcp::count_embedded_images("![[i<b>.png]]\n"), 0);
+}

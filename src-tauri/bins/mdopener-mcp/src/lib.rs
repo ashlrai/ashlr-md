@@ -8713,6 +8713,11 @@ struct Wikilink {
 /// lines later as its target, hiding the links in between, and an unclosed
 /// `![[` counted as an image. A `]` inside used to end up in the target
 /// (`[[a]b]]` linked to `a]b`), and `#heading` was part of it.
+///
+/// The app reads wikilinks in the page's text nodes, so one that holds the
+/// start of inline HTML, an autolink or a code span ([`splits_wikilink`])
+/// is none: `[[a<b>c]]` is text around a `<b>` tag. It used to be read
+/// across them, so `export_text` read it as the link `a<b>c`.
 fn parse_wikilink(chars: &[char], start: usize) -> Option<Wikilink> {
     if chars.get(start) != Some(&'[') || chars.get(start + 1) != Some(&'[') {
         return None;
@@ -8739,11 +8744,38 @@ fn parse_wikilink(chars: &[char], start: usize) -> Option<Wikilink> {
         alias = Some(a);
         pos = next;
     }
-    (chars.get(pos) == Some(&']') && chars.get(pos + 1) == Some(&']')).then_some(Wikilink {
+    (chars.get(pos) == Some(&']')
+        && chars.get(pos + 1) == Some(&']')
+        && !splits_wikilink(chars, start + 2, pos))
+    .then_some(Wikilink {
         target,
         heading,
         alias,
         end: pos + 2,
+    })
+}
+
+/// Whether `chars[from..to]`, the inside of a wikilink's brackets, holds
+/// the start of inline HTML ([`html_end`]), an autolink ([`autolink_end`])
+/// or a code span (a run of backticks closed by a later run of exactly as
+/// many), which split the text the page reads wikilinks in, wherever they
+/// end.
+fn splits_wikilink(chars: &[char], from: usize, to: usize) -> bool {
+    (from..to).any(|k| match chars[k] {
+        '<' => html_end(chars, k).is_some() || autolink_end(chars, k).is_some(),
+        '`' if k == from || chars[k - 1] != '`' => {
+            let run = chars[k..].iter().take_while(|&&c| c == '`').count();
+            let mut j = k + run;
+            while j < chars.len() {
+                let n = chars[j..].iter().take_while(|&&c| c == '`').count();
+                if n == run {
+                    return true;
+                }
+                j += n.max(1);
+            }
+            false
+        }
+        _ => false,
     })
 }
 
@@ -9302,8 +9334,9 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 }
 
 /// The text lines of `content` (and its front matter lines with
-/// `front_matter`), joined by line breaks, with the code spans in them
-/// (`` `…` ``) left out: where [`extract_wikilinks`] and
+/// `front_matter`), joined by line breaks, with each code span in them
+/// (`` `…` ``) read as a `\r`, which no wikilink holds (`[[a`x`b]]` is
+/// none, as on the page): where [`extract_wikilinks`] and
 /// [`count_embedded_images`] read links and images. Fenced code, indented
 /// code ([`markdown_lines::with_indented_code`]) and HTML blocks are not
 /// text; indented code and code spans used to be read, so a `[[link]]` in
@@ -9338,7 +9371,7 @@ fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
         }
         match close {
             Some(end) => {
-                out.push(' ');
+                out.push('\r');
                 i = end;
             }
             None => {
