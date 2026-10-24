@@ -202,7 +202,11 @@ function MarkdownImage({
     );
   }
   if (local?.path !== source.path) {
-    return <span className="wikiembed wikiembed--loading">Loading {name}…</span>;
+    return (
+      <span className="wikiembed wikiembed--loading" data-name={name}>
+        Loading {name}…
+      </span>
+    );
   }
   if (local.url === null) {
     return (

@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An export waits for images still loading.** A local image is read from
+  disk after the page renders and shows "Loading name…" until then, so an
+  export (or a copy as rich text) taken meanwhile held that text instead
+  of the image. Exports now wait up to 5 s for the read view's images and
+  embeds, and one still loading after that is exported as its name, never
+  as the placeholder.
 - **The Slack export is Slack text.** The Slack profile saved a whole HTML
   page (styles and markup) into its `.txt`, which pasted into Slack as
   code. It now writes Slack's own formatting: `*bold*`, `_italic_`,

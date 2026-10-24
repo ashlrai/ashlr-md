@@ -155,7 +155,45 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
     ".review-card, .remote-images-banner, .remote-image-load",
   ))
     node.remove();
+  // An image or embed still loading (see waitForRenderedImages) is its name,
+  // not the app's "Loading x…" placeholder.
+  for (const node of clone.querySelectorAll(".wikiembed--loading"))
+    node.replaceWith(
+      node.ownerDocument.createTextNode(node.getAttribute("data-name") ?? ""),
+    );
   return clone;
+}
+
+/** How long an export waits for the read view's images and embeds to load. */
+export const EXPORT_IMAGE_WAIT_MS = 5000;
+
+/**
+ * Resolves once the read view shows no image or embed still loading (a
+ * local image is read through Rust, so it shows "Loading x…" first), or
+ * after `timeoutMs`, whichever comes first. An export taken while one was
+ * loading used to contain the placeholder text instead of the image.
+ */
+export function waitForRenderedImages(timeoutMs = EXPORT_IMAGE_WAIT_MS): Promise<void> {
+  const loading = () =>
+    document.querySelector(".markdown-body .wikiembed--loading") !== null;
+  if (!loading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      if (!loading()) done();
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    const timer = setTimeout(done, timeoutMs);
+  });
 }
 
 /**
@@ -342,6 +380,7 @@ function escapeHtml(s: string): string {
  * `~/.bashrc` replaced the shell profile.
  */
 export async function exportHtml(title: string, outputPath?: string): Promise<void> {
+  await waitForRenderedImages();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
 
@@ -375,6 +414,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
  * `write_file_bytes` command for an atomic save.
  */
 export async function exportDocx(title: string, outputPath?: string): Promise<void> {
+  await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
   // Dynamic import so the rest of the app loads even if html-to-docx is absent.
@@ -443,6 +483,7 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
  * destination selection (including "Save as PDF").
  */
 export async function exportPdf(_title: string): Promise<void> {
+  await waitForRenderedImages();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(_title).title);
 
@@ -706,6 +747,7 @@ async function withEpubImages<T>(
  * The import is dynamic so the rest of the app loads even if it is absent.
  */
 export async function exportEpub(title: string, outputPath?: string): Promise<void> {
+  await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
   // children of the parse container.
@@ -948,6 +990,7 @@ export async function exportWithProfile(
 ): Promise<void> {
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
+  await waitForRenderedImages();
 
   // A text profile (Slack) is the text it promises, not a page: the Slack
   // .txt used to hold a whole HTML document, which pasted as markup.

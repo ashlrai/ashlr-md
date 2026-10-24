@@ -102,7 +102,11 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
 
   if (isImage) {
     if (resolved === undefined) {
-      return <span className="wikiembed wikiembed--loading">Loading {file}…</span>;
+      return (
+        <span className="wikiembed wikiembed--loading" data-name={file}>
+          Loading {file}…
+        </span>
+      );
     }
     if (resolved === null) {
       return (
@@ -128,7 +132,11 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     );
   }
   if (resolved === undefined) {
-    return <div className="wikiembed wikiembed--loading">Loading {target}…</div>;
+    return (
+      <div className="wikiembed wikiembed--loading" data-name={target}>
+        Loading {target}…
+      </div>
+    );
   }
   if (resolved === null) {
     return <div className="wikiembed wikiembed--broken">⚠ Can't embed “{target}”</div>;

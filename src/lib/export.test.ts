@@ -60,6 +60,7 @@ import {
   exportDocx,
   exportHtml,
   exportPdf,
+  waitForRenderedImages,
 } from "./export";
 
 /**
@@ -331,6 +332,47 @@ describe("exportHtml", () => {
     await exportHtml("my-doc");
     expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
     expect(writtenExport()?.path).toBe("/home/user/my-doc.html");
+  });
+
+  it("waits for an image still loading, and exports the image", async () => {
+    // A local image is read through Rust and shows "Loading x…" until then;
+    // an export taken meanwhile used to contain that text.
+    document
+      .querySelector(".markdown-body")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<p><span class="wikiembed wikiembed--loading" data-name="chart.png">Loading chart.png…</span></p>',
+      );
+    setTimeout(() => {
+      document.querySelector(".wikiembed--loading")?.replaceWith(
+        Object.assign(document.createElement("img"), {
+          src: "data:image/png;base64,QUJD",
+          alt: "chart.png",
+        }),
+      );
+    }, 20);
+    await exportHtml("My Doc");
+    const text = writtenExport()?.text ?? "";
+    expect(text).toContain('src="data:image/png;base64,QUJD"');
+    expect(text).not.toContain("Loading chart.png");
+  });
+
+  it("gives up on a loading image after a bound, exporting its name", async () => {
+    document
+      .querySelector(".markdown-body")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<p><span class="wikiembed wikiembed--loading" data-name="slow.png">Loading slow.png…</span></p>',
+      );
+    const started = Date.now();
+    await waitForRenderedImages(30);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(25);
+    const clone = cloneWithoutInjectedChrome(
+      document.querySelector(".markdown-body") as Element,
+    );
+    expect(clone.textContent).toContain("slow.png");
+    expect(clone.textContent).not.toContain("Loading");
+    expect(clone.querySelector(".wikiembed--loading")).toBeNull();
   });
 
   it("never writes through write_markdown_file, which follows a symbolic link", async () => {
