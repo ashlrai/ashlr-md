@@ -6,7 +6,10 @@
  * close prompt cannot catch (⌘Q on macOS) or an update's relaunch does not
  * lose it. On the next launch each kept text is put back in its document's
  * tab, unsaved; when the file changed on disk since, the external-change
- * banner offers the disk version too. Close Without Saving forgets the copy.
+ * banner offers the disk version too. A text whose file cannot be opened
+ * (deleted, moved, unreadable) is put back in a tab of its own, flagged as
+ * gone, so the banner offers Save As: it used to be reported and dropped.
+ * Close Without Saving forgets the copy.
  *
  * Limits: a document over {@link MAX_BUFFER_CHARS} characters is not kept,
  * nor any past {@link MAX_TOTAL_CHARS} in all (localStorage holds a few MB).
@@ -163,32 +166,41 @@ export function discardBuffers(): void {
 export interface RestoreResult {
   /** File names whose unsaved text is back in their tab. */
   restored: string[];
-  /** File names whose text could not be put back (the file cannot be opened). */
-  lost: string[];
+  /**
+   * File names whose file could not be opened: their text is in a tab of its
+   * own, flagged as gone, for Save As (it used to be dropped).
+   */
+  recovered: string[];
 }
 
 /**
  * Put each kept buffer back in its document's tab (opened when it is not
- * open). The tab that was active stays active.
+ * open). A buffer whose file cannot be opened gets a tab of its own (the
+ * store's `openRecovered`): the text is never dropped. The tab that was
+ * active stays active.
  */
 export async function restoreBuffers(
   openPath: (path: string) => Promise<string | null>,
 ): Promise<RestoreResult> {
-  const result: RestoreResult = { restored: [], lost: [] };
+  const result: RestoreResult = { restored: [], recovered: [] };
   const buffers = readBuffers();
   if (buffers.length === 0) return result;
   const store = useDocumentStore;
   const wasActive = store.getState().activeId;
+  // Tabs given a kept text in this run: a second text for the same file
+  // (kept under another path to it) must not replace the first.
+  const filled = new Set<string>();
   for (const b of buffers) {
-    if ((await openPath(b.path)) !== null) {
-      result.lost.push(b.fileName);
-      continue;
-    }
+    const opened = (await openPath(b.path)) === null;
     const s = store.getState();
-    if (s.path !== b.path || s.activeId == null) {
-      result.lost.push(b.fileName);
+    // Opened (or already open, by this path or another to the same file):
+    // its tab is the active one.
+    if (!opened || s.activeId == null || filled.has(s.activeId)) {
+      store.getState().openRecovered(b);
+      result.recovered.push(b.fileName);
       continue;
     }
+    filled.add(s.activeId);
     // Saved after all (the copy is written half a second late): nothing to do.
     if (s.content === b.content) continue;
     const disk = s.diskContent;
@@ -229,10 +241,10 @@ export function restoreMessage(
           .slice(0, 3)
           .map((n) => `"${n}"`)
           .join(", ")} and ${list.length - 3} more`;
-  if (r.lost.length > 0) {
+  if (r.recovered.length > 0) {
     return {
       kind: "error",
-      text: `Unsaved changes to ${names(r.lost)} could not be restored: the file could not be opened.${
+      text: `Unsaved changes to ${names(r.recovered)} are back in a tab of their own: the file could not be opened. Use Save As to keep them.${
         r.restored.length ? ` Restored unsaved changes to ${names(r.restored)}.` : ""
       }`,
     };

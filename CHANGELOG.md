@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Unsaved text for a file that cannot be opened is kept.** At launch, the
+  text kept for a file that was deleted, moved or cannot be read was reported
+  ("could not be restored") and dropped. It now opens in a tab of its own,
+  unsaved and flagged as gone, so the banner offers Save As (or Recreate),
+  closing the tab asks first, and it is kept for the next launch too. If the
+  file turns up again, a save is refused as a change on disk, so the banner
+  offers both versions instead of writing over it.
 - **The app's `/export` without `overwrite` no longer replaces a file.** A
   request with an `outputPath` and no `overwrite` flag (a caller written
   before the flag existed) replaced a file already there. It is now refused

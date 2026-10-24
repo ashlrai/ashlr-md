@@ -226,6 +226,16 @@ interface DocumentState {
    * `missing` when the file is gone.
    */
   refreshFromDisk: (path: string) => Promise<void>;
+  /**
+   * Open `content`, unsaved text kept for `path` whose file cannot be read
+   * now, in a tab of its own, flagged as gone (the banner offers Save As and
+   * Recreate, and closing asks first). Returns the new tab's id.
+   */
+  openRecovered: (recovered: {
+    path: string;
+    fileName: string;
+    content: string;
+  }) => string;
   /** `version` is the read's (`read_markdown_file`), when known. */
   handleDiskUpdate: (diskContent: string, version?: string | null) => void;
   acceptExternalChange: () => void;
@@ -261,6 +271,12 @@ export interface SaveOptions {
 /** Why an agent save of a deleted or moved file is refused. */
 export const MISSING_FILE_REASON =
   "the file was deleted or moved outside Ashlr MD; it is written again only when the user confirms (Save, or Save As)";
+
+/**
+ * The disk version of a tab opened by `openRecovered`: no read produces it
+ * (a read's is `length:hash`).
+ */
+export const RECOVERED_VERSION = "recovered";
 
 /** Fields a Tab and the top-level mirror share, sans `id`. */
 type TabFields = Omit<Tab, "id" | "key">;
@@ -876,6 +892,40 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       toast.error(`Couldn’t save: ${untagged(String(e))}`);
       return untagged(String(e));
     }
+  },
+
+  openRecovered: ({ path, fileName, content }) => {
+    const s = get();
+    const id = newTabId();
+    const tab: Tab = {
+      id,
+      key: path,
+      path,
+      fileName,
+      content,
+      // Nothing was read from disk: the text is all unsaved.
+      diskContent: "",
+      size: content.length,
+      viewMode: s.viewMode,
+      isDirty: true,
+      externalChange: false,
+      pendingDisk: null,
+      // Matches no read, so a save over a file found there again is refused
+      // as a change on disk (and offered), never written over it unasked.
+      diskVersion: RECOVERED_VERSION,
+      pendingVersion: null,
+      missing: true,
+      reloadNonce: s.reloadNonce + 1,
+      splitView: false,
+    };
+    set({
+      ...tabFieldsToTop(tab),
+      isLoading: false,
+      error: null,
+      tabs: [...syncActiveTab(s), tab],
+      activeId: id,
+    });
+    return id;
   },
 
   refreshFromDisk: async (path) => {
