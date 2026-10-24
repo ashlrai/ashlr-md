@@ -417,9 +417,9 @@ let unwatchedPath: string | null = null;
  * Watch `path` for changes made outside the app (the one watch, which
  * replaces the last). A watch that cannot start is said in a toast: it
  * used to fail without a word, so changes on disk went unnoticed and the
- * next save was refused or wrote over them.
+ * next save was refused or wrote over them. `quiet`: not said.
  */
-function watchFile(path: string): void {
+function watchFile(path: string, opts?: { quiet?: boolean }): void {
   let watching: Promise<unknown>;
   try {
     watching = Promise.resolve(invoke("watch_file", { path }));
@@ -431,7 +431,7 @@ function watchFile(path: string): void {
       if (unwatchedPath === path) unwatchedPath = null;
     },
     (e) => {
-      if (unwatchedPath === path) return;
+      if (opts?.quiet || unwatchedPath === path) return;
       unwatchedPath = path;
       toast.error(untagged(String(e)));
     },
@@ -984,6 +984,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       tabs: [...syncActiveTab(s), tab],
       activeId: id,
     });
+    // Watched as an opened file is: the file coming back (a sync client, a
+    // drive mounted again) is offered in the banner. It was never watched,
+    // so the tab read as gone until it was saved or switched away from. Its
+    // folder may be gone too, which the banner already says.
+    if (path) watchFile(path, { quiet: true });
     return id;
   },
 

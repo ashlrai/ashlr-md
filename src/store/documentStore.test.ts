@@ -307,6 +307,32 @@ describe("documentStore", () => {
     ]);
   });
 
+  it("watches a recovered tab's file, and takes it when it comes back", async () => {
+    // A recovered tab was never watched: the file coming back went unseen.
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.resolve({
+            path: "/r/n.md",
+            file_name: "n.md",
+            content: "on disk",
+            size: 7,
+            version: "7:v",
+          })
+        : Promise.resolve(),
+    );
+    useDocumentStore
+      .getState()
+      .openRecovered({ path: "/r/n.md", fileName: "n.md", content: "kept" });
+    expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/r/n.md" });
+    // Its change event finds the file: the tab is no longer gone, and the
+    // kept text is offered against the disk's, never replaced.
+    await useDocumentStore.getState().refreshFromDisk("/r/n.md");
+    const s = useDocumentStore.getState();
+    expect(s.missing).toBe(false);
+    expect(s.content).toBe("kept");
+    expect(s.externalChange).toBe(true);
+  });
+
   it("follows the open file when it is renamed on disk", async () => {
     // A rename read as the file being gone: the tab was flagged missing.
     readReturnsByPath();

@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A recovered tab is watched.** Unsaved text reopened for a file that could
+  not be opened at launch was never watched, so when the file came back (a
+  sync client caught up, a drive was mounted again) the tab still read as
+  gone. It is watched as an opened file is: the file coming back clears the
+  missing banner and its text is offered against the kept text.
 - **A file renamed on disk is followed.** Renaming the open file in another
   app (or `mv` in a terminal) read as the file being deleted: the tab was
   flagged missing and Save offered to recreate the old name. Where the system
