@@ -449,25 +449,35 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   save: async () => {
-    const { path, content } = get();
+    const { path, content, activeId } = get();
     if (!path) return;
     try {
       await invoke("write_markdown_file", { path, content });
       set((s) => {
-        const next = {
-          ...s,
+        // What was written is the tab's disk baseline, and it is clean only
+        // if nothing was typed since: an edit made while the write was in
+        // flight used to be marked saved, so closing the tab dropped it
+        // without asking. The saved tab may no longer be the active one (a
+        // tab switch during the write), whose fields the mirror then holds:
+        // they used to take the saved tab's baseline, so the other tab's
+        // edits read as saved.
+        const saved = {
           diskContent: content,
-          isDirty: false,
           externalChange: false,
           pendingDisk: null,
         };
-        return {
-          diskContent: content,
-          isDirty: false,
-          externalChange: false,
-          pendingDisk: null,
-          tabs: syncActiveTab(next),
-        };
+        if (s.activeId !== activeId || s.path !== path) {
+          return {
+            tabs: s.tabs.map((t) =>
+              t.id === activeId && t.path === path
+                ? { ...t, ...saved, isDirty: t.content !== content }
+                : t,
+            ),
+          };
+        }
+        const isDirty = s.content !== content;
+        const next = { ...s, ...saved, isDirty };
+        return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
       toast.success("Saved");
     } catch (e) {

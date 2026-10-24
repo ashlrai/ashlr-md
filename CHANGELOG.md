@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Edits made while a save is writing stay unsaved.** A save marked the
+  document clean when the write finished, even if more was typed during it,
+  so closing the tab then dropped those edits without asking. And when the
+  tab was switched during the write, the tab switched to took the saved
+  tab's text as its baseline and lost its unsaved mark. A finished save now
+  marks only the tab it wrote, and only as clean as what it wrote.
 - **Edits to a symlinked note's real file are noticed.** The window watched
   only the folder of the path it opened, so when that path was a link (or
   ran through a linked folder, as `/tmp` does on macOS, where events name

@@ -769,3 +769,74 @@ describe("openPath of a file that is gone", () => {
     expect(recentRemove).not.toHaveBeenCalled();
   });
 });
+
+describe("documentStore — saves stay with their tab", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  /** read_markdown_file answers from `files`; write_markdown_file waits for `gate`. */
+  function disk(files: Record<string, string>, gate?: Promise<void>) {
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      const p = args?.path ?? "";
+      if (cmd === "read_markdown_file") {
+        if (!(p in files)) return Promise.reject("No such file");
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: files[p],
+          size: files[p].length,
+        });
+      }
+      if (cmd === "write_markdown_file") return gate ?? Promise.resolve();
+      return Promise.resolve();
+    });
+  }
+
+  it("keeps an edit typed while the save was writing unsaved", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    disk({ "/a.md": "v0" }, gate);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("v1");
+    const saving = useDocumentStore.getState().save();
+    useDocumentStore.getState().setContent("v2");
+    release();
+    await saving;
+    const s = useDocumentStore.getState();
+    expect(s.diskContent).toBe("v1");
+    expect(s.content).toBe("v2");
+    expect(s.isDirty).toBe(true);
+    expect(s.tabs[0].isDirty).toBe(true);
+  });
+
+  it("marks the saved tab clean, not the tab switched to during the write", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    disk({ "/a.md": "a0", "/b.md": "b0" }, gate);
+    await useDocumentStore.getState().openPath("/a.md");
+    await useDocumentStore.getState().openPath("/b.md");
+    const [aId, bId] = useDocumentStore.getState().tabs.map((t) => t.id);
+    useDocumentStore.getState().setContent("b edited");
+    useDocumentStore.getState().switchTab(aId);
+    useDocumentStore.getState().setContent("a edited");
+    const saving = useDocumentStore.getState().save();
+    useDocumentStore.getState().switchTab(bId);
+    release();
+    await saving;
+    const s = useDocumentStore.getState();
+    // B is still active, and still has its unsaved edit.
+    expect(s.path).toBe("/b.md");
+    expect(s.content).toBe("b edited");
+    expect(s.diskContent).toBe("b0");
+    expect(s.isDirty).toBe(true);
+    const a = s.tabs.find((t) => t.id === aId);
+    expect(a?.diskContent).toBe("a edited");
+    expect(a?.isDirty).toBe(false);
+  });
+});
