@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A table menu edit survives the next keystroke.** The WYSIWYG table menu
+  (insert or delete a row or column, align a column) changed the Markdown
+  but not the editor, which kept the old table, so the next thing typed
+  anywhere wrote the old table back. The editor now shows the menu's table
+  too, and keeps it as the menu wrote it.
 - **The WYSIWYG table menu opens in a built app.** The editor's table menu
   (right-click or double-click in a table, ⌘⇧T) and Enter continuing a list
   were wired up in a step that ran before the editor's view was known, found

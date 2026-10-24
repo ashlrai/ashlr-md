@@ -1,5 +1,7 @@
 /**
  * The WYSIWYG editor's table menu (lib/tableEditor.ts edits the Markdown).
+ * It gave the result to the document store only, so the editor kept the
+ * old table, and the next typed edit wrote it back over the menu's change.
  */
 
 import { TextSelection } from "@milkdown/kit/prose/state";
@@ -100,5 +102,34 @@ describe("WYSIWYG editor: the table menu", () => {
     const v = await mount(TABLE_DOC);
     await openMenuAt(v, "a");
     expect(menuButton("Insert row below")).toBeDefined();
+  });
+
+  it("keeps the menu's change when the user types afterwards", async () => {
+    // The menu gave its result to the document store only: the editor kept
+    // the old table, and the next typed edit wrote it back over the change.
+    const v = await mount(TABLE_DOC);
+    await openMenuAt(v, "a");
+    await act(async () => menuButton("Insert row below")?.click());
+    const afterMenu = useDocumentStore.getState().content;
+    expect(afterMenu.match(/^\|/gm)?.length).toBe(4);
+    // The editor shows the new row too.
+    expect(v.state.doc.child(1).childCount).toBe(3);
+    await wait(400);
+    // Showing it reports no change of its own.
+    expect(useDocumentStore.getState().content).toBe(afterMenu);
+
+    let outro = -1;
+    v.state.doc.descendants((n, p) => {
+      if (outro === -1 && n.isText && n.text?.startsWith("Outro")) outro = p;
+    });
+    await act(async () => {
+      v.dispatch(v.state.tr.insertText("New ", outro, outro));
+    });
+    await wait(400);
+    // The row the menu added is still there, as the menu wrote it, with the
+    // typed text; the rest is as it was.
+    expect(useDocumentStore.getState().content).toBe(
+      afterMenu.replace("Outro text.", "New Outro text."),
+    );
   });
 });

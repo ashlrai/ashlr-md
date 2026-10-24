@@ -1,5 +1,5 @@
 import { Crepe } from "@milkdown/crepe";
-import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
+import { type Editor, editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -32,11 +32,15 @@ import {
   usesCrlf,
 } from "../../lib/frontmatter";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
-import { keepSourceOnSave } from "../../lib/milkdownFidelity";
+import { keepSourceOnSave, type SourceKeeping } from "../../lib/milkdownFidelity";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { listEnterTransaction } from "../../lib/milkdownListEnter";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
-import { tableOffsetAt } from "../../lib/milkdownTable";
+import {
+  syncTableTransaction,
+  tableIndexOfOffset,
+  tableOffsetAt,
+} from "../../lib/milkdownTable";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
 import { applyTableEdit, type ColAlignment } from "../../lib/tableEditor";
 import { useAIStore } from "../../store/aiStore";
@@ -151,6 +155,10 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
 
   // The live ProseMirror view, captured once the editor is created.
   const proseRef = useRef<ProseView | null>(null);
+  /** The source keeper of the mounted editor (lib/milkdownFidelity.ts). */
+  const keeperRef = useRef<SourceKeeping | null>(null);
+  /** useEditor's `get`, for callbacks made before it is defined. */
+  const getRef = useRef<(() => Editor | undefined) | null>(null);
 
   const [anchor, setAnchor] = useState<InlineAnchor | null>(null);
   const [phase, setPhase] = useState<InlinePhase>({ kind: "menu" });
@@ -343,18 +351,44 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
   }
 
   /**
-   * Apply a table edit to the current document body and push to document store.
+   * Apply a table edit to the current document body, show it in the
+   * editor's tree, and push it to the document store. Only the store used
+   * to get it: the editor kept the old table, and the next typed edit
+   * wrote that back over the menu's change.
    */
   const dispatchTableEdit = useCallback(
     (cursorOffset: number, edit: Parameters<typeof applyTableEdit>[2]) => {
       const body = lastBodyRef.current;
       const newBody = applyTableEdit(body, cursorOffset, edit);
       if (newBody === body) return;
+      showBodyInEditor(newBody, tableIndexOfOffset(body, cursorOffset));
       lastBodyRef.current = newBody;
       setContentRef.current(joinFrontmatter(fmRef.current, newBody));
     },
     [],
   );
+
+  /**
+   * Make the editor's tree show `body` (a change made to the Markdown
+   * outside it): the `tableIndex`th table is replaced, or the whole
+   * document, and the source keeper takes `body` as the text the tree
+   * stands for, so it is saved as written.
+   */
+  function showBodyInEditor(body: string, tableIndex: number | null) {
+    const view = proseRef.current;
+    const editor = getRef.current?.();
+    if (!view || !editor) return;
+    try {
+      editor.action((ctx) => {
+        const parsed = ctx.get(parserCtx)(body);
+        const tr = syncTableTransaction(view.state, parsed, tableIndex);
+        if (tr) view.dispatch(tr);
+      });
+      keeperRef.current?.rebase(body);
+    } catch {
+      // The store still gets the edit; the editor shows it on its next mount.
+    }
+  }
 
   const { loading, get } = useEditor((root) => {
     const { frontmatter, body } = splitFrontmatter(initialContent);
@@ -384,7 +418,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     const crlf = usesCrlf(initialContent);
     // Only the blocks edited are written by the serializer; the rest of the
     // file keeps its text (lib/milkdownFidelity.ts).
-    keepSourceOnSave(crepe, body, (written) => {
+    keeperRef.current = keepSourceOnSave(crepe, body, (written) => {
       const markdown = inLineBreaks(written, crlf);
       // Ignore no-op echoes; only propagate real content changes.
       if (markdown === lastBodyRef.current) return;
@@ -393,6 +427,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     });
     return crepe;
   }, []);
+  getRef.current = get;
 
   // Once the editor has finished loading, capture the ProseMirror view so
   // inline AI can read selections and dispatch in-place replacements. It

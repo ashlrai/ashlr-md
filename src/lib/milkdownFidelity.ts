@@ -930,18 +930,36 @@ export function keepSourceOnSave(
   crepe: Crepe,
   original: string,
   onChange: (body: string) => void,
-): void {
+): SourceKeeping {
   crepe.editor
     .config(keepTightBulletLists)
     .config(keepEmptyTableCells)
     .use(keepInlineLineBreaks);
   let keep: ((written: string) => string) | null = null;
+  let mounted: Ctx | null = null;
   crepe.on((api) => {
     api.mounted((ctx) => {
+      mounted = ctx;
       keep = sourceKeeper(ctx, original);
     });
     api.markdownUpdated((_ctx, written) => {
       onChange(keep ? keep(written) : written);
     });
   });
+  return {
+    rebase: (body) => {
+      if (mounted) keep = sourceKeeper(mounted, body);
+    },
+  };
+}
+
+/** What {@link keepSourceOnSave} hands back. */
+export interface SourceKeeping {
+  /**
+   * Take `body` as the text the editor's tree now stands for (call once
+   * the tree shows it): a change made to the Markdown outside the editor,
+   * such as a table menu edit, is then kept as written, and later edits
+   * are spliced into it. Before the editor is mounted it does nothing.
+   */
+  rebase: (body: string) => void;
 }
