@@ -307,6 +307,31 @@ describe("documentStore", () => {
     ]);
   });
 
+  it("follows the open file when it is renamed on disk", async () => {
+    // A rename read as the file being gone: the tab was flagged missing.
+    readReturnsByPath();
+    await useDocumentStore.getState().openPath("/d/a.md");
+    useDocumentStore.getState().setContent("edited");
+    invokeMock.mockClear();
+    await useDocumentStore.getState().followRename("/d/a.md", "/d/b.md");
+    const s = useDocumentStore.getState();
+    expect(s.path).toBe("/d/b.md");
+    expect(s.fileName).toBe("b.md");
+    expect(s.missing).toBe(false);
+    expect(s.tabs[0]).toMatchObject({
+      path: "/d/b.md",
+      fileName: "b.md",
+      key: "/d/b.md",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/d/b.md" });
+    // Its unsaved text is kept.
+    expect(s.content).toBe("edited");
+    expect(s.isDirty).toBe(true);
+    // A rename of another file changes nothing.
+    await useDocumentStore.getState().followRename("/d/x.md", "/d/y.md");
+    expect(useDocumentStore.getState().path).toBe("/d/b.md");
+  });
+
   it("closeTab activates the nearest neighbor (right, else left)", async () => {
     readReturnsByPath();
     await useDocumentStore.getState().openPath("/a.md");

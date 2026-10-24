@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A file renamed on disk is followed.** Renaming the open file in another
+  app (or `mv` in a terminal) read as the file being deleted: the tab was
+  flagged missing and Save offered to recreate the old name. Where the system
+  reports both names (Linux, and Windows), the tab now takes the new path and
+  name, keeps any unsaved text, and is watched there; a toast says so. On
+  macOS, and for a move to another folder, the tab is still flagged missing.
 - **A file that cannot be watched is said so.** When watching the open file
   for changes made in other apps failed (its folder gone, the system's watch
   limit reached), the watch of the file shown before was kept and the

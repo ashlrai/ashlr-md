@@ -228,6 +228,12 @@ interface DocumentState {
    */
   refreshFromDisk: (path: string) => Promise<void>;
   /**
+   * The watcher saw the active document's file (`from`) renamed to `to`
+   * outside the app: the tab takes the new path (and name), is watched
+   * there and read again. A tab on any other path is left as it is.
+   */
+  followRename: (from: string, to: string) => Promise<void>;
+  /**
    * Open `content`, unsaved text kept for `path` whose file cannot be read
    * now, in a tab of its own, flagged as gone (the banner offers Save As and
    * Recreate, and closing asks first). Returns the new tab's id.
@@ -979,6 +985,43 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       activeId: id,
     });
     return id;
+  },
+
+  followRename: async (from, to) => {
+    const s = get();
+    if (s.path !== from || !to || to === from) return;
+    // A tab open on the new path already holds that file: this one is left
+    // as it is (it reads as gone), so the two never save over each other.
+    if (s.tabs.some((t) => t.id !== s.activeId && t.path === to)) return;
+    const oldName = s.fileName;
+    const fileName = baseName(to);
+    const next = { ...s, path: to, fileName };
+    set({
+      path: to,
+      fileName,
+      tabs: syncActiveTab(next).map((t) =>
+        t.id === s.activeId ? { ...t, key: to } : t,
+      ),
+    });
+    toast.info(
+      `"${oldName}" was renamed to "${fileName}" outside Ashlr MD. This tab now saves to it.`,
+    );
+    useRecentStore.getState().add(to, fileName, Date.now());
+    watchFile(to);
+    await get().refreshFromDisk(to);
+    // Found again by its canonical path, as a read names it (see fileKey).
+    try {
+      const key = fileKey(
+        await invoke<MarkdownFile>("read_markdown_file", { path: to }),
+      );
+      set((now) => ({
+        tabs: now.tabs.map((t) =>
+          t.id === s.activeId && t.path === to ? { ...t, key } : t,
+        ),
+      }));
+    } catch {
+      // Gone again: the path as reported is its key.
+    }
   },
 
   refreshFromDisk: async (path) => {
