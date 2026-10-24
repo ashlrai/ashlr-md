@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A task item that starts with `> [!TIP]` keeps it when edited.** The
+  editor writes a task item's text as if it began a line, so `- [ ] > [!TIP]`
+  was saved as `- [ ] \> \[!TIP]` once the item was edited (and `# x` as
+  `\# x`). After the `[ ]` box none of these can start a block, so a `>`,
+  `#`, `-`, `+` or `*` and a callout marker at the start of a task item's
+  text are now saved as the file wrote them. Text the file wrote escaped
+  stays escaped.
 - **Email export: a code block's text is not styled as inline code.** The
   email profile gave every `<code>` the inline-code style (pink text in a grey
   box with a border), and as an inline style it beat the stylesheet's

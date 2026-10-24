@@ -36,7 +36,8 @@
  * ({@link codeBlockText}), and an indented one stays indented. An edited
  * table keeps its rows' padding and its delimiter row where they still
  * hold ({@link keepTableLayout}), a callout its `[!NOTE]` marker
- * ({@link keepCalloutMarkers}), and a nested list its own marker
+ * ({@link keepCalloutMarkers}), a task item the `> [!TIP]` its text starts
+ * with ({@link keepTaskItemText}), and a nested list its own marker
  * ({@link keepNestedMarkers}).
  */
 
@@ -938,11 +939,51 @@ export function keepCalloutMarkers(tree: unknown, source: string): void {
   walk(tree as SpelledNode);
 }
 
+/**
+ * Keep the start of a task item's text unescaped when `source` wrote it so:
+ * a `>`, `#`, `-`, `+` or `*` that begins it, with a callout marker
+ * (`[!TIP]`) after it, or such a marker alone. The serializer writes the
+ * item's text as if it began a line, so `- [ ] > [!TIP]` was saved as
+ * `- [ ] \> \[!TIP]`. After the `[ ]` none of them can start a block, so the
+ * source's spelling reads back the same. The kept run is put in as raw text
+ * (an `html` node), only when the source has it right after a task box.
+ */
+export function keepTaskItemText(tree: unknown, source: string): void {
+  const walk = (node: SpelledNode) => {
+    for (const kid of node.children ?? []) walk(kid);
+    if (node.type !== "listItem" || typeof node.checked !== "boolean") return;
+    const para = node.children?.[0];
+    const first = para?.type === "paragraph" ? para.children?.[0] : undefined;
+    if (!para?.children || first?.type !== "text" || typeof first.value !== "string") {
+      return;
+    }
+    const m = /^(?:[>#+*-](?=[ \t]|$)[ \t]*)?(?:\[![A-Za-z]+\])?/.exec(first.value);
+    const kept = m?.[0].trimEnd() ?? "";
+    if (kept === "") return;
+    const box = new RegExp(`\\[[ xX]\\][ \\t]+${escapeRegExp(kept)}`);
+    if (!box.test(source)) return;
+    const rest = first.value.slice(kept.length);
+    para.children.splice(
+      0,
+      1,
+      { type: "html", value: kept },
+      ...(rest ? [{ type: "text", value: rest }] : []),
+    );
+  };
+  walk(tree as SpelledNode);
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** The parts of an mdast node {@link keepSpellings} reads and writes. */
 interface SpelledNode {
   type: string;
   value?: string;
   url?: string;
+  /** A task list item's box: `true` or `false` (`null` for another item). */
+  checked?: boolean | null;
   /** A {@link LIST_SCOPE} node's. */
   marker?: string;
   children?: SpelledNode[];
@@ -1176,6 +1217,7 @@ function styledSerializer(
       const text = original.slice(r.start, r.end);
       keepSpellings(tree, text);
       keepCalloutMarkers(tree, text);
+      keepTaskItemText(tree, text);
       if (source.type === "list")
         keepNestedMarkers(tree, listMarkers(original, source));
     }
