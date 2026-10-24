@@ -14,6 +14,13 @@
  *   - settingsStore: persists enabled/disabled rule IDs
  */
 
+import {
+  type AtxHeading,
+  atxHeading,
+  type MarkdownLine,
+  markdownLines,
+} from "./outline";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /** A single text position (0-based character offset). */
@@ -109,6 +116,36 @@ function range(doc: string, from: number, to: number): LintRange {
   };
 }
 
+/** A heading line of `doc`, from {@link docHeadings}. */
+interface HeadingLine extends AtxHeading {
+  /** Offset of the heading's first `#`. */
+  hashes: number;
+  /** The source line it sits on. */
+  source: MarkdownLine;
+  /** Index of `source` in the document's lines. */
+  index: number;
+}
+
+/**
+ * The ATX headings of `doc` by the rules of outline.ts's atxHeadings (at
+ * most three spaces before the `#`s, outside front matter and fenced
+ * code), with their offsets, plus the document's lines. The heading rules
+ * used to test each line against a column-0 regex, so a `# comment` in a
+ * code sample or a front matter block was linted as a heading.
+ */
+function docHeadings(doc: string): { lines: MarkdownLine[]; headings: HeadingLine[] } {
+  const lines = markdownLines(doc);
+  const headings: HeadingLine[] = [];
+  lines.forEach((source, index) => {
+    if (source.kind !== "text") return;
+    const h = atxHeading(source.text);
+    if (!h) return;
+    const hashes = source.start + source.text.indexOf("#");
+    headings.push({ ...h, hashes, source, index });
+  });
+  return { lines, headings };
+}
+
 // ── Built-in Rules ────────────────────────────────────────────────────────────
 
 /**
@@ -145,28 +182,22 @@ export const ruleMaxHeadingDepth: LintRule = {
   label: "Max heading depth = 3",
   description: "Headings deeper than H3 (####) reduce scannability.",
   severity: "warning",
-  check({ doc, lines }): LintViolation[] {
+  check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
-    let offset = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const m = line.match(/^(#{4,})\s/);
-      if (m) {
-        const depth = m[1].length;
-        const from = offset;
-        const to = offset + m[1].length;
-        violations.push({
-          ruleId: "max-heading-depth",
-          message: `Heading depth ${depth} exceeds maximum of 3.`,
-          severity: "warning",
-          range: range(doc, from, to),
-          fix: (d) => {
-            // Replace the first occurrence of this exact heading line
-            return d.replace(new RegExp(`^${m[1]}(\\s)`, "m"), `###$1`);
-          },
-        });
-      }
-      offset += line.length + 1; // +1 for the \n
+    for (const h of docHeadings(doc).headings) {
+      if (h.depth < 4) continue;
+      const from = h.hashes;
+      const to = from + h.depth;
+      violations.push({
+        ruleId: "max-heading-depth",
+        message: `Heading depth ${h.depth} exceeds maximum of 3.`,
+        severity: "warning",
+        range: range(doc, from, to),
+        // This heading's `#`s become `###`. The fix used to rewrite the
+        // first line starting with as many `#`s, which could be another
+        // heading or a line in a code block.
+        fix: (d) => `${d.slice(0, from)}###${d.slice(to)}`,
+      });
     }
     return violations;
   },
@@ -228,11 +259,19 @@ export const ruleWikilinkTargetsExist: LintRule = {
   check({ doc, knownTargets }): LintViolation[] {
     if (!knownTargets) return []; // vault not indexed — skip
     const violations: LintViolation[] = [];
-    const WIKI_RE = /\[\[([^\]|#\n]+?)(?:[|#][^\]]*?)?\]\]/g;
-    for (const m of doc.matchAll(WIKI_RE)) {
-      const target = m[1].trim();
-      if (!knownTargets.has(target) && !knownTargets.has(`${target}.md`)) {
-        const from = m.index;
+    // One line, as Obsidian reads a link: an alias or heading used to run
+    // across newlines to a `]]` lines later.
+    const WIKI_RE = /\[\[([^\]|#\r\n]+?)(?:[|#][^\]\r\n]*?)?\]\]/g;
+    // Fenced code is skipped, as export_metadata skips it: a `[[x]]` in a
+    // code sample used to be reported. A front matter property such as
+    // `related: "[[Plan]]"` is a link, as Obsidian and export_metadata read
+    // it, and a front matter line never opens a fence.
+    for (const l of markdownLines(doc)) {
+      if (l.kind !== "text" && l.kind !== "frontmatter") continue;
+      for (const m of l.text.matchAll(WIKI_RE)) {
+        const target = m[1].trim();
+        if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
+        const from = l.start + m.index;
         const to = from + m[0].length;
         violations.push({
           ruleId: "wikilink-targets-exist",
@@ -256,21 +295,19 @@ export const ruleNoEmptyHeadings: LintRule = {
   label: "No empty headings",
   description: "Headings must have text content.",
   severity: "error",
-  check({ doc, lines }): LintViolation[] {
+  check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
-    let offset = 0;
-    for (const line of lines) {
-      const m = line.match(/^(#{1,6})\s*$/);
-      if (m) {
-        violations.push({
-          ruleId: "no-empty-headings",
-          message: "Empty heading.",
-          severity: "error",
-          range: range(doc, offset, offset + line.length),
-          fix: null,
-        });
-      }
-      offset += line.length + 1;
+    for (const h of docHeadings(doc).headings) {
+      if (h.text !== "") continue;
+      // `## ##` is empty too: its closing `#`s are not text.
+      const { start, text } = h.source;
+      violations.push({
+        ruleId: "no-empty-headings",
+        message: "Empty heading.",
+        severity: "error",
+        range: range(doc, start, start + text.length),
+        fix: null,
+      });
     }
     return violations;
   },
@@ -327,14 +364,12 @@ export const ruleSingleH1: LintRule = {
   label: "Single H1 heading",
   description: "Documents should contain at most one top-level (H1) heading.",
   severity: "warning",
-  check({ doc, lines }): LintViolation[] {
+  check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
-    const h1Offsets: number[] = [];
-    let offset = 0;
-    for (const line of lines) {
-      if (/^#\s/.test(line)) h1Offsets.push(offset);
-      offset += line.length + 1;
-    }
+    // A `# comment` in fenced code or front matter is not an H1.
+    const h1Offsets = docHeadings(doc)
+      .headings.filter((h) => h.depth === 1)
+      .map((h) => h.hashes);
     if (h1Offsets.length > 1) {
       // Flag every H1 after the first
       for (let i = 1; i < h1Offsets.length; i++) {
@@ -405,27 +440,26 @@ export const ruleOrphanedHeading: LintRule = {
   label: "No orphaned headings",
   description: "A heading should be followed by body text before the next heading.",
   severity: "warning",
-  check({ doc, lines }): LintViolation[] {
+  check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
-    let offset = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^#{1,6}\s/.test(line)) {
-        // Look for the next non-blank line
-        let j = i + 1;
-        while (j < lines.length && lines[j].trim() === "") j++;
-        if (j < lines.length && /^#{1,6}\s/.test(lines[j])) {
-          violations.push({
-            ruleId: "orphaned-heading",
-            message: `Orphaned heading: "${line.replace(/^#+\s+/, "").slice(0, 40)}" has no body text before the next heading.`,
-            severity: "warning",
-            range: range(doc, offset, offset + line.length),
-            fix: null,
-          });
-        }
+    // Headings by the outline's rules: a `# comment` opening a code block
+    // used to make the heading before it orphaned.
+    const { lines, headings } = docHeadings(doc);
+    const isHeading = new Set(headings.map((h) => h.index));
+    for (const h of headings) {
+      // Look for the next non-blank line
+      let j = h.index + 1;
+      while (j < lines.length && lines[j].text.trim() === "") j++;
+      if (j < lines.length && isHeading.has(j)) {
+        const { start, text } = h.source;
+        violations.push({
+          ruleId: "orphaned-heading",
+          message: `Orphaned heading: "${h.text.slice(0, 40)}" has no body text before the next heading.`,
+          severity: "warning",
+          range: range(doc, start, start + text.length),
+          fix: null,
+        });
       }
-      offset += line.length + 1;
     }
     return violations;
   },

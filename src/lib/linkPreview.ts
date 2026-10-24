@@ -20,6 +20,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { atxHeadings, markdownLines } from "./outline";
 import { splitFragment } from "./transclude";
 import { resolveWikilink } from "./wikilink";
 
@@ -69,24 +70,30 @@ export function invalidateLinkPreviewCache(): void {
  * The result is stripped of YAML frontmatter.
  */
 export function extractPreviewSnippet(content: string): string {
-  // Strip YAML frontmatter.
-  const stripped = content.replace(/^---[\s\S]*?---\s*\n?/, "");
-  const lines = stripped.split("\n");
-
-  // Try heading + following paragraph.
-  const headingIdx = lines.findIndex((l) => /^#{1,6}\s/.test(l));
-  if (headingIdx >= 0) {
-    const heading = lines[headingIdx];
+  // Try heading + following paragraph. The heading is the outline's first
+  // (atxHeadings, the rule of mdopener-mcp's headings): a `# ` line in
+  // fenced code used to be taken, and `  # Title` or `#\tTitle` was not.
+  const heading = atxHeadings(content).find((h) => h.text !== "");
+  if (heading) {
+    const lines = content.split("\n");
+    const headingIdx = heading.line - 1;
+    const headingLine = lines[headingIdx];
     // Collect the paragraph that immediately follows (skip blank lines first).
     let paraStart = headingIdx + 1;
     while (paraStart < lines.length && lines[paraStart].trim() === "") paraStart++;
     let paraEnd = paraStart;
     while (paraEnd < lines.length && lines[paraEnd].trim() !== "") paraEnd++;
     const para = lines.slice(paraStart, paraEnd).join("\n");
-    return para ? `${heading}\n\n${para}` : heading;
+    return para ? `${headingLine}\n\n${para}` : headingLine;
   }
 
-  // Fallback: first 15 non-empty lines.
+  // Fallback: first 15 non-empty lines, without YAML frontmatter, which
+  // ends on a line that is `---` or `...` as the outline reads it. A lazy
+  // regex used to end it at any later `---`, mid-line too, so a document
+  // opening with a thematic break lost the text up to the next one.
+  const lines = markdownLines(content)
+    .filter((l) => l.kind !== "frontmatter")
+    .map((l) => l.text);
   const preview: string[] = [];
   for (const line of lines) {
     if (preview.length >= 15) break;

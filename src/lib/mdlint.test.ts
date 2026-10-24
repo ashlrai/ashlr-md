@@ -28,6 +28,7 @@ import {
   ruleNoConsecutiveBlankLines,
   ruleNoEmptyHeadings,
   ruleNoTrailingSpaces,
+  ruleOrphanedHeading,
   ruleSingleH1,
   ruleWikilinkTargetsExist,
 } from "./mdlint";
@@ -417,6 +418,45 @@ describe("rule:wikilink-targets-exist", () => {
     ).toHaveLength(0);
   });
 
+  it("reads a wikilink on one line, as Obsidian does", () => {
+    const doc = "See [[Gone|an alias\nthat runs on]] and [[Note]].\n";
+    const knownTargets = new Set(["Note"]);
+    expect(
+      lintDocument(doc, { rules: [ruleWikilinkTargetsExist], knownTargets }),
+    ).toHaveLength(0);
+  });
+
+  it("skips fenced code but reads front matter, as export_metadata does", () => {
+    const doc = [
+      "---",
+      'related: "[[GoneProp]]"',
+      "notes: |",
+      "  ```",
+      "---",
+      "See [[GoneBody]].",
+      "```md",
+      "[[InCode]]",
+      "~~~",
+      "[[StillCode]]",
+      "```",
+      "  [[Gone2]] and [[Note]]",
+      "",
+    ].join("\n");
+    const violations = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set(["Note"]),
+    });
+    expect(violations.map((v) => v.message)).toEqual([
+      'Wikilink target not found: "GoneProp"',
+      'Wikilink target not found: "GoneBody"',
+      'Wikilink target not found: "Gone2"',
+    ]);
+    const last = violations[2].range!;
+    expect(doc.slice(last.from.offset, last.to.offset)).toBe("[[Gone2]]");
+    expect(last.from.line).toBe(12);
+    expect(last.from.col).toBe(2);
+  });
+
   it("handles wikilinks with heading anchors [[target#section]]", () => {
     const doc = "See [[Note#Introduction]].\n";
     const knownTargets = new Set(["Note"]);
@@ -716,5 +756,62 @@ describe("rule composition", () => {
     expect(ids).toContain("no-trailing-spaces");
     expect(ids).toContain("single-h1");
     expect(ids).toContain("no-consecutive-blank-lines");
+  });
+});
+
+// ─── Heading rules read headings as the outline does ─────────────────────────
+
+describe("heading rules skip fenced code and front matter", () => {
+  const doc = [
+    "---",
+    "# yaml comment",
+    "#",
+    "---",
+    "# Title",
+    "",
+    "Body.",
+    "",
+    "```sh",
+    "# install",
+    "#",
+    "#### deep",
+    "```",
+    "   ## Indented",
+    "",
+    "More.",
+    "",
+  ].join("\n");
+
+  it("single-h1 counts only real H1s", () => {
+    expect(lintDocument(doc, { rules: [ruleSingleH1] })).toHaveLength(0);
+    const two = `${doc}# Second\n`;
+    const v = lintDocument(two, { rules: [ruleSingleH1] });
+    expect(v).toHaveLength(1);
+    expect(v[0].message).toBe("Duplicate H1 heading (2 total).");
+  });
+
+  it("no-empty-headings and max-heading-depth ignore code and front matter", () => {
+    expect(lintDocument(doc, { rules: [ruleNoEmptyHeadings] })).toHaveLength(0);
+    expect(lintDocument(doc, { rules: [ruleMaxHeadingDepth] })).toHaveLength(0);
+    // `## ##` is an empty heading: its closing `#`s are not text.
+    expect(lintDocument("## ##\n", { rules: [ruleNoEmptyHeadings] })).toHaveLength(1);
+  });
+
+  it("orphaned-heading reads an indented heading and not a code comment", () => {
+    const orphan = "# A\n\n```\n# not a heading\n```\n";
+    expect(lintDocument(orphan, { rules: [ruleOrphanedHeading] })).toHaveLength(0);
+    const v = lintDocument("# A ##\n\n  ## B\n\ntext\n", {
+      rules: [ruleOrphanedHeading],
+    });
+    expect(v.map((x) => x.message)).toEqual([
+      'Orphaned heading: "A" has no body text before the next heading.',
+    ]);
+  });
+
+  it("max-heading-depth fixes the heading it flags, not an earlier code line", () => {
+    const d = "```\n#### code\n```\n\n#### Real\n";
+    const v = lintDocument(d, { rules: [ruleMaxHeadingDepth] });
+    expect(v).toHaveLength(1);
+    expect(applyFix(d, v[0])).toBe("```\n#### code\n```\n\n### Real\n");
   });
 });

@@ -16,7 +16,14 @@
  *
  * All helpers operate on the raw markdown string. No AST traversal needed here
  * — regex heuristics are fast and sufficient for detection purposes.
+ *
+ * Headings are read by outline.ts's atxHeadings, outside front matter and
+ * fenced code: a column-0 regex used to take a `# comment` in a code sample
+ * as a heading, so a shell script's `# e.g. foo` counted as a file-path
+ * heading and a `## Next` in a code block ended the acceptance criteria.
  */
+
+import { type AtxHeading, atxHeading, atxHeadings, markdownLines } from "./outline";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,13 +70,11 @@ const TASK_RE = /^[ \t]*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s/gm;
 const DIFF_FENCE_RE = /^```diff\b/m;
 
 /**
- * Matches a `### some/path/file.ext` heading that looks like a file path
- * (contains a slash, dot, or looks like a filename with extension).
+ * Matches the text of a level 1 to 4 `### some/path/file.ext` heading that
+ * looks like a file path (contains a slash, dot, or looks like a filename
+ * with extension).
  */
-const FILE_HEADING_RE = /^#{1,4}\s+[\w./\\-]+(?:\/[\w./\\-]+|\.\w+)/gm;
-
-/** Detects a top-level h1 heading. */
-const H1_RE = /^#\s+\S/m;
+const FILE_HEADING_RE = /^[\w./\\-]+(?:\/[\w./\\-]+|\.\w+)/;
 
 // ---------------------------------------------------------------------------
 // New-kind regexes
@@ -84,27 +89,29 @@ const FRONTMATTER_KIND_RE = /^kind\s*:\s*(\S+)/m;
 
 /**
  * Spec heading signals: ## Requirements, ## Design, ## Implementation (and variants).
- * Matches level-2 headings; case-insensitive.
+ * Matches the text of level-2 headings; case-insensitive.
  */
 const SPEC_HEADINGS_RE =
-  /^##\s+(?:requirements?|design|implementation|architecture|api\s+design|interface\s+spec)/im;
+  /^(?:requirements?|design|implementation|architecture|api\s+design|interface\s+spec)/i;
 
 /**
  * Review heading signals: ## Files Changed, ## Summary, ## Feedback (and variants).
  */
 const REVIEW_HEADINGS_RE =
-  /^##\s+(?:files?\s+changed|summary|feedback|findings?|comments?|review\s+notes?)/im;
+  /^(?:files?\s+changed|summary|feedback|findings?|comments?|review\s+notes?)/i;
 
 /**
- * Numbered step in a runbook (e.g. `1.` or `**Step 1:**` or `### Step 1`).
+ * Numbered step in a runbook (e.g. `1.` or `**Step 1:**`); a `### Step 1`
+ * heading (level 1 to 4) is matched on its text by RUNBOOK_STEP_HEADING_RE.
  */
-const RUNBOOK_STEP_RE = /^(?:#{1,4}\s+[Ss]tep\s+\d+|\d+\.\s+\S|\*\*[Ss]tep\s+\d+)/gm;
+const RUNBOOK_STEP_RE = /^(?:\d+\.\s+\S|\*\*[Ss]tep\s+\d+)/;
+const RUNBOOK_STEP_HEADING_RE = /^[Ss]tep\s+\d+/;
 
 /**
- * Acceptance-criteria heading: ## Acceptance Criteria, ## Success Criteria, etc.
+ * Acceptance-criteria heading text: ## Acceptance Criteria, ## Success Criteria, etc.
  */
 const CRITERIA_HEADING_RE =
-  /^##\s+(?:acceptance\s+criteria|success\s+criteria|criteria|done\s+when|definition\s+of\s+done)/im;
+  /^(?:acceptance\s+criteria|success\s+criteria|criteria|done\s+when|definition\s+of\s+done)/i;
 
 /**
  * A fenced code block — used to confirm runbook (code as commands is a strong signal).
@@ -128,35 +135,45 @@ export function parseFrontmatterKind(content: string): string | null {
   return kindMatch[1].replace(/^["']|["']$/g, "").toLowerCase();
 }
 
+/** True when some level-2 heading's text matches `re`. */
+function hasH2(headings: AtxHeading[], re: RegExp): boolean {
+  return headings.some((h) => h.depth === 2 && re.test(h.text));
+}
+
+/** How many of `patterns` some level-2 heading's text matches. */
+function h2Hits(headings: AtxHeading[], patterns: RegExp[]): number {
+  return patterns.filter((re) => hasH2(headings, re)).length;
+}
+
 /**
  * Count heading-level spec signals.
  * Returns true when at least 2 of the 3 canonical spec sections are present.
  */
-function hasSpecHeadingStructure(content: string): boolean {
-  const hits = [
-    /^##\s+requirements?/im,
-    /^##\s+design/im,
-    /^##\s+implementation/im,
-    /^##\s+architecture/im,
-    /^##\s+api\s+design/im,
-  ].filter((re) => re.test(content));
-  return hits.length >= 2;
+function hasSpecHeadingStructure(headings: AtxHeading[]): boolean {
+  const hits = h2Hits(headings, [
+    /^requirements?/i,
+    /^design/i,
+    /^implementation/i,
+    /^architecture/i,
+    /^api\s+design/i,
+  ]);
+  return hits >= 2;
 }
 
 /**
  * Count heading-level review signals.
  * Returns true when at least 2 canonical review sections are present.
  */
-function hasReviewHeadingStructure(content: string): boolean {
-  const hits = [
-    /^##\s+files?\s+changed/im,
-    /^##\s+summary/im,
-    /^##\s+feedback/im,
-    /^##\s+findings?/im,
-    /^##\s+comments?/im,
-    /^##\s+review\s+notes?/im,
-  ].filter((re) => re.test(content));
-  return hits.length >= 2;
+function hasReviewHeadingStructure(headings: AtxHeading[]): boolean {
+  const hits = h2Hits(headings, [
+    /^files?\s+changed/i,
+    /^summary/i,
+    /^feedback/i,
+    /^findings?/i,
+    /^comments?/i,
+    /^review\s+notes?/i,
+  ]);
+  return hits >= 2;
 }
 
 /**
@@ -164,22 +181,37 @@ function hasReviewHeadingStructure(content: string): boolean {
  * Returns true when at least 2 canonical runbook sections are present AND
  * the document contains at least one fenced code block.
  */
-function hasRunbookStructure(content: string): boolean {
-  const headingHits = [
-    /^##\s+prerequisites?/im,
-    /^##\s+steps?/im,
-    /^##\s+rollback/im,
-    /^##\s+procedure/im,
-    /^##\s+troubleshooting/im,
-    /^##\s+verification/im,
-  ].filter((re) => re.test(content));
-  return headingHits.length >= 2 && CODE_FENCE_RE.test(content);
+function hasRunbookStructure(content: string, headings: AtxHeading[]): boolean {
+  const headingHits = h2Hits(headings, [
+    /^prerequisites?/i,
+    /^steps?/i,
+    /^rollback/i,
+    /^procedure/i,
+    /^troubleshooting/i,
+    /^verification/i,
+  ]);
+  return headingHits >= 2 && CODE_FENCE_RE.test(content);
 }
 
-/** Count numbered steps in a runbook document. */
+/**
+ * Count numbered steps in a runbook document: `1.` and `**Step 1` lines and
+ * level 1 to 4 `Step 1` headings, outside front matter and fenced code (a
+ * numbered line in a code sample used to count).
+ */
 function countRunbookSteps(content: string): number {
-  RUNBOOK_STEP_RE.lastIndex = 0;
-  return (content.match(RUNBOOK_STEP_RE) ?? []).length;
+  let n = 0;
+  for (const l of markdownLines(content)) {
+    if (l.kind !== "text") continue;
+    const h = atxHeading(l.text);
+    if (
+      h
+        ? h.depth <= 4 && RUNBOOK_STEP_HEADING_RE.test(h.text)
+        : RUNBOOK_STEP_RE.test(l.text)
+    ) {
+      n++;
+    }
+  }
+  return n;
 }
 
 /**
@@ -188,18 +220,20 @@ function countRunbookSteps(content: string): number {
  * until the next same-level (##) heading.
  */
 function extractAcceptanceCriteria(content: string): string[] {
-  const lines = content.split("\n");
   const results: string[] = [];
   let inCriteriaSection = false;
 
-  for (const line of lines) {
+  // Front matter and fenced code are neither headings nor criteria.
+  for (const { kind, text: line } of markdownLines(content)) {
+    if (kind !== "text") continue;
+    const h = atxHeading(line);
     // Enter criteria section when we hit a criteria heading.
-    if (CRITERIA_HEADING_RE.test(line)) {
+    if (h?.depth === 2 && CRITERIA_HEADING_RE.test(h.text)) {
       inCriteriaSection = true;
       continue;
     }
     // Exit criteria section when we hit the next ## heading.
-    if (inCriteriaSection && /^##\s+/.test(line)) {
+    if (inCriteriaSection && h?.depth === 2) {
       inCriteriaSection = false;
       continue;
     }
@@ -229,10 +263,9 @@ function countTasks(content: string): { total: number; done: number } {
   return { total, done };
 }
 
-/** Count occurrences of file-path-style headings. */
-function countFileHeadings(content: string): number {
-  FILE_HEADING_RE.lastIndex = 0;
-  return (content.match(FILE_HEADING_RE) ?? []).length;
+/** Count level 1 to 4 headings whose text looks like a file path. */
+function countFileHeadings(headings: AtxHeading[]): number {
+  return headings.filter((h) => h.depth <= 4 && FILE_HEADING_RE.test(h.text)).length;
 }
 
 /** Count `@@` hunk headers in a raw diff string (inline to avoid import cycle). */
@@ -270,6 +303,7 @@ export function detectDocKind(content: string): DocInfo {
   }
 
   const { total: taskTotal, done: taskDone } = countTasks(content);
+  const headings = atxHeadings(content);
 
   // ── 1. Explicit frontmatter kind marker ──────────────────────────────────
   const fmKind = parseFrontmatterKind(content);
@@ -297,20 +331,20 @@ export function detectDocKind(content: string): DocInfo {
   }
 
   // ── 3. multi-file: ≥3 file-path headings ─────────────────────────────────
-  if (countFileHeadings(content) >= 3) {
+  if (countFileHeadings(headings) >= 3) {
     return { kind: "multi-file", taskTotal, taskDone, hunkTotal: 0 };
   }
 
   // ── 4. runbook: structural heading + code signal ──────────────────────────
-  if (hasRunbookStructure(content)) {
+  if (hasRunbookStructure(content, headings)) {
     const stepCount = countRunbookSteps(content);
     return { kind: "runbook", taskTotal, taskDone, hunkTotal: 0, stepCount };
   }
 
   // ── 5. spec: structural heading signal ───────────────────────────────────
   if (
-    hasSpecHeadingStructure(content) ||
-    (SPEC_HEADINGS_RE.test(content) && CRITERIA_HEADING_RE.test(content))
+    hasSpecHeadingStructure(headings) ||
+    (hasH2(headings, SPEC_HEADINGS_RE) && hasH2(headings, CRITERIA_HEADING_RE))
   ) {
     const criteria = extractAcceptanceCriteria(content);
     return {
@@ -324,14 +358,14 @@ export function detectDocKind(content: string): DocInfo {
 
   // ── 6. review: structural heading signal ─────────────────────────────────
   if (
-    hasReviewHeadingStructure(content) ||
-    (REVIEW_HEADINGS_RE.test(content) && countFileHeadings(content) >= 1)
+    hasReviewHeadingStructure(headings) ||
+    (hasH2(headings, REVIEW_HEADINGS_RE) && countFileHeadings(headings) >= 1)
   ) {
     return { kind: "review", taskTotal, taskDone, hunkTotal: 0 };
   }
 
   // ── 7. plan: starts with an h1 AND has task items ────────────────────────
-  if (H1_RE.test(content) && taskTotal >= 2) {
+  if (headings.some((h) => h.depth === 1 && h.text !== "") && taskTotal >= 2) {
     return { kind: "plan", taskTotal, taskDone, hunkTotal: 0 };
   }
 

@@ -96,6 +96,83 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a wikilink's target agrees with the app.** `export_metadata`
+  took everything between `[[` and `]]` (before a `|`) as the target, so
+  `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and
+  `[[a]b]]` listed `a]b`, which the app does not link. The target is now
+  the note without its `#heading`, and a `]` ends no target. A new
+  `wikilink_headings` field beside `wikilinks` lists each link's
+  `{ target, heading }`. `export_text` shows `[[Plan#Goals]]` as the read
+  view does, `Plan › Goals`, and the embed count follows the same rule.
+- **Related notes, the agent badge and link previews read headings and
+  front matter as the outline does.** Related notes searched by the first
+  column-0 `#` line, which could be a front matter comment or a line of
+  code. The agent document badge counted `#` lines in code blocks as
+  headings, so a shell script's `# src/main.ts` comments made a document
+  "multi-file", a `## ` line in a code sample ended a spec's acceptance
+  criteria, and numbered lines in code counted as runbook steps. A link
+  preview without a heading ended front matter at any later `---`, even
+  mid-line, so a document opening with a thematic break lost its first
+  lines; front matter now ends on a `---` or `...` line. (The AI
+  sidebar's document type hint still scores raw `#` lines, as a cheap
+  hint that also reads the words in code.)
+- **Lint heading rules skip code and front matter.** "Single H1",
+  "No empty headings", "Max heading depth" and "No orphaned headings"
+  tested each line against a column-0 `#` pattern, so a `# comment` in a
+  code block or front matter was linted as a heading and `  ## Indented`
+  was not. They now read headings as the Outline panel does. The "Max
+  heading depth" fix rewrites the heading it flags; it used to rewrite the
+  first line starting with as many `#`s, which could be a line of code.
+- **The wikilink lint skips code, and an image embed is one line.** The
+  "wikilink targets exist" lint reported a `[[link]]` inside fenced code,
+  which `export_metadata` does not list; it now skips fenced code by the
+  same fence rule and still reads a front matter property such as
+  `related: "[[Plan]]"`, as Obsidian does, without taking a front matter
+  line as a fence. Dragging an image in the editor read an unclosed
+  `![[` up to a `]]` lines later as one embed; an embed now ends on its
+  own line.
+- **MCP: `export_text` strips a heading in a blockquote.** A heading's
+  `#`s were taken off before the `>` leaders, while the line still
+  started with `>`, so `> # Quote` read `# Quote`. The leaders now go
+  first, then the ATX rule of `export_metadata`'s headings.
+- **MCP: `export_text` reads a wikilink as its text.** A `[text]` link
+  was read before a wikilink, so `[[Real]]` became `[Real]` and
+  `[[Plan|the plan]]` became `[Plan|the plan]`; an image was read before
+  an embed, so `![[a.png]]` left `[a.png]`. A wikilink now reads its
+  target, or its alias when it has one, as the read view shows it, and an
+  embed reads nothing.
+- **The outline, embeds, previews and wikilinks agree with the MCP
+  server.** The Outline panel listed a tab-indented `# x` (indented code)
+  and showed `## ##` as `#`, and its fence rule took a tab-indented
+  ```` ``` ```` or a backtick fence with a backtick in its info string as
+  a fence. A `![[note#Heading]]` embed and a link preview found headings
+  inside fenced code and front matter, and an embed did not find
+  `## Goals ##` by `Goals`. All of them now read headings by the ATX and
+  fence rules of `export_metadata`. A wikilink or an embed in the read
+  view, and in the "wikilink targets exist" lint, now ends on its own
+  line, so an unclosed `[[` no longer pairs with a `]]` lines later.
+- **MCP: a wikilink or an embed is one line.** `export_metadata` looked
+  for the `]]` that closes a `[[` across newlines, so an unclosed `[[`
+  took the text up to a `]]` many lines later as its target and hid the
+  links in between, and an unclosed `![[` was counted as an image. A
+  wikilink or an embed now ends on its own line, as in Obsidian, in the
+  `wikilinks` and the `embedded_image_count`.
+- **MCP: `export_text` keeps indented code as code.** A line was trimmed
+  before its `#`s were taken off, so a `# comment` indented four spaces
+  lost its `#` and the `*` and `_` of indented code were stripped as
+  emphasis. Headings now follow the ATX rule of `export_metadata`, and
+  indented code that opens after a blank line or a heading is kept as
+  written without its indent. Inside a list an indented line is still read
+  as the item's continuation, so code there may be read as text, but text
+  is never read as code.
+- **MCP: a title and the headings read a heading the same way.**
+  `export_metadata`'s headings trimmed the whole line, so a `# comment`
+  indented four spaces (indented code) was a heading, while a recent
+  document's `title` took only `# ` at the start of a line, so
+  `  # Title` and `#<tab>Title` were not titles and `# Title #` kept its
+  closing `#`. Both now use one CommonMark rule from the shared helper: at
+  most three spaces, 1 to 6 `#`s, then a space, a tab or the end of the
+  line, with closing `#`s dropped. An empty `# ` is no longer a title.
 - **MCP: plain text, image counts and tasks use the same fence rule.**
   `export_text`, `export_metadata`'s `embedded_image_count` and the
   `tasks` of `get_user_annotations` (and of the app's `/annotations`)

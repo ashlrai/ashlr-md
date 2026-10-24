@@ -456,3 +456,69 @@ describe("detectDocKind — frontmatter edge cases", () => {
     expect(parseFrontmatterKind(doc)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Headings are read outside front matter and fenced code
+// ---------------------------------------------------------------------------
+
+describe("detectDocKind reads headings as the outline does", () => {
+  it("does not take shell comments in code as file-path headings", () => {
+    const doc = [
+      "# Setup",
+      "",
+      "```sh",
+      "# e.g. run this",
+      "# docs/setup.md",
+      "# src/main.ts",
+      "```",
+      "",
+      "- [ ] one",
+      "- [ ] two",
+    ].join("\n");
+    expect(detectDocKind(doc).kind).toBe("plan");
+  });
+
+  it("keeps acceptance criteria past a `##` line in a code block", () => {
+    const doc = [
+      "## Requirements",
+      "",
+      "## Acceptance Criteria",
+      "",
+      "- [ ] first",
+      "```md",
+      "## Not a heading",
+      "- [ ] in code",
+      "```",
+      "- [x] second",
+      "",
+      "## Next",
+      "- [ ] after",
+    ].join("\n");
+    const info = detectDocKind(doc);
+    expect(info.kind).toBe("spec");
+    expect(info.acceptanceCriteria).toEqual(["first", "second"]);
+  });
+
+  it("reads an indented heading and ignores front matter comments", () => {
+    const doc = "---\nnote: x\n# Comment\n---\n  ## Summary\n\n  ## Feedback\n";
+    expect(detectDocKind(doc).kind).toBe("review");
+    const fmOnly = "---\n# Title\n---\n- [ ] a\n- [ ] b\n";
+    expect(detectDocKind(fmOnly).kind).toBe("generic");
+  });
+
+  it("counts runbook steps outside code", () => {
+    const doc = [
+      "---",
+      "kind: runbook",
+      "---",
+      "### Step 1",
+      "1. Do this",
+      "```",
+      "1. not a step",
+      "### Step 9",
+      "```",
+      "**Step 2** done",
+    ].join("\n");
+    expect(detectDocKind(doc).stepCount).toBe(3);
+  });
+});

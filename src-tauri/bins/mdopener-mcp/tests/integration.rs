@@ -8126,6 +8126,210 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     }
 }
 
+/// `extract_headings` trimmed the whole line, so a `# comment` indented four
+/// spaces (indented code) was a heading, while `document_title` took only
+/// `# ` at column 0, so `  # Title` and `#\tTitle` were not titles. Both
+/// now read a heading by one CommonMark rule: at most three spaces, 1 to 6
+/// `#`s, then a space, a tab or the end of the line, closing `#`s dropped.
+#[test]
+fn title_and_headings_share_the_atx_heading_rule() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let headings = |doc: &str| -> Vec<(u64, String)> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| {
+                let text = h["text"].as_str().unwrap().to_string();
+                (h["level"].as_u64().unwrap(), text)
+            })
+            .collect()
+    };
+    // A document, its headings as (level, text), and its title.
+    type Case<'a> = (&'a str, &'a [(u64, &'a str)], Option<&'a str>);
+    let cases: [Case; 11] = [
+        ("    # not\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("\t# not\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("   # Three\n", &[(1, "Three")], Some("Three")),
+        ("  # Title\n", &[(1, "Title")], Some("Title")),
+        ("#\tTitle\n", &[(1, "Title")], Some("Title")),
+        ("# Title #\n", &[(1, "Title")], Some("Title")),
+        ("# Learn C#\n", &[(1, "Learn C#")], Some("Learn C#")),
+        // An empty heading is not listed and is not a title.
+        ("#\n# Real\n", &[(1, "Real")], Some("Real")),
+        ("# ##\n## Two\n", &[(2, "Two")], None),
+        ("####### seven\n#tag\n", &[], None),
+        (
+            "## Two\n   ### Three ###\n",
+            &[(2, "Two"), (3, "Three")],
+            None,
+        ),
+    ];
+    for (doc, want, title) in cases {
+        let want: Vec<(u64, String)> = want.iter().map(|&(l, t)| (l, t.to_string())).collect();
+        assert_eq!(headings(doc), want, "{doc:?}");
+        assert_eq!(document_title(doc).as_deref(), title, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("so `  # Title` and `#<tab>Title` were not titles"));
+    assert!(docs.contains("so a `# comment` indented four spaces is indented code"));
+}
+
+/// `strip_markdown` trimmed a line before it took its `#`s off, so a
+/// `# comment` indented four spaces lost its `#` and the rest of the
+/// indented code was read as Markdown. A heading now follows the ATX rule
+/// of the headings, and indented code that opens after a blank line or a
+/// heading is kept as code without its indent. After a list item an
+/// indented line is the item's continuation and is still read as text.
+#[test]
+fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
+    let cases = [
+        // Indented code after a blank line or a heading is code.
+        (
+            "Run this:\n\n    # install\n    make **all**\n\nDone",
+            "Run this:\n\n# install\nmake **all**\n\nDone",
+        ),
+        ("# Setup\n    # step\n", "Setup\n# step"),
+        ("\t# tabbed\n", "# tabbed"),
+        // Blank lines inside an indented block keep it open.
+        ("    # a\n\n    # b\n", "# a\n\n# b"),
+        // An indented line in a paragraph continues it.
+        ("Para\n    # lazy", "Para\n# lazy"),
+        // An indented line after a list item is its continuation, not code.
+        ("- item\n\n    **more**\n", "item\n\nmore"),
+        ("1. step\n    *more*\n", "step\nmore"),
+        // The list ends at a paragraph at column 0 after a blank line.
+        ("- item\n\nPara\n\n    *code*\n", "item\n\nPara\n\n*code*"),
+        // Headings by the ATX rule.
+        ("   ### Three ###\n", "Three"),
+        ("#\tTabbed\n", "Tabbed"),
+        ("#tag and C#\n", "#tag and C#"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, "# Notes\n\n    # keep\n").unwrap();
+    let resp = tool_export_text(
+        id(1),
+        &json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    );
+    let text = resp.result.unwrap()["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["text"], "Notes\n\n# keep");
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("indented code is kept as code without its indent"));
+}
+
+/// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
+/// took the text up to a `]]` lines later as its target and hid the links
+/// in between, and an unclosed `![[` counted as an image. A wikilink or an
+/// embed is now one line, as Obsidian reads it.
+#[test]
+fn a_wikilink_or_an_embed_is_one_line() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "See [[open\nmore text\n[[Real]] and [[Other|alias]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Other", "Real"]);
+    let doc = "![[broken\ntext\n[[Note]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Note"]);
+    assert_eq!(count_embedded_images(doc), 0);
+    assert_eq!(count_embedded_images("![[a.png]]\n![[b\n![[c.png]]\n"), 2);
+    // A `]` ending one line and a `]` starting the next do not close it.
+    assert!(extract_wikilinks("[[a]\n]] x\n").is_empty());
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a link is one line, as in Obsidian"));
+}
+
+/// `strip_inline_markdown` read a `[text]` link before a wikilink, so
+/// `export_text` turned `[[Real]]` into `[Real]` and `[[Plan|the plan]]`
+/// into `[Plan|the plan]`, and read an image before an embed, so
+/// `![[a.png]]` left `[a.png]`. A wikilink now reads its target, or its
+/// alias when it has one, and an embed reads nothing.
+#[test]
+fn export_text_reads_a_wikilink_as_its_target_or_alias() {
+    let cases = [
+        ("See [[Real]] now", "See Real now"),
+        ("See [[Plan|the plan]].", "See the plan."),
+        ("Embed ![[a.png]] here", "Embed  here"),
+        ("A [link](x) and [[Note]]", "A link and Note"),
+        // In a table the alias pipe is escaped, as Obsidian writes it.
+        ("| [[A]] | [[B\\|b]] |\n|---|---|\n| 1 | 2 |", "A\tb\n1\t2"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a wikilink reads its target, or its alias"));
+}
+
+/// `strip_markdown` took a heading's `#`s off before the blockquote
+/// leaders, while the line still started with `>`, so `> # Quote` kept its
+/// `#`. The leaders now go first, then the ATX rule of the headings.
+#[test]
+fn export_text_strips_a_heading_inside_a_blockquote() {
+    let cases = [
+        ("> # Quote", "Quote"),
+        ("> > ## Deep ##\n> body", "Deep\nbody"),
+        (">### Tight", "Tight"),
+        // Four spaces after the leader is indented code, not a heading.
+        (">     # code", "# code"),
+        // `#tag` is text in a quote too.
+        ("> #tag here", "#tag here"),
+        ("> plain **bold**", "plain bold"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("so `> # Quote` reads `Quote`"));
+}
+
+/// `export_metadata` took everything between `[[` and `]]` (before a `|`)
+/// as a link's target, so `[[Plan#Goals]]` listed `Plan#Goals`, a note that
+/// does not exist, and `[[a]b]]` listed `a]b`, which the app does not link.
+/// The target is now read by the app's rule: the note without its
+/// `#heading`, which `wikilink_headings` reports, and no `]` inside.
+#[test]
+fn a_wikilink_target_is_read_as_the_app_reads_it() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilink_headings, extract_wikilinks};
+    let doc = "[[Plan#Goals]] [[Plan#Risks|risks]] [[Plan]] [[Other|o]]\n\
+               [[a]b]] [[#Local]] [[x#]] [[y|]] ![[img.png]] [[ Spaced # Head ]]\n";
+    assert_eq!(extract_wikilinks(doc), ["Other", "Plan", "Spaced"]);
+    assert_eq!(
+        extract_wikilink_headings(doc),
+        [
+            ("Plan".to_string(), "Goals".to_string()),
+            ("Plan".to_string(), "Risks".to_string()),
+            ("Spaced".to_string(), "Head".to_string()),
+        ]
+    );
+    // An embed follows the same rule.
+    assert_eq!(count_embedded_images("![[a.png]] ![[b]c.png]]\n"), 1);
+    // export_text shows a heading link as the read view does.
+    assert_eq!(
+        strip_markdown("See [[Plan#Goals]] and [[Plan#Risks|risks]]."),
+        "See Plan \u{203a} Goals and risks."
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, "See [[Plan#Goals]] and [[Plan]].\n").unwrap();
+    let v = content_text(&call(
+        "export_metadata",
+        json!({ "path": path.to_string_lossy() }),
+        &MockIpc::new(),
+    ));
+    assert_eq!(v["wikilinks"], json!(["Plan"]));
+    assert_eq!(
+        v["wikilink_headings"],
+        json!([{ "target": "Plan", "heading": "Goals" }])
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("`wikilink_headings` the distinct `{ target, heading }`"));
+}
+
 /// With zero context, an insertion's `-` range names the line it follows
 /// (and a deletion's `+` range likewise), so `patch` applies it in place,
 /// not at the top of the file.
@@ -11331,8 +11535,17 @@ fn export_text_and_metadata_descriptions_name_their_fields() {
         ),
         (
             "export_metadata",
-            "{ frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path }",
-            &["embedded_image_count", "frontmatter", "headings", "path", "wikilinks", "word_count"][..],
+            "{ frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
+             embedded_image_count, word_count, path }",
+            &[
+                "embedded_image_count",
+                "frontmatter",
+                "headings",
+                "path",
+                "wikilink_headings",
+                "wikilinks",
+                "word_count",
+            ][..],
         ),
     ] {
         let d = desc(tool);

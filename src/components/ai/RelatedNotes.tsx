@@ -9,11 +9,20 @@
 
 import { useEffect, useState } from "react";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
+import { atxHeadings } from "../../lib/outline";
 import { useDocumentStore } from "../../store/documentStore";
 
-function queryFromDoc(fileName: string, content: string): string {
+/**
+ * The retrieval query for a document: its file name without the extension
+ * and its first level 1 to 3 heading. Headings are read by the outline's
+ * rules (atxHeadings), so a `# comment` in front matter or fenced code is
+ * not taken, `  # Title` and `#\tTitle` are, and a closing `#` run is
+ * dropped. A column-0 regex used to take the first `#` line anywhere.
+ */
+export function queryFromDoc(fileName: string, content: string): string {
   const stem = fileName.replace(/\.[^.]+$/, "");
-  const heading = content.match(/^#{1,3}\s+(.+)$/m)?.[1] ?? "";
+  const heading =
+    atxHeadings(content).find((h) => h.depth <= 3 && h.text !== "")?.text ?? "";
   return `${stem} ${heading}`.trim();
 }
 

@@ -38,6 +38,15 @@ export type DocType = "PLAN" | "REVIEW" | "SPEC" | "RUNBOOK" | "GENERIC";
 /**
  * Per-type heading regexes. Each regex is tested against the full document; a
  * hit contributes a fixed weight to that type's score.
+ *
+ * These are cheap classifier hints, not a heading reader: unlike the outline
+ * (outline.ts's atxHeadings) they also see `#` lines in fenced code and front
+ * matter, and an indented heading is missed. That is left as it is on
+ * purpose. The word-frequency and code-density signals below read the code
+ * too, a code sample about deploys or rollbacks is evidence of the
+ * document's purpose, and the result only picks the AI sidebar's type hint
+ * and prompts, so reading headings by the outline's rules would move documents
+ * between types for no gain a reader would see.
  */
 const HEADING_PATTERNS: Record<Exclude<DocType, "GENERIC">, RegExp[]> = {
   PLAN: [

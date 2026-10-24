@@ -60,4 +60,11 @@ describe("remarkWikilinks", () => {
   it("handles multiple links in one paragraph", () => {
     expect(collect("[[a]] and [[b]] and [[c]]", "wikilink")).toHaveLength(3);
   });
+
+  it("ends a wikilink or an embed on its own line, as Obsidian does", () => {
+    const md = "See [[open\nmore [[Real]] and ![[pic\nnext]]";
+    const links = collect(md, "wikilink");
+    expect(links.map((l) => l.data.hProperties.dataWikitarget)).toEqual(["Real"]);
+    expect(collect(md, "wikiembed")).toHaveLength(0);
+  });
 });

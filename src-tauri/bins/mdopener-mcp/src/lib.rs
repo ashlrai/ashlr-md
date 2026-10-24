@@ -1376,8 +1376,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
                 code (front matter properties included), the count of embedded \
                 images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
-                { frontmatter, headings: [{ level, text }], wikilinks, embedded_image_count, word_count, path } \
+                { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
+                embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \
+                the note without a `#heading` (`[[Plan#Goals]]` links to `Plan`), `wikilink_headings` \
+                the distinct target and heading of each `[[target#heading]]` link, sorted, \
                 `path` the document's absolute path: with `path` omitted, the open document's file). \
                 With `path` it reads that file directly on disk; no running app required. When `path` \
                 is omitted it reads the currently open document from the app, as the window holds it \
@@ -4113,7 +4116,7 @@ pub fn handle_resources_list(id: Value, ipc: &dyn IpcClient) -> Response {
     resources.push(json!({
         "uri": "mdopener://recent-documents",
         "name": "Recently opened documents",
-        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the first `# ` heading outside YAML front matter and fenced code blocks, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
+        "description": "Scoped list of recently opened files with path, title, modified time (ms since epoch), and a 200-char preview snippet of each file's content. Returns { documents: [{ path, title, mtimeMs, preview }], count, skipped: { missing, notDocument, tooLarge, unreadable } } (`title` is the text of the first level 1 ATX heading outside YAML front matter and fenced code blocks, with at most three spaces before the `#` and a space or a tab after it, closing `#`s dropped, else the file name without its extension; `preview` is the first 200 characters, front matter included): recents that could not be listed are left out and counted by reason in `skipped`. An empty list when the app has no recents; an error (-32000) when the app is not running or refuses this server's token (HTTP 401, with a message saying how to fix it), and -32000 with the app's reason when it answers any other HTTP error. Read-only.",
         "mimeType": "application/json"
     }));
 
@@ -6087,17 +6090,22 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 
 // ── list_recent_documents resource handler ────────────────────────────────────
 
-/// A document's title: the text of its first `# ` heading line, `None` when
-/// it has none. Lines of a leading YAML front matter block and of fenced
-/// code blocks (```` ``` ```` or `~~~`, closed by a fence of the same
-/// character at least as long) are not headings: the first such line used
-/// to be the title, so a front matter `# comment` or a shell comment in a
-/// code block named the document. A fence left open runs to the end, as in
-/// CommonMark.
+/// A document's title: the text of its first level 1 ATX heading that has
+/// text, `None` when it has none. Lines of a leading YAML front matter block
+/// and of fenced code blocks (```` ``` ```` or `~~~`, closed by a fence of
+/// the same character at least as long) are not headings: the first such
+/// line used to be the title, so a front matter `# comment` or a shell
+/// comment in a code block named the document. A fence left open runs to
+/// the end, as in CommonMark. A heading is read by
+/// [`markdown_lines::atx_heading`], the rule of `export_metadata`'s
+/// headings: only `# ` at the start of a line used to count, so `  # Title`
+/// and `#\tTitle` were not titles, `# Title #` kept its closing `#`, and an
+/// empty `# ` named the document with an empty title.
 pub fn document_title(content: &str) -> Option<String> {
     markdown_lines::text_lines(content)
-        .find_map(|line| line.strip_prefix("# "))
-        .map(|title| title.trim().to_string())
+        .filter_map(markdown_lines::atx_heading)
+        .find(|&(level, text)| level == 1 && !text.is_empty())
+        .map(|(_, text)| text.to_string())
 }
 
 /// Build the `mdopener://recent-documents` resource response.
@@ -6109,7 +6117,7 @@ pub fn document_title(content: &str) -> Option<String> {
 /// { "path": "...", "title": "...", "mtimeMs": 1234567890, "preview": "..." }
 /// ```
 ///
-/// `title` is [`document_title`] (the first `# Heading` line outside front
+/// `title` is [`document_title`] (the first `# Heading` outside front
 /// matter and fenced code) if present, otherwise the file's base name
 /// without extension.  `preview` is the first 200 chars
 /// of raw content (including front-matter).  Recents that cannot be listed
@@ -7860,13 +7868,25 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   block is closed only by the same character at least as long. Any line
 ///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
 ///   backtick block ended it and the code after it lost its `#`s and `*`s.
-/// - ATX headings: leading `#` characters and a space are removed.
+/// - Indented code (a line indented four columns or more that opens a block
+///   after a blank line or a heading) is kept as code without its indent, by
+///   [`markdown_lines::with_indented_code`]. After a list item an indented
+///   line is read as the item's continuation, not as code, until the list
+///   ends: telling the two apart needs the item's content column, so some
+///   code in a list item is read as text but text is never read as code.
+/// - ATX headings ([`markdown_lines::atx_heading`]: at most three spaces,
+///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
+///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
+///   `# comment` indented four spaces lost its `#`.
 /// - Setext heading underlines (`===` / `---` only lines) are removed.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
 /// - Links `[text](url)` and `[text][ref]` → link text only.
-/// - Blockquote `>` leaders are removed.
+/// - Wikilinks `[[target]]` → target, `[[target|alias]]` → alias. The
+///   `[text]` link rule ran first, so `[[Real]]` read `[Real]`.
+/// - Blockquote `>` leaders are removed, before the ATX rule is applied,
+///   so `> # Quote` reads `Quote` (it used to keep its `#`).
 /// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
 /// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
 /// - HTML tags are stripped.
@@ -7875,7 +7895,7 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
-    let lines: Vec<(LineKind, &str)> = markdown_lines::markdown_lines(content)
+    let lines: Vec<(LineKind, &str)> = markdown_lines::with_indented_code(content)
         .filter(|(kind, _)| *kind != LineKind::FrontMatter)
         .collect();
 
@@ -7890,6 +7910,12 @@ pub fn strip_markdown(content: &str) -> String {
             }
             LineKind::Code => {
                 out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            LineKind::IndentedCode => {
+                in_table = false;
+                out.push_str(markdown_lines::without_code_indent(line));
                 out.push('\n');
                 continue;
             }
@@ -7942,23 +7968,22 @@ pub fn strip_markdown(content: &str) -> String {
             }
         }
 
-        // Strip ATX heading markers.
-        let line = {
-            let stripped = trimmed.trim_start_matches('#');
-            if stripped.len() < trimmed.len() && stripped.starts_with(' ') {
-                without_closing_hashes(stripped.trim_start())
-            } else {
-                line
-            }
-        };
-
-        // Strip blockquote leaders.
+        // Strip blockquote leaders, each `>` with one optional space after
+        // it, then ATX heading markers by the rule of the headings, so
+        // `> # Quote` reads `Quote`. The `#`s used to be taken off first,
+        // while the line still started with `>`, so they were kept.
         let line = {
             let mut s = line;
+            let mut quoted = false;
             while let Some(rest) = s.trim_start().strip_prefix('>') {
-                s = rest.trim_start_matches(' ');
+                s = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
+                quoted = true;
             }
-            s
+            match markdown_lines::atx_heading(s) {
+                Some((_, text)) => text,
+                None if quoted => s.trim_start_matches(' '),
+                None => s,
+            }
         };
 
         // A footnote definition `[^1]: text` reads `[1] text`.
@@ -8103,6 +8128,14 @@ pub fn strip_inline_markdown(s: &str) -> String {
     let mut i = 0;
 
     while i < n {
+        // Obsidian embed ![[…]] → empty (no useful text). It is read before
+        // an image, which took `![[a.png]]` as an image with alt `[a.png]`.
+        if chars[i] == '!' {
+            if let Some(embed) = parse_wikilink(&chars, i + 1) {
+                i = embed.end;
+                continue;
+            }
+        }
         // Inline image: ![alt](url) or ![alt][ref] → alt text only
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
@@ -8113,12 +8146,20 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Obsidian embedded image ![[…]] → empty (no useful text)
-        if chars[i] == '!' && i + 2 < n && chars[i + 1] == '[' && chars[i + 2] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 3) {
-                i = close + 2;
-                continue;
+        // Wikilink [[target]] → target, [[target|alias]] → alias and
+        // [[target#heading]] → `target › heading`, as the read view shows
+        // it. It is read before a `[text]` link, which took `[[Real]]` as a
+        // link with text `[Real]`.
+        if let Some(link) = parse_wikilink(&chars, i) {
+            match (&link.alias, &link.heading) {
+                (Some(alias), _) => out.push_str(alias),
+                (None, Some(heading)) => {
+                    out.push_str(&format!("{} \u{203a} {heading}", link.target));
+                }
+                (None, None) => out.push_str(&link.target),
             }
+            i = link.end;
+            continue;
         }
         // Footnote reference [^1] → [1]
         if chars[i] == '[' && chars.get(i + 1) == Some(&'^') {
@@ -8140,20 +8181,6 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 let after = skip_link_tail(&chars, end);
                 out.push_str(&text);
                 i = after;
-                continue;
-            }
-        }
-        // Wikilink [[…]] → inner text (before any |)
-        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 2) {
-                let inner: String = chars[i + 2..close].iter().collect();
-                let label = inner
-                    .split('|')
-                    .next()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| inner.clone());
-                out.push_str(&label);
-                i = close + 2;
                 continue;
             }
         }
@@ -8287,9 +8314,59 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
     start
 }
 
-// Helper: find `]]` starting from `start`, returns index of first `]`.
-fn find_double_close(chars: &[char], start: usize) -> Option<usize> {
-    (start..chars.len().saturating_sub(1)).find(|&i| chars[i] == ']' && chars[i + 1] == ']')
+/// A `[[target#heading|alias]]` wikilink, from [`parse_wikilink`].
+struct Wikilink {
+    /// The note it links to, as written (not trimmed).
+    target: String,
+    /// The `#heading` fragment, without its `#`.
+    heading: Option<String>,
+    /// The `|alias` display text, without its `|`.
+    alias: Option<String>,
+    /// The index just past the closing `]]`.
+    end: usize,
+}
+
+/// The wikilink starting at `start` (its first `[`), read as the app reads
+/// one (`remark-wikilinks.ts`): `[[`, a target of one or more characters
+/// with no `]`, `|`, `#` or line break, then an optional `#heading` with no
+/// `]`, `|` or line break, an optional `|alias` with no `]` or line break,
+/// and `]]`. A wikilink is one line, as Obsidian reads it: the search used
+/// to cross newlines, so an unclosed `[[` took the text up to a `]]` many
+/// lines later as its target, hiding the links in between, and an unclosed
+/// `![[` counted as an image. A `]` inside used to end up in the target
+/// (`[[a]b]]` linked to `a]b`), and `#heading` was part of it.
+fn parse_wikilink(chars: &[char], start: usize) -> Option<Wikilink> {
+    if chars.get(start) != Some(&'[') || chars.get(start + 1) != Some(&'[') {
+        return None;
+    }
+    // A run of one or more characters from `pos` that are none of `stops`
+    // (a line break always stops it), and the index after it.
+    let run = |pos: usize, stops: &[char]| -> Option<(String, usize)> {
+        let len = chars[pos.min(chars.len())..]
+            .iter()
+            .take_while(|c| !matches!(c, '\n' | '\r') && !stops.contains(c))
+            .count();
+        (len > 0).then(|| (chars[pos..pos + len].iter().collect(), pos + len))
+    };
+    let (target, mut pos) = run(start + 2, &[']', '|', '#'])?;
+    let mut heading = None;
+    if chars.get(pos) == Some(&'#') {
+        let (h, next) = run(pos + 1, &[']', '|'])?;
+        heading = Some(h);
+        pos = next;
+    }
+    let mut alias = None;
+    if chars.get(pos) == Some(&'|') {
+        let (a, next) = run(pos + 1, &[']'])?;
+        alias = Some(a);
+        pos = next;
+    }
+    (chars.get(pos) == Some(&']') && chars.get(pos + 1) == Some(&']')).then_some(Wikilink {
+        target,
+        heading,
+        alias,
+        end: pos + 2,
+    })
 }
 
 /// Count words (whitespace-separated tokens) in plain text.
@@ -8764,53 +8841,29 @@ fn split_flow_items(inner: &str) -> Vec<&str> {
     items
 }
 
-/// An ATX heading's text without its optional closing sequence: `Title ##`
-/// is `Title`, while `C#` and `#hashtag` keep their `#`.
-fn without_closing_hashes(text: &str) -> &str {
-    let text = text.trim_end();
-    let body = text.trim_end_matches('#');
-    if body.len() == text.len() {
-        text
-    } else if body.is_empty() {
-        ""
-    } else if body.ends_with([' ', '\t']) {
-        body.trim_end()
-    } else {
-        text
-    }
-}
-
-/// Extract ATX headings (lines starting with 1–6 `#` characters) into a tree.
+/// Extract ATX headings into a tree.
 ///
 /// Returns a JSON array of `{ level: N, text: "…" }` objects in document order.
 /// Lines of a leading YAML front matter block and of fenced code are not
 /// headings, by the rule [`document_title`] uses ([`markdown_lines`]). Any
 /// line starting with ```` ``` ```` or `~~~` used to flip an "in code" flag,
 /// so a `~~~` line ended a backtick block, and a front matter `# comment`
-/// was a heading.
+/// was a heading. A heading is read by [`markdown_lines::atx_heading`], as
+/// [`document_title`] reads one: the whole line used to be trimmed, so a
+/// `# comment` indented four spaces (indented code) was a heading. An empty
+/// heading is left out.
 pub fn extract_headings(content: &str) -> Vec<Value> {
-    let mut headings = Vec::new();
-    for line in markdown_lines::text_lines(content) {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') {
-            let level = trimmed.chars().take_while(|&c| c == '#').count();
-            let rest = &trimmed[level..];
-            // ATX headings need whitespace after the `#`s: `#tag` and
-            // `#!/bin/sh` are text, not headings.
-            if level <= 6 && rest.starts_with([' ', '\t']) {
-                let after = without_closing_hashes(rest.trim());
-                if !after.is_empty() {
-                    headings.push(json!({ "level": level, "text": after }));
-                }
-            }
-        }
-    }
-    headings
+    markdown_lines::text_lines(content)
+        .filter_map(markdown_lines::atx_heading)
+        .filter(|(_, text)| !text.is_empty())
+        .map(|(level, text)| json!({ "level": level, "text": text }))
+        .collect()
 }
 
 /// Extract all `[[wikilinks]]` from the content (not inside code blocks).
 ///
-/// Returns a deduplicated, sorted list of link targets (the part before `|`).
+/// Returns a deduplicated, sorted list of link targets (the part before
+/// any `#` or `|`).
 /// Fenced code is skipped by the rule of [`extract_headings`]
 /// ([`markdown_lines`]); any line starting with ```` ``` ```` or `~~~` used
 /// to flip an "in code" flag, so a `~~~` line inside a backtick block made
@@ -8818,33 +8871,58 @@ pub fn extract_headings(content: &str) -> Vec<Value> {
 /// front matter block is read: a property such as `related: "[[Plan]]"`
 /// links to `Plan`, as Obsidian reads it. Its lines are never fences, so a
 /// `` ``` `` line in a front matter block scalar no longer hides the body.
+///
+/// A link is read by the app's rule ([`parse_wikilink`]): the target is the
+/// note, without a `#heading` fragment (see [`extract_wikilink_headings`]),
+/// and a `]` inside ends no target, so `[[a]b]]` is not a link. `[[Note#Goals]]`
+/// used to list `Note#Goals`, a note that does not exist, and `[[a]b]]`
+/// listed `a]b`. A link to a heading of the same note (`[[#Goals]]`) has no
+/// target and is not listed, as the app does not link it.
 pub fn extract_wikilinks(content: &str) -> Vec<String> {
-    let mut links = std::collections::HashSet::new();
+    let links: std::collections::BTreeSet<String> =
+        wikilink_refs(content).into_iter().map(|(t, _)| t).collect();
+    links.into_iter().collect()
+}
+
+/// The distinct `(target, heading)` pairs of the `[[target#heading]]`
+/// wikilinks [`extract_wikilinks`] reads, sorted: `export_metadata`'s
+/// `wikilink_headings`.
+pub fn extract_wikilink_headings(content: &str) -> Vec<(String, String)> {
+    let pairs: std::collections::BTreeSet<(String, String)> = wikilink_refs(content)
+        .into_iter()
+        .filter_map(|(t, h)| h.map(|h| (t, h)))
+        .collect();
+    pairs.into_iter().collect()
+}
+
+/// Each wikilink outside fenced code (front matter included) as its trimmed
+/// target and trimmed heading fragment, embeds (`![[...]]`) and empty
+/// targets left out.
+fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
     let text: Vec<&str> = markdown_lines::markdown_lines(content)
         .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
         .map(|(_, line)| line)
         .collect();
     let chars: Vec<char> = text.join("\n").chars().collect();
-    let n = chars.len();
+    let mut refs = Vec::new();
     let mut i = 0;
-    while i < n {
-        if chars[i] == '[' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some(close) = find_double_close(&chars, i + 2) {
-                let inner: String = chars[i + 2..close].iter().collect();
-                let target = inner.split('|').next().unwrap_or(&inner).trim().to_string();
-                // Exclude embedded image wikilinks (preceded by `!`).
-                if (i == 0 || chars[i - 1] != '!') && !target.is_empty() {
-                    links.insert(target);
-                }
-                i = close + 2;
-                continue;
+    while i < chars.len() {
+        if let Some(link) = parse_wikilink(&chars, i) {
+            let target = link.target.trim().to_string();
+            // Exclude embedded image wikilinks (preceded by `!`).
+            if (i == 0 || chars[i - 1] != '!') && !target.is_empty() {
+                let heading = link
+                    .heading
+                    .map(|h| h.trim().to_string())
+                    .filter(|h| !h.is_empty());
+                refs.push((target, heading));
             }
+            i = link.end;
+            continue;
         }
         i += 1;
     }
-    let mut sorted: Vec<String> = links.into_iter().collect();
-    sorted.sort();
-    sorted
+    refs
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
@@ -8867,10 +8945,10 @@ pub fn count_embedded_images(content: &str) -> usize {
             if i + 1 < n && chars[i + 1] == '[' {
                 // Check it's not a wikilink embed ![[…]]
                 if i + 2 < n && chars[i + 2] == '[' {
-                    // Embedded wikilink image ![[…]]
-                    if let Some(close) = find_double_close(&chars, i + 3) {
+                    // Embedded wikilink image ![[…]], by the app's rule.
+                    if let Some(embed) = parse_wikilink(&chars, i + 1) {
                         count += 1;
-                        i = close + 2;
+                        i = embed.end;
                         continue;
                     }
                 } else if let Some((_, end)) = parse_bracket_content(&chars, i + 1) {
@@ -8900,6 +8978,7 @@ pub fn count_embedded_images(content: &str) -> usize {
 ///   "frontmatter": { … } | null,
 ///   "headings": [{ "level": N, "text": "…" }, …],
 ///   "wikilinks": ["Target", …],
+///   "wikilink_headings": [{ "target": "Target", "heading": "Goals" }, …],
 ///   "embedded_image_count": N,
 ///   "word_count": N,
 ///   "path": "…"            // only when a path can be determined
@@ -8917,6 +8996,10 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
     let frontmatter = extract_frontmatter(&markdown);
     let headings = extract_headings(&markdown);
     let wikilinks = extract_wikilinks(&markdown);
+    let wikilink_headings: Vec<Value> = extract_wikilink_headings(&markdown)
+        .into_iter()
+        .map(|(target, heading)| json!({ "target": target, "heading": heading }))
+        .collect();
     let embedded_image_count = count_embedded_images(&markdown);
     let plain = strip_markdown(&markdown);
     let word_count = count_words(&plain);
@@ -8925,6 +9008,7 @@ pub fn tool_export_metadata(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         "frontmatter": frontmatter,
         "headings": headings,
         "wikilinks": wikilinks,
+        "wikilink_headings": wikilink_headings,
         "embedded_image_count": embedded_image_count,
         "word_count": word_count,
     });

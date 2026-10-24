@@ -73,4 +73,17 @@ describe("extractSection", () => {
     const blockDoc = "Just text. ^aaa";
     expect(extractSection(blockDoc, "^bbb")).toBe(blockDoc);
   });
+
+  it("reads headings by the outline's rule", () => {
+    const fenced = ["## Setup", "```sh", "# install", "```", "after", "## Next"].join(
+      "\n",
+    );
+    // A `#` comment in fenced code does not end the section.
+    expect(extractSection(fenced, "Setup")).toContain("after");
+    expect(extractSection(fenced, "install")).toBe(fenced);
+    // Closing `#`s are not part of the heading text.
+    expect(extractSection("## Goals ##\nbody\n", "Goals")).toBe("## Goals ##\nbody");
+    // An indented `# x` is code, not a heading.
+    expect(extractSection("    # Code\nbody", "Code")).toBe("    # Code\nbody");
+  });
 });

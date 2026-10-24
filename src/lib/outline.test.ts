@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHeadings } from "./outline";
+import { atxHeading, atxHeadings, markdownLines, parseHeadings } from "./outline";
 
 describe("parseHeadings", () => {
   it("skips a leading YAML frontmatter block", () => {
@@ -70,5 +70,72 @@ describe("parseHeadings", () => {
 
   it("returns an empty array for a doc with no headings", () => {
     expect(parseHeadings("just some prose\n\nand more")).toEqual([]);
+  });
+
+  it("reads a heading by the ATX rule mdopener-mcp uses", () => {
+    const doc = [
+      "\t# tab-indented code",
+      "    # four spaces is code",
+      "  # Two spaces",
+      "#\tTabbed",
+      "## Closed ##",
+      "## ##",
+      "### Learn C#",
+      "#tag",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.depth, h.text])).toEqual([
+      [1, "Two spaces"],
+      [1, "Tabbed"],
+      [2, "Closed"],
+      [3, "Learn C#"],
+    ]);
+  });
+
+  it("uses the fence rule of mdopener-mcp", () => {
+    // A tab-indented ``` is indented code, and a backtick info string with
+    // a backtick is not a fence, so the `#` lines after them are headings.
+    const doc = ["\t```", "# One", "``` a`b", "# Two"].join("\n");
+    expect(parseHeadings(doc).map((h) => h.text)).toEqual(["One", "Two"]);
+  });
+
+  it("gives each heading's source text and line from atxHeadings", () => {
+    const doc = [
+      "---",
+      "# yaml",
+      "---",
+      "## **Bold** ##",
+      "```",
+      "# no",
+      "```",
+      "#",
+    ].join("\n");
+    expect(atxHeadings(doc)).toEqual([
+      { depth: 2, text: "**Bold**", line: 4 },
+      { depth: 1, text: "", line: 8 },
+    ]);
+    expect(atxHeading("   # Three")).toEqual({ depth: 1, text: "Three" });
+    expect(atxHeading("    # Four")).toBeNull();
+  });
+
+  it("marks each line front matter, fence, code or text in markdownLines", () => {
+    const doc = ["---", "a: |", "  ```", "---", "x", "````", "```", "````", "y"].join(
+      "\n",
+    );
+    const lines = markdownLines(doc);
+    expect(lines.map((l) => l.kind)).toEqual([
+      "frontmatter",
+      "frontmatter",
+      "frontmatter",
+      "frontmatter",
+      "text",
+      "fence",
+      "code",
+      "fence",
+      "text",
+    ]);
+    for (const l of lines) {
+      expect(doc.slice(l.start, l.start + l.text.length)).toBe(l.text);
+    }
+    expect(lines[8]).toMatchObject({ text: "y", line: 9 });
   });
 });
