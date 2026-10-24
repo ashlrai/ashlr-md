@@ -4,7 +4,7 @@
 //! scanner that must not read code as Markdown (a document's title, the
 //! headings, wikilinks and image count of `export_metadata`, the plain text
 //! of `export_text`, the task checkboxes of `/annotations` and
-//! `get_user_annotations`) uses one rule for front matter and one for fences.
+//! `get_user_annotations`, the heading chunks of semantic search) uses one rule for front matter and one for fences.
 //! [`atx_heading`] is the one ATX heading rule of a document's title and of
 //! `export_metadata`'s headings.
 //! Those scanners used to flip an "in code" flag on any line starting with
@@ -90,8 +90,6 @@ pub fn line_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
 /// rule fences follow, and whether the line opens a list item that holds
 /// that text: `- # Step` is `# Step`, `> - a` is `a`, and an item's
 /// continuation line (`- a`, then `  b`) is `b`. None for any other line.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
 pub fn line_text(content: &str) -> impl Iterator<Item = Option<(Cow<'_, str>, bool)>> {
     scan(content).map(|l| l.text.map(|t| (t, l.item)))
 }
@@ -939,8 +937,6 @@ fn code_fence(line: &str) -> Option<(char, usize, &str)> {
 /// A line in a blockquote (`> # Quote`) is not one: Obsidian's outline
 /// lists no quoted heading, and the app's Outline panel reads it the same
 /// way, so quoted text from elsewhere does not clutter either.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
 pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
     let body = line.trim_start_matches(' ');
     if line.len() - body.len() > 3 {

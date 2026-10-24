@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Semantic search chunks begin only at headings.** The index cut a document
+  into chunks at every line starting with `#`, so the `# comment` lines of a code
+  block (and `#tag` lines) cut it into pieces too small to keep, and that code
+  was left out of the index. A chunk now begins only at an ATX heading, read by
+  the line rule of the Outline.
 - **The status bar's word count reads code and containers as the page does.**
   A fence was any line starting with three backticks or tildes, at any
   indentation, closed by any later one of the same character, so a ```` ```` ````
