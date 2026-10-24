@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The tab bar follows the ARIA tabs pattern.** Each tab's close button sat
+  inside the tab list, which may hold tabs only, and no tab named the
+  document area it shows. The row wrappers are now presentational, the
+  close buttons are a pointer affordance hidden from screen readers and out
+  of the Tab order (Delete on a tab closes it, and so does ⌘W), and the
+  active tab controls the document area, which is a tab panel labelled by
+  it while tabs are shown.
 - **Restoring a session: at most 20 tabs, Recents untouched, gone files
   named.** A session of hundreds of tabs reopened every one, and each
   reopened tab was pushed to the top of Recents, so Recents ended up in tab

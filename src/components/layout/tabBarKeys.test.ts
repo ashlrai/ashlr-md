@@ -17,7 +17,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { type Tab, useDocumentStore } from "../../store/documentStore";
-import { TabBar } from "./TabBar";
+import { DOCUMENT_PANEL_ID, TabBar, tabElementId } from "./TabBar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -104,5 +104,41 @@ describe("tab bar keyboard", () => {
     expect(dirty.textContent).toContain("unsaved changes");
     expect(dirty.querySelector(".tab-dirty")?.getAttribute("aria-hidden")).toBe("true");
     expect(dirty.querySelector("[aria-label]")).toBeNull();
+  });
+
+  it("owns only tabs: rows are presentational, close buttons hidden and out of the Tab order", () => {
+    const list = host.querySelector('[role="tablist"]') as HTMLElement;
+    for (const row of Array.from(list.children)) {
+      expect(row.getAttribute("role")).toBe("presentation");
+      expect(row.querySelectorAll('[role="tab"]')).toHaveLength(1);
+      const close = row.querySelector<HTMLElement>(".tab-close");
+      expect(close?.getAttribute("aria-hidden")).toBe("true");
+      expect(close?.tabIndex).toBe(-1);
+      expect(close?.hasAttribute("aria-label")).toBe(false);
+    }
+    // Nothing focusable but the tabs is exposed inside the tablist.
+    const exposed = Array.from(list.querySelectorAll<HTMLElement>("button")).filter(
+      (b) => b.closest('[aria-hidden="true"]') === null,
+    );
+    expect(exposed.every((b) => b.getAttribute("role") === "tab")).toBe(true);
+  });
+
+  it("names the panel the active tab controls", () => {
+    const [a, b] = tabs();
+    expect(a.id).toBe(tabElementId("a"));
+    expect(a.getAttribute("aria-controls")).toBe(DOCUMENT_PANEL_ID);
+    expect(b.hasAttribute("aria-controls")).toBe(false);
+  });
+
+  it("closes the focused tab on Delete", () => {
+    tabs()[2].focus();
+    expect(press(tabs()[2], "Delete").defaultPrevented).toBe(true);
+    expect(useDocumentStore.getState().tabs.map((t) => t.id)).toEqual(["a", "b"]);
+  });
+
+  it("still closes a tab from its close button", () => {
+    const close = host.querySelectorAll<HTMLElement>(".tab-close")[2];
+    act(() => close.click());
+    expect(useDocumentStore.getState().tabs.map((t) => t.id)).toEqual(["a", "b"]);
   });
 });
