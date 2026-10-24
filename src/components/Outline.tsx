@@ -5,10 +5,11 @@
 //
 // Slug parity with the rendered DOM is handled in ../lib/outline (it reuses the
 // same github-slugger the renderer's rehype-slug plugin uses), so anchor jumps
-// resolve via document.getElementById(slug).
+// resolve by that id in the document's own body (anchorElement).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/outline.css";
+import { anchorElement } from "../lib/docLinks";
 import { formatShortcut } from "../lib/keymap";
 import { smoothScrollBehavior } from "../lib/motion";
 import { type HeadingItem, parseHeadings } from "../lib/outline";
@@ -32,9 +33,20 @@ function CloseIcon() {
   );
 }
 
+/**
+ * The rendered heading with id `slug` in the open document's body, not one
+ * of an embedded note's that has the same id ({@link anchorElement}).
+ */
+function headingElement(slug: string): HTMLElement | null {
+  const body = document.querySelector(".app-content .markdown-body");
+  if (!body) return null;
+  const el = anchorElement(slug, body);
+  return el?.id === slug ? el : null;
+}
+
 /** Smoothly scroll a rendered heading into view by its slug id. */
 function scrollToSlug(slug: string) {
-  const el = document.getElementById(slug);
+  const el = headingElement(slug);
   el?.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
 }
 
@@ -72,7 +84,7 @@ export function Outline() {
     if (!body) return;
 
     const els = headings
-      .map((h) => document.getElementById(h.slug))
+      .map((h) => headingElement(h.slug))
       .filter((el): el is HTMLElement => el != null);
     if (els.length === 0) return;
 
@@ -92,7 +104,7 @@ export function Outline() {
         const topY = body.getBoundingClientRect().top;
         let last: string | null = null;
         for (const h of headings) {
-          const el = document.getElementById(h.slug);
+          const el = headingElement(h.slug);
           if (el && el.getBoundingClientRect().top <= topY + 8) last = h.slug;
         }
         chosen = last ?? headings[0].slug;

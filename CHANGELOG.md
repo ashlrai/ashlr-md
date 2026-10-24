@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The outline and `#heading` links go to the document's own heading.** An
+  embedded note (`![[other]]`) is rendered with its own heading ids, so a
+  heading it shares with the document ("Setup", "Notes") had its id twice,
+  and the first in the page was taken: with the embed above it, the
+  outline, its scrollspy and a `#setup` link went to the embed's heading.
+  The document's own heading is now taken, and a link inside an embed still
+  goes to the embed's.
 - **A `#heading` link jumps without animation under reduced motion.** A
   click on a link to a heading of the same document scrolled smoothly even
   when the system asks to reduce motion; links into other documents, the
