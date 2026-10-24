@@ -25,6 +25,12 @@ pub enum Launch {
     /// A launcher ran and exited non-zero (e.g. no handler registered for the
     /// `mdopener://` scheme, or no display).
     Failed { launcher: String, code: Option<i32> },
+    /// A launcher was ended by a signal (Unix), its number in `signal`. It
+    /// used to be reported as having "exited with status signal".
+    Killed {
+        launcher: String,
+        signal: Option<i32>,
+    },
     /// A launcher exists but could not be started (not executable, say).
     /// It used to be reported as one that "exited with status signal".
     Unstartable { launcher: String, error: String },
@@ -42,11 +48,31 @@ impl Launch {
             }
             // It used to end in a question ("is Ashlr MD installed ...?")
             // that left the reader to guess; it now states the likely causes.
-            Launch::Failed { launcher, code } => format!(
-                "`{launcher}` exited with status {}: Ashlr MD may not be installed (nothing \
-                 handles mdopener:// URLs), or there is no desktop session",
-                code.map_or_else(|| "signal".to_string(), |c| c.to_string())
+            Launch::Failed {
+                launcher,
+                code: Some(c),
+            } => format!(
+                "`{launcher}` exited with status {c}: Ashlr MD may not be installed (nothing \
+                 handles mdopener:// URLs), or there is no desktop session"
             ),
+            Launch::Failed {
+                launcher,
+                code: None,
+            } => format!(
+                "`{launcher}` failed, and its exit status could not be read: Ashlr MD may not \
+                 be installed (nothing handles mdopener:// URLs), or there is no desktop session"
+            ),
+            Launch::Killed {
+                launcher,
+                signal: Some(n),
+            } => match signal_name(*n) {
+                Some(name) => format!("`{launcher}` was killed by signal {n} ({name})"),
+                None => format!("`{launcher}` was killed by signal {n}"),
+            },
+            Launch::Killed {
+                launcher,
+                signal: None,
+            } => format!("`{launcher}` was killed by a signal"),
             Launch::Unstartable { launcher, error } => {
                 format!("`{launcher}` could not be started: {error}")
             }
@@ -55,6 +81,38 @@ impl Launch {
                 tried.join(", ")
             ),
         }
+    }
+}
+
+/// The name of a common Unix signal, for [`Launch::describe`].
+fn signal_name(n: i32) -> Option<&'static str> {
+    Some(match n {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        _ => return None,
+    })
+}
+
+/// The signal that ended a process, on Unix.
+fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        status.signal()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
     }
 }
 
@@ -132,9 +190,15 @@ pub fn run_first(
             match child.try_wait() {
                 Ok(Some(status)) if status.success() => return Launch::Opened { launcher },
                 Ok(Some(status)) => {
-                    return Launch::Failed {
-                        launcher,
-                        code: status.code(),
+                    return match status.code() {
+                        Some(code) => Launch::Failed {
+                            launcher,
+                            code: Some(code),
+                        },
+                        None => Launch::Killed {
+                            launcher,
+                            signal: exit_signal(status),
+                        },
                     }
                 }
                 Ok(None) if start.elapsed() >= deadline => {
@@ -244,6 +308,45 @@ mod tests {
         assert!(why.contains("status 4"), "{why}");
         assert!(why.contains("may not be installed"), "{why}");
         assert!(!why.contains('?'), "{why}");
+    }
+
+    #[test]
+    fn a_launcher_killed_by_a_signal_says_which() {
+        let s = Scratch::new("killed");
+        let r = run_first(
+            &one(s.script("xdg-open", "kill -9 $$")),
+            Duration::from_secs(5),
+            false,
+        );
+        assert_eq!(
+            r,
+            Launch::Killed {
+                launcher: "xdg-open".into(),
+                signal: Some(9)
+            }
+        );
+        let why = r.describe();
+        assert_eq!(why, "`xdg-open` was killed by signal 9 (SIGKILL)");
+        let r = run_first(
+            &one(s.script("xdg-open", "kill -TERM $$")),
+            Duration::from_secs(5),
+            false,
+        );
+        assert_eq!(r.describe(), "`xdg-open` was killed by signal 15 (SIGTERM)");
+        let other = Launch::Killed {
+            launcher: "gio".into(),
+            signal: Some(40),
+        };
+        assert_eq!(other.describe(), "`gio` was killed by signal 40");
+        let unknown = Launch::Failed {
+            launcher: "gio".into(),
+            code: None,
+        };
+        assert!(
+            !unknown.describe().contains("signal"),
+            "{}",
+            unknown.describe()
+        );
     }
 
     #[test]

@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen and the MCP server: a launcher killed by a signal says which.**
+  An `xdg-open` (or `gio`, `open`) ended by a signal was reported as having
+  "exited with status signal". The message now says it was killed and names
+  the signal (`was killed by signal 9 (SIGKILL)`).
 - **mdopen: `--edit=yes` is told the flag it meant.** A flag given a value
   with `=` (no flag takes one) was compared whole, so `--edit=yes` got only
   "unknown flag". The part before `=` is now compared, and the error says
