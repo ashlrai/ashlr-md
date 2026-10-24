@@ -403,6 +403,40 @@ async function confirmRecreate(fileName: string): Promise<boolean> {
   }
 }
 
+/** Button labels of {@link confirmCloseMissing}. */
+export const CLOSE_MISSING_SAVE_AS = "Save As…";
+export const CLOSE_MISSING_DISCARD = "Close Without Saving";
+
+/**
+ * Ask what to do with a tab whose file is gone before closing it: "save-as"
+ * (Save As, then close), "close" (discard the text), or "cancel". A dialog
+ * that cannot be shown keeps the tab open: losing the text is worse.
+ */
+async function confirmCloseMissing(
+  fileName: string,
+): Promise<"save-as" | "close" | "cancel"> {
+  try {
+    const { message } = await import("@tauri-apps/plugin-dialog");
+    const choice = await message(
+      `"${fileName}" was deleted or moved outside Ashlr MD, so its text is only in this tab. Save it somewhere before closing?`,
+      {
+        title: "File not found",
+        kind: "warning",
+        buttons: {
+          yes: CLOSE_MISSING_SAVE_AS,
+          no: CLOSE_MISSING_DISCARD,
+          cancel: "Cancel",
+        },
+      },
+    );
+    if (choice === CLOSE_MISSING_SAVE_AS || choice === "Yes") return "save-as";
+    if (choice === CLOSE_MISSING_DISCARD || choice === "No") return "close";
+    return "cancel";
+  } catch {
+    return "cancel";
+  }
+}
+
 /** The last path component, for a tab title. */
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
@@ -1036,6 +1070,32 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       invoke("watch_file", { path: neighbor.path }).catch(() => {});
       recheckDisk(get, set, neighbor.id, neighbor.path);
     };
+
+    // A tab whose file was deleted or moved holds the only copy of its
+    // text, edited or not: it used to close without a word when it had no
+    // edits, and the text was gone. Offer Save As first.
+    const missing = id === s.activeId ? s.missing : tab.missing;
+    if (missing) {
+      void confirmCloseMissing(tab.fileName).then(async (choice) => {
+        if (choice === "close") {
+          finish();
+          return;
+        }
+        if (choice !== "save-as") return;
+        if (get().activeId !== id) get().switchTab(id);
+        if (get().activeId !== id) return;
+        // Saved under a new name, the tab closes as asked, unless it was
+        // edited during the dialog.
+        if (
+          (await get().saveAs()) === null &&
+          get().activeId === id &&
+          !get().isDirty
+        ) {
+          finish();
+        }
+      });
+      return;
+    }
 
     if (dirty) {
       // A native confirm prevents silently dropping unsaved work (⌘W, ×, etc.).

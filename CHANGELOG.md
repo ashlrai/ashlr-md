@@ -118,6 +118,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Closing the tab of a deleted file asks first.** A tab whose file was
+  deleted or moved outside the app, with no edits, closed without a word, and
+  its text (then only in the tab) was gone. Closing it now asks: Save As (then
+  close), Close Without Saving, or Cancel.
 - **Relative images show in the WYSIWYG editor.** The editor used an image's
   path as written as its source, which loads from the app's own address, so a
   pasted `![](assets/x.png)` showed broken while editing. Images now load as in
