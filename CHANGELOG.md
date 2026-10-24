@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An embed of a note changed or deleted since shows it as it is now.** An
+  `![[note]]` embed read its note once: when a file changed on disk wikilinks
+  resolved again but embeds did not, so an embed of a note deleted or
+  rewritten since kept its old text. Embeds now resolve and read the note
+  again.
 - **A document changed on disk keeps your place in the read view.** Each
   change another app or an agent wrote to a clean document scrolled the read
   view to the top, so a reader following an agent's writes lost their place.
