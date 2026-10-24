@@ -1,6 +1,12 @@
 import { type Node, Schema } from "@milkdown/kit/prose/model";
+import { EditorState } from "@milkdown/kit/prose/state";
 import { describe, expect, it } from "vitest";
-import { tableIndexAt, tableOffsetAt } from "./milkdownTable";
+import {
+  syncTableTransaction,
+  tableIndexAt,
+  tableIndexOfOffset,
+  tableOffsetAt,
+} from "./milkdownTable";
 import { findTableRange } from "./tableEditor";
 
 // The node names of Milkdown's GFM preset.
@@ -100,5 +106,37 @@ describe("tableOffsetAt", () => {
 
   it("finds none when the Markdown has no table with the index", () => {
     expect(tableOffsetAt(doc, posOf(doc, "3"), "| a |\n| - |\n")).toBeNull();
+  });
+});
+
+describe("tableIndexOfOffset / syncTableTransaction", () => {
+  it("names the table that starts at an offset", () => {
+    expect(tableIndexOfOffset(markdown, markdown.indexOf("| a"))).toBe(0);
+    expect(tableIndexOfOffset(markdown, markdown.indexOf("| c"))).toBe(1);
+    expect(tableIndexOfOffset(markdown, 0)).toBeNull();
+  });
+
+  it("replaces the edited table only, or the document when they differ more", () => {
+    const state = EditorState.create({ schema, doc });
+    const edited = schema.node("doc", null, [
+      doc.child(0),
+      doc.child(1),
+      doc.child(2),
+      grid([
+        ["c", "d"],
+        ["3", "4"],
+        ["5", "6"],
+      ]),
+    ]);
+    const tr = syncTableTransaction(state, edited, 1);
+    expect(tr?.doc.eq(edited)).toBe(true);
+    // Only the table's range was replaced.
+    expect(tr?.steps).toHaveLength(1);
+    expect(tr?.mapping.map(1)).toBe(1);
+    // Nothing to change.
+    expect(syncTableTransaction(state, doc, 1)).toBeNull();
+    // A table more: the whole document is replaced.
+    const more = schema.node("doc", null, [...edited.content.content, grid([["x"]])]);
+    expect(syncTableTransaction(state, more, 1)?.doc.eq(more)).toBe(true);
   });
 });

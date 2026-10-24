@@ -128,6 +128,90 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **What was just typed in the WYSIWYG view is never dropped.** The editor
+  reports a change 200 ms after the last keystroke, and drops the report
+  when it closes. A change on disk in that time (a sync client, an agent)
+  found the tab clean, took the disk's text and reloaded the editor, so the
+  typing was lost without a word; a save in that time left it out, and a tab
+  or view switch lost it. The editor's text is now taken before any of
+  these, so the change on disk is offered in the banner as usual.
+- **Two quick changes on disk end on the newer text.** Each change the file
+  watcher reports is read again, and the reads run side by side, so for two
+  quick saves in another app the first read could answer last: the window
+  showed the older text and took it as the file's, so its next save was
+  refused as a conflict. Only the last read's answer is used now.
+- **Reordering images by dragging survives the next keystroke.** Dragging an
+  image onto another in the WYSIWYG view reordered them in the Markdown but
+  not in the editor, so the next thing typed put the old order back. The
+  editor now shows the new order, as for a table menu edit.
+- **A table menu edit survives the next keystroke.** The WYSIWYG table menu
+  (insert or delete a row or column, align a column) changed the Markdown
+  but not the editor, which kept the old table, so the next thing typed
+  anywhere wrote the old table back. The editor now shows the menu's table
+  too, and keeps it as the menu wrote it.
+- **The WYSIWYG table menu opens in a built app.** The editor's table menu
+  (right-click or double-click in a table, ⌘⇧T) and Enter continuing a list
+  were wired up in a step that ran before the editor's view was known, found
+  none and never listened. Development builds run that step twice, which hid
+  it. The view is now known first.
+- **A block the editor cannot map no longer rewrites the whole file.** When
+  the WYSIWYG editor's blocks did not line up one to one with the file's, any
+  edit wrote the whole document the serializer's way. The blocks are now
+  matched by kind, and only the region around a block that has no match is
+  written anew, out to the nearest matched blocks; the rest is kept byte for
+  byte. A one-to-one map whose kinds do not agree is matched the same way,
+  instead of being taken as is (which shifted every block after an extra one).
+- **An inline `<br>` is kept.** The WYSIWYG editor dropped every `<br>` when
+  it read a document (Milkdown's plugin for the `<br />` it writes for an
+  empty paragraph took them all), so `a<br>b` showed as `ab` and was saved
+  so once its paragraph was edited. Only a `<br />` that is all a paragraph
+  or table cell holds is read as empty now; any other stays in the text.
+- **An edited block keeps bare links bare.** Editing a paragraph in the
+  WYSIWYG view wrote `www.example.com` as
+  `[www.example.com](http://www.example.com)` and `https://example.com` as
+  `<https://example.com>`. A URL, `www.` address or email address the
+  source wrote bare stays bare; one written `<...>` or `[...](...)` stays so.
+- **An edited block keeps its character references.** Editing a paragraph
+  in the WYSIWYG view wrote `&nbsp;`, `&copy;`, `&#169;` and the like as the
+  characters they stand for, and `&lt;tag&gt;` as `\<tag>`. Each is now
+  written as the block's source wrote it: one for one while the block holds
+  as many of that character, else the one way the source wrote it.
+- **An edited block keeps trailing-space line breaks.** A hard break written
+  as two trailing spaces became a backslash when its paragraph (or list item,
+  or quote) was edited in the WYSIWYG view. A block that wrote its breaks
+  with spaces keeps writing them so; one that used backslashes keeps those.
+- **An edited setext heading stays setext.** Typing in an underlined
+  (`===` or `---`) heading in the WYSIWYG view wrote it as a `#` heading. It
+  now stays underlined, with its underline as it was, and a `## Title ##`
+  heading keeps its closing `##`.
+- **An edited list keeps its markers and numbering.** Typing in a list in the
+  WYSIWYG view wrote it Milkdown's way: `-` and `+` bullets became `*`, `1)`
+  became `1.`, and a list numbered `1.` `1.` `1.` was renumbered `1.` `2.`
+  `3.`. An edited block is now written in the style its source used, so the
+  list keeps its marker, its delimiter and its numbering.
+- **An edit before a last list, table or rule leaves that block alone.** On
+  the first edit the WYSIWYG editor adds an empty paragraph after a last
+  block that is not a paragraph, so every edit looked like a change at the
+  end of the file and that block was rewritten: a `- - -` rule became `***`,
+  `+` bullets became `*`, a table was re-padded. The added paragraph is no
+  longer taken for a change.
+- **Unsaved text for a file that cannot be opened is kept.** At launch, the
+  text kept for a file that was deleted, moved or cannot be read was reported
+  ("could not be restored") and dropped. It now opens in a tab of its own,
+  unsaved and flagged as gone, so the banner offers Save As (or Recreate),
+  closing the tab asks first, and it is kept for the next launch too. If the
+  file turns up again, a save is refused as a change on disk, so the banner
+  offers both versions instead of writing over it.
+- **The app's `/export` without `overwrite` no longer replaces a file.** A
+  request with an `outputPath` and no `overwrite` flag (a caller written
+  before the flag existed) replaced a file already there. It is now refused
+  in the write itself, as with `"overwrite": false`; `"overwrite": true`
+  still replaces it. mdopener-mcp always sends the flag, so the MCP
+  `export` tool is unchanged.
+- **Rich copies name the document's language.** Both rich copy commands said
+  `<html lang="en">` (or no language at all), whatever the document's language.
+  They now use the front matter's `lang` the way exports do: a language tag in
+  the BCP 47 shape (`en_US` reads as `en-US`), else `en`.
 - **Editing in the WYSIWYG view no longer rewrites the whole file.** One
   typed character wrote every block back the way the editor spells it:
   setext headings became `#` headings, `-` and `+` bullets became `*` and

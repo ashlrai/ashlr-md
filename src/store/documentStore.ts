@@ -11,6 +11,7 @@ import {
   resolveConflict,
   transformCursor,
 } from "../lib/ot";
+import { flushPendingEdits } from "../lib/pendingEdits";
 import { useOtLogStore } from "./memoryStore";
 import { isMissingFileError, useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
@@ -226,6 +227,16 @@ interface DocumentState {
    * `missing` when the file is gone.
    */
   refreshFromDisk: (path: string) => Promise<void>;
+  /**
+   * Open `content`, unsaved text kept for `path` whose file cannot be read
+   * now, in a tab of its own, flagged as gone (the banner offers Save As and
+   * Recreate, and closing asks first). Returns the new tab's id.
+   */
+  openRecovered: (recovered: {
+    path: string;
+    fileName: string;
+    content: string;
+  }) => string;
   /** `version` is the read's (`read_markdown_file`), when known. */
   handleDiskUpdate: (diskContent: string, version?: string | null) => void;
   acceptExternalChange: () => void;
@@ -261,6 +272,12 @@ export interface SaveOptions {
 /** Why an agent save of a deleted or moved file is refused. */
 export const MISSING_FILE_REASON =
   "the file was deleted or moved outside Ashlr MD; it is written again only when the user confirms (Save, or Save As)";
+
+/**
+ * The disk version of a tab opened by `openRecovered`: no read produces it
+ * (a read's is `length:hash`).
+ */
+export const RECOVERED_VERSION = "recovered";
 
 /** Fields a Tab and the top-level mirror share, sans `id`. */
 type TabFields = Omit<Tab, "id" | "key">;
@@ -352,19 +369,37 @@ function recheckDisk(
   id: string,
   path: string,
 ) {
+  const read = nextDiskRead();
   invoke<MarkdownFile>("read_markdown_file", { path })
     .then((file) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path) {
+      if (read === diskReads && cur.activeId === id && cur.path === path) {
         cur.handleDiskUpdate(file.content, file.version ?? null);
       }
     })
     .catch((e) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path && isMissingFileError(e)) {
+      if (
+        read === diskReads &&
+        cur.activeId === id &&
+        cur.path === path &&
+        isMissingFileError(e)
+      ) {
         markMissing(get, set, path);
       }
     });
+}
+
+/**
+ * Reads of the active file after a change on disk, counted: only the last
+ * one's answer is used. Reads run side by side, so for two quick changes
+ * (a save in another app, then another) the first read could answer last,
+ * and the window showed, and took as its baseline, the older text.
+ */
+let diskReads = 0;
+function nextDiskRead(): number {
+  diskReads += 1;
+  return diskReads;
 }
 
 type SetState = (partial: Partial<DocumentState>) => void;
@@ -670,13 +705,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   clearOpLog: (docPath) =>
     set((s) => ({ opLog: s.opLog.filter((e) => e.docPath !== docPath) })),
 
-  setViewMode: (viewMode) =>
+  setViewMode: (viewMode) => {
+    // The editor being left reports what was just typed first.
+    flushPendingEdits();
     set((s) => {
       // Read view has no editor, so a split preview is meaningless — clear it.
       const splitView = viewMode === "read" ? false : s.splitView;
       const next = { ...s, viewMode, splitView };
       return { viewMode, splitView, tabs: syncActiveTab(next) };
-    }),
+    });
+  },
 
   toggleSplitView: () =>
     set((s) => {
@@ -688,6 +726,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   save: async (opts) => {
+    // What was just typed is saved too (lib/pendingEdits.ts).
+    flushPendingEdits();
     // The document to save: the tab named (an agent's edit names the tab
     // it changed, which may no longer be active), else the active one.
     const st = get();
@@ -771,6 +811,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   saveAs: async () => {
+    flushPendingEdits();
     const { path, content, activeId } = get();
     if (!path || activeId == null) return "no document is open";
     let dest: string | null;
@@ -878,13 +919,51 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
   },
 
+  openRecovered: ({ path, fileName, content }) => {
+    const s = get();
+    const id = newTabId();
+    const tab: Tab = {
+      id,
+      key: path,
+      path,
+      fileName,
+      content,
+      // Nothing was read from disk: the text is all unsaved.
+      diskContent: "",
+      size: content.length,
+      viewMode: s.viewMode,
+      isDirty: true,
+      externalChange: false,
+      pendingDisk: null,
+      // Matches no read, so a save over a file found there again is refused
+      // as a change on disk (and offered), never written over it unasked.
+      diskVersion: RECOVERED_VERSION,
+      pendingVersion: null,
+      missing: true,
+      reloadNonce: s.reloadNonce + 1,
+      splitView: false,
+    };
+    set({
+      ...tabFieldsToTop(tab),
+      isLoading: false,
+      error: null,
+      tabs: [...syncActiveTab(s), tab],
+      activeId: id,
+    });
+    return id;
+  },
+
   refreshFromDisk: async (path) => {
     if (get().path !== path) return;
+    const read = nextDiskRead();
     try {
       const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      // A later read answers for a later change (see nextDiskRead).
+      if (read !== diskReads) return;
       if (get().path === path)
         get().handleDiskUpdate(file.content, file.version ?? null);
     } catch (e) {
+      if (read !== diskReads) return;
       // Deleted, or moved away: say so. Any other failure may be a write in
       // progress, which the next event settles.
       if (isMissingFileError(e)) markMissing(get, set, path);
@@ -893,6 +972,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   // Called when the watcher reports the file changed on disk and we've re-read it.
   handleDiskUpdate: (disk, version) => {
+    // Edits the editor has not reported yet count: without them the tab
+    // looked clean, took the disk's text, and what was just typed was lost.
+    flushPendingEdits();
     const s0 = get();
     if (!s0.path) return;
     // The file is there (again): a tab flagged missing no longer is.
@@ -1064,8 +1146,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    * This keeps the watcher model simple; multi-watch can come later if needed.
    */
   switchTab: (id) => {
+    if (id === get().activeId) return;
+    // The tab being left keeps what was just typed in it.
+    flushPendingEdits();
     const s = get();
-    if (id === s.activeId) return;
     const target = s.tabs.find((t) => t.id === id);
     if (!target) return;
 
@@ -1088,6 +1172,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    * else left). Closing the last tab returns to the empty state.
    */
   closeTab: (id) => {
+    // Closing asks about what was just typed too.
+    if (id === get().activeId) flushPendingEdits();
     const s = get();
     const idx = s.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;

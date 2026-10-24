@@ -41,6 +41,9 @@ import themesCss from "../styles/themes.css?raw";
 import {
   buildStandaloneHtml,
   cloneWithoutInjectedChrome,
+  DEFAULT_EXPORT_LANG,
+  exportLang,
+  languageTag,
   waitForRenderedImages,
 } from "./export";
 import { waitForElement } from "./waitForElement";
@@ -67,10 +70,14 @@ const WRAPPER_STYLE = [
  *
  * Exported for tests.
  */
-export function wrapRichTextBody(cleanBodyHtml: string): string {
+export function wrapRichTextBody(cleanBodyHtml: string, lang?: string): string {
   const trimmed = cleanBodyHtml.trim();
   if (!trimmed) return "";
-  return `<div style="${WRAPPER_STYLE}">${trimmed}</div>`;
+  // The document's language, when given and a language tag: a paste target
+  // keeps it on the pasted block, so a screen reader reads it with the right rules.
+  const tag = lang === undefined ? null : languageTag(lang);
+  const langAttr = tag ? ` lang="${escapeAttr(tag)}"` : "";
+  return `<div${langAttr} style="${WRAPPER_STYLE}">${trimmed}</div>`;
 }
 
 /**
@@ -78,11 +85,11 @@ export function wrapRichTextBody(cleanBodyHtml: string): string {
  * defensively with DOMPurify (the input is already rehype-sanitized at render
  * time, so this is belt-and-suspenders), then wrap it via {@link wrapRichTextBody}.
  */
-export function buildRichTextHtml(bodyInnerHtml: string): string {
+export function buildRichTextHtml(bodyInnerHtml: string, lang?: string): string {
   const clean = DOMPurify.sanitize(bodyInnerHtml, {
     USE_PROFILES: { html: true },
   });
-  return wrapRichTextBody(clean);
+  return wrapRichTextBody(clean, lang);
 }
 
 /**
@@ -138,7 +145,8 @@ export async function copyDocumentAsRichText(): Promise<void> {
   // wait for them as the exports do (at most a few seconds).
   await waitForRenderedImages();
 
-  const html = buildRichTextHtml(captureRenderedBodyHtml());
+  // The front matter's `lang` (validated, else "en"), as the exports name it.
+  const html = buildRichTextHtml(captureRenderedBodyHtml(), exportLang(markdown));
 
   // Fallback path: no rich-clipboard support (or no HTML to write).
   const canWriteRich =
@@ -260,11 +268,18 @@ export const THEME_PALETTES: Record<string, Record<string, string>> = {
  *
  * @param bodyHtml  The `.markdown-body` inner HTML (already sanitized).
  * @param theme     One of `"paper"`, `"sepia"`, or `"midnight"`.
+ * @param lang      The document's language tag (see `exportLang`); anything
+ *                  that is not a language tag is written as `"en"`.
  * @returns A complete HTML document string ready for the clipboard.
  */
-export function buildThemeAwareRichHtml(bodyHtml: string, theme: string): string {
+export function buildThemeAwareRichHtml(
+  bodyHtml: string,
+  theme: string,
+  lang: string = DEFAULT_EXPORT_LANG,
+): string {
   const trimmed = bodyHtml.trim();
   if (!trimmed) return "";
+  const pageLang = languageTag(lang) ?? DEFAULT_EXPORT_LANG;
 
   // Resolve the palette — fall back to paper for unknown themes.
   const palette = THEME_PALETTES[theme] ?? THEME_PALETTES["paper"];
@@ -273,7 +288,7 @@ export function buildThemeAwareRichHtml(bodyHtml: string, theme: string): string
     .join(";");
 
   return `<!doctype html>
-<html lang="en" data-theme="${escapeAttr(theme)}">
+<html lang="${escapeAttr(pageLang)}" data-theme="${escapeAttr(theme)}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -371,7 +386,12 @@ export async function copyAsRichText(
       ? document.documentElement.dataset.theme
       : undefined) ?? "paper";
 
-  const standaloneHtml = buildThemeAwareRichHtml(cleanBodyHtml, theme);
+  // The front matter's `lang` (validated, else "en"), as the exports name it.
+  const standaloneHtml = buildThemeAwareRichHtml(
+    cleanBodyHtml,
+    theme,
+    exportLang(markdown),
+  );
   if (!standaloneHtml) {
     toast.info("Nothing to copy.");
     return;

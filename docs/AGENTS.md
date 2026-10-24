@@ -947,12 +947,15 @@ The integration is **local-only and token-authenticated**:
   after resolving symlinks, and saves by renaming a new temp file over the
   canvas (keeping its permissions), so a canvas swapped for a symlink after
   the check is replaced, never written through.
-- `export` with `output_path` writes that file without a dialog and replaces
-  an existing file of that name. It only accepts a non-dotfile path with the
+- `export` with `output_path` writes that file without a dialog, and replaces
+  an existing file of that name only with `overwrite: true`. It only accepts a non-dotfile path with the
   format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
   directory, so it cannot overwrite Markdown or other file types. The app's
   `/export` endpoint applies the same rule to `outputPath` (which must also be
-  absolute) and refuses anything else with HTTP 400, whoever calls it.
+  absolute) and refuses anything else with HTTP 400, whoever calls it. It
+  replaces a file already at `outputPath` only when the request says
+  `"overwrite": true`; without the flag (a caller written before it existed)
+  the file is refused, not replaced.
 - Every disk read (those tools, `edit_canvas`, `file://` resources, the
   recent-documents resource and the local grep fallback) opens regular files
   only, so a FIFO or device named `x.md` is refused (or skipped) instead of

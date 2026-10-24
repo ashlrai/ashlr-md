@@ -1149,6 +1149,71 @@ describe("documentStore — a file deleted or moved while open", () => {
   });
 });
 
+describe("documentStore — changes on disk in quick succession", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("shows the last read's text when an earlier read answers after it", async () => {
+    readReturns("v0");
+    await useDocumentStore.getState().openPath("/a.md");
+    // Two changes on disk; the first read is slow, and answers last.
+    const answers: ((content: string) => void)[] = [];
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? new Promise((resolve) =>
+            answers.push((content) =>
+              resolve({
+                path: "/a.md",
+                file_name: "a.md",
+                content,
+                size: content.length,
+                version: `v:${content}`,
+              }),
+            ),
+          )
+        : Promise.resolve(),
+    );
+    const first = useDocumentStore.getState().refreshFromDisk("/a.md");
+    const second = useDocumentStore.getState().refreshFromDisk("/a.md");
+    answers[1]("v2");
+    await second;
+    answers[0]("v1");
+    await first;
+    const s = useDocumentStore.getState();
+    // It used to end on v1, the older text, as its baseline too.
+    expect(s.content).toBe("v2");
+    expect(s.diskContent).toBe("v2");
+    expect(s.diskVersion).toBe("v:v2");
+  });
+
+  it("a slow read that finds the file gone does not undo a later one", async () => {
+    readReturns("v0");
+    await useDocumentStore.getState().openPath("/a.md");
+    const answers: ((content: string | null) => void)[] = [];
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? new Promise((resolve, reject) =>
+            answers.push((content) =>
+              content === null
+                ? reject("No such file or directory (os error 2)")
+                : resolve({ path: "/a.md", file_name: "a.md", content, size: 1 }),
+            ),
+          )
+        : Promise.resolve(),
+    );
+    const first = useDocumentStore.getState().refreshFromDisk("/a.md");
+    const second = useDocumentStore.getState().refreshFromDisk("/a.md");
+    answers[1]("back");
+    await second;
+    answers[0](null);
+    await first;
+    expect(useDocumentStore.getState().missing).toBe(false);
+    expect(useDocumentStore.getState().content).toBe("back");
+  });
+});
+
 describe("documentStore — one file opened by two paths is one tab", () => {
   beforeEach(() => {
     invokeMock.mockReset();

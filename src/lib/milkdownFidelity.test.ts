@@ -35,10 +35,16 @@ import {
   usesCrlf,
 } from "./frontmatter";
 import {
+  alignBlocks,
   type BlockRange,
+  blockStyle,
+  dropEmptyLineBreaks,
   keepSourceOnSave,
+  keepSpellings,
   listSpread,
+  type MdNode,
   type PmNode,
+  restyled,
   sourceRanges,
   spliceEdited,
 } from "./milkdownFidelity";
@@ -48,6 +54,20 @@ const fixtures = import.meta.glob<string>("./__fixtures__/roundtrip/*.md", {
   import: "default",
   eager: true,
 });
+
+/**
+ * Fixtures for an edit inside a block: each has the word EDIT in every
+ * block under test, and an X is typed after each one. Only those blocks
+ * change, and each keeps the way its source spelled it.
+ */
+const editedFixtures = import.meta.glob<string>(
+  "./__fixtures__/roundtrip/edited/*.md",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+);
 
 const editors: Crepe[] = [];
 
@@ -93,6 +113,25 @@ function typeInto(crepe: Crepe, needle: string, offset: number, text: string) {
   });
 }
 
+/** Type `text` right after the `nth` (from 0) occurrence of `needle` in the doc's text. */
+function typeAfterNth(crepe: Crepe, needle: string, nth: number, text: string) {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const found: number[] = [];
+    view.state.doc.descendants((n, p) => {
+      if (!n.isText || !n.text) return;
+      let at = n.text.indexOf(needle);
+      while (at !== -1) {
+        found.push(p + at + needle.length);
+        at = n.text.indexOf(needle, at + 1);
+      }
+    });
+    const pos = found[nth];
+    if (pos === undefined) throw new Error(`no ${nth}th "${needle}"`);
+    view.dispatch(view.state.tr.insertText(text, pos, pos));
+  });
+}
+
 /** Wait for the listener's debounced markdownUpdated. */
 const settle = () => new Promise((r) => setTimeout(r, 300));
 
@@ -107,6 +146,23 @@ describe("WYSIWYG round trip: one edit elsewhere keeps the rest byte for byte", 
       typeInto(ed.crepe, "Edit me here.", "Edit me ".length, "X");
       await settle();
       expect(ed.saved()).toBe(raw.replace("Edit me here.", "Edit me Xhere."));
+    });
+  }
+});
+
+describe("WYSIWYG round trip: an edit inside a block keeps its spelling", () => {
+  for (const [file, raw] of Object.entries(editedFixtures)) {
+    const name = file.split("/").pop();
+    it(`${name}`, async () => {
+      const ed = await open(raw);
+      await settle();
+      // Opening changes nothing (a report of the text as it is, at most).
+      expect(ed.saved() ?? raw).toBe(raw);
+      // Type from the last EDIT back, so the earlier positions stay put.
+      const count = raw.split("EDIT").length - 1;
+      for (let i = count - 1; i >= 0; i--) typeAfterNth(ed.crepe, "EDIT", i, "X");
+      await settle();
+      expect(ed.saved()).toBe(raw.replaceAll("EDIT", "EDITX"));
     });
   }
 });
@@ -169,6 +225,40 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     expect(ed.saved()).toBe("Setext\n======\n\n+ plus\n+ list\n");
   });
 
+  it("an edit before a last list, table or rule leaves that block as it was", async () => {
+    // The editor adds an empty paragraph after such a block on the first
+    // edit, which made the edit reach the end: the rule was written `***`.
+    for (const last of ["- - -", "+ a\n+ b", "| a |\n|---|\n| b |"]) {
+      const raw = `Para here.\n\n${last}\n`;
+      const ed = await open(raw);
+      typeInto(ed.crepe, "Para here.", 4, "X");
+      await settle();
+      expect(ed.saved()).toBe(raw.replace("Para here.", "ParaX here."));
+    }
+  });
+
+  it("reads an inline <br> as HTML and a lone <br /> as an empty paragraph", async () => {
+    const ed = await open("A<br>b\n\n<br />\n\nC\n");
+    const kinds = ed.crepe.editor.action((ctx) => {
+      const doc = ctx.get(editorViewCtx).state.doc;
+      const out: string[] = [];
+      doc.forEach((block) => {
+        const inner: string[] = [];
+        block.forEach((n) => {
+          inner.push(n.type.name);
+        });
+        out.push(`${block.type.name}[${inner.join(",")}]`);
+      });
+      return out;
+    });
+    // The <br> in "A<br>b" was dropped: the paragraph read "Ab".
+    expect(kinds).toEqual([
+      "paragraph[text,html,text]",
+      "paragraph[]",
+      "paragraph[text]",
+    ]);
+  });
+
   it("undoing the only edit saves the file as it was", async () => {
     const raw = "Setext\n======\n\n* a\n* b\n\nEdit me here.\n";
     const ed = await open(raw);
@@ -229,7 +319,7 @@ describe("sourceRanges / spliceEdited", () => {
       ["definition", 5, 9],
       ["paragraph", 11, 14],
     ]);
-    expect(sourceRanges(tree, 2)).toEqual({
+    expect(sourceRanges(tree, 2)).toMatchObject({
       blocks: [
         { start: 0, end: 3 },
         { start: 11, end: 14 },
@@ -270,6 +360,210 @@ describe("sourceRanges / spliceEdited", () => {
         serializeRange: () => "never",
       }),
     ).toBe(original);
+  });
+
+  it("lines blocks up by kind when the counts differ", () => {
+    // remark: paragraph, html, paragraph; the editor: paragraph, table, html
+    // block, paragraph (a node of its own in between).
+    expect(
+      alignBlocks(
+        ["paragraph", "html", "paragraph"],
+        ["paragraph", "table", "paragraph", "paragraph"],
+      ),
+    ).toEqual([0, -1, 1, 2]);
+    expect(alignBlocks(["list", "code"], ["bullet_list", "code_block"])).toEqual([
+      0, 1,
+    ]);
+    expect(
+      alignBlocks(["heading", "orphan", "paragraph"], ["heading", "paragraph"]),
+    ).toEqual([0, 2]);
+    const tree = md([
+      ["heading", 0, 3],
+      ["thing", 5, 9],
+      ["paragraph", 11, 14],
+    ]);
+    // It used to be null: the whole file was then written by the serializer.
+    expect(
+      sourceRanges(tree, 5, ["heading", "table", "table", "table", "paragraph"]),
+    ).toMatchObject({
+      blocks: [{ start: 0, end: 3 }, null, null, null, { start: 11, end: 14 }],
+      orphans: [{ start: 5, end: 9 }],
+    });
+    expect(sourceRanges(tree, 5)).toBeNull();
+    // One node more, but not the editor's last paragraph: matched by kind,
+    // not taken as one to one plus that paragraph.
+    expect(
+      sourceRanges(tree, 4, ["heading", "table", "thing", "paragraph"]),
+    ).toMatchObject({
+      blocks: [
+        { start: 0, end: 3 },
+        null,
+        { start: 5, end: 9 },
+        { start: 11, end: 14 },
+      ],
+    });
+  });
+
+  it("rewrites only the region around a node with no block of its own", () => {
+    // Blocks A, (B: no range), C, D, E; the edit is in D.
+    const original = "AAA\n\nbbb\n\nCCC\n\nDDD\n\nEEE\n";
+    const blocks = [
+      { start: 0, end: 3 },
+      null,
+      { start: 10, end: 13 },
+      { start: 15, end: 18 },
+      { start: 20, end: 23 },
+    ];
+    const run = (current: string[]) => {
+      const calls: [number, number][] = [];
+      const out = spliceEdited({
+        original,
+        map: { blocks, definitions: [], orphans: [{ start: 5, end: 8 }] },
+        initial: pm(["A", "B", "C", "D", "E"]),
+        current: pm(current),
+        serializeRange: (from, to) => {
+          calls.push([from, to]);
+          return current.slice(from, to).join("\n\n");
+        },
+      });
+      return { out, calls };
+    };
+    // Away from it: only D is written.
+    expect(run(["A", "B", "C", "D2", "E"])).toEqual({
+      out: "AAA\n\nbbb\n\nCCC\n\nD2\n\nEEE\n",
+      calls: [[3, 4]],
+    });
+    // Next to it: the region from A's end to D's start is written, with B,
+    // and A, D and E are kept as they were.
+    expect(run(["A", "B", "C2", "D", "E"])).toEqual({
+      out: "AAA\n\nB\n\nC2\n\nDDD\n\nEEE\n",
+      calls: [[1, 3]],
+    });
+  });
+
+  it("reads a block's style from its source", () => {
+    const list = (src: string, ordered: boolean) => {
+      const items: MdNode[] = [];
+      let at = 0;
+      for (const line of src.split("\n")) {
+        items.push({
+          type: "listItem",
+          position: { start: { offset: at }, end: { offset: at + line.length } },
+        });
+        at += line.length + 1;
+      }
+      return {
+        type: "list",
+        ordered,
+        position: { start: { offset: 0 }, end: { offset: src.length } },
+        children: items,
+      };
+    };
+    const style = (src: string, ordered = false) => blockStyle(src, list(src, ordered));
+    expect(style("- a\n- b")).toMatchObject({ bullet: "-" });
+    expect(style("+ a\n+ b")).toMatchObject({ bullet: "+" });
+    expect(style("1. a\n1. b", true)).toEqual({
+      bulletOrdered: ".",
+      incrementListMarker: false,
+    });
+    expect(style("1) a\n2) b", true)).toEqual({ bulletOrdered: ")" });
+    expect(style("7. only", true)).toEqual({ bulletOrdered: "." });
+    expect(blockStyle("Para.", { type: "paragraph" })).toEqual({});
+    const heading = (src: string, depth: number) =>
+      blockStyle(src, {
+        type: "heading",
+        depth,
+        position: { start: { offset: 0 }, end: { offset: src.length } },
+      });
+    expect(heading("Title\n=====", 1)).toEqual({ setext: true });
+    expect(heading("Title\n---", 2)).toEqual({ setext: true });
+    expect(heading("# Title", 1)).toEqual({});
+    expect(heading("### Three", 3)).toEqual({});
+    expect(heading("## Two ##", 2)).toEqual({ closeAtx: true });
+    const setext = {
+      type: "heading",
+      depth: 1,
+      position: { start: { offset: 0 }, end: { offset: 9 } },
+    };
+    expect(restyled("Title X\n=======\n", "Title\n===", setext)).toBe("Title X\n===\n");
+    expect(restyled("# Title X\n", "Title\n===", setext)).toBe("# Title X\n");
+  });
+
+  it("keeps trailing-space breaks where the block used them", () => {
+    const tree = () => ({
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [{ type: "text", value: "a" }, { type: "break" }],
+        },
+        { type: "heading", children: [{ type: "break" }] },
+      ],
+    });
+    const spaced = tree();
+    keepSpellings(spaced, "a   \nb");
+    expect(spaced.children[0].children[1]).toEqual({ type: "html", value: "   \n" });
+    // A heading holds one line: left to the serializer.
+    expect(spaced.children[1].children[0]).toEqual({ type: "break" });
+    for (const source of ["a\\\nb", "a  \nb\\\nc", "plain"]) {
+      const t = tree();
+      keepSpellings(t, source);
+      expect(t).toEqual(tree());
+    }
+  });
+
+  it("writes characters as the references the block wrote them as", () => {
+    const para = (value: string) => ({
+      type: "root",
+      children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+    });
+    const spelled = (value: string, source: string) => {
+      const t = para(value);
+      keepSpellings(t, source);
+      return t.children[0].children;
+    };
+    expect(spelled("a\u00a0b X", "a&nbsp;b")).toEqual([
+      { type: "text", value: "a" },
+      { type: "html", value: "&nbsp;" },
+      { type: "text", value: "b X" },
+    ]);
+    // One of each spelling, in order, while the count is the same.
+    expect(spelled("© ©", "&copy; &#169;")).toEqual([
+      { type: "html", value: "&copy;" },
+      { type: "text", value: " " },
+      { type: "html", value: "&#169;" },
+    ]);
+    expect(spelled("& &", "& &amp;")).toEqual([
+      { type: "text", value: "& " },
+      { type: "html", value: "&amp;" },
+    ]);
+    // A count that changed, with two ways: as itself.
+    expect(spelled("& & &", "& &amp;")).toEqual([{ type: "text", value: "& & &" }]);
+    // One way: that one, for every occurrence.
+    expect(spelled("<x> <", "&lt;x&gt;")).toEqual([
+      { type: "html", value: "&lt;" },
+      { type: "text", value: "x" },
+      { type: "html", value: "&gt;" },
+      { type: "text", value: " " },
+      { type: "html", value: "&lt;" },
+    ]);
+    expect(spelled("plain", "&bogus; plain")).toEqual([
+      { type: "text", value: "plain" },
+    ]);
+  });
+
+  it("drops only a <br /> that is all its paragraph or cell holds", () => {
+    const br = { type: "html", value: "<br />" };
+    const tree = {
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ ...br }] },
+        { type: "paragraph", children: [{ type: "text", value: "a" }, { ...br }] },
+        { type: "tableCell", children: [{ type: "html", value: "<br>" }] },
+      ],
+    };
+    dropEmptyLineBreaks(tree);
+    expect(tree.children.map((c) => c.children.length)).toEqual([0, 2, 0]);
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {
