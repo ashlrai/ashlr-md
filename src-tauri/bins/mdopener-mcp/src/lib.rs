@@ -3003,6 +3003,8 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 }
 
 // The front matter and code fence rule every Markdown scanner here uses.
+// Every HTML named character reference, for [`named_reference`].
+mod entities;
 #[path = "../../../src/markdown_lines.rs"]
 mod markdown_lines;
 use markdown_lines::LineKind;
@@ -7980,6 +7982,7 @@ pub fn strip_markdown(content: &str) -> String {
     let footnotes: Vec<Option<String>> = starts.iter().map(|s| s.footnote.clone()).collect();
     let underlines: Vec<bool> = starts.iter().map(|s| s.underline).collect();
     let continues: Vec<bool> = starts.iter().map(|s| s.continues).collect();
+    let contained: Vec<bool> = starts.iter().map(|s| s.contained).collect();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -7996,6 +7999,9 @@ pub fn strip_markdown(content: &str) -> String {
     };
 
     let mut in_table = false;
+    // The open table's delimiter row, and whether it sits in a container.
+    let mut table_delimiter = 0;
+    let mut table_contained = false;
     // The line before was indented code right after a table's rows.
     let mut after_table = false;
     // The HTML block being read, past its containers.
@@ -8052,22 +8058,30 @@ pub fn strip_markdown(content: &str) -> String {
             LineKind::FrontMatter | LineKind::Text => {}
         }
         let Some((text, item)) = text else {
+            in_table = false;
             reads.push(Read::Break);
             continue;
         };
         let item = *item;
         let trimmed = text.trim();
 
-        // GFM tables: a header row followed by a delimiter row starts one,
-        // and it runs until a blank line or a line without a pipe. Rows
-        // become tab-separated cells; the delimiter row is dropped. A table
-        // may sit in a blockquote or a list item, so rows are read past
-        // their containers. A line indented four columns (tabs expanded) is
-        // no row: it is indented code, as mdast reads it (`| a |`, `| - |`,
-        // then `    | c |` is a table and a code block holding `| c |`), and
-        // so are the indented lines right after it; a header or delimiter
-        // row indented that far starts no table. The rows were read
-        // trimmed, so indented code went into the table as a row.
+        // GFM tables: a header row followed by a delimiter row with as many
+        // cells starts one ([`delimiter_cells`]: `:?-+:?` cells between
+        // pipes), and it runs until a blank line or a line that starts
+        // another block: a list item, an ATX heading, a thematic break, a
+        // fence or HTML, or a line out of the table's container (`> x`
+        // after a table that is not quoted). Any other line is a row, with
+        // or without a pipe, as micromark reads it. Rows become
+        // tab-separated cells; the delimiter row is dropped. Detection used
+        // to key on any `|`: a row without one ended the table and read as
+        // a paragraph, and `| a | b |` over `| - |` (one cell, so no table)
+        // was read as one. A table may sit in a blockquote or a list item,
+        // so rows are read past their containers. A line indented four
+        // columns (tabs expanded) is no row: it is indented code, as mdast
+        // reads it (`| a |`, `| - |`, then `    | c |` is a table and a
+        // code block holding `| c |`), and so are the indented lines right
+        // after it; a header or delimiter row indented that far starts no
+        // table.
         let row = trimmed;
         let indented_at = |i: usize| match lines.get(i) {
             Some(((LineKind::Text, _), (_, Some((text, _))))) => text.starts_with("    "),
@@ -8078,7 +8092,14 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
         after_table = false;
-        if in_table && (!row.contains('|') || indented_at(idx)) {
+        if in_table
+            && (row.is_empty()
+                || indented_at(idx)
+                || item
+                || contained[idx] != table_contained
+                || markdown_lines::atx_heading(text).is_some()
+                || is_thematic_break(row))
+        {
             in_table = false;
             if indented_at(idx) {
                 after_table = true;
@@ -8086,11 +8107,21 @@ pub fn strip_markdown(content: &str) -> String {
                 continue;
             }
         }
-        if !in_table && row.contains('|') && !indented_at(idx) && !indented_at(idx + 1) {
-            in_table = row_of(idx + 1).is_some_and(is_table_delimiter);
+        if !in_table
+            && !row.is_empty()
+            && !indented_at(idx)
+            && !indented_at(idx + 1)
+            && !underlines.get(idx + 1).copied().unwrap_or(false)
+            && markdown_lines::atx_heading(text).is_none()
+            && !definitions[idx]
+        {
+            let cells = table_cells(row).len();
+            in_table = row_of(idx + 1).and_then(delimiter_cells) == Some(cells);
+            table_delimiter = idx + 1;
+            table_contained = contained[idx];
         }
         if in_table {
-            if is_table_delimiter(row) {
+            if idx == table_delimiter {
                 reads.push(Read::Break);
             } else {
                 let cells: Vec<String> = table_cells(row)
@@ -8124,16 +8155,9 @@ pub fn strip_markdown(content: &str) -> String {
         }
 
         // Horizontal rules (`---`, `***`, `___` optionally with spaces).
-        {
-            let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
-            if no_space.len() >= 3
-                && (no_space.chars().all(|c| c == '-')
-                    || no_space.chars().all(|c| c == '*')
-                    || no_space.chars().all(|c| c == '_'))
-            {
-                reads.push(Read::Break);
-                continue;
-            }
+        if is_thematic_break(trimmed) {
+            reads.push(Read::Break);
+            continue;
         }
 
         // The line's text sits past its blockquote markers, list markers
@@ -8225,11 +8249,41 @@ pub fn strip_markdown(content: &str) -> String {
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.
-fn is_table_delimiter(line: &str) -> bool {
-    let t = line.trim();
-    t.contains('|')
-        && t.contains('-')
-        && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+/// How many cells `line` has as a GFM table delimiter row, or `None` when it
+/// is none: cells of `:?-+:?` (spaces and tabs around them), between pipes,
+/// a leading and a trailing pipe optional (`|-`, `-:` and `| :-: | --- |`
+/// are rows of one, one and two cells). A cell of only colons, a hyphen run
+/// with a space in it (`- -`) or other text makes it no delimiter row. A
+/// `---` line with no pipe or colon is a setext underline first; the caller
+/// checks that.
+fn delimiter_cells(line: &str) -> Option<usize> {
+    let t = line.trim_matches([' ', '\t']);
+    let inner = t.strip_prefix('|').unwrap_or(t);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    if inner.trim_matches([' ', '\t']).is_empty() {
+        return None;
+    }
+    let mut cells = 0;
+    for cell in inner.split('|') {
+        let c = cell.trim_matches([' ', '\t']);
+        let c = c.strip_prefix(':').unwrap_or(c);
+        let c = c.strip_suffix(':').unwrap_or(c);
+        if c.is_empty() || !c.bytes().all(|b| b == b'-') {
+            return None;
+        }
+        cells += 1;
+    }
+    Some(cells)
+}
+
+/// Whether `trimmed` (a text line, trimmed) is a thematic break: three or
+/// more `-`, `*` or `_`, all the same, with only spaces or tabs between.
+fn is_thematic_break(trimmed: &str) -> bool {
+    let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+    no_space.len() >= 3
+        && (no_space.chars().all(|c| c == '-')
+            || no_space.chars().all(|c| c == '*')
+            || no_space.chars().all(|c| c == '_'))
 }
 
 /// The cells of a table row, outer pipes dropped and `\|` read as a pipe.
@@ -8774,8 +8828,8 @@ const MAX_OPENER_SEARCH: usize = 256;
 /// reads one, with how many chars it takes: `&#` and 1 to 7 digits, `&#x`
 /// and 1 to 6 hex digits, or `&` and a name this table knows, then `;`. A
 /// numeric reference to no character (0, a surrogate, past U+10FFFF) reads
-/// U+FFFD, as micromark decodes it. Named references are a common subset
-/// of HTML's; an unknown one is `None` and stays text.
+/// U+FFFD, as micromark decodes it. Named references are all of HTML's
+/// ([`named_reference`]); an unknown one is `None` and stays text.
 fn character_reference(chars: &[char]) -> Option<(String, usize)> {
     if chars.first() != Some(&'&') {
         return None;
@@ -8811,156 +8865,15 @@ fn character_reference(chars: &[char]) -> Option<(String, usize)> {
     Some((text, semi + 1))
 }
 
-/// The text of the HTML named character references most often written in
-/// Markdown. CommonMark knows all of HTML's (over 2000); a name missing
-/// here is left as written.
+/// The text of an HTML named character reference (`amp` for `&amp;`): any
+/// of the 2125 names CommonMark decodes ([`entities::lookup`]), matched
+/// case-sensitively. Only a common subset used to be known, so
+/// `&Cconint;`, `&nbsp` lookalikes such as `&NoBreak;`, and most accented
+/// letters (`&aring;`, `&eacute;`... `&ccedil;`) stayed as written in
+/// `export_text` while the page showed the character. An unknown name is
+/// `None` and stays text.
 fn named_reference(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "amp" | "AMP" => "&",
-        "lt" | "LT" => "<",
-        "gt" | "GT" => ">",
-        "quot" | "QUOT" => "\"",
-        "apos" => "'",
-        "nbsp" => "\u{a0}",
-        "ensp" => "\u{2002}",
-        "emsp" => "\u{2003}",
-        "thinsp" => "\u{2009}",
-        "zwj" => "\u{200d}",
-        "zwnj" => "\u{200c}",
-        "shy" => "\u{ad}",
-        "copy" | "COPY" => "©",
-        "reg" | "REG" => "®",
-        "trade" | "TRADE" => "™",
-        "hellip" | "mldr" => "…",
-        "mdash" => "\u{2014}",
-        "ndash" => "\u{2013}",
-        "minus" => "−",
-        "lsquo" => "‘",
-        "rsquo" => "’",
-        "ldquo" => "“",
-        "rdquo" => "”",
-        "sbquo" => "‚",
-        "bdquo" => "„",
-        "laquo" => "«",
-        "raquo" => "»",
-        "lsaquo" => "‹",
-        "rsaquo" => "›",
-        "middot" => "·",
-        "bull" => "•",
-        "deg" => "°",
-        "plusmn" => "±",
-        "times" => "×",
-        "divide" => "÷",
-        "frac12" => "½",
-        "frac14" => "¼",
-        "frac34" => "¾",
-        "sup2" => "²",
-        "sup3" => "³",
-        "micro" => "µ",
-        "para" => "¶",
-        "sect" => "§",
-        "dagger" => "†",
-        "Dagger" => "‡",
-        "permil" => "‰",
-        "prime" => "′",
-        "Prime" => "″",
-        "euro" => "€",
-        "pound" => "£",
-        "yen" => "¥",
-        "cent" => "¢",
-        "curren" => "¤",
-        "larr" => "←",
-        "rarr" => "→",
-        "uarr" => "↑",
-        "darr" => "↓",
-        "harr" => "↔",
-        "lArr" => "⇐",
-        "rArr" => "⇒",
-        "hArr" => "⇔",
-        "le" => "≤",
-        "ge" => "≥",
-        "ne" => "≠",
-        "asymp" => "≈",
-        "equiv" => "≡",
-        "infin" => "∞",
-        "sum" => "∑",
-        "prod" => "∏",
-        "radic" => "√",
-        "part" => "∂",
-        "nabla" => "∇",
-        "isin" => "∈",
-        "forall" => "∀",
-        "exist" => "∃",
-        "empty" => "∅",
-        "and" => "∧",
-        "or" => "∨",
-        "cap" => "∩",
-        "cup" => "∪",
-        "alpha" => "α",
-        "beta" => "β",
-        "gamma" => "γ",
-        "delta" => "δ",
-        "epsilon" => "ε",
-        "lambda" => "λ",
-        "mu" => "μ",
-        "pi" => "π",
-        "sigma" => "σ",
-        "theta" => "θ",
-        "omega" => "ω",
-        "Delta" => "Δ",
-        "Sigma" => "Σ",
-        "Omega" => "Ω",
-        "check" => "✓",
-        "star" => "☆",
-        "starf" => "★",
-        "hearts" => "♥",
-        "iexcl" => "¡",
-        "iquest" => "¿",
-        "ast" => "*",
-        "lowbar" => "_",
-        "num" => "#",
-        "excl" => "!",
-        "lsqb" | "lbrack" => "[",
-        "rsqb" | "rbrack" => "]",
-        "lpar" => "(",
-        "rpar" => ")",
-        "grave" => "`",
-        "tilde" => "˜",
-        "verbar" | "vert" => "|",
-        "bsol" => "\\",
-        "sol" => "/",
-        "colon" => ":",
-        "semi" => ";",
-        "comma" => ",",
-        "period" => ".",
-        "quest" => "?",
-        "equals" => "=",
-        "plus" => "+",
-        "percnt" => "%",
-        "dollar" => "$",
-        "commat" => "@",
-        "lcub" | "lbrace" => "{",
-        "rcub" | "rbrace" => "}",
-        "Hat" => "^",
-        "eacute" => "é",
-        "Eacute" => "É",
-        "egrave" => "è",
-        "agrave" => "à",
-        "aacute" => "á",
-        "auml" => "ä",
-        "ouml" => "ö",
-        "uuml" => "ü",
-        "Auml" => "Ä",
-        "Ouml" => "Ö",
-        "Uuml" => "Ü",
-        "szlig" => "ß",
-        "ccedil" => "ç",
-        "ntilde" => "ñ",
-        "oslash" => "ø",
-        "aring" => "å",
-        "aelig" => "æ",
-        _ => return None,
-    })
+    entities::lookup(name)
 }
 
 /// A code span or inline math in a block's inline text, from

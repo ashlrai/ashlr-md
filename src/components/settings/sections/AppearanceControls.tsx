@@ -153,3 +153,33 @@ export function NotificationToggle() {
     </button>
   );
 }
+
+// ─── Remote images toggle ─────────────────────────────────────────────────────
+
+/**
+ * Settings → "Load remote images". Off, web images in a document show as
+ * placeholders until "Load remote images" is clicked for that document (a
+ * fetched image tells its host the document was opened).
+ */
+export function RemoteImagesToggle() {
+  const enabled = useSettingsStore((s) => s.loadRemoteImages);
+  const setEnabled = useSettingsStore((s) => s.setLoadRemoteImages);
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Load remote images"
+      className={`settings-switch${enabled ? " on" : ""}`}
+      onClick={() => setEnabled(!enabled)}
+      title={
+        enabled
+          ? "Web images in documents load as they render"
+          : "Web images wait until you load them for a document"
+      }
+    >
+      <span className="settings-switch-knob" aria-hidden="true" />
+      <span className="settings-switch-label">{enabled ? "On" : "Off"}</span>
+    </button>
+  );
+}

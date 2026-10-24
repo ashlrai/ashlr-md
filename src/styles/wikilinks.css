@@ -68,3 +68,12 @@
   height: auto;
   border-radius: var(--radius-sm, 6px);
 }
+
+/* Plain-text attachment embeds (![[notes.txt]]), shown as written. */
+.wikiembed__text {
+  margin: 0;
+  max-height: 24em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.9em;
+}

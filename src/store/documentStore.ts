@@ -403,6 +403,40 @@ async function confirmRecreate(fileName: string): Promise<boolean> {
   }
 }
 
+/** Button labels of {@link confirmCloseMissing}. */
+export const CLOSE_MISSING_SAVE_AS = "Save As…";
+export const CLOSE_MISSING_DISCARD = "Close Without Saving";
+
+/**
+ * Ask what to do with a tab whose file is gone before closing it: "save-as"
+ * (Save As, then close), "close" (discard the text), or "cancel". A dialog
+ * that cannot be shown keeps the tab open: losing the text is worse.
+ */
+async function confirmCloseMissing(
+  fileName: string,
+): Promise<"save-as" | "close" | "cancel"> {
+  try {
+    const { message } = await import("@tauri-apps/plugin-dialog");
+    const choice = await message(
+      `"${fileName}" was deleted or moved outside Ashlr MD, so its text is only in this tab. Save it somewhere before closing?`,
+      {
+        title: "File not found",
+        kind: "warning",
+        buttons: {
+          yes: CLOSE_MISSING_SAVE_AS,
+          no: CLOSE_MISSING_DISCARD,
+          cancel: "Cancel",
+        },
+      },
+    );
+    if (choice === CLOSE_MISSING_SAVE_AS || choice === "Yes") return "save-as";
+    if (choice === CLOSE_MISSING_DISCARD || choice === "No") return "close";
+    return "cancel";
+  } catch {
+    return "cancel";
+  }
+}
+
 /** The last path component, for a tab title. */
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
@@ -771,10 +805,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const next = { ...s, ...saved, isDirty };
         return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
-      // The tab holds another file now. Its key is the path the dialog gave
-      // (a real path), until a read names its canonical form.
+      // The tab holds another file now, found by its canonical path as a
+      // read names it (fileKey): the path as the dialog gave it was used,
+      // so opening the new file by another path (a symbolic link to its
+      // folder, other case where case is ignored) opened it in a second
+      // tab, whose saves overwrote this one's.
+      let key = dest;
+      try {
+        key = fileKey(await invoke<MarkdownFile>("read_markdown_file", { path: dest }));
+      } catch {
+        // Unreadable just after the write: the path as given will do.
+      }
       set((s) => ({
-        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key: dest } : t)),
+        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
@@ -1036,6 +1079,32 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       invoke("watch_file", { path: neighbor.path }).catch(() => {});
       recheckDisk(get, set, neighbor.id, neighbor.path);
     };
+
+    // A tab whose file was deleted or moved holds the only copy of its
+    // text, edited or not: it used to close without a word when it had no
+    // edits, and the text was gone. Offer Save As first.
+    const missing = id === s.activeId ? s.missing : tab.missing;
+    if (missing) {
+      void confirmCloseMissing(tab.fileName).then(async (choice) => {
+        if (choice === "close") {
+          finish();
+          return;
+        }
+        if (choice !== "save-as") return;
+        if (get().activeId !== id) get().switchTab(id);
+        if (get().activeId !== id) return;
+        // Saved under a new name, the tab closes as asked, unless it was
+        // edited during the dialog.
+        if (
+          (await get().saveAs()) === null &&
+          get().activeId === id &&
+          !get().isDirty
+        ) {
+          finish();
+        }
+      });
+      return;
+    }
 
     if (dirty) {
       // A native confirm prevents silently dropping unsaved work (⌘W, ×, etc.).

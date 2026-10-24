@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractSection, isImageTarget, splitFragment } from "./transclude";
+import {
+  extractSection,
+  isImageTarget,
+  isPlainTextTarget,
+  splitFragment,
+} from "./transclude";
 
 describe("splitFragment", () => {
   it("splits file and fragment", () => {
@@ -19,6 +24,17 @@ describe("isImageTarget", () => {
     expect(isImageTarget("art.svg")).toBe(true);
     expect(isImageTarget("note.md")).toBe(false);
     expect(isImageTarget("noext")).toBe(false);
+  });
+});
+
+describe("isPlainTextTarget", () => {
+  it("matches the text attachments a wikilink resolves to, in any case", () => {
+    expect(isPlainTextTarget("notes.txt")).toBe(true);
+    expect(isPlainTextTarget("Data.CSV")).toBe(true);
+    expect(isPlainTextTarget("t.tsv")).toBe(true);
+    expect(isPlainTextTarget("note.md")).toBe(false);
+    expect(isPlainTextTarget("app.json")).toBe(false);
+    expect(isPlainTextTarget("txt")).toBe(false);
   });
 });
 

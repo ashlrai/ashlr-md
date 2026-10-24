@@ -77,6 +77,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **An exported page runs no script.** A template's CSS went into the
+  exported HTML's `<style>` as written, so a `</style>` in it ended the element
+  and the rest parsed as markup, an event handler included. The editor now
+  refuses such CSS, the export escapes a `</style` from a template saved
+  earlier, and exported HTML carries a policy of `script-src 'none'`.
+- **A headless export never writes through a symbolic link.** The `export` MCP
+  tool and the app's `/export` checked an `output_path` by its name's extension,
+  and an HTML export is written through a link into the file it points to, so
+  `report.html` linked to `~/.bashrc` had the export written over the shell
+  profile. An output path that is a symbolic link is now refused.
+- **Setting: Load remote images.** A web image in a document
+  (`![](https://host/pixel.png)`, or an `<img>` or `<picture>` in its HTML) is
+  fetched as the document renders, which tells that host the document was
+  opened. Settings now has "Load remote images". It is on by default, which
+  keeps today's behaviour so no document's images go missing. Off, web images
+  in the read view, the editor and link previews are not fetched: they show as
+  placeholders, and a bar over the document offers "Load remote images" for
+  that document for the session. The choice is enforced in the renderer, not
+  the webview's Content Security Policy: the policy (`img-src ... https:` in
+  `src-tauri/tauri.conf.json`) is fixed when the app starts and cannot follow a
+  setting, so it is unchanged. Exports and copies show what the read view shows:
+  a blocked image is exported as its placeholder text, so load the images
+  first to include them.
 - **A wikilink can no longer show or open any file on the computer.**
   `resolve_wikilink` returned whatever existing file a target named, so a
   note from a cloned repository or a shared vault holding
@@ -105,6 +128,70 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **EPUB export works with images.** The EPUB library fetches every image,
+  and the app's content policy refuses a `data:` URL (how a local image is
+  shown) and the web alike, so a document with any image failed to export;
+  a `data:` image also went in with no media type. Images are now handed to
+  it from memory, and a web image becomes a link to it.
+- **Export file names are always valid.** The suggested name cut long titles
+  by UTF-16 units, which could split an emoji into half a surrogate pair that
+  the save dialog rejects, and kept leading dots (a hidden `.env.html`),
+  trailing dots, control characters and Windows device names such as `nul`.
+  It now cuts by whole characters, drops those, and turns a tab into a
+  separator.
+- **`export_text` reads tables by GFM's rules.** It took any line with a `|`
+  over a delimiter-like line as a table, and ended a table at the first line
+  without a `|`. A table now starts only at a header over a delimiter row with
+  as many cells (`a | b` over `| - |` is text, as on the page; `a` over `:-:`
+  is a table), and a body row without a pipe goes on with it until a blank
+  line or another block (a list, heading, quote, rule or fence).
+- **`export_text` decodes every HTML named character reference.** It knew about
+  140 common names, so the rest of HTML's 2125 (`&aring;`, `&eacute;`,
+  `&ccedil;`, `&NoBreak;`, `&Cconint;`) stayed as written in the plain text
+  while the page showed the character. The full table adds about 22 KiB to the
+  `mdopener-mcp` release binary.
+- **Save As keeps one tab per file.** After Save As, the tab was found by the
+  path as the dialog gave it, so opening the new file by another path (through
+  a symbolic link, or in other case on a disk that ignores case) opened it in a
+  second tab, and each tab's saves overwrote the other's. The tab now goes by
+  the new file's real path, as an opened file's does.
+- **Closing the tab of a deleted file asks first.** A tab whose file was
+  deleted or moved outside the app, with no edits, closed without a word, and
+  its text (then only in the tab) was gone. Closing it now asks: Save As (then
+  close), Close Without Saving, or Cancel.
+- **Relative images show in the WYSIWYG editor.** The editor used an image's
+  path as written as its source, which loads from the app's own address, so a
+  pasted `![](assets/x.png)` showed broken while editing. Images now load as in
+  the read view: relative to the document, read from disk. The Markdown keeps
+  the path as written.
+- **Wikilinks to a heading or a block scroll there.** `[[note#^abc]]` opened
+  the note at its top: a block's `^abc` id had no anchor (and showed as text on
+  the block). Block ids now anchor their paragraph, list item, or the table or
+  quote a lone `^abc` line follows, and are not shown. A heading fragment is
+  percent-decoded and an Obsidian subheading path (`[[note#Parent#Child]]`)
+  scrolls to its last heading.
+- **A link's hover preview and a click open the same file.** The preview looked
+  every link up as a wikilink (anywhere in the vault) while a click opened the
+  path relative to the document, so the two could name different files, and a
+  bare `[x](Note)` with no extension previewed a note that a click refused with
+  a toast. Both now resolve by one rule: a path with a Markdown extension is that
+  file relative to the document, and a bare name is found as a wikilink is (this
+  folder first, then the vault). A link a click would not follow shows no preview.
+- **An embedded note's links and images resolve from its own file.** In
+  `![[sub/note]]`, the note's `![](img.png)`, `[x](other.md)` and `[[link]]`
+  were resolved from the document holding the embed, so its images were missing
+  and its links pointed into the wrong folder. They now resolve from the
+  embedded file, as they do when it is opened.
+- **`[[wikilinks]]` in the read view are links again.** The HTML sanitizer's
+  rule for links allows only GitHub's footnote class, which replaced the
+  general class rule, so the `wikilink` class was stripped: `[[note]]` rendered
+  as a link with no destination and a click only said so. Wikilinks render as
+  wikilinks again (resolved, broken ones marked, a click opens the note).
+- **Wikilinks to plain-text attachments resolve.** `[[notes.txt]]` and
+  `![[data.csv]]` were refused like `config` or `.json` files, so they showed
+  as broken links. `.txt`, `.text`, `.csv` and `.tsv` now resolve, inside the
+  vault and through no hidden folder as before, and an embed shows the text as
+  written rather than reading it as Markdown.
 - Hovering a read-view link whose path is percent-encoded (`[x](My%20Note.md)`) now previews the note; the preview looked the path up as written and found nothing.
 - **A heading's copied link opens at that heading.** The "copy link" button
   on a heading copies `mdopener://open?path=…&heading=<slug>`, but the link

@@ -178,6 +178,10 @@ describe("validateTemplateCss", () => {
     expect(result).not.toBeNull();
   });
 
+  it("rejects CSS that would close the style element", () => {
+    expect(validateTemplateCss("body{} </STYLE><b>x</b>")).toMatch(/style/i);
+  });
+
   it("is case-insensitive for <script> detection", () => {
     expect(validateTemplateCss("<SCRIPT>")).not.toBeNull();
     expect(validateTemplateCss("<Script>")).not.toBeNull();

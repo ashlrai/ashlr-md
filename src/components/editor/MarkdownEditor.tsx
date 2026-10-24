@@ -2,6 +2,7 @@ import { Crepe } from "@milkdown/crepe";
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
@@ -18,6 +19,7 @@ import {
   NoProviderError,
   runInlineTransform,
 } from "../../ai/inline";
+import { editorImageUrl } from "../../lib/docLinks";
 import {
   buildLinkMarkdown,
   buildTableMarkdown,
@@ -38,6 +40,7 @@ import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/paste
 import { applyTableEdit, type ColAlignment } from "../../lib/tableEditor";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
+import { remoteImagesAllowed } from "../../store/remoteImagesStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/editor.css";
@@ -357,7 +360,25 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     fmRef.current = frontmatter;
     lastBodyRef.current = body;
 
-    const crepe = new Crepe({ root, defaultValue: body });
+    const crepe = new Crepe({
+      root,
+      defaultValue: body,
+      featureConfigs: {
+        // Images load as in the read view (relative to the document,
+        // through Rust); the src written back is the one in the Markdown.
+        [Crepe.Feature.ImageBlock]: {
+          proxyDomURL: (url: string) => {
+            const path = useDocumentStore.getState().path;
+            return editorImageUrl(
+              url,
+              path,
+              (p) => invoke<string>("read_image_data_url", { path: p }),
+              remoteImagesAllowed(path),
+            );
+          },
+        },
+      },
+    });
     // A CRLF file keeps its line breaks (Crepe writes LF).
     const crlf = usesCrlf(initialContent);
     crepe.on((api) => {

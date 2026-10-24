@@ -6,6 +6,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { describe, expect, it } from "vitest";
+import { remarkWikilinks } from "./remark-wikilinks";
 import { SANITIZE_SCHEMA } from "./sanitizeSchema";
 
 /** Render markdown through the same raw→sanitize pipeline the Renderer uses. */
@@ -13,6 +14,7 @@ async function render(md: string): Promise<string> {
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkWikilinks)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA);
@@ -52,5 +54,19 @@ describe("SANITIZE_SCHEMA", () => {
     const out = await render("**bold** and [link](https://example.com)");
     expect(out).toContain("<strong>");
     expect(out).toContain('href="https://example.com"');
+  });
+
+  it("keeps the wikilink class the Renderer looks for", async () => {
+    const out = await render("See [[Other Note|other]].");
+    expect(out).toContain('class="wikilink"');
+    expect(out).toContain('data-wikitarget="Other Note"');
+  });
+
+  it("keeps footnote back-references' class, and no other class on a link", async () => {
+    const out = await render(
+      'Text[^1]\n\n[^1]: Note.\n\n<a class="evil x" href="https://x.org">x</a>',
+    );
+    expect(out).toContain('class="data-footnote-backref"');
+    expect(out).not.toContain("evil");
   });
 });

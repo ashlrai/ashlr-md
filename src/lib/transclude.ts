@@ -84,3 +84,17 @@ export function isImageTarget(file: string): boolean {
   if (dot < 0) return false;
   return IMAGE_EXTENSIONS.includes(file.slice(dot + 1).toLowerCase());
 }
+
+/**
+ * Plain-text attachments a wikilink may resolve to (`resolve_wikilink`'s
+ * TEXT_EXTENSIONS in src-tauri/src/document.rs). An embed shows their text
+ * as written, not read as Markdown.
+ */
+export const PLAIN_TEXT_EXTENSIONS = ["txt", "text", "csv", "tsv"];
+
+/** True if `file` names a plain-text attachment ({@link PLAIN_TEXT_EXTENSIONS}). */
+export function isPlainTextTarget(file: string): boolean {
+  const dot = file.lastIndexOf(".");
+  if (dot < 0) return false;
+  return PLAIN_TEXT_EXTENSIONS.includes(file.slice(dot + 1).toLowerCase());
+}

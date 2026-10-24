@@ -21,9 +21,11 @@
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { type LinkPreviewResult, resolveLinkPreview } from "../lib/linkPreview";
+import { useDocumentStore } from "../store/documentStore";
+import { useRemoteImagesAllowed } from "../store/remoteImagesStore";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,6 +132,27 @@ export function LinkPreviewPopover({
 // Card
 // ---------------------------------------------------------------------------
 
+/**
+ * An image in a preview: a web image only while remote images load
+ * (remoteImagesStore.ts), else its alt text. A local image is its alt text
+ * too: its path is relative to the previewed file, and an `<img>` loaded it
+ * from the app's own origin, broken.
+ */
+function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
+  const openPath = useDocumentStore((s) => s.path);
+  const allowed = useRemoteImagesAllowed(openPath);
+  if (allowed && typeof src === "string" && /^https:/i.test(src)) {
+    return <img src={src} alt={alt} />;
+  }
+  return <span className="link-preview-card__image">{alt || "image"}</span>;
+}
+
+const PREVIEW_COMPONENTS: Components = {
+  img: ({ src, alt }) => (
+    <PreviewImage src={typeof src === "string" ? src : undefined} alt={alt} />
+  ),
+};
+
 interface LinkPreviewCardProps {
   preview: LinkPreviewResult;
   pos: CardPos;
@@ -157,7 +180,9 @@ function LinkPreviewCard({ preview, pos }: LinkPreviewCardProps) {
         <p className="link-preview-card__external">{preview.snippet}</p>
       ) : (
         <div className="link-preview-card__internal">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.snippet}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={PREVIEW_COMPONENTS}>
+            {preview.snippet}
+          </ReactMarkdown>
         </div>
       )}
     </div>

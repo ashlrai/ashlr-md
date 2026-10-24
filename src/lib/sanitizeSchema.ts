@@ -11,7 +11,8 @@
  *   - `className` on any element (callout cards, KaTeX `.math` placeholders).
  *   - `input[type=checkbox]` for interactive GFM task lists.
  *   - `mark` for Obsidian `==highlights==`.
- *   - wikilink `data-*` props on `<a>`/`<span>` and embed prop on `<div>`.
+ *   - wikilink `data-*` props on `<a>`/`<span>` and embed prop on `<div>`,
+ *     and the `wikilink` class on `<a>`.
  */
 
 import { defaultSchema } from "rehype-sanitize";
@@ -23,7 +24,18 @@ export const SANITIZE_SCHEMA = {
     ...defaultSchema.attributes,
     "*": [...(defaultSchema.attributes?.["*"] ?? []), "className"],
     input: ["type", "checked", "disabled", "className"],
-    a: [...(defaultSchema.attributes?.a ?? []), "dataWikitarget", "dataWikialias"],
+    // An element's own `className` rule replaces the `*` one: GitHub's
+    // allows only `data-footnote-backref` on a link, so the `wikilink` class
+    // remark-wikilinks sets was stripped, the Renderer never saw a wikilink,
+    // and `[[note]]` rendered as a link with no destination.
+    a: [
+      ...(defaultSchema.attributes?.a ?? []).filter(
+        (d) => !(Array.isArray(d) && d[0] === "className"),
+      ),
+      ["className", "data-footnote-backref", "wikilink"] as [string, ...string[]],
+      "dataWikitarget",
+      "dataWikialias",
+    ],
     span: [
       ...(defaultSchema.attributes?.span ?? []),
       "dataWikitarget",

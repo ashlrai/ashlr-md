@@ -432,12 +432,20 @@ fn is_absolute_target(target: &str) -> bool {
         || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
 }
 
-/// The extensions a link from a note may resolve to: notes, images, canvases
-/// and PDFs. Anything else (`config`, `id_rsa`, `.env`, `.json`) is no
-/// attachment a note shows, and was a way to read any text file.
+/// The extensions a link from a note may resolve to: notes, images, canvases,
+/// PDFs and plain-text attachments ([`TEXT_EXTENSIONS`]). Anything else
+/// (`config`, `id_rsa`, `.env`, `.json`) is no attachment a note shows, and
+/// was a way to read any text file.
 const LINKABLE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif", "canvas", "pdf",
 ];
+
+/// Plain-text attachments a note may link to and embed (`[[notes.txt]]`,
+/// `![[data.csv]]`): kinds of file written to be read, not configuration or
+/// keys. They were refused with the rest, so a vault's `.txt` notes were
+/// broken links. The vault confinement and the hidden-component rule of
+/// [`linkable`] apply to them as to notes.
+const TEXT_EXTENSIONS: &[&str] = &["txt", "text", "csv", "tsv"];
 
 /// Whether `found` (a canonical path a wikilink resolved to) is one a note
 /// may show or open: a linkable type ([`MD_EXTENSIONS`],
@@ -451,7 +459,9 @@ fn linkable(found: &Path, base: &Path, root: Option<&Path>) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .is_some_and(|e| {
-            MD_EXTENSIONS.contains(&e.as_str()) || LINKABLE_EXTENSIONS.contains(&e.as_str())
+            MD_EXTENSIONS.contains(&e.as_str())
+                || LINKABLE_EXTENSIONS.contains(&e.as_str())
+                || TEXT_EXTENSIONS.contains(&e.as_str())
         });
     if !ext_ok {
         return false;
@@ -1648,7 +1658,7 @@ mod tests {
         std::fs::write(root.join(".ssh").join("config"), "Host *").unwrap();
         std::fs::write(root.join(".ssh").join("notes.md"), "# hidden").unwrap();
         std::fs::write(root.join("secret.md"), "# outside the vault").unwrap();
-        std::fs::write(root.join("plain.txt"), "text").unwrap();
+        std::fs::write(root.join("plain.json"), "{}").unwrap();
         std::fs::write(vault.join("sub").join("Note.md"), "# n").unwrap();
         std::fs::write(vault.join("pic.png"), "png").unwrap();
         let base = s(&vault.join("sub"));
@@ -1666,8 +1676,41 @@ mod tests {
         let nb = s(&root.join("notes"));
         assert!(resolve_wikilink(nb.clone(), "../.ssh/config".into(), None).is_none());
         assert!(resolve_wikilink(nb.clone(), "../.ssh/notes".into(), None).is_none());
-        assert!(resolve_wikilink(nb.clone(), "../plain.txt".into(), None).is_none());
+        assert!(resolve_wikilink(nb.clone(), "../plain.json".into(), None).is_none());
         assert!(resolve_wikilink(nb.clone(), "../secret".into(), None).is_some());
         assert!(resolve_wikilink(nb, "../Alpha".into(), None).is_some());
+    }
+
+    /// A wikilink to a plain-text attachment (`[[notes.txt]]`) was refused
+    /// with `config` and `.json`, so it showed as a broken link. Text types
+    /// resolve now, still only inside the vault and through no hidden folder.
+    #[test]
+    fn wikilinks_resolve_plain_text_attachments_in_the_vault() {
+        let root = make_tree();
+        let vault = root.join("vault");
+        std::fs::create_dir_all(vault.join("files")).unwrap();
+        std::fs::create_dir_all(vault.join(".git")).unwrap();
+        std::fs::write(vault.join("files").join("notes.txt"), "plain").unwrap();
+        std::fs::write(vault.join("files").join("Data.CSV"), "a,b").unwrap();
+        std::fs::write(vault.join("files").join("table.tsv"), "a\tb").unwrap();
+        std::fs::write(vault.join("files").join("app.json"), "{}").unwrap();
+        std::fs::write(vault.join(".git").join("log.txt"), "hidden").unwrap();
+        std::fs::write(root.join("outside.txt"), "outside").unwrap();
+        let base = s(&vault);
+        let vr = Some(s(&vault));
+
+        let txt = resolve_wikilink(base.clone(), "files/notes.txt".into(), vr.clone());
+        assert_eq!(
+            txt,
+            canonical_string(&vault.join("files").join("notes.txt"))
+        );
+        // By name, anywhere in the vault, and in any case.
+        assert!(resolve_wikilink(base.clone(), "notes.txt".into(), vr.clone()).is_some());
+        assert!(resolve_wikilink(base.clone(), "Data.CSV".into(), vr.clone()).is_some());
+        assert!(resolve_wikilink(base.clone(), "table.tsv".into(), vr.clone()).is_some());
+        // Not a text type, a hidden folder, or out of the vault: refused.
+        assert!(resolve_wikilink(base.clone(), "files/app.json".into(), vr.clone()).is_none());
+        assert!(resolve_wikilink(base.clone(), ".git/log.txt".into(), vr.clone()).is_none());
+        assert!(resolve_wikilink(base, "../outside.txt".into(), vr).is_none());
     }
 }

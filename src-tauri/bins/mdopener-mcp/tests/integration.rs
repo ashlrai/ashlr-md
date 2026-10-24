@@ -14654,6 +14654,37 @@ fn a_byte_order_mark_is_no_text_of_the_first_line() {
     assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
 }
 
+/// `export_text` decoded only about 140 common named references, so the
+/// rest of HTML's (`&aring;`, `&eacute;`, `&ccedil;`, `&Cconint;`,
+/// `&NoBreak;`) stayed as written while the page showed the character.
+/// Every name CommonMark knows is decoded, by case; an unknown one stays.
+#[test]
+fn strip_inline_decodes_every_named_reference() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(
+        strip_inline_markdown("&aring;&eacute;&ccedil; &Ouml;"),
+        "\u{e5}\u{e9}\u{e7} \u{d6}"
+    );
+    // Names with two code points and astral ones.
+    assert_eq!(strip_inline_markdown("&NotEqualTilde;"), "\u{2242}\u{338}");
+    assert_eq!(
+        strip_inline_markdown("&Afr; &Cconint;"),
+        "\u{1d504} \u{2230}"
+    );
+    assert_eq!(
+        strip_inline_markdown("&NoBreak;&ZeroWidthSpace;"),
+        "\u{2060}\u{200b}"
+    );
+    // The first and last names of the sorted table.
+    assert_eq!(strip_inline_markdown("&AElig; &zwnj;"), "\u{c6} \u{200c}");
+    // Names are matched by case, and unknown ones stay as written.
+    assert_eq!(strip_inline_markdown("&Aring; &ARING;"), "\u{c5} &ARING;");
+    assert_eq!(
+        strip_inline_markdown("&eacute &nosuch;"),
+        "&eacute &nosuch;"
+    );
+}
+
 /// `strip_inline_markdown` kept character references as written (`&amp;`
 /// read `&amp;`, not `&`) and dropped every `*` or `_` run that was not
 /// between spaces or inside a word, so an unpaired `*note` lost its star.
@@ -14727,6 +14758,49 @@ fn a_line_indented_four_columns_after_a_table_is_code_not_a_row() {
         "x\n| a | b |\n| - | - |"
     );
     assert_eq!(count_embedded_images("| a |\n| - |\n    ![i](i.png)\n"), 0);
+}
+
+/// export_text found tables by any `|`: a body row without a pipe ended the
+/// table and read as a paragraph, though GFM keeps it as a row until a
+/// blank line or another block starts, and a header over a delimiter row
+/// of another cell count (no table on the page) was read as one. The rules
+/// are GFM's, each case as micromark reads it.
+#[test]
+fn export_text_reads_tables_by_the_gfm_delimiter_row_rules() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        // A row with no pipe goes on with the table, to the blank line.
+        (
+            "| a | b |\n| - | - |\n| c | d |\nbar\n\nx",
+            "a\tb\nc\td\nbar\n\nx",
+        ),
+        ("| a |\n| - |\n\\# x", "a\n# x"),
+        ("| a | b |\n| - | - |\nbar\n| c | d |", "a\tb\nbar\nc\td"),
+        ("| a |\n| -- |\n| c\n=", "a\nc\n="),
+        // Another block ends it.
+        ("| a | b |\n| - | - |\n> q", "a\tb\nq"),
+        ("| a |\n| - |\n- item", "a\nitem"),
+        ("| a |\n| - |\n1. x", "a\nx"),
+        ("| a |\n| - |\n# h", "a\nh"),
+        ("| a |\n| - |\n***\nafter", "a\nafter"),
+        ("| a |\n| - |\n```\ncode\n```", "a\ncode"),
+        ("- | a |\n  | - |\n  c\nd", "a\nc\nd"),
+        // Delimiter rows: optional outer pipes, colons, one cell.
+        ("a|b\n-|-\nc", "a\tb\nc"),
+        ("| a |\n|-\nc", "a\nc"),
+        ("|a|\n:-:\nc", "a\nc"),
+        ("a\n|---|\nx", "a\nx"),
+        // No table: the cell counts differ, a cell is no `:?-+:?`, or the
+        // line is a setext underline.
+        ("a | b\n| - |\nc", "a | b\n| - |\nc"),
+        ("|a|b|\n|-|-|-|\nc", "|a|b|\n|-|-|-|\nc"),
+        ("| a |\n| - - |\nc", "| a |\n| - - |\nc"),
+        ("| a |\n| : |\nc", "| a |\n| : |\nc"),
+        ("| a |\n---\nx", "| a |\nx"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
 }
 
 /// `[[note\|alias]]`, the form a wikilink with an alias takes in a table

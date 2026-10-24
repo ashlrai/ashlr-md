@@ -9,9 +9,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 // Native dialogs: the recreate confirmation and the Save As picker.
 const askMock = vi.fn();
 const pickMock = vi.fn();
+const messageMock = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: (...args: unknown[]) => askMock(...args),
   save: (...args: unknown[]) => pickMock(...args),
+  message: (...args: unknown[]) => messageMock(...args),
 }));
 
 // Isolate the document store from the persisted recents store.
@@ -23,7 +25,11 @@ vi.mock("./recentStore", async (importOriginal) => ({
   useRecentStore: { getState: () => ({ add: recentAdd, remove: recentRemove }) },
 }));
 
-import { useDocumentStore } from "./documentStore";
+import {
+  CLOSE_MISSING_DISCARD,
+  CLOSE_MISSING_SAVE_AS,
+  useDocumentStore,
+} from "./documentStore";
 
 function reset() {
   useDocumentStore.setState({
@@ -1003,6 +1009,7 @@ describe("documentStore — a file deleted or moved while open", () => {
     invokeMock.mockReset();
     askMock.mockReset();
     pickMock.mockReset();
+    messageMock.mockReset();
     reset();
   });
 
@@ -1075,6 +1082,58 @@ describe("documentStore — a file deleted or moved while open", () => {
     expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/moved/b.md" });
   });
 
+  it("closing it with no edits asks first, and offers Save As", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    delete files["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    const id = useDocumentStore.getState().activeId as string;
+    expect(useDocumentStore.getState().isDirty).toBe(false);
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+
+    // Cancel: the tab and its text stay. It used to close at once.
+    messageMock.mockResolvedValueOnce("Cancel");
+    useDocumentStore.getState().closeTab(id);
+    await settle();
+    expect(messageMock).toHaveBeenCalledTimes(1);
+    expect(String(messageMock.mock.calls[0][0])).toMatch(/only in this tab/);
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    // Save As: written under the new name, then the tab closes.
+    messageMock.mockResolvedValueOnce(CLOSE_MISSING_SAVE_AS);
+    pickMock.mockResolvedValueOnce("/kept/a.md");
+    useDocumentStore.getState().closeTab(id);
+    await settle();
+    await settle();
+    expect(files["/kept/a.md"]).toBe("v0");
+    expect(useDocumentStore.getState().tabs).toHaveLength(0);
+  });
+
+  it("closing it can discard the text, and a cancelled Save As keeps the tab", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    delete files["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    const id = useDocumentStore.getState().activeId as string;
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+
+    messageMock.mockResolvedValueOnce(CLOSE_MISSING_SAVE_AS);
+    pickMock.mockResolvedValueOnce(null);
+    useDocumentStore.getState().closeTab(id);
+    await settle();
+    await settle();
+    expect(useDocumentStore.getState().tabs).toHaveLength(1);
+
+    messageMock.mockResolvedValueOnce(CLOSE_MISSING_DISCARD);
+    useDocumentStore.getState().closeTab(id);
+    await settle();
+    expect(useDocumentStore.getState().tabs).toHaveLength(0);
+    // The unsaved-changes question is not asked on top.
+    expect(askMock).not.toHaveBeenCalled();
+  });
+
   it("a file that comes back is no longer missing", async () => {
     const files: Record<string, string> = { "/a.md": "v0" };
     versionedDisk(files);
@@ -1117,6 +1176,24 @@ describe("documentStore — one file opened by two paths is one tab", () => {
       return Promise.resolve();
     });
   }
+
+  it("Save As keys the tab by the new file's canonical path", async () => {
+    sameFile((p) => p.replace("/vault/link/", "/real/"));
+    const base = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "write_markdown_file" ? Promise.resolve("v2") : base?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("/vault/a.md");
+    pickMock.mockResolvedValueOnce("/vault/link/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    let s = useDocumentStore.getState();
+    expect(s.tabs[0].key).toBe("/real/b.md");
+    // The same file by its real path is the same tab, not a second one.
+    await useDocumentStore.getState().openPath("/real/b.md");
+    s = useDocumentStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.path).toBe("/vault/link/b.md");
+  });
 
   it("switches to the tab of a file opened through a symbolic link", async () => {
     sameFile(() => "/real/notes.md");

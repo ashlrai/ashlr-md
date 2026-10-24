@@ -54,6 +54,17 @@ interface SettingsState {
   setAutoEmbedIndex: (v: boolean) => void;
 
   /**
+   * Load web (`https:`) images in documents as they render. Off, a web image
+   * shows as a placeholder until the user loads the document's remote images
+   * (see store/remoteImagesStore.ts): a fetched image tells its host the
+   * document was opened. Default on, as before the setting existed, so no
+   * document's images go missing; a persisted state without the field takes
+   * the default.
+   */
+  loadRemoteImages: boolean;
+  setLoadRemoteImages: (v: boolean) => void;
+
+  /**
    * Explicit Obsidian vault-root override. When set, wikilink resolution and
    * "ask your vault" use this folder; when null, the app auto-detects the vault
    * by walking up from the open file for a `.obsidian/` marker.
@@ -213,6 +224,8 @@ export const useSettingsStore = create<SettingsState>()(
       setNotificationsEnabled: (notificationsEnabled) => set({ notificationsEnabled }),
       autoEmbedIndex: false,
       setAutoEmbedIndex: (autoEmbedIndex) => set({ autoEmbedIndex }),
+      loadRemoteImages: true,
+      setLoadRemoteImages: (loadRemoteImages) => set({ loadRemoteImages }),
 
       pasteImageTarget: "doc-relative",
       setPasteImageTarget: (pasteImageTarget) => set({ pasteImageTarget }),

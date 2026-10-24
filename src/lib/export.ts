@@ -140,13 +140,18 @@ function currentLayoutVars(): string {
 
 /**
  * Clone an element and strip Ashlr-injected UI chrome that lives inside
- * `.markdown-body` but is NOT part of the document — currently the review
- * summary card. Exports and rich-text copies should contain the document, not
+ * `.markdown-body` but is NOT part of the document: the review summary card
+ * and the remote images bar (with its buttons). Exports and rich-text copies should contain the document, not
  * the app's rendering overlay.
  */
 export function cloneWithoutInjectedChrome(el: Element): Element {
   const clone = el.cloneNode(true) as Element;
-  for (const node of clone.querySelectorAll(".review-card")) node.remove();
+  // The remote images bar and its "Load remote images" buttons are the
+  // app's too; a blocked image keeps its placeholder text.
+  for (const node of clone.querySelectorAll(
+    ".review-card, .remote-images-banner, .remote-image-load",
+  ))
+    node.remove();
   return clone;
 }
 
@@ -161,6 +166,27 @@ function captureMarkdownBody(): string {
     throw READ_VIEW_REQUIRED;
   }
   return cloneWithoutInjectedChrome(el).outerHTML;
+}
+
+/**
+ * An exported page runs no script: the body is sanitized already, and this
+ * also stops anything that slips through (a template's CSS, say) when the
+ * file is opened in a browser. Images, styles and fonts stay unrestricted.
+ */
+const EXPORT_CSP_META = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />`;
+
+/**
+ * Text for the inside of a `<style>` element: a `</style` would end the
+ * element early and let the rest parse as markup. `<\/style` reads the same
+ * inside a CSS string and is inert elsewhere.
+ */
+function styleElementText(css: string): string {
+  return css.replace(/<\/(style)/gi, "<\\/$1");
+}
+
+/** Text for the inside of a CSS comment, which a `*\/` would end. */
+function cssCommentText(text: string): string {
+  return escapeHtml(text).replace(/\*\//g, "* /");
 }
 
 /**
@@ -192,7 +218,7 @@ export function buildStandaloneHtml(
 
   // Template CSS block — only emitted when a template is active.
   const templateBlock = template?.css
-    ? `\n/* ── Export template: ${escapeHtml(template.name)} ── */\n${template.css}\n`
+    ? `\n/* ── Export template: ${cssCommentText(template.name)} ── */\n${styleElementText(template.css)}\n`
     : "";
 
   return `<!doctype html>
@@ -200,6 +226,7 @@ export function buildStandaloneHtml(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+${EXPORT_CSP_META}
 <title>${escapeHtml(title)}</title>
 <style>
 /* ── Reset ── */
@@ -523,6 +550,108 @@ export function buildEpubChapters(bodyHtml: string, title: string): EpubChapter[
   return chapters.length > 0 ? chapters : [{ title, content: bodyHtml }];
 }
 
+// ─── EPUB images ─────────────────────────────────────────────────────────────
+
+/** Where an EPUB's images are named for epub-gen-memory, which fetches them. */
+const EPUB_IMAGE_ORIGIN = "https://ashlr-md.invalid/";
+
+const EPUB_IMAGE_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+};
+
+/** The bytes of a `data:image/...` URL, or null for any other URL or type. */
+function dataUrlImage(src: string): { type: string; bytes: Uint8Array } | null {
+  const m = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/is.exec(src.trim());
+  if (!m) return null;
+  const type = m[1].toLowerCase();
+  if (!EPUB_IMAGE_TYPES[type]) return null;
+  try {
+    if (/;base64$/i.test(m[2])) {
+      const bin = atob(m[3].replace(/\s+/g, ""));
+      return { type, bytes: Uint8Array.from(bin, (c) => c.charCodeAt(0)) };
+    }
+    return { type, bytes: new TextEncoder().encode(decodeURIComponent(m[3])) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gets a rendered body's images ready for epub-gen-memory. The library
+ * fetches every `<img src>`, and the app's CSP (`connect-src`) refuses a
+ * `data:` URL and the web alike, so one image failed the whole export; it
+ * also takes the media type from the URL's extension, which a `data:` URL
+ * has none of. A local image is a `data:` URL in the rendered view
+ * (`read_image_data_url`), so each one gets a placeholder URL with the right
+ * extension and its bytes are served from the returned map
+ * (`withEpubImages`). A web image becomes a link to it, as an e-reader shows
+ * no remote image, and anything else becomes its alt text.
+ */
+export function prepareEpubImages(bodyHtml: string): {
+  html: string;
+  images: Map<string, Blob>;
+} {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = bodyHtml;
+  const images = new Map<string, Blob>();
+  const bySrc = new Map<string, string>();
+  for (const img of Array.from(tpl.content.querySelectorAll("img"))) {
+    const src = img.getAttribute("src") ?? "";
+    img.removeAttribute("srcset");
+    const known = bySrc.get(src);
+    if (known) {
+      img.setAttribute("src", known);
+      continue;
+    }
+    const data = dataUrlImage(src);
+    if (data) {
+      const url = `${EPUB_IMAGE_ORIGIN}image-${images.size + 1}.${EPUB_IMAGE_TYPES[data.type]}`;
+      images.set(url, new Blob([data.bytes], { type: data.type }));
+      bySrc.set(src, url);
+      img.setAttribute("src", url);
+      continue;
+    }
+    const alt = img.getAttribute("alt") ?? "";
+    if (/^https?:\/\//i.test(src)) {
+      const a = document.createElement("a");
+      a.setAttribute("href", src);
+      a.textContent = alt || src;
+      img.replaceWith(a);
+    } else {
+      img.replaceWith(document.createTextNode(alt));
+    }
+  }
+  return { html: tpl.innerHTML, images };
+}
+
+/**
+ * Runs `fn` with `fetch` answering the URLs in `images` from memory. Every
+ * other request goes to the real `fetch`, and it is restored afterwards.
+ */
+async function withEpubImages<T>(
+  images: Map<string, Blob>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (images.size === 0) return fn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const blob = images.get(url);
+    return blob ? Promise.resolve(new Response(blob)) : realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 /**
  * Export as an EPUB file.
  *
@@ -551,7 +680,9 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   if (!el) {
     throw READ_VIEW_REQUIRED;
   }
-  const bodyHtml = cloneWithoutInjectedChrome(el).innerHTML;
+  const { html: bodyHtml, images } = prepareEpubImages(
+    cloneWithoutInjectedChrome(el).innerHTML,
+  );
 
   let epubGen: (
     options: Record<string, unknown>,
@@ -577,19 +708,21 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   const css = buildEpubThemeCss(theme);
   const chapters = buildEpubChapters(bodyHtml, title);
 
-  const result = await epubGen(
-    {
-      title,
-      // Author from document store if available, otherwise blank.
-      author: "",
-      // Use the theme-aware chapter CSS as the stylesheet.
-      css,
-      // EPUB 3 for widest modern reader support.
-      version: 3,
-      // Suppress verbose internal logging in production.
-      verbose: false,
-    },
-    chapters,
+  const result = await withEpubImages(images, () =>
+    epubGen(
+      {
+        title,
+        // Author from document store if available, otherwise blank.
+        author: "",
+        // Use the theme-aware chapter CSS as the stylesheet.
+        css,
+        // EPUB 3 for widest modern reader support.
+        version: 3,
+        // Suppress verbose internal logging in production.
+        verbose: false,
+      },
+      chapters,
+    ),
   );
 
   // Normalise to Uint8Array regardless of whether we got a Blob or ArrayBuffer.
@@ -651,6 +784,7 @@ export function buildExportHtml(profileId: ExportProfileId, content?: string): s
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+${EXPORT_CSP_META}
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <style>
 /* ── Reset ── */
@@ -808,12 +942,28 @@ function baseName(p: string): string {
   return idx === -1 ? p : p.slice(idx + 1);
 }
 
-/** Strip characters unsafe for file names, replace spaces with hyphens. */
-function sanitizeFileName(name: string): string {
-  return (
-    name
-      .replace(/[/\\:*?"<>|]/g, "")
-      .replace(/\s+/g, "-")
-      .slice(0, 80) || "export"
-  );
+/** Names Windows reserves for devices, whatever the extension. */
+const RESERVED_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/**
+ * The default file name of an export for a document titled `name`: no
+ * characters a file name cannot hold (`/\\:*?"<>|` and control
+ * characters), spaces as hyphens, no leading dot (a hidden file) and no
+ * trailing dot, at most 80 characters, and never a Windows device name.
+ * The cut used to count UTF-16 units, so a title with emoji or other
+ * characters past U+FFFF could end in half a character, which the save
+ * dialog's IPC refused, failing the export; a title like `.env` named a
+ * hidden `.env.html`.
+ */
+export function sanitizeFileName(name: string): string {
+  const cleaned = name
+    .replace(/\s+/g, "-")
+    .replace(/[/\\:*?"<>|\p{Cc}]/gu, "")
+    .replace(/^[.-]+/, "");
+  const cut = Array.from(cleaned)
+    .slice(0, 80)
+    .join("")
+    .replace(/[.\s]+$/, "");
+  if (cut === "") return "export";
+  return RESERVED_NAME.test(cut) ? `${cut}-export` : cut;
 }

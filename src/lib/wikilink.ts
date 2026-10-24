@@ -38,9 +38,16 @@ function baseDirOf(path: string | null): string | null {
   return i === 0 ? sep : path.slice(0, i);
 }
 
-/** Resolve `target` to an absolute path, or `null` if it can't be found. */
-export async function resolveWikilink(target: string): Promise<string | null> {
-  const path = useDocumentStore.getState().path;
+/**
+ * Resolve `target` to an absolute path, or `null` if it can't be found.
+ * It is resolved from the document at `fromPath` (an embedded note's own
+ * file), or from the open document when `fromPath` is not given.
+ */
+export async function resolveWikilink(
+  target: string,
+  fromPath?: string | null,
+): Promise<string | null> {
+  const path = fromPath === undefined ? useDocumentStore.getState().path : fromPath;
   const dir = baseDirOf(path);
   if (!dir) return null;
   const vaultRoot = await effectiveVaultRoot(path);
