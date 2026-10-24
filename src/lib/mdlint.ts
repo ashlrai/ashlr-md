@@ -342,7 +342,14 @@ export const ruleWikilinkTargetsExist: LintRule = {
       at += l.text.length + 1;
     }
     for (const m of text.matchAll(WIKI_RE)) {
-      const target = m[1].trim();
+      // A backslash before the `|` escapes it (`[[note\|alias]]`, as a table
+      // cell needs): the link is to `note`, which the page shows. It was
+      // reported as a missing `note\`.
+      const raw =
+        m[0][2 + m[1].length] === "|"
+          ? m[1].replace(/(^|[^\\])((?:\\\\)*)\\$/, "$1$2")
+          : m[1];
+      const target = raw.trim();
       if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
       // The pattern holds no line break, so the link is on one line.
       let i = starts.length - 1;

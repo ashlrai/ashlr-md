@@ -9440,11 +9440,23 @@ fn parse_wikilink(chars: &[char], start: usize) -> Option<Wikilink> {
             .count();
         (len > 0).then(|| (chars[pos..pos + len].iter().collect(), pos + len))
     };
+    // A backslash before the `|` escapes it (`[[note\|alias]]`, the form a
+    // table cell needs): the page reads the link `note` with the alias, and
+    // the backslash is no part of the target. It used to be read as
+    // `note\`. An escaped backslash (`\\|`) is a backslash.
+    let unescape = |mut s: String, pos: usize| {
+        let trailing = s.chars().rev().take_while(|&c| c == '\\').count();
+        if chars.get(pos) == Some(&'|') && trailing % 2 == 1 {
+            s.pop();
+        }
+        s
+    };
     let (target, mut pos) = run(start + 2, &[']', '|', '#'])?;
+    let target = unescape(target, pos);
     let mut heading = None;
     if chars.get(pos) == Some(&'#') {
         let (h, next) = run(pos + 1, &[']', '|'])?;
-        heading = Some(h);
+        heading = Some(unescape(h, next));
         pos = next;
     }
     let mut alias = None;

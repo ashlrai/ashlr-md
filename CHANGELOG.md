@@ -105,6 +105,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`[[note\|alias]]` links to `note`.** In a table cell an alias's pipe is
+  written `\|`; mdopener-mcp's `export_metadata` and the app's
+  "Wikilink targets exist" lint read the target as `note\`, so a link that
+  resolves was listed (and flagged) as a missing note.
 - **A line indented four columns after a table is code, in the app and for
   agents.** mdast reads `| a |`, `| - |`, then `    | c |` as a table and a
   code block. The app's prose masking (`maskInlineCode`, which lint reads

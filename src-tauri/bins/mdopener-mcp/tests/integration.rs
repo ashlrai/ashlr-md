@@ -14728,3 +14728,13 @@ fn a_line_indented_four_columns_after_a_table_is_code_not_a_row() {
     );
     assert_eq!(count_embedded_images("| a |\n| - |\n    ![i](i.png)\n"), 0);
 }
+
+/// `[[note\|alias]]`, the form a wikilink with an alias takes in a table
+/// cell, was read as a link to `note\`; the page links `note`.
+#[test]
+fn an_escaped_alias_pipe_is_no_part_of_the_wikilink_target() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    let doc = "| a | b |\n|---|---|\n| [[note\\|alias]] | [[n#h\\|x]] |\n\n[[p\\|q]]\n";
+    assert_eq!(extract_wikilinks(doc), ["n", "note", "p"]);
+    assert_eq!(strip_markdown(doc), "a\tb\nalias\tx\n\nq");
+}
