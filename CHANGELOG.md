@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Closing a side panel gives focus back.** File search, the outline and
+  agent activity stay in the page while closed, unreachable, so closing one
+  from its close button or with Escape left keyboard focus on nothing. Focus
+  now returns to where it was when the panel opened. The file search field
+  also has a label for screen readers (it had only a placeholder).
 - **The command palette gives focus back when it closes.** It meant to
   return focus to what had it, but remembered its own search field (already
   focused by then), so closing it left focus on nothing and a keyboard user

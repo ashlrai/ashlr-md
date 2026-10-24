@@ -5,7 +5,7 @@
 // with relative timestamps, an unseen "new" pulse, and click-to-open.
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "../styles/activity-drawer.css";
 import {
   type MdFileInfo,
@@ -14,6 +14,7 @@ import {
   watchDirectory,
 } from "../lib/activity";
 import { formatShortcut } from "../lib/keymap";
+import { useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -113,6 +114,9 @@ export function ActivityDrawer() {
   const markAllSeen = useActivityStore((s) => s.markAllSeen);
 
   const openPath = useDocumentStore((s) => s.openPath);
+  const panelRef = useRef<HTMLElement>(null);
+  // Closed, the panel is inert: give focus back to what had it.
+  useReturnFocus(open, panelRef);
   const activePath = useDocumentStore((s) => s.path);
 
   // A ticking clock so relative timestamps stay fresh while the drawer is open.
@@ -175,6 +179,7 @@ export function ActivityDrawer() {
 
   return (
     <aside
+      ref={panelRef}
       className={`activity-drawer${open ? " activity-drawer--open" : ""}`}
       aria-label="Agent Activity"
       // Off-screen-but-in-DOM when closed: `inert` keeps its controls out of the
