@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The app's `/export` without `overwrite` no longer replaces a file.** A
+  request with an `outputPath` and no `overwrite` flag (a caller written
+  before the flag existed) replaced a file already there. It is now refused
+  in the write itself, as with `"overwrite": false`; `"overwrite": true`
+  still replaces it. mdopener-mcp always sends the flag, so the MCP
+  `export` tool is unchanged.
 - **Rich copies name the document's language.** Both rich copy commands said
   `<html lang="en">` (or no language at all), whatever the document's language.
   They now use the front matter's `lang` the way exports do: a language tag in

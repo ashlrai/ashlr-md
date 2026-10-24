@@ -13,7 +13,7 @@
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10, 1 to 200)     | Recent-file list                   |
-//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null","overwrite":bool}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir; `overwrite: false` refuses an existing file in the write itself) |
+//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null","overwrite":bool}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir; `overwrite` absent or false refuses an existing file in the write itself; `true` replaces it) |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
@@ -1220,8 +1220,8 @@ fn handle_export(mut req: Request, app: &AppHandle) {
         format: String,
         #[serde(rename = "outputPath")]
         output_path: Option<String>,
-        /// False: the window refuses a file already at `outputPath`, in
-        /// the write itself. Absent: replaced, as before the flag.
+        /// True: a file already at `outputPath` is replaced. False or
+        /// absent: the window refuses one, in the write itself.
         overwrite: Option<bool>,
     }
 
@@ -1271,11 +1271,14 @@ fn handle_export(mut req: Request, app: &AppHandle) {
     }
 }
 
-/// What `/export` sends the window. `overwrite` is true unless the caller
-/// said false (mdopener-mcp's `export` without `overwrite: true`): then the
-/// window writes the file only if nothing is there, in one step, where the
+/// What `/export` sends the window. `overwrite` is false unless the caller
+/// said true (mdopener-mcp's `export` with `overwrite: true`): the window
+/// then writes the file only if nothing is there, in one step, where the
 /// caller's own check and this write used to leave a gap a file could
-/// appear in and be replaced.
+/// appear in and be replaced. A caller that sends no flag (one written
+/// before it existed) gets the safe answer too: an existing file is
+/// refused, not replaced. mdopener-mcp, the only caller in this repository,
+/// always sends the flag.
 fn export_payload(
     format: &str,
     output_path: Option<&str>,
@@ -1284,7 +1287,7 @@ fn export_payload(
     serde_json::json!({
         "format": format,
         "outputPath": output_path,
-        "overwrite": overwrite.unwrap_or(true),
+        "overwrite": overwrite.unwrap_or(false),
     })
 }
 
@@ -2645,11 +2648,16 @@ mod tests {
     }
 
     #[test]
-    fn export_payload_carries_overwrite_and_defaults_it_to_true() {
+    fn export_payload_carries_overwrite_and_defaults_it_to_false() {
         let p = super::export_payload("html", Some("/tmp/a.html"), Some(false));
         assert_eq!(p["overwrite"], false);
         assert_eq!(p["outputPath"], "/tmp/a.html");
-        assert_eq!(super::export_payload("pdf", None, None)["overwrite"], true);
+        // A caller that sends no flag no longer replaces an existing file.
+        assert_eq!(
+            super::export_payload("html", Some("/tmp/a.html"), None)["overwrite"],
+            false
+        );
+        assert_eq!(super::export_payload("pdf", None, None)["overwrite"], false);
         assert_eq!(
             super::export_payload("epub", None, Some(true))["overwrite"],
             true
