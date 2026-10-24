@@ -508,4 +508,33 @@ describe("parseHeadings", () => {
       "note",
     ]);
   });
+
+  it("reads no setext heading of link reference definitions", () => {
+    // Definitions alone leave no paragraph to make a heading of, so an
+    // underline after them starts one, which a lone tag cannot interrupt,
+    // as remark-gfm reads it. It used to end the paragraph as a heading, so
+    // the `</u>` after it opened an HTML block that hid the heading below.
+    for (const doc of [
+      "[a]: /u\n===\n</u>\n# Title",
+      "[a]: /u\n--\n</u>\n# Title",
+      "[a]: /u\n- \n</u>\n# Title",
+      '[a]:\n/u\n"t"\n===\n</u>\n# Title',
+    ]) {
+      expect(
+        parseHeadings(doc).map((h) => h.slug),
+        doc,
+      ).toEqual(["title"]);
+      expect(
+        markdownLines(doc).some((l) => l.setext || l.kind === "html"),
+        doc,
+      ).toBe(false);
+    }
+    // A heading after definitions has only the paragraph's own lines, so a
+    // later `# Title` is `title-1` in the page, not `title`.
+    expect(parseHeadings("[a]: /u\nTitle\n===\n\n# Title").map((h) => h.slug)).toEqual([
+      "title-1",
+    ]);
+    // A `---` line there is a thematic break.
+    expect(markdownLines("[a]: /u\n---").some((l) => l.setext)).toBe(false);
+  });
 });

@@ -190,6 +190,116 @@ function footnoteMarker(line: string): { label: string; rest: string } | null {
   return { label: m[1], rest: line.slice(m[0].length).replace(/^ +/, "") };
 }
 
+/**
+ * How many lines the link reference definition that `text` (a line past its
+ * containers) starts takes, or null when it starts none; `following` holds
+ * the lines after it in its paragraph. As CommonMark reads one: at most three
+ * spaces, `[label]:` (a label with some text and no unescaped bracket), a
+ * destination (`<...>`, or text with no space) on the line or, with nothing
+ * after the colon, on the next line, then optionally a title in quotes or
+ * parentheses, which may start on the line after the destination and go on
+ * over lines, and nothing else. The rule of mdopener-mcp's
+ * `markdown_lines::reference_definition`.
+ */
+function referenceDefinition(text: string, following: string[]): number | null {
+  const body = text.replace(/^ +/, "");
+  if (text.length - body.length > 3 || !body.startsWith("[")) return null;
+  const inner = body.slice(1);
+  let end = -1;
+  let escaped = false;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (escaped) escaped = false;
+    else if (c === "\\") escaped = true;
+    else if (c === "[") return null;
+    else if (c === "]") {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) return null;
+  const label = inner.slice(0, end);
+  if (label.trim() === "" || [...label].length > 999) return null;
+  if (inner[end + 1] !== ":") return null;
+  const rest = inner.slice(end + 2).trim();
+  let dest = rest;
+  let lines = 1;
+  if (rest === "") {
+    dest = following[0]?.trim() ?? "";
+    if (dest === "") return null;
+    lines = 2;
+  }
+  let after: string;
+  if (dest.startsWith("<")) {
+    const inside = dest.slice(1);
+    const close = inside.search(/[<>]/);
+    if (close < 0 || inside[close] !== ">") return null;
+    after = inside.slice(close + 1);
+  } else {
+    const space = dest.search(/[ \t]/);
+    after = space < 0 ? "" : dest.slice(space);
+  }
+  const more = following.slice(lines - 1);
+  if (after.trim() === "") {
+    // A title may start on the line after the destination.
+    const title =
+      more.length > 0 ? titleLines(more[0].trimStart(), more.slice(1)) : null;
+    return lines + (title === null ? 0 : title + 1);
+  }
+  if (!/^[ \t]/.test(after)) return null;
+  const title = titleLines(after.trimStart(), more);
+  return title === null ? null : lines + title;
+}
+
+/**
+ * How many lines of `more` the link title that starts `first` goes on over,
+ * when it is a whole title (`"..."`, `'...'` or `(...)`, with no blank line
+ * inside) with nothing but spaces after it.
+ */
+function titleLines(first: string, more: string[]): number | null {
+  const close = ({ '"': '"', "'": "'", "(": ")" } as Record<string, string>)[first[0]];
+  if (close === undefined) return null;
+  // Whether `line` closes the title; undefined when more follows the close.
+  const closes = (line: string): boolean | undefined => {
+    let escaped = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === close) return line.slice(i + 1).trim() === "" ? true : undefined;
+    }
+    return false;
+  };
+  const head = closes(first.slice(1));
+  if (head === undefined) return null;
+  if (head) return 0;
+  for (let n = 0; n < more.length; n++) {
+    if (more[n].trim() === "") return null;
+    const c = closes(more[n]);
+    if (c === undefined) return null;
+    if (c) return n + 1;
+  }
+  return null;
+}
+
+/**
+ * How many of a paragraph's `lines` (each past its containers) the link
+ * reference definitions at its start take, as micromark reads them: one
+ * goes on after another, and the first line that starts none ends them.
+ */
+function definitionsLength(lines: string[]): number {
+  let i = 0;
+  while (i < lines.length) {
+    // A definition after another one goes on with its paragraph, which
+    // takes the line's indentation off.
+    const text = i === 0 ? lines[i] : lines[i].trimStart();
+    const n = referenceDefinition(text, lines.slice(i + 1));
+    if (n === null) break;
+    i += n;
+  }
+  return i;
+}
+
 /** How an HTML block ends, by the kind its first line opens. */
 type HtmlEnd = "raw" | "comment" | "instruction" | "declaration" | "cdata" | "blank";
 
@@ -571,9 +681,20 @@ export function markdownLines(markdown: string): MarkdownLine[] {
         // opening one, or a blockquote (lazy continuation).
         const lazy =
           paragraph !== null && !interrupts && !opened && c.matched < open.length;
-        if (paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest)) {
+        const under =
+          paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest);
+        // Link reference definitions at the paragraph's start are not in a
+        // heading it makes, and alone they leave no paragraph to make a
+        // heading of, as micromark reads them.
+        const paraLines = under ? out.slice(paraStart).map((l) => l.content) : [];
+        const defs = under ? definitionsLength(paraLines) : 0;
+        const definitions = under && defs === paraLines.length;
+        if (under && !definitions) {
           // A setext underline ends the paragraph as a heading.
-          setext = { depth: c.rest.trim().startsWith("=") ? 1 : 2, from: paraStart };
+          setext = {
+            depth: c.rest.trim().startsWith("=") ? 1 : 2,
+            from: paraStart + defs,
+          };
           open = open.slice(0, c.matched);
           paragraph = null;
           indented = null;
@@ -582,6 +703,15 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           // A thematic break ends the containers it is not in.
           open = c.list;
           paragraph = null;
+          indented = null;
+          bare = false;
+        } else if (definitions) {
+          // The underline starts a paragraph after them (`[a]: /u`, then
+          // `===`), which a lone tag (`<u>`) or indented code after it does
+          // not interrupt.
+          open = c.list;
+          paraList = c.list;
+          paraStart = out.length;
           indented = null;
           bare = false;
         } else if (lazy && block !== null) {

@@ -14394,3 +14394,36 @@ fn export_text_without_path_says_it_reads_the_window_not_the_file() {
     assert_eq!(r["text"].as_str().unwrap().trim(), "unsaved words", "{r}");
     assert_eq!(r["path"], json!(path));
 }
+
+/// Link reference definitions alone leave no paragraph for a setext
+/// underline to make a heading of, so micromark reads an `===`, `--` or
+/// `- ` line after them as the first line of a paragraph, which a lone tag
+/// (`</u>`) cannot interrupt. markdown_lines read it as an underline that
+/// ended the paragraph, so the `</u>` after it opened an HTML block that
+/// hid the heading after it, and export_text dropped the `===` line.
+#[test]
+fn an_underline_after_reference_definitions_starts_a_paragraph() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    for doc in [
+        "[a]: /u\n===\n</u>\n# Title\n",
+        "[a]: /u\n--\n</u>\n# Title\n",
+        "[a]: /u\n- \n</u>\n# Title\n",
+        "[a]: /u\n[b]: /v\n===\n</u>\n# Title\n",
+        "[a]:\n/u\n\"t\"\n===\n</u>\n# Title\n",
+        "> [a]: /u\n> ===\n> </u>\n\n# Title\n",
+    ] {
+        assert_eq!(texts(doc), ["Title"], "{doc:?}");
+    }
+    // A `---` line there is a thematic break, and a paragraph after the
+    // definitions takes the underline.
+    assert!(texts("[a]: /u\n---\n</u>\n# Hidden\n").is_empty());
+    assert!(texts("[a]: /u\nx\n===\n</u>\n# Hidden\n").is_empty());
+    assert_eq!(strip_markdown("[a]: /u\n===\nb\n").trim(), "===\nb");
+    assert_eq!(strip_markdown("[a]: /u\nx\n===\nb\n").trim(), "x\nb");
+}

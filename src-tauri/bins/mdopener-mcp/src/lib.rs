@@ -7898,8 +7898,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   `# comment` indented four spaces lost its `#`.
 /// - Setext heading underlines (`===` / `---` only lines after a
 ///   paragraph) are removed, by the container rule of the lines
-///   ([`markdown_lines::item_starts`]) and, after link reference
-///   definitions, as micromark reads them ([`reference_definitions`]). An
+///   ([`markdown_lines::item_starts`]), which reads link reference
+///   definitions as micromark does ([`reference_definitions`]). An
 ///   `===` line with no paragraph before it, after definitions or lazily
 ///   after a list item is text on the page and is kept; every line of only
 ///   `=` or `-` used to be dropped.
@@ -7956,15 +7956,14 @@ pub fn strip_markdown(content: &str) -> String {
         ),
     );
     let tasks = task_list::task_marks(content);
-    let (refs, definitions, underlines) = reference_definitions(content);
+    let (refs, definitions) = reference_definitions(content);
     // The label of the footnote definition each line opens, and whether
     // it is a setext heading underline, past the front matter the lines
     // below leave out.
     let (footnotes, underlines): (Vec<Option<String>>, Vec<bool>) =
         markdown_lines::item_starts(content)
-            .zip(underlines)
             .skip(markdown_lines::front_matter_len(content))
-            .map(|(s, under)| (s.footnote, under.unwrap_or(s.underline)))
+            .map(|s| (s.footnote, s.underline))
             .unzip();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
@@ -8172,119 +8171,11 @@ fn normalize_label(label: &str) -> String {
 }
 
 /// The label of the link reference definition that `text` (a text line
-/// past its containers) starts, when it is one, with how many lines it
-/// takes; `following` holds the text of the lines after it that go on
-/// with its paragraph. As CommonMark reads one: at most three spaces,
-/// `[label]:` (a label with some text, no unescaped bracket, and not a `^`
-/// footnote), then a destination (`<...>`, or text with no space) on the
-/// line or, with nothing after the colon, on the next line, then
-/// optionally a title in quotes or parentheses, which may start on the
-/// line after the destination and go on over lines, and nothing else. A
-/// line holding more after the title, or after a destination on the next
-/// line, is no definition; more after a title on the next line leaves
-/// that line out of the definition.
+/// past its containers) starts, normalized ([`normalize_label`]), with how
+/// many lines it takes, by [`markdown_lines::reference_definition`].
 fn definition(text: &str, following: &[&str]) -> Option<(String, usize)> {
-    let body = text.trim_start_matches(' ');
-    if text.len() - body.len() > 3 {
-        return None;
-    }
-    let inner = body.strip_prefix('[')?;
-    let mut end = None;
-    let mut escaped = false;
-    for (i, c) in inner.char_indices() {
-        match c {
-            _ if escaped => escaped = false,
-            '\\' => escaped = true,
-            '[' => return None,
-            ']' => {
-                end = Some(i);
-                break;
-            }
-            _ => {}
-        }
-    }
-    let end = end?;
-    let label = &inner[..end];
-    if label.trim().is_empty() || label.chars().count() > 999 {
-        return None;
-    }
-    let label = normalize_label(label);
-    let rest = inner[end + 1..].strip_prefix(':')?.trim();
-    let (dest, lines) = if rest.is_empty() {
-        (
-            following
-                .first()
-                .map(|t| t.trim())
-                .filter(|t| !t.is_empty())?,
-            2,
-        )
-    } else {
-        (rest, 1)
-    };
-    let after = if let Some(inside) = dest.strip_prefix('<') {
-        let close = inside
-            .find(['<', '>'])
-            .filter(|&c| inside[c..].starts_with('>'))?;
-        &inside[close + 1..]
-    } else {
-        &dest[dest.find([' ', '\t']).unwrap_or(dest.len())..]
-    };
-    let more = &following[lines - 1..];
-    if after.trim().is_empty() {
-        // A title may start on the line after the destination.
-        let title = more
-            .split_first()
-            .and_then(|(first, rest)| title_lines(first.trim_start(), rest));
-        return Some((label, lines + title.map_or(0, |n| n + 1)));
-    }
-    if !after.starts_with([' ', '\t']) {
-        return None;
-    }
-    title_lines(after.trim_start(), more).map(|n| (label, lines + n))
-}
-
-/// How many lines of `more` the link title that starts `first` goes on
-/// over, when it is a whole title (`"..."`, `'...'` or `(...)`, with no
-/// blank line inside) with nothing but spaces after it.
-fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
-    let mut chars = first.chars();
-    let close = match chars.next()? {
-        '"' => '"',
-        '\'' => '\'',
-        '(' => ')',
-        _ => return None,
-    };
-    // Whether `line` closes the title; Err when more follows the close.
-    let scan = |line: &str| -> Result<bool, ()> {
-        let mut escaped = false;
-        for (i, c) in line.char_indices() {
-            match c {
-                _ if escaped => escaped = false,
-                '\\' => escaped = true,
-                c if c == close => {
-                    return if line[i + 1..].trim().is_empty() {
-                        Ok(true)
-                    } else {
-                        Err(())
-                    };
-                }
-                _ => {}
-            }
-        }
-        Ok(false)
-    };
-    if scan(chars.as_str()).ok()? {
-        return Some(0);
-    }
-    for (n, line) in more.iter().enumerate() {
-        if line.trim().is_empty() {
-            return None;
-        }
-        if scan(line).ok()? {
-            return Some(n + 1);
-        }
-    }
-    None
+    markdown_lines::reference_definition(text, following)
+        .map(|(label, lines)| (normalize_label(label), lines))
 }
 
 /// The link reference definitions of `content` ([`definition`]): their
@@ -8293,16 +8184,8 @@ fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
 /// blockquote markers and list markers, that does not go on with a
 /// paragraph (a definition cannot interrupt one), or that follows another
 /// definition. The links of [`strip_markdown`] are read against the
-/// labels, and it drops the lines, which the page does not show. Last,
-/// whether each line is a setext heading underline, where definitions
-/// make it read otherwise than [`markdown_lines::item_starts`] does: an
-/// `===` line after them starts a paragraph (no underline), and the
-/// paragraph's own underline is one.
-type Definitions = (
-    std::collections::HashSet<String>,
-    Vec<bool>,
-    Vec<Option<bool>>,
-);
+/// labels, and it drops the lines, which the page does not show.
+type Definitions = (std::collections::HashSet<String>, Vec<bool>);
 
 fn reference_definitions(content: &str) -> Definitions {
     let texts: Vec<Option<String>> = markdown_lines::line_text(content)
@@ -8310,71 +8193,18 @@ fn reference_definitions(content: &str) -> Definitions {
         .collect();
     let mut labels = std::collections::HashSet::new();
     let mut lines = vec![false; texts.len()];
-    let mut underlines = vec![None; texts.len()];
     let mut after_definition = false;
-    // Whether the line is in a paragraph markdown_lines does not see.
-    let mut paragraph = false;
-    // Whether the line before ended that paragraph as a heading.
-    let mut heading_end = false;
     let mut covered = 0;
     let starts: Vec<_> = markdown_lines::item_starts(content).collect();
-    let raws: Vec<&str> = markdown_lines::markdown_lines(content)
-        .map(|(_, l)| l)
-        .collect();
     for (i, start) in starts.iter().enumerate() {
         if i < covered {
             continue;
         }
         let Some(text) = &texts[i] else {
             after_definition = false;
-            paragraph = false;
             continue;
         };
-        // An `===` (or `--`) line after definitions is no setext underline,
-        // since they leave no paragraph to make a heading of: it starts a
-        // paragraph, which goes on until a blank line or a line that
-        // interrupts it (a new list item or blockquote, a heading or a
-        // thematic break).
-        if paragraph
-            && (text.trim().is_empty()
-                || start.text.is_some()
-                || start.footnote.is_some()
-                || markdown_lines::atx_heading(text).is_some()
-                // A `---` line is that paragraph's underline, not a break.
-                || (is_thematic_break(text) && !text.trim_end().ends_with("---"))
-                || i.checked_sub(1)
-                    .is_some_and(|j| quote_depth(raws[i]) > quote_depth(raws[j])))
-        {
-            paragraph = false;
-        }
-        if paragraph {
-            // A setext underline makes that paragraph a heading, which
-            // ends it; a lazy line (one leaving a blockquote) is none.
-            let body = text.trim_start_matches(' ');
-            let mark = body.trim_end();
-            let lazy = quote_depth(raws[i]) < quote_depth(raws[i - 1]);
-            paragraph = lazy
-                || text.len() - body.len() > 3
-                || mark.is_empty()
-                || !(mark.chars().all(|c| c == '=') || mark.chars().all(|c| c == '-'));
-            after_definition = false;
-            heading_end = !paragraph;
-            underlines[i] = Some(heading_end);
-            continue;
-        }
-        // Whether the line before ended that paragraph as a heading, which
-        // markdown_lines reads as a paragraph's first line.
-        let after_heading = std::mem::take(&mut heading_end);
-        if (after_definition || after_heading) && start.underline {
-            // A `---` line is a thematic break there.
-            underlines[i] = Some(false);
-            if !text.trim().starts_with("---") {
-                paragraph = true;
-                after_definition = false;
-                continue;
-            }
-        }
-        let fresh = !start.continues || after_heading;
+        let fresh = !start.continues;
         let found = (fresh || after_definition)
             .then(|| {
                 // The lines that go on with its paragraph.
@@ -8395,36 +8225,7 @@ fn reference_definitions(content: &str) -> Definitions {
             lines[i..covered].fill(true);
         }
     }
-    (labels, lines, underlines)
-}
-
-/// Whether `text` (a line past its containers) is a thematic break: at
-/// most three spaces, then three or more `-`, `*` or `_`, all the same,
-/// with only spaces and tabs between them.
-fn is_thematic_break(text: &str) -> bool {
-    let body = text.trim_start_matches(' ');
-    if text.len() - body.len() > 3 {
-        return false;
-    }
-    let marks: Vec<char> = body.chars().filter(|c| !matches!(c, ' ' | '\t')).collect();
-    marks.len() >= 3 && matches!(marks[0], '-' | '*' | '_') && marks.iter().all(|&c| c == marks[0])
-}
-
-/// How many blockquote markers `line` starts with, each after at most
-/// three spaces.
-fn quote_depth(line: &str) -> usize {
-    let mut depth = 0;
-    let mut rest = line;
-    loop {
-        let body = rest.trim_start_matches(' ');
-        match body.strip_prefix('>') {
-            Some(after) if rest.len() - body.len() <= 3 => {
-                depth += 1;
-                rest = after.strip_prefix(' ').unwrap_or(after);
-            }
-            _ => return depth,
-        }
-    }
+    (labels, lines)
 }
 
 /// Strip inline Markdown from a single (already block-processed) line.

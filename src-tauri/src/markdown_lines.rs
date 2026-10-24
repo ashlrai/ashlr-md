@@ -63,6 +63,13 @@ pub enum LineKind {
 /// micromark reads them. Both used to be text, so a `# x` in a `<div>` was
 /// a heading, a definition after `<!-- c -->` went on with a paragraph,
 /// and a heading or a fence on a footnote's lines was paragraph text.
+///
+/// Link reference definitions alone (`[a]: /u`) leave no paragraph for a
+/// setext underline to make a heading of, so an `===`, `--` or `- ` line
+/// right after them starts a paragraph, which a lone tag (`</u>`) or
+/// indented code after it cannot interrupt, as micromark reads it; a `---`
+/// line there is a thematic break. It used to end the paragraph as an
+/// underline, so a `</u>` after it opened an HTML block.
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
@@ -188,6 +195,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     let mut paragraph: Option<usize> = None;
     // The containers of the paragraph's last line that was not lazy.
     let mut para_list: Vec<Container> = Vec::new();
+    // The paragraph's lines so far, each past its containers.
+    let mut para_text: Vec<String> = Vec::new();
     // The same for indented code, which a blank line does not end.
     let mut indented: Option<usize> = None;
     // Whether the innermost open item has only its marker so far.
@@ -298,7 +307,11 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 // A paragraph goes on in a line that leaves an item without
                 // opening one, or a blockquote (lazy continuation).
                 let lazy = paragraph.is_some() && !interrupts && !opened && matched < open.len();
-                if paragraph == Some(matched) && !opened && setext_underline(rest) {
+                let under = paragraph == Some(matched) && !opened && setext_underline(rest);
+                // Link reference definitions alone leave no paragraph to
+                // make a heading of, as micromark reads them.
+                let definitions = under && definitions_len(&para_text) == para_text.len();
+                if under && !definitions {
                     // A setext underline ends the paragraph as a heading.
                     underline = true;
                     open.truncate(matched);
@@ -309,6 +322,15 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                     // A thematic break ends the containers it is not in.
                     open = list;
                     paragraph = None;
+                    indented = None;
+                    bare = false;
+                } else if definitions {
+                    // The underline starts a paragraph after them
+                    // (`[a]: /u`, then `===`), which a lone tag (`<u>`) or
+                    // indented code after it does not interrupt.
+                    open = list.clone();
+                    para_list = list;
+                    para_text = vec![rest.to_string()];
                     indented = None;
                     bare = false;
                 } else if lazy && block == Some(HtmlEnd::Blank7) {
@@ -392,13 +414,20 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                         let columns = expanded.len() - rest.len() + 4;
                         code = Some(past_columns(line, columns));
                     }
+                    if paragraph.is_none() || fresh {
+                        para_text.clear();
+                    }
                     paragraph = (!heading && !empty && !indented_code).then_some(level);
+                    if paragraph.is_some() {
+                        para_text.push(rest.to_string());
+                    }
                     para_list = list;
                     // Only indented code that closed no container, as the
                     // renderer reads it.
                     indented = (indented_code && !closed).then_some(level);
                 } else {
                     continues_paragraph = true;
+                    para_text.push(rest.to_string());
                 }
             }
         }
@@ -882,6 +911,144 @@ fn continues<'a>(line: &'a str, list: &[Container]) -> Option<&'a str> {
         rest = continue_one(rest, *c)?;
     }
     Some(rest)
+}
+
+/// The label of the link reference definition that `text` (a text line
+/// past its containers) starts, as written, when it is one, with how many
+/// lines it takes; `following` holds the text of the lines after it that go on
+/// with its paragraph. As CommonMark reads one: at most three spaces,
+/// `[label]:` (a label with some text, no unescaped bracket, and not a `^`
+/// footnote), then a destination (`<...>`, or text with no space) on the
+/// line or, with nothing after the colon, on the next line, then
+/// optionally a title in quotes or parentheses, which may start on the
+/// line after the destination and go on over lines, and nothing else. A
+/// line holding more after the title, or after a destination on the next
+/// line, is no definition; more after a title on the next line leaves
+/// that line out of the definition.
+pub fn reference_definition<'a>(text: &'a str, following: &[&str]) -> Option<(&'a str, usize)> {
+    let body = text.trim_start_matches(' ');
+    if text.len() - body.len() > 3 {
+        return None;
+    }
+    let inner = body.strip_prefix('[')?;
+    let mut end = None;
+    let mut escaped = false;
+    for (i, c) in inner.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '[' => return None,
+            ']' => {
+                end = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let end = end?;
+    let label = &inner[..end];
+    if label.trim().is_empty() || label.chars().count() > 999 {
+        return None;
+    }
+    let rest = inner[end + 1..].strip_prefix(':')?.trim();
+    let (dest, lines) = if rest.is_empty() {
+        (
+            following
+                .first()
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())?,
+            2,
+        )
+    } else {
+        (rest, 1)
+    };
+    let after = if let Some(inside) = dest.strip_prefix('<') {
+        let close = inside
+            .find(['<', '>'])
+            .filter(|&c| inside[c..].starts_with('>'))?;
+        &inside[close + 1..]
+    } else {
+        &dest[dest.find([' ', '\t']).unwrap_or(dest.len())..]
+    };
+    let more = &following[lines - 1..];
+    if after.trim().is_empty() {
+        // A title may start on the line after the destination.
+        let title = more
+            .split_first()
+            .and_then(|(first, rest)| title_lines(first.trim_start(), rest));
+        return Some((label, lines + title.map_or(0, |n| n + 1)));
+    }
+    if !after.starts_with([' ', '\t']) {
+        return None;
+    }
+    title_lines(after.trim_start(), more).map(|n| (label, lines + n))
+}
+
+/// How many lines of `more` the link title that starts `first` goes on
+/// over, when it is a whole title (`"..."`, `'...'` or `(...)`, with no
+/// blank line inside) with nothing but spaces after it.
+fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
+    let mut chars = first.chars();
+    let close = match chars.next()? {
+        '"' => '"',
+        '\'' => '\'',
+        '(' => ')',
+        _ => return None,
+    };
+    // Whether `line` closes the title; Err when more follows the close.
+    let scan = |line: &str| -> Result<bool, ()> {
+        let mut escaped = false;
+        for (i, c) in line.char_indices() {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                c if c == close => {
+                    return if line[i + 1..].trim().is_empty() {
+                        Ok(true)
+                    } else {
+                        Err(())
+                    };
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
+    };
+    if scan(chars.as_str()).ok()? {
+        return Some(0);
+    }
+    for (n, line) in more.iter().enumerate() {
+        if line.trim().is_empty() {
+            return None;
+        }
+        if scan(line).ok()? {
+            return Some(n + 1);
+        }
+    }
+    None
+}
+
+/// How many of a paragraph's `lines` (each past its containers) the link
+/// reference definitions at its start take ([`reference_definition`]), as
+/// micromark reads them: one goes on after another, and the first line
+/// that starts none ends them.
+fn definitions_len(lines: &[String]) -> usize {
+    let mut i = 0;
+    while i < lines.len() {
+        let following: Vec<&str> = lines[i + 1..].iter().map(String::as_str).collect();
+        // A definition after another one goes on with its paragraph, which
+        // takes the line's indentation off.
+        let text = if i == 0 {
+            &lines[i]
+        } else {
+            lines[i].trim_start()
+        };
+        match reference_definition(text, &following) {
+            Some((_, n)) => i += n,
+            None => break,
+        }
+    }
+    i
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a

@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An underline after link reference definitions starts a paragraph.** The
+  line rule of the Outline, the headings and `export_text` read an `===`, `--`
+  or `- ` line right after a paragraph of only definitions (`[a]: /u`) as a
+  setext underline, although definitions leave no paragraph to make a heading
+  of. So a `</u>` line after it opened an HTML block that hid the `# Title`
+  below it, and an underline after `[a]: /u` and `Title` took the
+  definition's text into the heading's slug. Both sides now read definitions
+  as micromark does.
 - **`export_metadata` reads no wikilinks or images in code.** Its wikilinks and
   image count were read on every line outside fenced code, so a `[[link]]` or an
   `![image](u)` in indented code or in a code span (`` `[[x]]` ``) was counted,
