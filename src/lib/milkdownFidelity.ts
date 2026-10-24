@@ -61,8 +61,11 @@ import {
   tableHeaderSchema,
 } from "@milkdown/kit/preset/gfm";
 import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
+import { Plugin } from "@milkdown/kit/prose/state";
 import { type MarkdownNode, SerializerState } from "@milkdown/kit/transformer";
+import { $prose } from "@milkdown/kit/utils";
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import { notePendingEdit } from "./pendingEdits";
 
 /** A source range `[start, end)` in the original body. */
 export interface BlockRange {
@@ -1269,12 +1272,30 @@ export const keepInlineLineBreaks: MilkdownPlugin = (ctx) => async () => {
 };
 
 /**
+ * Milkdown plugin: say at once that the editor holds an edit it has not
+ * reported ({@link notePendingEdit}), on every change of its text. The
+ * change report comes 200 ms after the last keystroke, and a window closed
+ * in that time read as having nothing unsaved, so it closed without asking.
+ */
+export const signalPendingEdits: MilkdownPlugin = $prose(
+  () =>
+    new Plugin({
+      view: () => ({
+        update: (view, prev) => {
+          if (!view.state.doc.eq(prev.doc)) notePendingEdit();
+        },
+      }),
+    }),
+);
+
+/**
  * Wire a Crepe editor (before it is created) to save only what was edited:
  * `onChange` gets the body to save on every change, built by
  * {@link sourceKeeper} from `original`, the body the editor was given.
  * Tight bullet lists stay tight ({@link keepTightBulletLists}), empty
  * table cells empty ({@link keepEmptyTableCells}) and an inline `<br>` in
- * the text ({@link keepInlineLineBreaks}).
+ * the text ({@link keepInlineLineBreaks}). Each change is signalled at once
+ * ({@link signalPendingEdits}).
  */
 export function keepSourceOnSave(
   crepe: Crepe,
@@ -1284,7 +1305,8 @@ export function keepSourceOnSave(
   crepe.editor
     .config(keepTightBulletLists)
     .config(keepEmptyTableCells)
-    .use(keepInlineLineBreaks);
+    .use(keepInlineLineBreaks)
+    .use(signalPendingEdits);
   let keep: ((written: string) => string) | null = null;
   let mounted: Ctx | null = null;
   // The tree the last report was of: a flush with nothing new reports

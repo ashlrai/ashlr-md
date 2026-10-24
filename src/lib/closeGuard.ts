@@ -14,6 +14,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type Tab, useDocumentStore } from "../store/documentStore";
+import { flushPendingEdits, onPendingEdit } from "./pendingEdits";
 import { discardBuffers } from "./unsavedBuffers";
 
 export const CLOSE_REQUEST_EVENT = "close-guard://request";
@@ -120,7 +121,11 @@ export async function installCloseGuard(
 ): Promise<() => void> {
   const store = useDocumentStore;
   const deps: CloseGuardDeps = {
-    unsaved: () => unsavedTabs(store.getState()),
+    // What was just typed counts: the editor reports it 200 ms late.
+    unsaved: () => {
+      flushPendingEdits();
+      return unsavedTabs(store.getState());
+    },
     ask: opts.ask ?? askWithDialog,
     save: (tabId) => store.getState().save({ tabId }),
     discard: opts.discard ?? discardBuffers,
@@ -165,8 +170,20 @@ export async function installCloseGuard(
   };
 
   const unsub = store.subscribe(report);
+  // An edit the editor has not reported yet: unsaved, said at once, so a
+  // close in the 200 ms before the report asks the window, which takes the
+  // edit first (deps.unsaved). Rust used to close the window, and the edit
+  // was gone. The next store change says what is true again.
+  const unhear = onPendingEdit(() => {
+    if (reported === true) return;
+    reported = true;
+    invoke("close_guard_set_unsaved", { unsaved: true }).catch(() => {
+      reported = null;
+    });
+  });
   report();
   return () => {
+    unhear();
     unsub();
     unlisten();
     // Nothing answers requests now: let closes go ahead.

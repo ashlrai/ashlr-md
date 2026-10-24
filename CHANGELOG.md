@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Closing right after typing asks to save.** The WYSIWYG editor reports an
+  edit 200 ms after the last keystroke, and the window told the close guard
+  it had unsaved edits only from that report, so closing the window in that
+  time closed it without asking and the edit was gone. Every edit now marks
+  the window unsaved at once, and a close takes the editor's edits before it
+  decides whether to ask.
 - **Recreate never writes over a file that came back.** Saving a tab whose
   file was deleted or moved asks before writing it again, and that write went
   ahead whatever was there by then, so a file back in a form the app cannot

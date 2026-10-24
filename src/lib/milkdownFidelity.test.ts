@@ -50,6 +50,7 @@ import {
   sourceRanges,
   spliceEdited,
 } from "./milkdownFidelity";
+import { onPendingEdit } from "./pendingEdits";
 
 const fixtures = import.meta.glob<string>("./__fixtures__/roundtrip/*.md", {
   query: "?raw",
@@ -277,6 +278,18 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     });
     await settle();
     expect(ed.saved()).toBe(raw);
+  });
+
+  it("says at once that an edit is not reported yet", async () => {
+    // The report comes 200 ms late; the close guard has to know before.
+    const heard = vi.fn();
+    const stop = onPendingEdit(heard);
+    const ed = await open("Para here.\n");
+    heard.mockClear();
+    typeInto(ed.crepe, "Para", 0, "X");
+    expect(heard).toHaveBeenCalled();
+    expect(ed.saved()).toBeNull();
+    stop();
   });
 
   it("is what the serializer writes when the source cannot be mapped", async () => {
