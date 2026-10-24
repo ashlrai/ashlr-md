@@ -208,9 +208,6 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // Render rows with group headers inserted whenever the group changes.
-  let lastGroup: string | null = null;
-
   return (
     <div
       className="cmdk-backdrop"
@@ -260,47 +257,67 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           {rows.length === 0 ? (
             <div className="cmdk-empty">No matching commands</div>
           ) : (
-            rows.map((row, i) => {
-              const header =
-                row.group !== lastGroup ? (
-                  <div className="cmdk-group" key={`g:${row.group}`}>
-                    {row.group}
-                  </div>
-                ) : null;
-              lastGroup = row.group;
-              const selected = i === active;
-              return (
-                <div key={row.key}>
-                  {header}
-                  {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard nav handled by input */}
-                  {/* biome-ignore lint/a11y/useFocusableInteractive: ARIA listbox pattern — focus stays on input via aria-activedescendant */}
-                  <div
-                    id={`cmdk-row-${i}`}
-                    data-index={i}
-                    role="option"
-                    aria-selected={selected}
-                    className={`cmdk-row${selected ? " is-active" : ""}`}
-                    onMouseMove={() => setActive(i)}
-                    onClick={() => runRow(row)}
-                  >
-                    <div className="cmdk-row-main">
-                      <span className="cmdk-row-title">{row.title}</span>
-                      {row.hint && <span className="cmdk-row-hint">{row.hint}</span>}
-                    </div>
-                    {row.shortcut && (
-                      <kbd className="cmdk-row-shortcut">
-                        {formatShortcut(row.shortcut)}
-                      </kbd>
-                    )}
-                  </div>
+            // Each run of rows of one group is a role="group" labelled by its
+            // header: the headers used to be plain divs among the options,
+            // which a listbox may not hold.
+            groupRuns(rows).map((run, g) => (
+              <div
+                key={`g:${run.group}:${run.start}`}
+                role="group"
+                aria-labelledby={`cmdk-group-${g}`}
+              >
+                {/* The group's name is read with the group, not as an item. */}
+                <div className="cmdk-group" id={`cmdk-group-${g}`} aria-hidden="true">
+                  {run.group}
                 </div>
-              );
-            })
+                {run.rows.map((row, j) => {
+                  const i = run.start + j;
+                  const selected = i === active;
+                  return (
+                    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard nav handled by input
+                    // biome-ignore lint/a11y/useFocusableInteractive: ARIA listbox pattern — focus stays on input via aria-activedescendant
+                    <div
+                      key={row.key}
+                      id={`cmdk-row-${i}`}
+                      data-index={i}
+                      role="option"
+                      aria-selected={selected}
+                      className={`cmdk-row${selected ? " is-active" : ""}`}
+                      onMouseMove={() => setActive(i)}
+                      onClick={() => runRow(row)}
+                    >
+                      <div className="cmdk-row-main">
+                        <span className="cmdk-row-title">{row.title}</span>
+                        {row.hint && <span className="cmdk-row-hint">{row.hint}</span>}
+                      </div>
+                      {row.shortcut && (
+                        <kbd className="cmdk-row-shortcut">
+                          {formatShortcut(row.shortcut)}
+                        </kbd>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
       </div>
     </div>
   );
+}
+
+/** Consecutive rows of one group, with the index of the run's first row. */
+export function groupRuns<T extends { group: string }>(
+  rows: T[],
+): { group: string; start: number; rows: T[] }[] {
+  const runs: { group: string; start: number; rows: T[] }[] = [];
+  rows.forEach((row, i) => {
+    const last = runs[runs.length - 1];
+    if (last && last.group === row.group) last.rows.push(row);
+    else runs.push({ group: row.group, start: i, rows: [row] });
+  });
+  return runs;
 }
 
 /** Sort commands by the canonical group order, preserving in-group order. */

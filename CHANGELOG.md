@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Command palette groups are real groups.** The group headings were plain
+  elements among the palette's options, which a list box may not hold. Each
+  group's commands now sit in a group labelled by its heading, so a screen
+  reader names the group once as you move into it.
 - **The tab bar follows the ARIA tabs pattern.** Each tab's close button sat
   inside the tab list, which may hold tabs only, and no tab named the
   document area it shows. The row wrappers are now presentational, the
