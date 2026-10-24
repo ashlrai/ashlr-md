@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Email export: a code block's text is not styled as inline code.** The
+  email profile gave every `<code>` the inline-code style (pink text in a grey
+  box with a border), and as an inline style it beat the stylesheet's
+  `pre code` reset, so each code block showed a box inside its box. The
+  `<code>` of a code block now gets a reset style; inline code is unchanged.
 - **mdopen and the MCP server: a launcher killed by a signal says which.**
   An `xdg-open` (or `gio`, `open`) ended by a signal was reported as having
   "exited with status signal". The message now says it was killed and names

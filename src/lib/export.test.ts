@@ -1451,6 +1451,17 @@ describe("buildExportHtml — email-html profile", () => {
     expect(html).toContain("font-size:28px");
   });
 
+  it("resets the code of a code block instead of giving it the inline-code style", () => {
+    const html = buildExportHtml("email-html");
+    const block = html.match(/<pre[^>]*>\s*<code[^>]*>/i)?.[0] ?? "";
+    expect(block).toContain('class="language-typescript"');
+    expect(block).toContain("background:none");
+    expect(block).not.toContain("#c7254e");
+    expect(block).not.toContain("padding:2px 5px");
+    // Inline code keeps its style.
+    expect(html).toMatch(/<p[^>]*><code style="[^"]*#c7254e[^"]*">inline code<\/code>/);
+  });
+
   it("inlines style attributes on h2 elements", () => {
     const html = buildExportHtml("email-html");
     expect(html).toMatch(/<h2[^>]*style=/i);
