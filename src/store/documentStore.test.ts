@@ -1177,6 +1177,24 @@ describe("documentStore — one file opened by two paths is one tab", () => {
     });
   }
 
+  it("Save As keys the tab by the new file's canonical path", async () => {
+    sameFile((p) => p.replace("/vault/link/", "/real/"));
+    const base = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "write_markdown_file" ? Promise.resolve("v2") : base?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("/vault/a.md");
+    pickMock.mockResolvedValueOnce("/vault/link/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    let s = useDocumentStore.getState();
+    expect(s.tabs[0].key).toBe("/real/b.md");
+    // The same file by its real path is the same tab, not a second one.
+    await useDocumentStore.getState().openPath("/real/b.md");
+    s = useDocumentStore.getState();
+    expect(s.tabs).toHaveLength(1);
+    expect(s.path).toBe("/vault/link/b.md");
+  });
+
   it("switches to the tab of a file opened through a symbolic link", async () => {
     sameFile(() => "/real/notes.md");
     await useDocumentStore.getState().openPath("/vault/notes.md");

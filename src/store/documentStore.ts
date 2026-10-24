@@ -805,10 +805,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const next = { ...s, ...saved, isDirty };
         return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
-      // The tab holds another file now. Its key is the path the dialog gave
-      // (a real path), until a read names its canonical form.
+      // The tab holds another file now, found by its canonical path as a
+      // read names it (fileKey): the path as the dialog gave it was used,
+      // so opening the new file by another path (a symbolic link to its
+      // folder, other case where case is ignored) opened it in a second
+      // tab, whose saves overwrote this one's.
+      let key = dest;
+      try {
+        key = fileKey(await invoke<MarkdownFile>("read_markdown_file", { path: dest }));
+      } catch {
+        // Unreadable just after the write: the path as given will do.
+      }
       set((s) => ({
-        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key: dest } : t)),
+        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {

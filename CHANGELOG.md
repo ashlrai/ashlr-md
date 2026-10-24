@@ -118,6 +118,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Save As keeps one tab per file.** After Save As, the tab was found by the
+  path as the dialog gave it, so opening the new file by another path (through
+  a symbolic link, or in other case on a disk that ignores case) opened it in a
+  second tab, and each tab's saves overwrote the other's. The tab now goes by
+  the new file's real path, as an opened file's does.
 - **Closing the tab of a deleted file asks first.** A tab whose file was
   deleted or moved outside the app, with no edits, closed without a word, and
   its text (then only in the tab) was gone. Closing it now asks: Save As (then
