@@ -38,9 +38,11 @@ import {
   alignBlocks,
   type BlockRange,
   blockStyle,
+  codeBlockText,
   dropEmptyLineBreaks,
   keepSourceOnSave,
   keepSpellings,
+  keepTableLayout,
   listSpread,
   type MdNode,
   type PmNode,
@@ -48,6 +50,7 @@ import {
   sourceRanges,
   spliceEdited,
 } from "./milkdownFidelity";
+import { onPendingEdit } from "./pendingEdits";
 
 const fixtures = import.meta.glob<string>("./__fixtures__/roundtrip/*.md", {
   query: "?raw",
@@ -275,6 +278,18 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     });
     await settle();
     expect(ed.saved()).toBe(raw);
+  });
+
+  it("says at once that an edit is not reported yet", async () => {
+    // The report comes 200 ms late; the close guard has to know before.
+    const heard = vi.fn();
+    const stop = onPendingEdit(heard);
+    const ed = await open("Para here.\n");
+    heard.mockClear();
+    typeInto(ed.crepe, "Para", 0, "X");
+    expect(heard).toHaveBeenCalled();
+    expect(ed.saved()).toBeNull();
+    stop();
   });
 
   it("is what the serializer writes when the source cannot be mapped", async () => {
@@ -564,6 +579,45 @@ describe("sourceRanges / spliceEdited", () => {
     };
     dropEmptyLineBreaks(tree);
     expect(tree.children.map((c) => c.children.length)).toEqual([0, 2, 0]);
+  });
+
+  it("writes an edited code block with its own fence and info string", () => {
+    const code = (src: string, lang: string | null) => ({
+      type: "code",
+      lang,
+      position: { start: { offset: 0 }, end: { offset: src.length } },
+    });
+    const src = '~~~ts title="a.ts"\nold\n~~~~';
+    expect(codeBlockText(src, code(src, "ts"), "ts", "new\nline")).toBe(
+      '~~~ts title="a.ts"\nnew\nline\n~~~~',
+    );
+    // A new language replaces the first word only.
+    expect(codeBlockText(src, code(src, "ts"), "js", "x")).toBe(
+      '~~~js title="a.ts"\nx\n~~~~',
+    );
+    // Code that would close the fence, or an unclosed fence: the serializer's.
+    expect(codeBlockText(src, code(src, "ts"), "ts", "a\n~~~~~\nb")).toBeNull();
+    const open = "```\nnever closed";
+    expect(codeBlockText(open, code(open, null), "", "x")).toBeNull();
+  });
+
+  it("keeps a table's layout where its cells and columns are the same", () => {
+    const source = "|  a | b |\n|---:|:-|\n|  1 | 2 |\n|  3 | 4 |";
+    // A row added: the others keep their padding, the new one is written.
+    const added = "| a | b  |\n| -: | :- |\n| 1 | 2  |\n| 9 | 10 |\n| 3 | 4  |\n";
+    expect(keepTableLayout(added, source)).toBe(
+      "|  a | b |\n|---:|:-|\n|  1 | 2 |\n| 9 | 10 |\n|  3 | 4 |\n",
+    );
+    // A new alignment: the delimiter row is the serializer's.
+    const aligned = "| a | b |\n| :-: | :- |\n| 1 | 2 |\n| 3 | 4 |";
+    expect(keepTableLayout(aligned, source).split("\n")[1]).toBe("| :-: | :- |");
+    // A column added: the serializer's table.
+    const wider = "| a | b | c |\n| -: | :- | - |\n| 1 | 2 | 3 |\n| 3 | 4 | 5 |";
+    expect(keepTableLayout(wider, source)).toBe(wider);
+    // An escaped pipe is no cell boundary; a changed cell keeps its padding.
+    expect(keepTableLayout("| a\\|b | c! |\n| - | - |", "|a\\|b|c|\n|-|-|")).toBe(
+      "|a\\|b|c!|\n|-|-|",
+    );
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {

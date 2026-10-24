@@ -165,6 +165,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../store/toastStore";
 import { copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
+import { ShownExportError } from "./exportErrors";
 import { pickAndOpen } from "./openFile";
 
 const invokeMock = vi.mocked(invoke);
@@ -237,10 +238,10 @@ beforeEach(() => {
   toastSuccessMock.mockReset();
   copyRichTextMock.mockReset().mockResolvedValue(undefined);
   pickAndOpenMock.mockReset().mockResolvedValue(undefined);
-  exportHtmlMock.mockReset().mockResolvedValue(undefined);
+  exportHtmlMock.mockReset().mockResolvedValue(true);
   exportPdfMock.mockReset().mockResolvedValue(undefined);
-  exportDocxMock.mockReset().mockResolvedValue(undefined);
-  exportEpubMock.mockReset().mockResolvedValue(undefined);
+  exportDocxMock.mockReset().mockResolvedValue(true);
+  exportEpubMock.mockReset().mockResolvedValue(true);
   settingsState.epubEnabled = true;
 });
 
@@ -960,6 +961,38 @@ describe("Command execution — delegates fire correctly", () => {
         .find((c) => c.id === "file.export.docx")!
         .run(),
     ).resolves.not.toThrow();
+  });
+
+  it("names the export after the file without its extension", async () => {
+    // The palette passed "notes.md": the save dialog offered notes.md.html
+    // and the page was titled "notes.md".
+    docState.path = "/tmp/notes.md";
+    docState.fileName = "notes.md";
+    try {
+      await getCommands()
+        .find((c) => c.id === "file.export.html")!
+        .run();
+      expect(exportHtmlMock).toHaveBeenCalledWith("notes");
+    } finally {
+      docState.fileName = "test.md";
+    }
+  });
+
+  it("says why an export failed, once", async () => {
+    // An Error's reason was dropped ("Export failed"), and a failed write,
+    // which the export toasts itself, was toasted a second time.
+    docState.path = "/tmp/test.md";
+    const run = () =>
+      getCommands()
+        .find((c) => c.id === "file.export.html")!
+        .run();
+    exportHtmlMock.mockRejectedValueOnce(new Error("html-to-docx exploded"));
+    await run();
+    expect(toastErrorMock).toHaveBeenCalledWith("Export failed: html-to-docx exploded");
+    toastErrorMock.mockClear();
+    exportHtmlMock.mockRejectedValueOnce(new ShownExportError("disk full"));
+    await run();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
   it("file.export.html.run() does nothing when no doc is open", async () => {

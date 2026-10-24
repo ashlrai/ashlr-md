@@ -31,7 +31,13 @@
  * setext heading stays setext (with its underline) and `## x ##` keeps its
  * closing `##`, a block that ends lines with two spaces for a hard break
  * keeps doing so, and `&nbsp;`, `&copy;` and other character references stay
- * as they were written ({@link keepSpellings}).
+ * as they were written ({@link keepSpellings}). An edited code block keeps
+ * its fence (`~~~` or backticks, at its length) and its whole info string
+ * ({@link codeBlockText}), and an indented one stays indented. An edited
+ * table keeps its rows' padding and its delimiter row where they still
+ * hold ({@link keepTableLayout}), a callout its `[!NOTE]` marker
+ * ({@link keepCalloutMarkers}), and a nested list its own marker
+ * ({@link keepNestedMarkers}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -55,8 +61,11 @@ import {
   tableHeaderSchema,
 } from "@milkdown/kit/preset/gfm";
 import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
+import { Plugin } from "@milkdown/kit/prose/state";
 import { type MarkdownNode, SerializerState } from "@milkdown/kit/transformer";
+import { $prose } from "@milkdown/kit/utils";
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import { notePendingEdit } from "./pendingEdits";
 
 /** A source range `[start, end)` in the original body. */
 export interface BlockRange {
@@ -73,6 +82,8 @@ export interface MdNode {
   ordered?: boolean | null;
   /** A heading's level. */
   depth?: number;
+  /** A code block's language (the info string's first word). */
+  lang?: string | null;
 }
 
 /** The parts of a ProseMirror node this module reads. */
@@ -171,13 +182,20 @@ export function sourceRanges(
   tree: MdNode,
   pmCount: number,
   pmTypes?: readonly string[],
+  original?: string,
 ): SourceMap | null {
   const blocks: BlockRange[] = [];
   const nodes: MdNode[] = [];
   const definitions: BlockRange[] = [];
+  const text = typeof original === "string" ? original : "";
   for (const child of tree.children ?? []) {
     const r = range(child);
     if (!r) return null;
+    // A block's range takes in the indentation of its first line: a
+    // position starts after it, so a block written anew (or kept after
+    // one that was) lost it.
+    const lineStart = text.lastIndexOf("\n", r.start - 1) + 1;
+    if (text && /^[ \t]+$/.test(text.slice(lineStart, r.start))) r.start = lineStart;
     if (child.type === "definition") definitions.push(r);
     else {
       blocks.push(r);
@@ -489,7 +507,7 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
     initial.forEach((node) => {
       types.push(node.type.name);
     });
-    map = sourceRanges(tree, initial.childCount, types);
+    map = sourceRanges(tree, initial.childCount, types, original);
   } catch {
     return (written) => written;
   }
@@ -511,8 +529,18 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
           return nodes.length ? serializer(current.copy(Fragment.from(nodes))) : "";
         },
         serializeBlock: (index) => {
-          const node = current.copy(Fragment.from(current.child(index)));
+          const block = current.child(index);
+          const node = current.copy(Fragment.from(block));
           const source = blocks.nodes?.[index];
+          if (source?.type === "code" && block.type.name === "code_block") {
+            const kept = codeBlockText(
+              original,
+              source,
+              String(block.attrs.language ?? ""),
+              block.textContent,
+            );
+            if (kept !== null) return kept;
+          }
           return source ? styled(node, source) : serializer(node);
         },
       });
@@ -523,18 +551,328 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
 }
 
 /**
+ * A code block's text as its source wrote it, with `code` (the editor's
+ * text for it now) in it: the fence (backticks or `~~~`, at its length and
+ * indentation) and the whole info string are kept. The editor's code block
+ * holds only the language, so the serializer wrote every edited block with
+ * backticks and dropped the rest of the info string (`title="a.ts"`). A
+ * changed language replaces the first word of the info string only. An
+ * indented block stays indented ({@link indentedCode}); the serializer
+ * fenced it. Null when the source is no closed fence, or `code` holds a
+ * line that would close it.
+ */
+export function codeBlockText(
+  original: string,
+  node: MdNode,
+  language: string,
+  code: string,
+): string | null {
+  const r = range(node);
+  if (!r || node.type !== "code") return null;
+  // The node's position starts after its indentation (the block's range,
+  // see sourceRanges, takes it in): the fence is written with it.
+  const lineStart = original.lastIndexOf("\n", r.start - 1) + 1;
+  const lead = original.slice(lineStart, r.start);
+  if (!/^ *$/.test(lead)) return null;
+  const lines = original.slice(lineStart, r.end).split("\n");
+  const open = /^( {0,3})(`{3,}|~{3,})([^\r]*)(\r?)$/.exec(lines[0]);
+  if (!open) return indentedCode(lines[0], language, code);
+  if (lines.length < 2) return null;
+  const [, indent, fence, info] = open;
+  const close = lines[lines.length - 1];
+  if (!isClosingFence(close, fence)) return null;
+  const codeLines = code === "" ? [] : code.split("\n");
+  if (codeLines.some((line) => isClosingFence(line, fence))) return null;
+  let opening = lines[0];
+  const lang = node.lang ?? "";
+  if (language !== lang) {
+    // A new language: the first word of the info string changes.
+    if (fence[0] === "`" && language.includes("`")) return null;
+    if (/\s/.test(language)) return null;
+    const rest = info.trim().slice(lang.length).trim();
+    const words = [language, rest].filter((w) => w !== "").join(" ");
+    opening = `${indent}${fence}${words}${open[4]}`;
+  }
+  const body = codeLines.map((line) => (line === "" ? line : indent + line));
+  return [opening, ...body, close].join("\n");
+}
+
+/**
+ * {@link codeBlockText} for an indented code block, whose first line is
+ * `first`: `code` indented as that line is (four spaces or a tab). Null
+ * when it cannot be written so: a language was given it, or it is empty or
+ * starts or ends with a blank line (which indentation cannot hold).
+ */
+function indentedCode(first: string, language: string, code: string): string | null {
+  const indent = /^( {4}|\t)/.exec(first)?.[1];
+  if (!indent || language !== "" || code.trim() === "") return null;
+  const lines = code.split("\n");
+  if (lines[0].trim() === "" || (lines.at(-1) ?? "").trim() === "") return null;
+  return lines.map((line) => (line === "" ? line : indent + line)).join("\n");
+}
+
+/** Whether `line` closes a fence opened with `fence` (same character, as long or longer). */
+function isClosingFence(line: string, fence: string): boolean {
+  const m = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line);
+  return m !== null && m[1][0] === fence[0] && m[1].length >= fence.length;
+}
+
+/**
  * `written` (a block as the serializer wrote it in its {@link blockStyle})
  * with what the settings cannot say put back from the block's source: a
  * setext heading's underline, at its length (the serializer matches the
- * text's, so it changed with every edit).
+ * text's, so it changed with every edit), and a table's layout
+ * ({@link keepTableLayout}).
  */
 export function restyled(written: string, original: string, node: MdNode): string {
   const r = range(node);
-  if (!r || node.type !== "heading") return written;
+  if (!r) return written;
+  if (node.type === "table") {
+    // The block's range starts at its line (see sourceRanges).
+    const lineStart = original.lastIndexOf("\n", r.start - 1) + 1;
+    const lead = original.slice(lineStart, r.start);
+    const from = /^[ \t]*$/.test(lead) ? lineStart : r.start;
+    return keepTableLayout(written, original.slice(from, r.end));
+  }
+  if (node.type !== "heading") return written;
   const underline = /\n( {0,3}([=-])\2*[ \t]*)$/.exec(original.slice(r.start, r.end));
   const out = /\n([=-])\1*(\n*)$/.exec(written);
   if (!underline || !out || underline[2] !== out[1]) return written;
   return `${written.slice(0, out.index)}\n${underline[1]}${out[2]}`;
+}
+
+/** A table row's cells as written, between its pipes. */
+interface TableRow {
+  /** Whitespace before the row. */
+  indent: string;
+  /** Whether the row starts and ends with a pipe. */
+  lead: boolean;
+  trail: boolean;
+  /** Each cell's text, padding included. */
+  cells: string[];
+}
+
+/** `line` (a table row) split at its unescaped pipes. */
+function tableRow(line: string): TableRow {
+  const indent = /^[ \t]*/.exec(line)?.[0] ?? "";
+  let rest = line.slice(indent.length).replace(/\r$/, "");
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (ch === "\\" && i + 1 < rest.length) {
+      cell += ch + rest[i + 1];
+      i++;
+    } else if (ch === "|") {
+      cells.push(cell);
+      cell = "";
+    } else cell += ch;
+  }
+  cells.push(cell);
+  rest = rest.trim();
+  const lead = rest.startsWith("|");
+  const trail = rest.length > 1 && rest.endsWith("|") && !rest.endsWith("\\|");
+  if (lead) cells.shift();
+  if (trail) cells.pop();
+  return { indent, lead, trail, cells };
+}
+
+/** A delimiter row's alignment, one per column (null: not a delimiter row). */
+function alignments(row: TableRow): string[] | null {
+  const out: string[] = [];
+  for (const cell of row.cells) {
+    const m = /^(:?)-+(:?)$/.exec(cell.trim());
+    if (!m) return null;
+    out.push(`${m[1]}${m[2]}`);
+  }
+  return out;
+}
+
+/** The row's cell texts, without their padding. */
+function cellTexts(row: TableRow): string[] {
+  return row.cells.map((c) => c.trim());
+}
+
+/**
+ * `written` (a table as the serializer wrote it) laid out as `source` (the
+ * table as loaded) was: a row whose cells are the same is the source's row
+ * as it was, a changed row keeps the source's padding in its unchanged
+ * cells, and the delimiter row is kept while the columns and their
+ * alignment are. The serializer padded every column to its widest cell, so
+ * typing one character in a cell re-padded the whole table. When the
+ * number of columns changed, `written` is the table.
+ */
+export function keepTableLayout(written: string, source: string): string {
+  const body = written.replace(/\n+$/, "");
+  const end = written.slice(body.length);
+  const wl = body.split("\n");
+  const sl = source.replace(/\r?\n$/, "").split(/\r?\n/);
+  if (wl.length < 2 || sl.length < 2) return written;
+  const ws = wl.map(tableRow);
+  const ss = sl.map(tableRow);
+  const columns = ws[0].cells.length;
+  if (ss[0].cells.length !== columns) return written;
+  const wAlign = alignments(ws[1]);
+  const sAlign = alignments(ss[1]);
+  if (!wAlign || !sAlign || sAlign.length !== columns) return written;
+  const same = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x, i) => x === b[i]);
+  const line = (w: number, s: number | null): string => {
+    if (s === null) return wl[w];
+    const wt = cellTexts(ws[w]);
+    const st = cellTexts(ss[s]);
+    if (same(wt, st)) return sl[s].replace(/\r$/, "");
+    const src = ss[s];
+    const cells = wt.map((_, j) => {
+      if (j < st.length && wt[j] === st[j]) return src.cells[j];
+      // A changed cell keeps the spaces either side of its text.
+      const was = j < src.cells.length ? src.cells[j] : "";
+      if (wt[j] === "" || was.trim() === "") return wt[j] === "" ? " " : ` ${wt[j]} `;
+      const pad = /^(\s*)[\s\S]*?(\s*)$/.exec(was) as RegExpExecArray;
+      return `${pad[1]}${wt[j]}${pad[2]}`;
+    });
+    // Without a leading pipe, an empty first cell would not be one.
+    if (!src.lead && wt[0] === "") return wl[w];
+    return `${src.indent}${src.lead ? "|" : ""}${cells.join("|")}${src.trail ? "|" : ""}`;
+  };
+  const out = [line(0, 0)];
+  out.push(same(wAlign, sAlign) ? sl[1].replace(/\r$/, "") : wl[1]);
+  // Body rows: paired in order when there are as many, else each with
+  // the first unused source row that reads the same.
+  const used = new Set<number>();
+  for (let w = 2; w < wl.length; w++) {
+    let s: number | null = null;
+    if (wl.length === sl.length) s = w;
+    else {
+      const wt = cellTexts(ws[w]);
+      for (let i = 2; i < sl.length; i++) {
+        if (!used.has(i) && same(wt, cellTexts(ss[i]))) {
+          s = i;
+          break;
+        }
+      }
+    }
+    if (s !== null) used.add(s);
+    out.push(line(w, s));
+  }
+  return out.join("\n") + end;
+}
+
+/**
+ * The marker of the list `node` and of each list in it, in document order
+ * (the list first): `-`, `+` or `*` for a bullet list, `.` or `)` for an
+ * ordered one, "" when it cannot be read.
+ */
+export function listMarkers(original: string, node: MdNode): string[] {
+  const out: string[] = [];
+  const walk = (n: MdNode) => {
+    if (n.type === "list") {
+      const first = n.children?.[0];
+      const r = first ? range(first) : null;
+      const text = r ? original.slice(r.start, r.end) : "";
+      const m = n.ordered ? /^\d{1,9}([.)])/.exec(text)?.[1] : /^[-+*]/.exec(text)?.[0];
+      out.push(m ?? "");
+    }
+    for (const kid of n.children ?? []) walk(kid);
+  };
+  walk(node);
+  return out;
+}
+
+/** The node type {@link keepNestedMarkers} wraps a nested list in. */
+const LIST_SCOPE = "mdListScope";
+
+/** The parts of mdast-util-to-markdown's state {@link writeListScope} uses. */
+interface ToMarkdownState {
+  options: Record<string, unknown>;
+  handle: (node: unknown, parent: unknown, state: unknown, info: unknown) => string;
+}
+
+/**
+ * Write a {@link LIST_SCOPE} node: its list, with its own marker as the
+ * serializer's setting while it is written.
+ */
+function writeListScope(
+  node: { marker: string; children: unknown[] },
+  parent: unknown,
+  state: ToMarkdownState,
+  info: unknown,
+): string {
+  const o = state.options;
+  const saved = {
+    bullet: o.bullet,
+    bulletOther: o.bulletOther,
+    bulletOrdered: o.bulletOrdered,
+  };
+  if (node.marker === "." || node.marker === ")") o.bulletOrdered = node.marker;
+  else {
+    o.bullet = node.marker;
+    o.bulletOther = node.marker === "-" ? "*" : "-";
+  }
+  try {
+    return state.handle(node.children[0], parent, state, info);
+  } finally {
+    Object.assign(o, saved);
+  }
+}
+
+/**
+ * Give each list nested in `tree` (one list block, as the serializer will
+ * write it) its marker from `markers` ({@link listMarkers} of its source),
+ * when the block holds as many lists as its source did: the marker is one
+ * setting for the whole block, so `- a` with `* b` nested in it was saved
+ * as `- a` with `- b`. Each nested list is wrapped in a {@link LIST_SCOPE}
+ * node that sets it while the list is written.
+ */
+export function keepNestedMarkers(tree: unknown, markers: string[]): void {
+  const lists: { parent: SpelledNode; index: number }[] = [];
+  const walk = (node: SpelledNode) => {
+    (node.children ?? []).forEach((kid, index) => {
+      if (kid.type === "list") lists.push({ parent: node, index });
+      walk(kid);
+    });
+  };
+  walk(tree as SpelledNode);
+  if (lists.length !== markers.length) return;
+  // The first is the block's own list, written with the block's style.
+  for (let i = lists.length - 1; i > 0; i--) {
+    const { parent, index } = lists[i];
+    const marker = markers[i];
+    const children = parent.children as SpelledNode[];
+    if (marker === "") continue;
+    children[index] = { type: LIST_SCOPE, marker, children: [children[index]] };
+  }
+}
+
+/**
+ * Keep a GitHub callout marker (`> [!NOTE]`, `> [!WARNING] Title`) that
+ * starts a blockquote in `tree` unescaped, when `source` wrote it so: the
+ * serializer escaped its `[`, so an edited callout was saved as
+ * `> \[!NOTE]` and showed as a plain quote. The marker is put in as raw
+ * text (an `html` node).
+ */
+export function keepCalloutMarkers(tree: unknown, source: string): void {
+  const walk = (node: SpelledNode) => {
+    for (const kid of node.children ?? []) walk(kid);
+    if (node.type !== "blockquote") return;
+    const para = node.children?.[0];
+    const first = para?.type === "paragraph" ? para.children?.[0] : undefined;
+    if (!para?.children || first?.type !== "text" || typeof first.value !== "string") {
+      return;
+    }
+    const m = /^\[![A-Za-z]+\]/.exec(first.value);
+    if (!m) return;
+    const at = source.indexOf(m[0]);
+    if (at === -1 || source[at - 1] === "\\") return;
+    const rest = first.value.slice(m[0].length);
+    para.children.splice(
+      0,
+      1,
+      { type: "html", value: m[0] },
+      ...(rest ? [{ type: "text", value: rest }] : []),
+    );
+  };
+  walk(tree as SpelledNode);
 }
 
 /** The parts of an mdast node {@link keepSpellings} reads and writes. */
@@ -542,6 +880,8 @@ interface SpelledNode {
   type: string;
   value?: string;
   url?: string;
+  /** A {@link LIST_SCOPE} node's. */
+  marker?: string;
   children?: SpelledNode[];
 }
 
@@ -756,13 +1096,26 @@ function styledSerializer(
       const remark = ctx.get(remarkCtx) as unknown as Processor;
       const settings = (remark.data("settings") ?? {}) as Record<string, unknown>;
       processor = remark().data("settings", { ...settings, ...style });
+      // An extension, as the options the editor gave remark-stringify
+      // replace the settings' handlers.
+      const extensions = (remark.data("toMarkdownExtensions") ?? []) as unknown[];
+      processor.data("toMarkdownExtensions", [
+        ...extensions,
+        { handlers: { [LIST_SCOPE]: writeListScope } },
+      ]);
       copies.set(key, processor);
     }
     const state = new SerializerState(ctx.get(schemaCtx));
     state.run(doc);
     const tree: MarkdownNode = state.build();
     const r = range(source);
-    if (r) keepSpellings(tree, original.slice(r.start, r.end));
+    if (r) {
+      const text = original.slice(r.start, r.end);
+      keepSpellings(tree, text);
+      keepCalloutMarkers(tree, text);
+      if (source.type === "list")
+        keepNestedMarkers(tree, listMarkers(original, source));
+    }
     return restyled(processor.stringify(tree), original, source);
   };
 }
@@ -919,12 +1272,30 @@ export const keepInlineLineBreaks: MilkdownPlugin = (ctx) => async () => {
 };
 
 /**
+ * Milkdown plugin: say at once that the editor holds an edit it has not
+ * reported ({@link notePendingEdit}), on every change of its text. The
+ * change report comes 200 ms after the last keystroke, and a window closed
+ * in that time read as having nothing unsaved, so it closed without asking.
+ */
+export const signalPendingEdits: MilkdownPlugin = $prose(
+  () =>
+    new Plugin({
+      view: () => ({
+        update: (view, prev) => {
+          if (!view.state.doc.eq(prev.doc)) notePendingEdit();
+        },
+      }),
+    }),
+);
+
+/**
  * Wire a Crepe editor (before it is created) to save only what was edited:
  * `onChange` gets the body to save on every change, built by
  * {@link sourceKeeper} from `original`, the body the editor was given.
  * Tight bullet lists stay tight ({@link keepTightBulletLists}), empty
  * table cells empty ({@link keepEmptyTableCells}) and an inline `<br>` in
- * the text ({@link keepInlineLineBreaks}).
+ * the text ({@link keepInlineLineBreaks}). Each change is signalled at once
+ * ({@link signalPendingEdits}).
  */
 export function keepSourceOnSave(
   crepe: Crepe,
@@ -934,7 +1305,8 @@ export function keepSourceOnSave(
   crepe.editor
     .config(keepTightBulletLists)
     .config(keepEmptyTableCells)
-    .use(keepInlineLineBreaks);
+    .use(keepInlineLineBreaks)
+    .use(signalPendingEdits);
   let keep: ((written: string) => string) | null = null;
   let mounted: Ctx | null = null;
   // The tree the last report was of: a flush with nothing new reports

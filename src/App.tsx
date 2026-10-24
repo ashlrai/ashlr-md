@@ -160,6 +160,18 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
+  // The open file was renamed on disk (where the platform reports both
+  // names): the tab follows it, where it used to read as gone.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      unlisten = await listen<{ from: string; to: string }>("file-renamed", (e) => {
+        void useDocumentStore.getState().followRename(e.payload.from, e.payload.to);
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+
   // Check for updates shortly after launch (no-op in dev / offline).
   useEffect(() => {
     const t = setTimeout(() => {

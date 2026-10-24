@@ -128,6 +128,101 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The PDF waits for its fonts.** The print frame was printed 150 ms after
+  it loaded, whatever was still loading, so a PDF's math could come out in
+  fallback fonts. It now waits for the frame's fonts (up to 3 seconds).
+- **An export picked without an extension gets one.** The Linux save dialogs
+  do not add the extension, so an export saved as `report` was a file named
+  `report` that no app opened as HTML, Word or EPUB. The format's extension
+  is now added (`report.html`); as the dialog asked about `report`, not
+  `report.html`, a file already there under the new name is not replaced.
+- **Math in HTML and PDF exports uses KaTeX's fonts.** The exported page
+  inlined KaTeX's stylesheet, whose fonts are links (`fonts/KaTeX_Main-Regular.woff2`)
+  that resolved next to the exported file, or in the app for the PDF, where
+  no such files are. Every formula was set in fallback fonts, with misdrawn
+  roots, brackets and large operators. When the document has math, the
+  export now carries the fonts in the page (WOFF2, about 300 KB), so it is
+  still one offline file.
+- **Exports wait for Mermaid diagrams.** A diagram is drawn once mermaid has
+  loaded, and an export taken before then (always, from the palette in Edit
+  view, which switches to Read view just before) held an empty block where
+  the diagram goes. Exports now wait for diagrams as they do for images, up
+  to the same 5 seconds, and a diagram still not drawn is exported as its
+  Mermaid source in a code block.
+- **A cancelled export is not reported as done.** Cancelling the save dialog
+  of an HTML, Word, EPUB, Notion, Slack or email export left the Export
+  dialog saying "HTML exported." and closing it, though nothing was written.
+  It now stays open with no status.
+- **Export failures say why, once.** An export from the command palette that
+  failed with an error (not a plain message) toasted only "Export failed",
+  without the reason, and a failed write was toasted twice, by the export and
+  again by the palette (or by the MCP export, as "MCP export failed"). The
+  reason is now always shown, and a failed write is toasted once.
+- **Exports from the command palette are named after the document.** "Export
+  as HTML/PDF/Word/EPUB" in the palette passed the file name with its
+  extension, so the save dialog offered `notes.md.html` and a document
+  without a front matter `title` was titled "notes.md". They now strip the
+  extension as the Export dialog and the MCP export do (`notes.html`).
+- **Closing right after typing asks to save.** The WYSIWYG editor reports an
+  edit 200 ms after the last keystroke, and the window told the close guard
+  it had unsaved edits only from that report, so closing the window in that
+  time closed it without asking and the edit was gone. Every edit now marks
+  the window unsaved at once, and a close takes the editor's edits before it
+  decides whether to ask.
+- **Recreate never writes over a file that came back.** Saving a tab whose
+  file was deleted or moved asks before writing it again, and that write went
+  ahead whatever was there by then, so a file back in a form the app cannot
+  read (not UTF-8, too large, not a regular file) was replaced by the tab's
+  text. A recreate is now refused when anything is at the path: a readable
+  file is offered in the banner as a change on disk, and an unreadable one is
+  refused with the reason ("a file is there again but cannot be read"),
+  pointing to Save As.
+- **A recovered tab is watched.** Unsaved text reopened for a file that could
+  not be opened at launch was never watched, so when the file came back (a
+  sync client caught up, a drive was mounted again) the tab still read as
+  gone. It is watched as an opened file is: the file coming back clears the
+  missing banner and its text is offered against the kept text.
+- **A file renamed on disk is followed.** Renaming the open file in another
+  app (or `mv` in a terminal) read as the file being deleted: the tab was
+  flagged missing and Save offered to recreate the old name. Where the system
+  reports both names (Linux, and Windows), the tab now takes the new path and
+  name, keeps any unsaved text, and is watched there; a toast says so. On
+  macOS, and for a move to another folder, the tab is still flagged missing.
+- **A file that cannot be watched is said so.** When watching the open file
+  for changes made in other apps failed (its folder gone, the system's watch
+  limit reached), the watch of the file shown before was kept and the
+  failure was dropped, so changes on disk went unnoticed without a word. The
+  old watch is now dropped first, and the window shows "Changes made to ...
+  outside Ashlr MD will not be noticed" with the reason.
+- **The table wizard inserts a table.** Insert in the WYSIWYG table wizard
+  (⌘⇧T outside a table) typed the table's Markdown into the document as
+  text, so it showed as a paragraph of pipes and was saved with every pipe
+  escaped. It now inserts a real table after the cursor's block (or in
+  place of an empty line).
+- **A nested list keeps its own marker.** The list marker is one setting for
+  the whole edited list, so typing in `- a` with `* b` nested under it saved
+  the nested list as `- b`, and a `1)` list nested in a `1.` list became
+  `1.`. Each nested list is now written with the marker its source used.
+- **An edited callout stays a callout.** Typing in a GitHub callout
+  (`> [!NOTE]`, `> [!WARNING] Title`) in the WYSIWYG editor saved its marker
+  as `> \[!NOTE]`, so it showed as a plain quote from then on. The marker is
+  kept as written.
+- **An edited table keeps its layout.** Typing one character in a table cell
+  in the WYSIWYG editor re-padded every column of the table to its widest
+  cell. Rows whose cells did not change are now kept as written, a changed
+  row keeps the padding of its other cells (and of the changed one), and the
+  delimiter row (`|:--|--:|`) is kept while the columns and their alignment
+  are the same. A table without outer pipes stays without them.
+- **An edited indented code block stays indented.** Typing in a code block
+  written with four spaces (or a tab) in the WYSIWYG editor saved it as a
+  backtick fence. It is written indented as it was, unless a language was
+  picked for it.
+- **An edited code block keeps its fence and info string.** The WYSIWYG
+  editor's code block holds only the language, so typing in a block fenced
+  with `~~~` wrote it with backticks, and an info string such as
+  ```` ```ts title="a.ts" ```` lost everything after the language. The block's
+  own opening and closing fence lines are kept (a changed language replaces
+  only the first word), and an indented fence keeps its indentation.
 - **What was just typed in the WYSIWYG view is never dropped.** The editor
   reports a change 200 ms after the last keystroke, and drops the report
   when it closes. A change on disk in that time (a sync client, an agent)

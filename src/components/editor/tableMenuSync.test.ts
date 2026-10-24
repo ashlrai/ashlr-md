@@ -132,4 +132,22 @@ describe("WYSIWYG editor: the table menu", () => {
       afterMenu.replace("Outro text.", "New Outro text."),
     );
   });
+  it("the wizard inserts a real table, not its Markdown as text", async () => {
+    // It inserted `| Header 1 | ...` as typed text: a paragraph that the
+    // editor saved with every pipe escaped.
+    const v = await mount("Intro text.\n\nOutro text.\n");
+    await openMenuAt(v, "Intro text.");
+    const insert = [
+      ...host.querySelectorAll<HTMLButtonElement>(".table-wizard-btn"),
+    ].find((b) => b.textContent === "Insert");
+    expect(insert).toBeDefined();
+    await act(async () => insert?.click());
+    expect(v.state.doc.child(1).type.name).toBe("table");
+    expect(v.state.doc.child(2).textContent).toBe("Outro text.");
+    await wait(400);
+    const saved = useDocumentStore.getState().content;
+    expect(saved).not.toContain("\\|");
+    expect(saved).toMatch(/^Intro text\.\n\n\|.*\|\n\| *:?-+/);
+    expect(saved.endsWith("\n\nOutro text.\n")).toBe(true);
+  });
 });

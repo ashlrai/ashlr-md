@@ -40,6 +40,7 @@ import {
   installCloseGuard,
   unsavedTabs,
 } from "./closeGuard";
+import { notePendingEdit, registerPendingEdits } from "./pendingEdits";
 
 function tab(id: string, over: Partial<Tab> = {}): Tab {
   return {
@@ -275,6 +276,33 @@ describe("installCloseGuard", () => {
       ["close_guard_resolve", { id: 2, close: true }],
     ]);
     stop();
+  });
+
+  it("an edit the editor has not reported yet counts", async () => {
+    // A close within 200 ms of a keystroke (before the editor's report)
+    // found nothing unsaved: Rust closed the window and the edit was lost.
+    messageMock.mockResolvedValue("Cancel");
+    const stop = await installCloseGuard();
+    const unregister = registerPendingEdits(() =>
+      useDocumentStore.getState().setContent("typed"),
+    );
+    try {
+      expect(calls("close_guard_set_unsaved").at(-1)?.[1]).toEqual({ unsaved: false });
+      // The keystroke: said to Rust at once, before any report.
+      notePendingEdit();
+      expect(calls("close_guard_set_unsaved").at(-1)?.[1]).toEqual({ unsaved: true });
+      // The request: the window takes the edit, and asks.
+      handler?.({ payload: 3 });
+      await flush();
+      await flush();
+      expect(messageMock).toHaveBeenCalledOnce();
+      expect(calls("close_guard_resolve")).toEqual([
+        ["close_guard_resolve", { id: 3, close: false }],
+      ]);
+    } finally {
+      unregister();
+      stop();
+    }
   });
 
   it("does not report unsaved state when it cannot listen", async () => {

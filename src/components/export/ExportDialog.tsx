@@ -6,6 +6,7 @@ import {
   exportPdf,
   exportWithProfile,
 } from "../../lib/export";
+import { exportTitle } from "../../lib/exportName";
 import { isDismissEscape } from "../../lib/keymap";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useDocumentStore } from "../../store/documentStore";
@@ -197,8 +198,7 @@ export function ExportDialog() {
   const exportFormat = useUiStore((s) => s.exportFormat);
   const fileName = useDocumentStore((s) => s.fileName);
   const epubEnabled = useSettingsStore((s) => s.epubEnabled);
-  // Strip extension for use as the export title.
-  const title = fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+  const title = exportTitle(fileName);
 
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
   const busy = status.kind === "busy";
@@ -242,10 +242,15 @@ export function ExportDialog() {
   // Toasts (success / failure) are emitted by the export functions themselves
   // (src/lib/export.ts) so the command-palette export paths get them too; the
   // dialog just drives its own inline status + auto-close.
-  async function run(label: string, fn: () => Promise<void>): Promise<void> {
+  async function run(label: string, fn: () => Promise<unknown>): Promise<void> {
     setStatus({ kind: "busy", label: `Exporting ${label}…` });
     try {
-      await fn();
+      // False: the save dialog was cancelled, and nothing was exported. It
+      // used to say "exported" and close.
+      if ((await fn()) === false) {
+        setStatus({ kind: "idle" });
+        return;
+      }
       setStatus({ kind: "ok", label: `${label} exported.` });
       // Auto-close after a short success pause.
       setTimeout(close, 1200);

@@ -168,24 +168,59 @@ pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
 /// on), the save is refused when the file on disk changed since
 /// ([`SAVE_CONFLICT_TAG`]) or is gone ([`SAVE_MISSING_TAG`]): it used to be
 /// overwritten, so a change another app made while the tab was open was lost
-/// without a word. Without it (an export, or a recreate the user confirmed)
-/// the file is written whatever is there. Returns the version of what was
-/// written, the baseline for the next save.
+/// without a word. Without it (a Save As the dialog asked about) the file is
+/// written whatever is there. With `recreate` (the user confirmed writing a
+/// file that was gone again) it is written only if nothing is there
+/// ([`refuse_existing`]). Returns the version of what was written, the
+/// baseline for the next save.
 #[tauri::command]
 pub fn write_markdown_file(
     path: String,
     content: String,
     expected: Option<String>,
+    recreate: Option<bool>,
 ) -> Result<String, String> {
     let target =
         link_target(Path::new(&path)).map_err(|e| format!("Could not save {path}: {e}"))?;
     if let Some(expected) = expected.as_deref() {
         check_unchanged(&target, expected, &path)?;
     }
+    if recreate == Some(true) {
+        refuse_existing(&target, &path)?;
+    }
     let version = content_version(&content);
     write_document(&target.to_string_lossy(), content)
         .map_err(|e| e.replace(&*target.to_string_lossy(), &path))?;
     Ok(version)
+}
+
+/// Refuse to recreate `target` when something is there again. A file that
+/// can be read is a change on disk ([`SAVE_CONFLICT_TAG`]: the frontend
+/// offers its text); one that cannot (not UTF-8, too large, not a regular
+/// file, no permission) is refused with the reason. A confirmed recreate
+/// used to write whatever was there, so a file that had come back in a form
+/// the app cannot read was replaced by the tab's text without a word.
+fn refuse_existing(target: &Path, shown: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(target) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "Could not save {shown}: could not check whether a file is there again ({e}), so \
+             nothing was written"
+        )),
+        Ok(_) => match crate::doc_read::read_document_following(
+            target,
+            crate::doc_read::MAX_DOCUMENT_BYTES,
+        ) {
+            Ok(_) => Err(format!(
+                "Could not save {shown}: a file is there again, so it was not overwritten \
+                 {SAVE_CONFLICT_TAG}"
+            )),
+            Err(e) => Err(format!(
+                "Could not save {shown}: a file is there again but cannot be read ({e}), so it \
+                 was not overwritten. Use Save As to keep this text elsewhere."
+            )),
+        },
+    }
 }
 
 /// `path`, or when it is a symbolic link the file it points to (resolved
@@ -1191,7 +1226,7 @@ mod tests {
         let planted = root.join("notes.md.mdopener.tmp");
         std::os::unix::fs::symlink(&outside, &planted).unwrap();
 
-        write_markdown_file(s(&doc), "new".into(), None).unwrap();
+        write_markdown_file(s(&doc), "new".into(), None, None).unwrap();
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
         assert!(!std::fs::symlink_metadata(&doc)
             .unwrap()
@@ -1227,7 +1262,7 @@ mod tests {
         let doc = root.join("private.md");
         std::fs::write(&doc, "old").unwrap();
         std::fs::set_permissions(&doc, std::fs::Permissions::from_mode(0o600)).unwrap();
-        write_markdown_file(s(&doc), "new".into(), None).unwrap();
+        write_markdown_file(s(&doc), "new".into(), None, None).unwrap();
         let mode = std::fs::metadata(&doc).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "{mode:o}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "new");
@@ -1258,7 +1293,7 @@ mod tests {
         let link2 = root.join("again.md");
         std::os::unix::fs::symlink(&link, &link2).unwrap();
 
-        write_markdown_file(s(&link2), "new".into(), None).unwrap();
+        write_markdown_file(s(&link2), "new".into(), None, None).unwrap();
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
         for l in [&link, &link2] {
             assert!(std::fs::symlink_metadata(l)
@@ -1281,7 +1316,7 @@ mod tests {
         // A link to nothing is refused, not replaced.
         let dangling = root.join("gone.md");
         std::os::unix::fs::symlink(root.join("missing.md"), &dangling).unwrap();
-        let err = write_markdown_file(s(&dangling), "x".into(), None).unwrap_err();
+        let err = write_markdown_file(s(&dangling), "x".into(), None, None).unwrap_err();
         assert!(err.contains("symbolic link"), "{err}");
         assert!(err.contains("gone.md"), "{err}");
         assert!(std::fs::symlink_metadata(&dangling)
@@ -1296,9 +1331,37 @@ mod tests {
         std::fs::write(cfg.join("app.json"), "{}").unwrap();
         let sneaky = root.join("settings.md");
         std::os::unix::fs::symlink(cfg.join("app.json"), &sneaky).unwrap();
-        let err = write_markdown_file(s(&sneaky), "x".into(), None).unwrap_err();
+        let err = write_markdown_file(s(&sneaky), "x".into(), None, None).unwrap_err();
         assert!(err.contains(".obsidian"), "{err}");
         assert_eq!(std::fs::read_to_string(cfg.join("app.json")).unwrap(), "{}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A confirmed recreate wrote over whatever was there: a file that had
+    /// come back, readable or not (here not UTF-8), was replaced.
+    #[test]
+    fn a_recreate_never_writes_over_a_file_that_is_there_again() {
+        let root = std::env::temp_dir().join(format!("md-recreate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let doc = root.join("n.md");
+
+        let unreadable = [0xffu8, 0xfe, 0x00, 0x41];
+        std::fs::write(&doc, unreadable).unwrap();
+        let err = write_markdown_file(s(&doc), "tab".into(), None, Some(true)).unwrap_err();
+        assert!(err.contains("cannot be read"), "{err}");
+        assert!(!err.contains(SAVE_CONFLICT_TAG), "{err}");
+        assert_eq!(std::fs::read(&doc).unwrap(), unreadable);
+
+        std::fs::write(&doc, "back").unwrap();
+        let err = write_markdown_file(s(&doc), "tab".into(), None, Some(true)).unwrap_err();
+        assert!(err.contains(SAVE_CONFLICT_TAG), "{err}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "back");
+
+        // Still gone: written.
+        std::fs::remove_file(&doc).unwrap();
+        write_markdown_file(s(&doc), "tab".into(), None, Some(true)).unwrap();
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "tab");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1312,7 +1375,7 @@ mod tests {
         let mut perms = std::fs::metadata(&doc).unwrap().permissions();
         perms.set_readonly(true);
         std::fs::set_permissions(&doc, perms).unwrap();
-        let err = write_markdown_file(s(&doc), "new".into(), None).unwrap_err();
+        let err = write_markdown_file(s(&doc), "new".into(), None, None).unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
         let err = crate::export::write_export_file(&s(&doc), b"PK").unwrap_err();
@@ -1338,7 +1401,7 @@ mod tests {
         let cfg = root.join(".obsidian");
         std::fs::create_dir_all(&cfg).unwrap();
         let target = cfg.join("app.json");
-        let err = write_markdown_file(s(&target), "{}".into(), None).unwrap_err();
+        let err = write_markdown_file(s(&target), "{}".into(), None, None).unwrap_err();
         assert!(err.contains(".obsidian"), "got: {err}");
         assert!(!target.exists(), "must not have written the file");
     }
@@ -1568,7 +1631,7 @@ mod tests {
         let link = root.join("cfg");
         std::os::unix::fs::symlink(&cfg, &link).unwrap();
         let target = link.join("app.json");
-        let err = write_markdown_file(s(&target), "{}".into(), None).unwrap_err();
+        let err = write_markdown_file(s(&target), "{}".into(), None, None).unwrap_err();
         assert!(err.contains(".obsidian"), "got: {err}");
     }
 
@@ -1585,22 +1648,23 @@ mod tests {
 
         // Unchanged (and only touched): saved, and the new version returned.
         std::fs::write(&doc, "v0").unwrap();
-        let v1 = write_markdown_file(s(&doc), "v1".into(), Some(read.version.clone())).unwrap();
+        let v1 =
+            write_markdown_file(s(&doc), "v1".into(), Some(read.version.clone()), None).unwrap();
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "v1");
         assert_eq!(v1, read_markdown_file(s(&doc)).unwrap().version);
 
         // Another app writes; a save based on the old read is refused.
         std::fs::write(&doc, "theirs").unwrap();
-        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1.clone())).unwrap_err();
+        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1.clone()), None).unwrap_err();
         assert!(err.contains(SAVE_CONFLICT_TAG), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "theirs");
 
         // Gone: refused, not recreated, until the caller drops the check.
         std::fs::remove_file(&doc).unwrap();
-        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1)).unwrap_err();
+        let err = write_markdown_file(s(&doc), "mine".into(), Some(v1), None).unwrap_err();
         assert!(err.contains(SAVE_MISSING_TAG), "{err}");
         assert!(!doc.exists());
-        write_markdown_file(s(&doc), "mine".into(), None).unwrap();
+        write_markdown_file(s(&doc), "mine".into(), None, None).unwrap();
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "mine");
     }
 

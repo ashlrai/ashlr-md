@@ -25,7 +25,7 @@ import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { READ_VIEW_REQUIRED } from "./exportErrors";
+import { READ_VIEW_REQUIRED, ShownExportError } from "./exportErrors";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
 import { findProfile, findTemplate } from "./exportTemplates";
 import { frontmatterText } from "./frontmatter";
@@ -126,6 +126,68 @@ hr { border: none; border-top: 1px solid ${v.border}; margin: 1.5em 0; }
 `.trim();
 }
 
+// ─── KaTeX fonts ─────────────────────────────────────────────────────────────
+
+/**
+ * KaTeX's fonts (WOFF2, which every browser that opens an export reads), as
+ * `data:` URLs, loaded only when an export holds math.
+ */
+const KATEX_FONT_FILES = import.meta.glob<string>(
+  "../../node_modules/katex/dist/fonts/*.woff2",
+  { query: "?inline", import: "default" },
+);
+
+/** File name to `data:` URL, once {@link loadKatexFonts} has run. */
+let katexFonts: Map<string, string> | null = null;
+
+/** Load KaTeX's fonts for {@link katexCssForExport}. Never throws. */
+export async function loadKatexFonts(): Promise<void> {
+  if (katexFonts) return;
+  try {
+    const fonts = new Map<string, string>();
+    await Promise.all(
+      Object.entries(KATEX_FONT_FILES).map(async ([path, load]) => {
+        fonts.set(path.slice(path.lastIndexOf("/") + 1), await load());
+      }),
+    );
+    katexFonts = fonts;
+  } catch {
+    // Left as they are: the math shows in fallback fonts.
+  }
+}
+
+/**
+ * `css` (KaTeX's stylesheet) with each font it names as a `data:` URL from
+ * `fonts` (file name to URL). Its `url(fonts/KaTeX_Main-Regular.woff2)`
+ * resolved next to the exported file, where there are none, or (in the
+ * PDF's print frame) in the app, whose build names them otherwise: the math
+ * of every HTML and PDF export was set in fallback fonts, with misdrawn
+ * roots, brackets and large operators. A font face none of whose files is
+ * in `fonts` is left as it was.
+ */
+export function katexCssForExport(
+  css: string,
+  fonts: ReadonlyMap<string, string> | null = katexFonts,
+): string {
+  if (!fonts || fonts.size === 0) return css;
+  return css.replace(/src:([^;}]*)/g, (whole, list: string) => {
+    const kept = list
+      .split(",")
+      .map((entry) => {
+        const m = /url\(\s*["']?(?:[^)"']*\/)?([^/)"']+\.woff2)["']?\s*\)/.exec(entry);
+        const data = m ? fonts.get(m[1]) : undefined;
+        return data ? `url(${data}) format("woff2")` : null;
+      })
+      .filter((x): x is string => x !== null);
+    return kept.length > 0 ? `src:${kept.join(",")}` : whole;
+  });
+}
+
+/** Load KaTeX's fonts when the read view shows math. */
+async function fontsForMath(): Promise<void> {
+  if (document.querySelector(".markdown-body .katex")) await loadKatexFonts();
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /** Grab the current theme id from the document root (set by App.tsx). */
@@ -161,6 +223,16 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
     node.replaceWith(
       node.ownerDocument.createTextNode(node.getAttribute("data-name") ?? ""),
     );
+  // A diagram still rendering is its source, as a code block: it was an
+  // empty block.
+  for (const node of clone.querySelectorAll(".mermaid-block--loading")) {
+    const pre = node.ownerDocument.createElement("pre");
+    const code = node.ownerDocument.createElement("code");
+    code.className = "language-mermaid";
+    code.textContent = node.getAttribute("data-code") ?? "";
+    pre.appendChild(code);
+    node.replaceWith(pre);
+  }
   return clone;
 }
 
@@ -168,14 +240,20 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
 export const EXPORT_IMAGE_WAIT_MS = 5000;
 
 /**
- * Resolves once the read view shows no image or embed still loading (a
- * local image is read through Rust, so it shows "Loading x…" first), or
- * after `timeoutMs`, whichever comes first. An export taken while one was
- * loading used to contain the placeholder text instead of the image.
+ * Resolves once the read view shows no image, embed or diagram still
+ * loading (a local image is read through Rust, so it shows "Loading x…"
+ * first; a Mermaid diagram renders once mermaid has loaded), or after
+ * `timeoutMs`, whichever comes first. An export taken while one was
+ * loading used to contain the placeholder text instead of the image, and
+ * an empty block instead of the diagram (an export from the palette in
+ * Edit view switches to Read view just before, so every diagram was still
+ * rendering).
  */
 export function waitForRenderedImages(timeoutMs = EXPORT_IMAGE_WAIT_MS): Promise<void> {
   const loading = () =>
-    document.querySelector(".markdown-body .wikiembed--loading") !== null;
+    document.querySelector(
+      ".markdown-body .wikiembed--loading, .markdown-body .mermaid-block--loading",
+    ) !== null;
   if (!loading()) return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {
@@ -289,7 +367,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCss}
+${katexCssForExport(katexCss)}
 
 /* ── Page shell ── */
 body{
@@ -412,33 +490,33 @@ function escapeHtml(s: string): string {
  * the headless path does) and an Obsidian config folder. It used to go
  * through `write_markdown_file`, which saves a linked document into the
  * file the link points to, so an export over a `report.html` linked to
- * `~/.bashrc` replaced the shell profile.
+ * `~/.bashrc` replaced the shell profile. Like the DOCX, EPUB and profile
+ * exports, it resolves true once the file is written and false when the
+ * save dialog was cancelled (the Export dialog said "exported" for both).
  */
 export async function exportHtml(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
+  await fontsForMath();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
 
   // An agent-supplied destination (MCP `export` with `output_path`) skips the dialog.
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.html`,
-      filters: [{ name: "HTML", extensions: ["html"] }],
-    }));
-  if (!path) return; // user cancelled — no toast
+  const dest = await exportDestination(outputPath, opts, title, "html", "HTML");
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(html), opts);
+    await writeExportBytes(path, new TextEncoder().encode(html), dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 /**
@@ -456,7 +534,7 @@ export async function exportDocx(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
@@ -474,13 +552,15 @@ export async function exportDocx(
     throw "html-to-docx is not installed. Run: bun add html-to-docx";
   }
 
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.docx`,
-      filters: [{ name: "Word Document", extensions: ["docx"] }],
-    }));
-  if (!path) return; // user cancelled — no toast
+  const dest = await exportDestination(
+    outputPath,
+    opts,
+    title,
+    "docx",
+    "Word Document",
+  );
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   const meta = exportMetadata(title);
   const result = await HTMLtoDOCX(bodyHtml, null, {
@@ -504,12 +584,13 @@ export async function exportDocx(
   }
 
   try {
-    await writeExportBytes(path, bytes, opts);
+    await writeExportBytes(path, bytes, dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 /**
@@ -529,6 +610,7 @@ export async function exportDocx(
  */
 export async function exportPdf(_title: string): Promise<void> {
   await waitForRenderedImages();
+  await fontsForMath();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(_title).title);
 
@@ -548,8 +630,9 @@ export async function exportPdf(_title: string): Promise<void> {
 
     iframe.onload = () => {
       try {
-        // Wait one tick for images/fonts inside the iframe to settle.
-        setTimeout(() => {
+        // Wait one tick for the frame to lay out, then for its fonts.
+        setTimeout(async () => {
+          await framesFontsLoaded(iframe.contentDocument);
           try {
             iframe.contentWindow?.print();
             toast.success("Opened print dialog");
@@ -588,6 +671,28 @@ export async function exportPdf(_title: string): Promise<void> {
     doc.write(html);
     doc.close();
   });
+}
+
+/** How long the PDF's print frame waits for its fonts before printing. */
+export const PRINT_FONT_WAIT_MS = 3000;
+
+/**
+ * Resolves once `doc`'s fonts have loaded (KaTeX's, which a page with math
+ * carries as `data:` URLs and the browser decodes as it lays the page out),
+ * or after {@link PRINT_FONT_WAIT_MS}. The frame was printed 150 ms after it
+ * loaded, whatever was still loading, so the PDF's math could come out in
+ * fallback fonts.
+ */
+function framesFontsLoaded(doc: Document | null): Promise<void> {
+  const ready = doc?.fonts?.ready;
+  if (!ready) return Promise.resolve();
+  return Promise.race([
+    ready.then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((r) => setTimeout(r, PRINT_FONT_WAIT_MS)),
+  ]);
 }
 
 // ─── buildEpubChapters ────────────────────────────────────────────────────────
@@ -795,7 +900,7 @@ export async function exportEpub(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
@@ -820,13 +925,9 @@ export async function exportEpub(
     throw "epub-gen-memory is not installed. Run: bun add epub-gen-memory";
   }
 
-  const path =
-    outputPath ??
-    (await save({
-      defaultPath: `${sanitizeFileName(title)}.epub`,
-      filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
-    }));
-  if (!path) return; // user cancelled — no toast
+  const dest = await exportDestination(outputPath, opts, title, "epub", "EPUB eBook");
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   const theme = currentTheme();
   const css = buildEpubThemeCss(theme);
@@ -861,12 +962,13 @@ export async function exportEpub(
   }
 
   try {
-    await writeExportBytes(path, bytes, opts);
+    await writeExportBytes(path, bytes, dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 // ─── buildExportHtml ─────────────────────────────────────────────────────────
@@ -933,7 +1035,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCss}
+${katexCssForExport(katexCss)}
 
 /* ── Export profile: ${escapeHtml(profile.name)} ── */
 ${profile.css}
@@ -1038,10 +1140,11 @@ function inlineEmailStyles(html: string): string {
 export async function exportWithProfile(
   profileId: ExportProfileId,
   title: string,
-): Promise<void> {
+): Promise<boolean> {
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
   await waitForRenderedImages();
+  await fontsForMath();
 
   // A text profile (Slack) is the text it promises, not a page: the Slack
   // .txt used to hold a whole HTML document, which pasted as markup.
@@ -1054,22 +1157,55 @@ export async function exportWithProfile(
   const ext = profile.extension;
   const filterName = ext === "txt" ? "Text / Markdown" : "HTML Document";
 
-  const path = await save({
-    defaultPath: `${sanitizeFileName(title)}.${ext}`,
-    filters: [{ name: filterName, extensions: [ext] }],
-  });
-  if (!path) return; // user cancelled — no toast
+  const dest = await exportDestination(undefined, {}, title, ext, filterName);
+  if (!dest) return false; // user cancelled — no toast
+  const { path } = dest;
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(content));
+    await writeExportBytes(path, new TextEncoder().encode(content), dest.opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────
+
+/**
+ * Where an export goes: `outputPath` (an agent's, no dialog), else the file
+ * picked in the save dialog, offered as `title` with `ext`. A picked name
+ * with no extension gets `.ext`: the Linux save dialogs do not add it, so
+ * `report` typed there was saved as a file named `report` that no app
+ * opened as HTML (or Word, or EPUB). The dialog asked about replacing
+ * `report`, not `report.ext`, so that file is written only if it is new.
+ * Null when the dialog was cancelled.
+ */
+async function exportDestination(
+  outputPath: string | undefined,
+  opts: WriteOptions,
+  title: string,
+  ext: string,
+  filterName: string,
+): Promise<{ path: string; opts: WriteOptions } | null> {
+  if (outputPath) return { path: outputPath, opts };
+  const picked = await save({
+    defaultPath: `${sanitizeFileName(title)}.${ext}`,
+    filters: [{ name: filterName, extensions: [ext] }],
+  });
+  if (!picked) return null;
+  const named = withExtension(picked, ext);
+  return named === picked
+    ? { path: picked, opts }
+    : { path: named, opts: { ...opts, newFile: true } };
+}
+
+/** `path`, with `.ext` added when its file name has no extension. */
+export function withExtension(path: string, ext: string): string {
+  const name = baseName(path);
+  return /[^.]\.[^.]+$/.test(name) ? path : `${path}.${ext}`;
+}
 
 /**
  * Write `bytes` to `path` through `write_file_bytes` (src-tauri/src/export.rs):

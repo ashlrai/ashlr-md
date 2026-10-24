@@ -13,7 +13,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "../../lib/export";
-import { READ_VIEW_REQUIRED } from "../../lib/exportErrors";
+import {
+  exportErrorText,
+  READ_VIEW_REQUIRED,
+  ShownExportError,
+} from "../../lib/exportErrors";
+import { exportTitle } from "../../lib/exportName";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
 import { useUiStore } from "../../store/uiStore";
@@ -48,9 +53,7 @@ export function handleExportPayload(): Promise<UnlistenFn> {
     if (outputPath) {
       // Headless export — agent supplied a destination path.
       try {
-        const fileName = useDocumentStore.getState().fileName ?? "export";
-        const title =
-          fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+        const title = exportTitle(useDocumentStore.getState().fileName);
         // html/docx/epub write to the agent's path with no dialog. pdf can only
         // print, so the MCP server never sends a path for it.
         // Without `overwrite`, the write itself refuses a file that is
@@ -68,9 +71,10 @@ export function handleExportPayload(): Promise<UnlistenFn> {
         }
         await replyToExport(editId, null);
       } catch (err) {
-        const errStr =
-          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-        toast.error(`MCP export failed: ${errStr}`);
+        const errStr = exportErrorText(err);
+        // A failed write was toasted by the export already.
+        if (!(err instanceof ShownExportError))
+          toast.error(`MCP export failed: ${errStr}`);
         await replyToExport(
           editId,
           errStr === READ_VIEW_REQUIRED

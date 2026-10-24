@@ -30,6 +30,7 @@ import {
   CLOSE_MISSING_SAVE_AS,
   useDocumentStore,
 } from "./documentStore";
+import { useToastStore } from "./toastStore";
 
 function reset() {
   useDocumentStore.setState({
@@ -284,6 +285,77 @@ describe("documentStore", () => {
     invokeMock.mockClear();
     useDocumentStore.getState().switchTab(aId);
     expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/a.md" });
+  });
+
+  it("says so when a file cannot be watched", async () => {
+    // The failure was dropped: changes on disk went unnoticed, unsaid.
+    useToastStore.getState().clear();
+    readReturnsByPath();
+    const read = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "watch_file"
+        ? Promise.reject(
+            "Changes made to /w/a.md outside Ashlr MD will not be noticed: x",
+          )
+        : read?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("/w/a.md");
+    await new Promise((r) => setTimeout(r, 0));
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.map((t) => [t.kind, t.message])).toEqual([
+      ["error", "Changes made to /w/a.md outside Ashlr MD will not be noticed: x"],
+    ]);
+  });
+
+  it("watches a recovered tab's file, and takes it when it comes back", async () => {
+    // A recovered tab was never watched: the file coming back went unseen.
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "read_markdown_file"
+        ? Promise.resolve({
+            path: "/r/n.md",
+            file_name: "n.md",
+            content: "on disk",
+            size: 7,
+            version: "7:v",
+          })
+        : Promise.resolve(),
+    );
+    useDocumentStore
+      .getState()
+      .openRecovered({ path: "/r/n.md", fileName: "n.md", content: "kept" });
+    expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/r/n.md" });
+    // Its change event finds the file: the tab is no longer gone, and the
+    // kept text is offered against the disk's, never replaced.
+    await useDocumentStore.getState().refreshFromDisk("/r/n.md");
+    const s = useDocumentStore.getState();
+    expect(s.missing).toBe(false);
+    expect(s.content).toBe("kept");
+    expect(s.externalChange).toBe(true);
+  });
+
+  it("follows the open file when it is renamed on disk", async () => {
+    // A rename read as the file being gone: the tab was flagged missing.
+    readReturnsByPath();
+    await useDocumentStore.getState().openPath("/d/a.md");
+    useDocumentStore.getState().setContent("edited");
+    invokeMock.mockClear();
+    await useDocumentStore.getState().followRename("/d/a.md", "/d/b.md");
+    const s = useDocumentStore.getState();
+    expect(s.path).toBe("/d/b.md");
+    expect(s.fileName).toBe("b.md");
+    expect(s.missing).toBe(false);
+    expect(s.tabs[0]).toMatchObject({
+      path: "/d/b.md",
+      fileName: "b.md",
+      key: "/d/b.md",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/d/b.md" });
+    // Its unsaved text is kept.
+    expect(s.content).toBe("edited");
+    expect(s.isDirty).toBe(true);
+    // A rename of another file changes nothing.
+    await useDocumentStore.getState().followRename("/d/x.md", "/d/y.md");
+    expect(useDocumentStore.getState().path).toBe("/d/b.md");
   });
 
   it("closeTab activates the nearest neighbor (right, else left)", async () => {
@@ -1047,6 +1119,54 @@ describe("documentStore — a file deleted or moved while open", () => {
     s = useDocumentStore.getState();
     expect(s.missing).toBe(false);
     expect(s.isDirty).toBe(false);
+  });
+
+  it("a confirmed recreate never writes over a file that is there but unreadable", async () => {
+    // The recreate wrote whatever was there: a file back in a form the app
+    // cannot read (not UTF-8, too large) was replaced by the tab's text.
+    const disk: Record<string, string> = { "/a.md": "v0" };
+    const writes: Record<string, unknown>[] = [];
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      const p = String(args?.path ?? "");
+      if (cmd === "read_markdown_file") {
+        if (!(p in disk))
+          return Promise.reject("No such file or directory (os error 2)");
+        if (disk[p] === "BINARY")
+          return Promise.reject(`Could not read ${p}: not UTF-8`);
+        return Promise.resolve({
+          path: p,
+          file_name: "a.md",
+          content: disk[p],
+          size: 2,
+        });
+      }
+      if (cmd === "write_markdown_file") {
+        writes.push(args ?? {});
+        if (args?.recreate && p in disk) {
+          return Promise.reject(
+            `Could not save ${p}: a file is there again but cannot be read (not UTF-8), so it was not overwritten.`,
+          );
+        }
+        disk[p] = String(args?.content ?? "");
+        return Promise.resolve("v");
+      }
+      return Promise.resolve();
+    });
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    delete disk["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    expect(useDocumentStore.getState().missing).toBe(true);
+    // Back, unreadable, before the save.
+    disk["/a.md"] = "BINARY";
+    askMock.mockResolvedValueOnce(true);
+    const error = await useDocumentStore.getState().save();
+    expect(error).toMatch(/cannot be read/);
+    expect(writes.at(-1)).toMatchObject({ path: "/a.md", recreate: true });
+    expect(disk["/a.md"]).toBe("BINARY");
+    const s = useDocumentStore.getState();
+    expect(s.isDirty).toBe(true);
+    expect(s.content).toBe("mine");
   });
 
   it("asks even when the save is what finds the file gone", async () => {

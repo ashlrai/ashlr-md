@@ -22,6 +22,8 @@ import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { copyAsRichText, copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
+import { exportErrorText, ShownExportError } from "./exportErrors";
+import { exportTitle } from "./exportName";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
 import { buildEmptyTable } from "./tableEditor";
@@ -32,7 +34,7 @@ import { waitForElement } from "./waitForElement";
  * if needed, wait for it to render, then export — and surface any failure as a
  * toast (the palette commands call this directly, with no dialog to show errors).
  */
-async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
+async function runExport(fn: (name: string) => Promise<unknown>): Promise<void> {
   const doc = useDocumentStore.getState();
   if (!doc.path) return;
   if (doc.viewMode !== "read") {
@@ -40,9 +42,12 @@ async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
     await waitForElement(".markdown-body");
   }
   try {
-    await fn(doc.fileName || "export");
+    await fn(exportTitle(doc.fileName));
   } catch (e) {
-    toast.error(typeof e === "string" ? e : "Export failed");
+    // A failed write was toasted by the export already; anything else
+    // says why (an Error's reason was dropped: "Export failed").
+    if (e instanceof ShownExportError) return;
+    toast.error(`Export failed: ${exportErrorText(e)}`);
   }
 }
 

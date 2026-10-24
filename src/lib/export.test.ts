@@ -8,6 +8,7 @@
  * so the module under test can be imported in the happy-dom environment.
  */
 
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Module mocks (must precede any import of the module under test) ──────────
@@ -61,8 +62,11 @@ import {
   exportHtml,
   exportLang,
   exportPdf,
+  katexCssForExport,
   languageTag,
+  loadKatexFonts,
   waitForRenderedImages,
+  withExtension,
 } from "./export";
 
 /**
@@ -377,6 +381,56 @@ describe("exportHtml", () => {
     expect(clone.querySelector(".wikiembed--loading")).toBeNull();
   });
 
+  it("waits for a diagram still rendering, or exports its source", async () => {
+    // An export taken while mermaid was rendering held an empty block.
+    const body = document.querySelector(".markdown-body");
+    body?.insertAdjacentHTML(
+      "beforeend",
+      '<div class="mermaid-block mermaid-block--loading" data-code="graph TD; A--&gt;B"></div>',
+    );
+    setTimeout(() => {
+      const block = document.querySelector(".mermaid-block--loading");
+      block?.classList.remove("mermaid-block--loading");
+      if (block) block.innerHTML = '<svg id="drawn"></svg>';
+    }, 20);
+    await exportHtml("My Doc");
+    expect(writtenExport()?.text).toContain('<svg id="drawn">');
+
+    // Never drawn: the export holds the diagram's source.
+    body?.insertAdjacentHTML(
+      "beforeend",
+      '<div class="mermaid-block mermaid-block--loading" data-code="graph LR; X--&gt;Y"></div>',
+    );
+    await waitForRenderedImages(30);
+    const clone = cloneWithoutInjectedChrome(body as Element);
+    expect(clone.querySelector(".mermaid-block--loading")).toBeNull();
+    expect(clone.querySelector("pre code.language-mermaid")?.textContent).toBe(
+      "graph LR; X-->Y",
+    );
+  });
+
+  it("adds the extension a save dialog left off, replacing nothing", async () => {
+    // A Linux save dialog does not add it: `report` was saved as is.
+    saveMock.mockResolvedValue("/home/user/report");
+    await exportHtml("My Doc");
+    const call = invokeMock.mock.calls
+      .filter((c) => c[0] === "write_file_bytes")
+      .at(-1);
+    expect(writtenExport()?.path).toBe("/home/user/report.html");
+    // The dialog asked about `report`, not `report.html`.
+    expect(call?.[2].headers["x-export-new"]).toBe("1");
+    // A name with an extension is written as picked.
+    saveMock.mockResolvedValue("/home/user/report.htm");
+    await exportHtml("My Doc");
+    const again = invokeMock.mock.calls
+      .filter((c) => c[0] === "write_file_bytes")
+      .at(-1);
+    expect(writtenExport()?.path).toBe("/home/user/report.htm");
+    expect(again?.[2].headers["x-export-new"]).toBeUndefined();
+    expect(withExtension("/a/.env", "html")).toBe("/a/.env.html");
+    expect(withExtension("C:\\out\\notes.v2", "docx")).toBe("C:\\out\\notes.v2");
+  });
+
   it("never writes through write_markdown_file, which follows a symbolic link", async () => {
     // write_file_bytes refuses a link (src-tauri/src/export.rs); the save
     // command writes into the file a link points to.
@@ -385,7 +439,7 @@ describe("exportHtml", () => {
         ? Promise.reject("Could not save /home/user/my-doc.html: it is a symbolic link")
         : Promise.resolve(undefined),
     );
-    await expect(exportHtml("My Doc")).rejects.toMatch("symbolic link");
+    await expect(exportHtml("My Doc")).rejects.toThrow("symbolic link");
     expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
       false,
     );
@@ -644,14 +698,17 @@ describe("exportPdf", () => {
    * simulate the iframe load + print flow by patching createElement to intercept
    * the iframe and immediately fire its onload with a mock print function.
    */
-  function patchIframe(printFn: () => void = vi.fn()) {
+  function patchIframe(
+    printFn: () => void = vi.fn(),
+    fonts?: { ready: Promise<unknown> },
+  ) {
     const origCreate = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag !== "iframe") return origCreate(tag);
       const iframe = origCreate("iframe") as HTMLIFrameElement;
 
       // Stub contentDocument with open/write/close + contentWindow.print.
-      const mockDoc = { open: vi.fn(), write: vi.fn(), close: vi.fn() };
+      const mockDoc = { open: vi.fn(), write: vi.fn(), close: vi.fn(), fonts };
       const mockWin = { print: printFn };
       Object.defineProperty(iframe, "contentDocument", {
         get: () => mockDoc,
@@ -679,6 +736,21 @@ describe("exportPdf", () => {
       return iframe;
     });
   }
+
+  it("prints once the frame's fonts have loaded", async () => {
+    // It printed 150 ms after the frame loaded, so KaTeX's fonts (data: URLs
+    // the browser is still decoding) could be missing from the PDF.
+    let fontsLoaded: () => void = () => {};
+    const ready = new Promise<void>((r) => (fontsLoaded = r));
+    const print = vi.fn();
+    patchIframe(print, { ready });
+    const done = exportPdf("Fonts");
+    await new Promise((r) => setTimeout(r, 250));
+    expect(print).not.toHaveBeenCalled();
+    fontsLoaded();
+    await done;
+    expect(print).toHaveBeenCalled();
+  });
 
   it("throws a user-visible error when not in Read view", async () => {
     teardownDom();
@@ -2393,5 +2465,35 @@ describe("languageTag / exportLang", () => {
     expect(exportLang("---\nlang: not a tag\n---\nx")).toBe("en");
     expect(exportLang("---\ntitle: x\n---\nx")).toBe("en");
     expect(exportLang("lang: fr\n")).toBe("en");
+  });
+});
+
+// ─── KaTeX fonts ──────────────────────────────────────────────────────────────
+
+describe("katexCssForExport", () => {
+  it("puts KaTeX's fonts in the page, where they were links next to the file", async () => {
+    // `url(fonts/KaTeX_Main-Regular.woff2)` resolved beside the exported file
+    // (or in the app, for the PDF), where there are no such files.
+    const css = readFileSync("node_modules/katex/dist/katex.min.css", "utf8");
+    expect(css).toContain("url(fonts/KaTeX_Main-Regular.woff2)");
+    await loadKatexFonts();
+    const out = katexCssForExport(css);
+    expect(out).not.toMatch(/url\(fonts\//);
+    // Each face names its WOFF2 file as loaded (a data: URL in a build; the
+    // test runner serves the file's path).
+    expect(out).toMatch(
+      /font-family:KaTeX_Main;[^}]*src:url\([^)]*KaTeX_Main-Regular\.woff2/,
+    );
+    expect(out).not.toMatch(/format\("woff"\)|format\("truetype"\)/);
+  });
+
+  it("keeps a face whose fonts are not given, and needs fonts to change anything", () => {
+    const face =
+      '@font-face{font-family:X;src:url(fonts/X.woff2) format("woff2"),url(fonts/X.woff) format("woff")}';
+    expect(katexCssForExport(face, new Map())).toBe(face);
+    expect(katexCssForExport(face, new Map([["Y.woff2", "data:y"]]))).toBe(face);
+    expect(katexCssForExport(face, new Map([["X.woff2", "data:x"]]))).toBe(
+      '@font-face{font-family:X;src:url(data:x) format("woff2")}',
+    );
   });
 });
