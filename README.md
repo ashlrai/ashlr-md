@@ -271,12 +271,22 @@ See [`docs/VISION.md`](./docs/VISION.md) for the north star and
 
 ## Part of the Ashlr ecosystem
 
-Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Its
-siblings: [Phantom](https://github.com/ashlrai/phantom),
-[Phantom Secrets](https://github.com/ashlrai/phantom-secrets),
-[Lexicon](https://github.com/ashlrai/lexicon),
-[Locus](https://github.com/ashlrai/locus) and
-[Ashlr Stack](https://github.com/ashlrai/ashlr-stack).
+Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Each
+one installs and runs on its own:
+
+- **[Phantom](https://phm.dev)** (`phm`): the agent workbench. Source:
+  [ashlrai/phantom](https://github.com/ashlrai/phantom).
+- **[Phantom Secrets](https://phm.dev/secrets)** (`phantom`): keeps real API keys
+  out of agent context with `phm_` placeholders. Source:
+  [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
+- **[Locus](https://github.com/ashlrai/locus)** (`locus`): pins each agent session
+  to one account.
+- **[Lexicon](https://lexicon.ashlr.ai)** (`lexicon`): fixes the words dictation
+  gets wrong.
+- **[Ashlr Stack](https://stack.ashlr.ai)** (`stack`): provisions services and
+  stores their keys in Phantom Secrets.
+- **[ashlr-plugin](https://plugin.ashlr.ai/)** (`ashlr-plugin`): token-efficiency
+  tools for Claude Code and Codex.
 
 **Post-quantum readiness:** [docs/PQ-READINESS.md](./docs/PQ-READINESS.md) records what Ashlr MD does with cryptography today (no primitives implemented in the application source; dependencies such as `keyring`, `reqwest` and `tauri-plugin-updater` bring their own, not audited there) and what a migration would touch. It makes no claim that Ashlr MD is quantum-safe.
 
