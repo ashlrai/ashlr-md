@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Rich copies name the document's language.** Both rich copy commands said
+  `<html lang="en">` (or no language at all), whatever the document's language.
+  They now use the front matter's `lang` the way exports do: a language tag in
+  the BCP 47 shape (`en_US` reads as `en-US`), else `en`.
 - **Editing in the WYSIWYG view no longer rewrites the whole file.** One
   typed character wrote every block back the way the editor spells it:
   setext headings became `#` headings, `-` and `+` bullets became `*` and

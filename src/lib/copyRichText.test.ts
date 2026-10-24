@@ -34,6 +34,10 @@ vi.mock("./export", async (importOriginal) => ({
   // The real wait: it watches the DOM, as the exports do.
   waitForRenderedImages: (await importOriginal<typeof import("./export")>())
     .waitForRenderedImages,
+  // The real language rules, as the exports apply them.
+  DEFAULT_EXPORT_LANG: "en",
+  exportLang: (await importOriginal<typeof import("./export")>()).exportLang,
+  languageTag: (await importOriginal<typeof import("./export")>()).languageTag,
   buildStandaloneHtml: vi
     .fn()
     .mockReturnValue(
@@ -596,5 +600,53 @@ describe("rich copies wait for images still loading", () => {
     const html = await copiedHtml();
     expect(html).toContain("<img");
     expect(html).not.toContain("Loading chart.png");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// The document's language
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("rich copies name the document's language", () => {
+  const copiedHtml = async () => {
+    const [items] = clipboardWriteMock.mock.calls[0] as [ClipboardItem[]];
+    const item = items[0] as unknown as { data: Record<string, Blob> };
+    return item.data["text/html"].text();
+  };
+
+  it("copyAsRichText writes the front matter's lang on <html>", async () => {
+    // It wrote <html lang="en"> for every document.
+    docState.content = "---\nlang: fr-CA\n---\n# Bonjour\n";
+    await copyAsRichText("auto");
+    expect(await copiedHtml()).toContain('<html lang="fr-CA"');
+  });
+
+  it("copyAsRichText writes en for no lang, or one that is not a tag", async () => {
+    docState.content = "# Hello\n";
+    await copyAsRichText("auto");
+    expect(await copiedHtml()).toContain('<html lang="en"');
+    clipboardWriteMock.mockClear();
+    docState.content = "---\nlang: '\"><script>x</script>'\n---\n# Hi\n";
+    await copyAsRichText("auto");
+    const html = await copiedHtml();
+    expect(html).toContain('<html lang="en"');
+    expect(html).not.toContain("<script>x");
+  });
+
+  it("copyDocumentAsRichText names the language on the pasted block", async () => {
+    docState.content = "---\nlang: de_AT\n---\n# Hallo\n";
+    await copyDocumentAsRichText();
+    expect(await copiedHtml()).toMatch(/^<div lang="de-AT" style="/);
+  });
+
+  it("buildThemeAwareRichHtml validates the lang it is given", () => {
+    expect(buildThemeAwareRichHtml("<p>x</p>", "paper", "ja")).toContain(
+      '<html lang="ja"',
+    );
+    expect(buildThemeAwareRichHtml("<p>x</p>", "paper", 'x" onload="y')).toContain(
+      '<html lang="en"',
+    );
+    expect(buildThemeAwareRichHtml("<p>x</p>", "paper")).toContain('<html lang="en"');
+    expect(wrapRichTextBody("<p>x</p>", "bad tag")).toMatch(/^<div style="/);
   });
 });
