@@ -57,13 +57,20 @@ export function SearchPanel() {
       return;
     }
     setBusy(true);
+    // A search that answers after the query changed is dropped: a slow one
+    // for an earlier query used to replace the newer query's results.
+    let current = true;
     const handle = window.setTimeout(() => {
       searchFiles(paths, q).then((r) => {
+        if (!current) return;
         setResults(r);
         setBusy(false);
       });
     }, 180);
-    return () => window.clearTimeout(handle);
+    return () => {
+      current = false;
+      window.clearTimeout(handle);
+    };
   }, [query, paths]);
 
   const total = results.reduce((n, r) => n + r.matches.length, 0);

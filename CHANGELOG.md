@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **File search shows the results of the query in the box.** A search for
+  an earlier query that finished after a later one replaced the later
+  results, so typing on while a big folder was searched could leave hits for
+  text no longer in the box. An answer for a query that has since changed is
+  now dropped.
 - **Find marks the right letters in Turkish text.** Find looked for hits in
   the lowercased text and marked them at those places in the original, and
   `İ` lowercases to two characters, so after an `İ` each hit was marked one
