@@ -1072,16 +1072,24 @@ pub fn front_matter_len(content: &str) -> usize {
 
 /// The fence character, its run length and the rest of the line when `line`
 /// is a code fence: at most three spaces, then three or more backticks or
-/// tildes (a backtick fence's info string has no backtick).
+/// tildes (a backtick fence's info string has no backtick), or the fence of
+/// a math block, which the page renders with remark-math: two or more `$`
+/// with no `$` after them (`$$x$$` is inline math). A math block is read as
+/// fenced code is, as micromark-extension-math reads it; its lines used to
+/// be text, so a `# x` in it was a heading and `- [ ] t` a task.
 fn code_fence(line: &str) -> Option<(char, usize, &str)> {
     let body = line.trim_start_matches(' ');
     if line.len() - body.len() > 3 {
         return None;
     }
-    let c = body.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let c = body
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '`' | '~' | '$'))?;
     let n = body.chars().take_while(|&x| x == c).count();
     let rest = &body[n..];
-    (n >= 3 && !(c == '`' && rest.contains('`'))).then_some((c, n, rest))
+    let least = if c == '$' { 2 } else { 3 };
+    (n >= least && !(matches!(c, '`' | '$') && rest.contains(c))).then_some((c, n, rest))
 }
 
 /// The level and text of `line` when it is an ATX heading, as CommonMark

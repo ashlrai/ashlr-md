@@ -558,4 +558,22 @@ describe("parseHeadings", () => {
     ]);
     expect(kinds(">     [[x]]")).toEqual(["indented"]);
   });
+
+  it("reads a $$ math block as fenced code", () => {
+    // The page renders it with remark-math, which reads it as fenced code
+    // is read; its `# x` lines used to be listed and take slugs.
+    expect(parseHeadings("$$\n# not\n$$\n# Real").map((h) => h.text)).toEqual(["Real"]);
+    expect(markdownLines("> $$ m\n> x\n> $$$\ny").map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "fence",
+      "text",
+    ]);
+    // `$$x$$` is inline math, and `$` alone is text.
+    expect(markdownLines("$$x$$\n$\n# h").map((l) => l.kind)).toEqual([
+      "text",
+      "text",
+      "text",
+    ]);
+  });
 });

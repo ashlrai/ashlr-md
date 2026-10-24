@@ -14463,3 +14463,21 @@ fn export_text_reads_code_spans_by_their_backtick_runs() {
     assert_eq!(strip_markdown("`` a`b `` c\n").trim(), "a`b c");
     assert_eq!(strip_markdown("` `` `\n").trim(), "``");
 }
+
+/// The page renders a `$$` math block with remark-math, which micromark
+/// reads as it reads fenced code. Its lines were text, so a `# x` in it was
+/// one of export_metadata's headings and its TeX lost its `*` and `_`.
+#[test]
+fn a_math_block_is_read_as_fenced_code() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(texts("$$\n# not\n$$\n# Real\n"), ["Real"]);
+    assert_eq!(texts("$$$ m\n# not\n$$\n# not\n$$$\n# Real\n"), ["Real"]);
+    assert_eq!(texts("$$x$$\n# Real\n"), ["Real"]);
+    assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
+}

@@ -160,4 +160,12 @@ describe("taskMarks reads footnotes and HTML blocks as the renderer does", () =>
     expect(taskMarks("<div>\n- [ ] t\n</div>").every((m) => m === null)).toBe(true);
     expect(taskMarks("<u>\n- [ ] t").every((m) => m === null)).toBe(true);
   });
+
+  it("reads no task in a $$ math block", () => {
+    // remark-math reads it as fenced code is read; its `- [ ]` lines used to
+    // be tasks.
+    expect(
+      taskMarks("$$\n- [ ] x\n$$\n- [ ] real").map((m) => m?.text ?? null),
+    ).toEqual([null, null, null, "real"]);
+  });
 });

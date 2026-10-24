@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`$$` math blocks are read as the page renders them.** The page renders a
+  `$$` block with remark-math, but every line reader (the Outline, task
+  checkboxes, word count, `export_metadata` headings, `export_text`) read its
+  lines as Markdown, so a `# x` in TeX was a heading, `- [ ] x` a task, and
+  `export_text` took the `*` and `_` out of the TeX. A math block is now read
+  as fenced code is, in blockquotes and list items too; `$$x$$` on one line
+  stays inline math. The classifier does not count its lines as code.
 - **`export_text` reads code spans by their backtick runs.** A code span
   closed at any run of as many backticks, also part of a longer run, and an
   unclosed run's later backticks opened a new span, so ``` `` b`c ``` read

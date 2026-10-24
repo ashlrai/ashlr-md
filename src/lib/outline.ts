@@ -81,13 +81,17 @@ export function atxHeading(line: string): AtxHeading | null {
 /**
  * The fence character, its run length and the rest of the line when `line`
  * is a code fence: at most three spaces, then three or more backticks or
- * tildes, and a backtick fence's info string has no backtick. The rule of
+ * tildes, and a backtick fence's info string has no backtick, or two or
+ * more `$` with no `$` after them, the fence of a math block. The rule of
  * mdopener-mcp's `markdown_lines`.
  */
 function codeFence(line: string): { marker: string; rest: string } | null {
-  const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  // Two or more `$` open a math block, which the page renders with
+  // remark-math and micromark reads as it reads fenced code; its info
+  // string has no `$` (`$$x$$` is inline math).
+  const m = /^ {0,3}(`{3,}|~{3,}|\${2,})(.*)$/.exec(line);
   if (!m) return null;
-  if (m[1][0] === "`" && m[2].includes("`")) return null;
+  if ((m[1][0] === "`" || m[1][0] === "$") && m[2].includes(m[1][0])) return null;
   return { marker: m[1], rest: m[2] };
 }
 
