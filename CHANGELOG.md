@@ -96,6 +96,40 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` keeps brackets that are not reference links.** Any `[text]`
+  with no `(url)` after it lost its brackets, so `[sic]`, `[TODO]` or `[1]` in
+  prose read `sic`, `TODO` and `1`, where the page shows the brackets. A
+  reference link (`[text]`, `[text][]` or `[text][ref]`) now loses them only
+  when the document defines its label (`[ref]: /url`, in any container), as
+  CommonMark reads it, and the same holds for `![alt]` images. Checked against
+  the renderer.
+- **Clicking a task checkbox in the read view toggles it again.** The checkbox
+  input that remark-rehype creates has no source position (rehype-raw keeps
+  none), so the checkbox read line 0 and every click was a no-op. A rehype step
+  after the sanitizer now gives each task checkbox the line of its `[ ]` from
+  its list item's position, so a click checks or unchecks that task in the
+  document and saves it, after front matter, in nested and loose lists, in
+  blockquotes and callouts, and on a bare item's next line. A checkbox in an
+  embedded note (`![[Note]]`) is read-only, since its lines are not the open
+  document's, and a checkbox written as raw HTML toggles nothing.
+- **Task toggles follow the page's task rule.** The app's checkbox write-back
+  matched `- [ ]` with its own pattern, so a task in a blockquote
+  (`> - [ ] t`), after a `1)` marker or on a bare item's next line (`-`, then
+  `  [ ] t`) could not be toggled, while `    - [ ] t` (indented code on the
+  page), a `- [ ]` line in fenced code and `- [ ]` alone could. It now reads
+  tasks by the rule of `get_user_annotations` (`task_list::task_marks`), from
+  the Outline's line scan, and changes only the character inside the brackets.
+  Checked against the renderer on generated documents.
+- **The editor splits off the front matter the Outline skips.** The WYSIWYG
+  editor hid front matter by its own pattern, so a closer with text after it
+  (`---abc`) ended the block and left `abc` in the body, while a delimiter with
+  trailing spaces, a `...` closer and an empty block (`---` then `---`) were not
+  split off and showed as text in the editor. It now uses the one rule of the
+  Outline and mdopener-mcp, and so does the word count, which shares it.
+- **Outline: no lint warning in the container scan.** `containers` in
+  `outline.ts` declared `interrupt` with `let` and kept a commented-out
+  assignment to it, so biome warned that it could be `const`. It is `const`
+  now and the dead comment is gone; the scan reads lines as before.
 - **Indented code that opens a blockquote after a list item.** After an item
   with only its marker had ended, a quoted line indented as code (`-`, a blank
   line, then `>     code`) was taken to close a container, so the next quoted

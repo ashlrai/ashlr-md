@@ -8576,7 +8576,8 @@ fn export_text_keeps_brackets_that_are_not_task_checkboxes() {
     assert_eq!(strip_inline_markdown("[ ] not a task"), "[ ] not a task");
     assert_eq!(strip_inline_markdown("see [x] and [X]"), "see [x] and [X]");
     assert_eq!(strip_inline_markdown("[x](https://e.x) link"), "x link");
-    assert_eq!(strip_inline_markdown("[label] ref"), "label ref");
+    // With no document around the line, no reference is defined.
+    assert_eq!(strip_inline_markdown("[label] ref"), "[label] ref");
     let cases = [
         ("[ ] not a task", "[ ] not a task"),
         ("> [x] quoted prose", "[x] quoted prose"),
@@ -8586,6 +8587,49 @@ fn export_text_keeps_brackets_that_are_not_task_checkboxes() {
     for (doc, want) in cases {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");
     }
+}
+
+/// `strip_inline_markdown` took the brackets off any `[text]` with no link
+/// after it, so `[sic]`, `[1]` or `[TODO]` in prose lost them although the
+/// page shows them. A reference link loses them only when the document
+/// defines its label, as CommonMark (and the renderer) reads it.
+#[test]
+fn export_text_keeps_brackets_unless_a_reference_is_defined() {
+    let cases = [
+        // No definition: the brackets stay, and the text inside is read.
+        ("He said [sic] and [TODO]", "He said [sic] and [TODO]"),
+        ("[**bold**] note", "[bold] note"),
+        ("[a][b] and [c][]", "[a][b] and [c][]"),
+        ("![alt] here", "![alt] here"),
+        ("[outer [inner](u)]", "[outer inner]"),
+        // A shortcut, collapsed or full reference with a definition.
+        (
+            "See [Docs] now\n\n[docs]: https://e.x",
+            "See Docs now\n\ndocs: https://e.x",
+        ),
+        ("[Foo  Bar] x\n\n[foo bar]: /u", "Foo  Bar x\n\nfoo bar: /u"),
+        ("[a][] x\n\n[a]: /u", "a x\n\na: /u"),
+        ("[text][ref]\n\n[ref]: /u \"T\"", "text\n\nref: /u \"T\""),
+        ("[t][r]\n\n[r]: <> (title)", "t\n\nr: <> (title)"),
+        ("![logo][img]\n\n[img]: /l.png", "logo\n\nimg: /l.png"),
+        // A shortcut followed by an undefined label is text, as on the page.
+        ("[a][b] x\n\n[a]: /u", "[a][b] x\n\na: /u"),
+        // Definitions in containers, after another one, and split over lines.
+        ("[q] x\n\n> [q]: /u", "q x\n\nq: /u"),
+        ("[a] [b]\n\n[a]: /u\n[b]: /v", "a b\n\na: /u\nb: /v"),
+        ("[a]\n\n[a]:\n/u", "a\n\na:\n/u"),
+        // Not definitions: one that interrupts a paragraph, one with text
+        // after its title, one in code, and a footnote.
+        ("[a]\n\npara\n[a]: /u", "[a]\n\npara\n[a]: /u"),
+        ("[a]\n\n[a]: /u \"t\" junk", "[a]\n\n[a]: /u \"t\" junk"),
+        ("[a]\n\n```\n[a]: /u\n```", "[a]\n\n[a]: /u"),
+        ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("keeps its brackets unless the document defines its label"));
 }
 
 /// After a bare item's end, indented code that opens a blockquote

@@ -10,18 +10,32 @@
  *   </li>
  *
  * The Renderer overrides the `input` component with this component. It:
- *   1. Reads the source line number from `node.position.start.line`.
+ *   1. Reads the checkbox's source line from its `data-task-line`, which
+ *      rehype-task-lines sets from the list item's position. The input
+ *      remark-rehype creates has no position of its own, so reading
+ *      `node.position` gave line 0 and every click was a no-op.
  *   2. On toggle, calls `toggleTaskAtLine` on the store's `content`.
  *   3. Calls `setContent` + `save()` to persist immediately.
+ *
+ * Only a checkbox of the open document toggles: an embedded note
+ * (`![[Note]]`) renders its own text through the Renderer, whose lines are
+ * not the open document's, so its checkboxes are read-only
+ * ({@link TaskSourceContext}).
  *
  * If the document has no path (unsaved), the toggle still updates in-memory
  * content so the view stays consistent; `save()` is a no-op in that case.
  */
 
 import type { Element } from "hast";
-import { type ChangeEvent, useCallback } from "react";
+import { type ChangeEvent, createContext, useCallback, useContext } from "react";
 import { toggleTaskAtLine } from "../../lib/tasklist";
 import { useDocumentStore } from "../../store/documentStore";
+
+/**
+ * The Markdown text the enclosing Renderer renders, so a checkbox can tell
+ * whether its line is a line of the open document. null outside a Renderer.
+ */
+export const TaskSourceContext = createContext<string | null>(null);
 
 // ---------------------------------------------------------------------------
 // Props
@@ -46,10 +60,11 @@ export function TaskCheckbox({ node, checked, ...rest }: TaskCheckboxProps) {
   const setContent = useDocumentStore((s) => s.setContent);
   const save = useDocumentStore((s) => s.save);
 
-  // node.position.start.line is 1-based in unist. For task checkboxes,
-  // react-markdown attaches the position of the <li> element. The checkbox
-  // input is on the same line as the list marker.
-  const sourceLine = node?.position?.start?.line ?? 0;
+  const source = useContext(TaskSourceContext);
+  // 1-based, set by rehype-task-lines; 0 when the line holds no task.
+  const line = Number(node?.properties?.dataTaskLine ?? 0);
+  // A checkbox of an embedded note does not toggle the open document.
+  const sourceLine = source === content && Number.isInteger(line) ? line : 0;
 
   const handleChange = useCallback(
     (_e: ChangeEvent<HTMLInputElement>) => {
@@ -80,6 +95,7 @@ export function TaskCheckbox({ node, checked, ...rest }: TaskCheckboxProps) {
       {...domProps}
       type="checkbox"
       checked={checked ?? false}
+      disabled={!sourceLine}
       onChange={handleChange}
       className="task-checkbox"
       // aria label derives from checked state for screen readers

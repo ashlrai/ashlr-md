@@ -119,6 +119,24 @@ mod tests {
         assert!(tasks("- [x] a\n  ===\n").is_empty());
     }
 
+    /// micromark reads a tab inside the brackets as the checkbox's space only
+    /// where the tab is one column wide (it ends at a multiple of four), and
+    /// a wider tab leaves its other columns as spaces, which is not a
+    /// checkbox. The tab-expanded text gives the same answer, at every column
+    /// and behind blockquote and list markers (checked against remark-gfm on
+    /// generated documents), so it is not missed where remark-gfm sees one.
+    #[test]
+    fn a_tab_inside_the_brackets_counts_where_it_is_one_column_wide() {
+        assert_eq!(tasks("- [\t] t\n"), vec![t(1, false, "t")]);
+        assert_eq!(tasks("1000. [\t] t\n"), vec![t(1, false, "t")]);
+        assert_eq!(tasks(">\t- [\t] t\n"), vec![t(1, false, "t")]);
+        assert_eq!(tasks("-\n  [\t]\tt\n"), vec![t(2, false, "t")]);
+        assert!(tasks("-  [\t] t\n").is_empty());
+        assert!(tasks("1. [\t] t\n").is_empty());
+        assert!(tasks("> - [\t] t\n").is_empty());
+        assert!(tasks("10. [\t] t\n").is_empty());
+    }
+
     /// The first content of an item opened by a bare marker is on the next
     /// line, at the item's content column; a space after the marker, or
     /// more indentation, leaves the item without one.

@@ -211,13 +211,12 @@ function containers(
     list.push(c);
   }
   const matched = list.length;
-  let interrupt = held === matched;
+  const interrupt = held === matched;
   for (;;) {
     const q = quoteMarker(rest);
     if (q !== null) {
       list.push({ quote: true });
       rest = q;
-      // interrupt = false;
       continue;
     }
     const item = thematicBreak(rest) ? null : listMarker(rest);
@@ -296,6 +295,19 @@ export interface MarkdownLine {
    * the underline.
    */
   setext?: { depth: 1 | 2; from: number };
+  /**
+   * Whether a text line is the first content of a list item and not
+   * indented code: it opens the item (`- a`, `> - a`, `1. a`), or follows a
+   * line that opened one with only its marker, not even a space after it
+   * (`-`, then `  a`). Where a GFM task checkbox can be ({@link taskMarks}).
+   * The rule of mdopener-mcp's `markdown_lines::item_starts`.
+   */
+  first: boolean;
+  /**
+   * Whether the line goes on with the paragraph of the line before, lazily
+   * (`- a`, then `b`) or in its containers.
+   */
+  continues: boolean;
 }
 
 /**
@@ -334,6 +346,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
       start,
       contained: false,
       content,
+      first: false,
+      continues: false,
     });
     start += all[i].length + 1;
   }
@@ -352,6 +366,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   let indented: number | null = null;
   // Whether the innermost open item has only its marker so far.
   let bare = false;
+  // Whether that marker has nothing after it, not even a space.
+  let tight = false;
   // Whether the line before was in a blockquote or ended a bare item:
   // indented code after it closes a container.
   let closer = false;
@@ -360,13 +376,16 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
-    const expanded = expandTabs(text.endsWith("\r") ? text.slice(0, -1) : text);
+    const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
+    const expanded = expandTabs(raw);
     let kind: MarkdownLine["kind"] = "text";
     const inside = fence ? continues(expanded, fence.list) : null;
     let lineList: Container[] = fence?.list ?? [];
     let content = inside ?? expanded;
     let endsBare = false;
     let setext: MarkdownLine["setext"];
+    let first = false;
+    let continuesParagraph = false;
     if (fence && inside !== null) {
       kind = closesFence(codeFence(inside), fence.marker) ? "fence" : "code";
       if (kind === "fence") fence = null;
@@ -418,9 +437,19 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           // one that opens a blockquote (`-`, a blank line, then
           // `>     code`) does.
           const closed = (c.matched < open.length || closer) && !opened;
+          // Only a marker with nothing after it, not even a space, has its
+          // first content on the next line, at its content column.
+          const afterBare =
+            bare &&
+            tight &&
+            !opened &&
+            c.matched === open.length &&
+            spacesBefore(c.rest) === 0;
           open = c.list;
           const last = c.list[c.list.length - 1];
+          const item = opened && !last.quote;
           bare = opened && empty && !last.quote;
+          tight = bare && !/[ \t]$/.test(raw);
           const level = c.list.length;
           // Four spaces past the containers is indented code, not text.
           // A paragraph goes on unless the line opens a list item, or a
@@ -430,18 +459,33 @@ export function markdownLines(markdown: string): MarkdownLine[] {
             c.list.slice(c.matched).some((x) => !x.quote) ||
             (opened && !startsWith(paraList, c.list));
           const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
+          continuesParagraph = !fresh && !heading && !empty;
+          // The first content of an item opened by a bare marker may be on
+          // the line after it (`-`, then `  [ ] t`).
+          first = !code && !empty && (item || afterBare);
           if (paragraph === null || fresh) paraStart = out.length;
           paragraph = heading || empty || code ? null : level;
           paraList = c.list;
           // Only indented code that closed no container, as the renderer
           // reads it.
           indented = code && !closed ? level : null;
+        } else {
+          continuesParagraph = true;
         }
       }
     }
     closer = endsBare;
     const contained = lineList.length > 0;
-    out.push({ kind, text, line, start, contained, content });
+    out.push({
+      kind,
+      text,
+      line,
+      start,
+      contained,
+      content,
+      first,
+      continues: continuesParagraph,
+    });
     if (setext) out[out.length - 1].setext = setext;
     start += text.length + 1;
   }
