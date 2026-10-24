@@ -140,6 +140,7 @@ export function NotificationToggle() {
       type="button"
       role="switch"
       aria-checked={enabled}
+      aria-label="Agent notifications"
       className={`settings-switch${enabled ? " on" : ""}`}
       onClick={() => setEnabled(!enabled)}
       title={

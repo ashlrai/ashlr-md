@@ -111,27 +111,27 @@ export function SettingsPanel() {
             <SectionHeader icon={<AppearanceIcon />} title="Appearance" />
 
             <div className="settings-row">
-              <label className="settings-label">Theme</label>
+              <span className="settings-label">Theme</span>
               <ThemePicker />
             </div>
 
             <div className="settings-row">
-              <label className="settings-label">Font size</label>
+              <span className="settings-label">Font size</span>
               <FontSizeStepper />
             </div>
 
             <div className="settings-row">
-              <label className="settings-label">Content width</label>
+              <span className="settings-label">Content width</span>
               <ContentWidthStepper />
             </div>
 
             <div className="settings-row">
-              <label className="settings-label">Agent notifications</label>
+              <span className="settings-label">Agent notifications</span>
               <NotificationToggle />
             </div>
 
             <div className="settings-row">
-              <label className="settings-label">Load remote images</label>
+              <span className="settings-label">Load remote images</span>
               <RemoteImagesToggle />
             </div>
           </section>
