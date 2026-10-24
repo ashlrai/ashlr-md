@@ -128,6 +128,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Unsaved text survives a crash or forced quit.** The text of every tab
+  with unsaved edits is now kept in the app's local storage half a second
+  after the last change, and put back in its tab (still unsaved) on the next
+  launch, with one message saying which. A quit the close prompt cannot
+  catch (⌘Q on macOS), a crash, or an update's relaunch no longer loses it.
+  When the file changed on disk meanwhile, the external-change banner offers
+  the disk version. Close Without Saving forgets the copy. A document over
+  a million characters (or past three million in all) is not kept, and text
+  whose file can no longer be opened is reported, not restored.
 - **Closing the window asks about unsaved edits.** Closing the window (its
   close button, Alt+F4, Close Window) with unsaved edits in any tab dropped
   them without a word. It now asks: Save All, Close Without Saving, or

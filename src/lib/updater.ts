@@ -1,6 +1,7 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import { flushBuffers } from "./unsavedBuffers";
 
 /**
  * Check GitHub Releases for a newer signed build. If one exists, ask the user
@@ -23,6 +24,9 @@ export async function checkForUpdates(): Promise<void> {
     if (!yes) return;
 
     await update.downloadAndInstall();
+    // The relaunch closes the window without asking: keep unsaved text
+    // for the new version to put back.
+    flushBuffers();
     await relaunch();
   } catch {
     /* no update server, offline, or running unpackaged — ignore */

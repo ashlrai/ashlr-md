@@ -14,6 +14,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type Tab, useDocumentStore } from "../store/documentStore";
+import { discardBuffers } from "./unsavedBuffers";
 
 export const CLOSE_REQUEST_EVENT = "close-guard://request";
 
@@ -122,7 +123,7 @@ export async function installCloseGuard(
     unsaved: () => unsavedTabs(store.getState()),
     ask: opts.ask ?? askWithDialog,
     save: (tabId) => store.getState().save({ tabId }),
-    discard: opts.discard ?? (() => {}),
+    discard: opts.discard ?? discardBuffers,
   };
 
   let latest = 0;

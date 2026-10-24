@@ -10,6 +10,11 @@ import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
 import { restoreSession } from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
+import {
+  restoreBuffers,
+  restoreMessage,
+  startKeepingBuffers,
+} from "./lib/unsavedBuffers";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
 import { useActivationStore } from "./store/activationStore";
@@ -54,6 +59,8 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let unsubSave: (() => void) | undefined;
+    let keeping: { stop: () => void } | undefined;
+    let gone = false;
     (async () => {
       const pending = await invoke<string[]>("take_pending_files").catch(
         () => [] as string[],
@@ -69,6 +76,12 @@ export default function App() {
           );
         }
       }
+      // Put back the unsaved text a crash or forced quit left, then keep
+      // it from here on (see lib/unsavedBuffers.ts).
+      const kept = await restoreBuffers(openPath);
+      const said = restoreMessage(kept);
+      if (said) toast[said.kind](said.text);
+      if (!gone) keeping = startKeepingBuffers();
       // Recents whose file was deleted or moved since are dropped, so the
       // Recent list and the agents' `list_recent` only offer real files.
       void useRecentStore.getState().pruneMissing();
@@ -85,8 +98,10 @@ export default function App() {
       unlisten = await listenForOpenedFiles(openPath);
     })();
     return () => {
+      gone = true;
       unlisten?.();
       unsubSave?.();
+      keeping?.stop();
     };
   }, [openPath]);
 
