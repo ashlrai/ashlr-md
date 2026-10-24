@@ -30,6 +30,7 @@ import {
 } from "../../lib/docLinks";
 import type { OtOperation } from "../../lib/ot";
 import { rehypeTaskLines } from "../../lib/rehype-task-lines";
+import { remarkBlockIds } from "../../lib/remark-block-ids";
 import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
@@ -511,6 +512,8 @@ export const Renderer = memo(function Renderer({ content }: RendererProps) {
             remarkWikilinks,
             remarkMath,
             remarkCallouts,
+            // Obsidian `^block` ids anchor their block (not shown as text).
+            remarkBlockIds,
           ]}
           // Order matters: raw HTML is parsed, then sanitized, THEN KaTeX renders
           // (its trusted styled output bypasses the sanitizer), then headings get

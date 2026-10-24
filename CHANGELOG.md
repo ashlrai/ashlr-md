@@ -105,6 +105,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Wikilinks to a heading or a block scroll there.** `[[note#^abc]]` opened
+  the note at its top: a block's `^abc` id had no anchor (and showed as text on
+  the block). Block ids now anchor their paragraph, list item, or the table or
+  quote a lone `^abc` line follows, and are not shown. A heading fragment is
+  percent-decoded and an Obsidian subheading path (`[[note#Parent#Child]]`)
+  scrolls to its last heading.
 - **A link's hover preview and a click open the same file.** The preview looked
   every link up as a wikilink (anywhere in the vault) while a click opened the
   path relative to the document, so the two could name different files, and a

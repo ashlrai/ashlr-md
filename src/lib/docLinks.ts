@@ -226,12 +226,31 @@ export function anchorElement(
 }
 
 /**
- * Scroll to the heading `fragment` names once it is rendered (a document
- * opened from a link renders after the open resolves). Returns a function
- * that stops waiting. Block references (`^id`) have no anchor.
+ * The place a wikilink's `#fragment` names, as {@link scrollToFragment}
+ * finds it: percent-decoded (`#My%20Heading`), and for a heading path
+ * (`[[note#Parent#Child]]`, as Obsidian writes a subheading) its last
+ * heading. A block reference (`^id`) is kept as it is. It was passed as
+ * written, so the path's slug matched no heading.
+ */
+export function wikilinkFragment(fragment: string | null): string | null {
+  if (fragment == null) return null;
+  const decoded = decode(fragment).trim();
+  if (decoded.startsWith("^")) return decoded;
+  const last = decoded
+    .split("#")
+    .filter((s) => s.trim() !== "")
+    .pop();
+  return last?.trim() || null;
+}
+
+/**
+ * Scroll to the heading or block `fragment` names once it is rendered (a
+ * document opened from a link renders after the open resolves). Returns a
+ * function that stops waiting. A block reference (`^id`) finds the block
+ * remark-block-ids anchored; it used to be skipped, as blocks had no anchor.
  */
 export function scrollToFragment(fragment: string): () => void {
-  if (fragment === "" || fragment.startsWith("^")) return () => {};
+  if (fragment === "") return () => {};
   let tries = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const tick = () => {

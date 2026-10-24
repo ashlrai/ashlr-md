@@ -2,13 +2,13 @@
  * Wikilink.tsx — renders an Obsidian-style [[internal link]].
  *
  * Resolves the target against the effective vault root; clicking opens the
- * resolved file in a tab and, for a `[[note#Heading]]` link, scrolls to that
- * heading once the document has rendered. Broken targets are styled and
+ * resolved file in a tab and, for a `[[note#Heading]]` or `[[note#^block]]`
+ * link, scrolls to that heading or block once the document has rendered. Broken targets are styled and
  * disabled.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { scrollToFragment } from "../../lib/docLinks";
+import { scrollToFragment, wikilinkFragment } from "../../lib/docLinks";
 import { splitFragment } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
@@ -22,7 +22,8 @@ interface WikilinkProps {
 export function Wikilink({ target, alias }: WikilinkProps) {
   // undefined = resolving, null = broken, string = resolved path.
   const [resolved, setResolved] = useState<string | null | undefined>(undefined);
-  const { fragment } = splitFragment(target);
+  // The heading or block to scroll to, decoded and as the page names it.
+  const fragment = wikilinkFragment(splitFragment(target).fragment);
   // Holds the active scroll-retry canceller so we can stop it on unmount.
   const cancelScrollRef = useRef<(() => void) | null>(null);
   // In an embed, the embedded note's file: its links resolve from there.
