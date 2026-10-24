@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Restoring the last session skips a file it cannot open.** A saved tab
+  whose file was there but could not be read (not text, too large) had its
+  view mode applied to the tab before it, was counted in "Reopened n
+  documents", and left its error in place of the restored document. It is
+  now skipped. A damaged saved session (not a list, entries without a path,
+  a path saved twice, an unknown view mode) is read safely instead of
+  stopping the restore.
 - **A damaged settings file no longer breaks the app.** Settings were
   loaded as stored, whatever their type, so a hand edit, a damaged file or
   a newer version that changed a value put a `null` linter config (the
