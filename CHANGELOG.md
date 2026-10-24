@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Saving a symlinked note writes the note it links to.** The window reads
+  a document through a symbolic link, but a save renamed the new text over
+  the link, so the real file (in a dotfiles repository or a synced folder)
+  kept its old text and the link became a separate copy. A save now writes
+  the file the link points to (through every link), keeping its permissions,
+  and refuses a link to a missing file instead of replacing it. The
+  `.obsidian/` guard judges the linked file. "Apply hunk" still writes only
+  the path it checked.
 - **Plain text drops backslash escapes.** `strip_markdown` (the sidecar's
   plain-text export and its word counts) kept the backslash of an escape, so
   `\*not bold\*` read `\*not bold\*` and `Cost \$5` read `Cost \$5`, where

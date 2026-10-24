@@ -39,14 +39,47 @@ pub fn read_markdown_file(path: String) -> Result<MarkdownFile, String> {
 /// Write a Markdown file atomically: write to a sibling temp file, then rename.
 /// Renaming on the same filesystem is atomic, so a crash mid-write never leaves
 /// a half-written document on disk.
+///
+/// A document that is a symbolic link is saved into the file it points to,
+/// which the window read through it ([`read_markdown_file`] follows links):
+/// the rename used to replace the link with a regular file, so a note kept
+/// elsewhere (a dotfiles repository, a synced folder) and linked into a vault
+/// kept its old text there, and the link was gone. The guards judge the file
+/// the link points to.
 #[tauri::command]
 pub fn write_markdown_file(path: String, content: String) -> Result<(), String> {
+    let target =
+        link_target(Path::new(&path)).map_err(|e| format!("Could not save {path}: {e}"))?;
+    write_document(&target.to_string_lossy(), content)
+        .map_err(|e| e.replace(&*target.to_string_lossy(), &path))
+}
+
+/// `path`, or when it is a symbolic link the file it points to (resolved
+/// through every link), which must exist: a link to nothing is refused rather
+/// than replaced.
+fn link_target(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => std::fs::canonicalize(path).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!("it is a symbolic link to a file that cannot be found ({e})"),
+            )
+        }),
+        _ => Ok(path.to_path_buf()),
+    }
+}
+
+/// [`write_markdown_file`] at `path` as named, without following a link in
+/// it: a link there is replaced. For callers that resolved and judged the
+/// path themselves ([`apply_file_patch`]), so a link put in its place since
+/// cannot send the write elsewhere.
+fn write_document(path: &str, content: String) -> Result<(), String> {
     // Never write inside an Obsidian config folder — that dir is Obsidian's and
     // a stray write there can corrupt vault settings/plugins.
-    if path_targets_obsidian_dir(&path) {
+    if path_targets_obsidian_dir(path) {
         return Err("Refusing to write inside an Obsidian .obsidian/ config folder.".into());
     }
-    write_atomic(Path::new(&path), content.as_bytes())
+    write_atomic(Path::new(path), content.as_bytes())
         .map_err(|e| format!("Could not save {path}: {e}"))
 }
 
@@ -408,7 +441,7 @@ fn base64_encode(input: &[u8]) -> String {
 /// absolute target (`/etc/hosts`) or a `../` escape is rejected — a malicious
 /// `.md` cannot turn "Apply hunk" into an arbitrary-file write primitive. Uses
 /// the same unique-match semantics as `/edit` (0 → error, >1 → ambiguous), and
-/// writes atomically via `write_markdown_file` (which also guards `.obsidian/`).
+/// writes atomically via `write_document` (which also guards `.obsidian/`).
 ///
 /// Returns the resolved absolute path on success so the UI can show what changed.
 #[tauri::command]
@@ -487,7 +520,7 @@ pub fn apply_file_patch(
             "Patch context is not unique ({n} matches). Include more surrounding context to disambiguate."
         )),
     };
-    write_markdown_file(resolved_str.clone(), new_content)?;
+    write_document(&resolved_str, new_content)?;
     Ok(resolved_str)
 }
 
@@ -939,6 +972,68 @@ mod tests {
         crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640, "{mode:o}");
+    }
+
+    /// A save of a document that is a symlink replaced the link with a
+    /// regular file, so the file it points to kept the old text.
+    #[cfg(unix)]
+    #[test]
+    fn saving_a_symlinked_document_writes_the_file_it_points_to() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = make_tree();
+        let real_dir = root.join("dotfiles");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let real = real_dir.join("notes.md");
+        std::fs::write(&real, "old").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let link = root.join("notes.md");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // A link to a link is followed to the end.
+        let link2 = root.join("again.md");
+        std::os::unix::fs::symlink(&link, &link2).unwrap();
+
+        write_markdown_file(s(&link2), "new".into()).unwrap();
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        for l in [&link, &link2] {
+            assert!(std::fs::symlink_metadata(l)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{mode:o}");
+        // The temp file was made beside the real file, and none is left.
+        for dir in [&root, &real_dir] {
+            let left = std::fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".mdopener.tmp"))
+                .count();
+            assert_eq!(left, 0);
+        }
+
+        // A link to nothing is refused, not replaced.
+        let dangling = root.join("gone.md");
+        std::os::unix::fs::symlink(root.join("missing.md"), &dangling).unwrap();
+        let err = write_markdown_file(s(&dangling), "x".into()).unwrap_err();
+        assert!(err.contains("symbolic link"), "{err}");
+        assert!(err.contains("gone.md"), "{err}");
+        assert!(std::fs::symlink_metadata(&dangling)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(!root.join("missing.md").exists());
+
+        // The guards judge the file a link points to.
+        let cfg = root.join(".obsidian");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("app.json"), "{}").unwrap();
+        let sneaky = root.join("settings.md");
+        std::os::unix::fs::symlink(cfg.join("app.json"), &sneaky).unwrap();
+        let err = write_markdown_file(s(&sneaky), "x".into()).unwrap_err();
+        assert!(err.contains(".obsidian"), "{err}");
+        assert_eq!(std::fs::read_to_string(cfg.join("app.json")).unwrap(), "{}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
