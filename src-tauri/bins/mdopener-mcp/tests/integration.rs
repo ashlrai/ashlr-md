@@ -14653,3 +14653,42 @@ fn a_byte_order_mark_is_no_text_of_the_first_line() {
     assert_eq!(texts("\u{FEFF}# Top\n"), ["Top"]);
     assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
 }
+
+/// `strip_inline_markdown` kept character references as written (`&amp;`
+/// read `&amp;`, not `&`) and dropped every `*` or `_` run that was not
+/// between spaces or inside a word, so an unpaired `*note` lost its star.
+/// References are decoded as CommonMark does, and emphasis markers are
+/// dropped only when they pair, by micromark's delimiter rules.
+#[test]
+fn strip_inline_decodes_references_and_keeps_unpaired_emphasis() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(strip_inline_markdown("R&amp;D &lt;b&gt;"), "R&D <b>");
+    assert_eq!(
+        strip_inline_markdown("&#123;x&#125; &#x1F600;"),
+        "{x} \u{1F600}"
+    );
+    assert_eq!(strip_inline_markdown("&#0; &#xD800;"), "\u{FFFD} \u{FFFD}");
+    assert_eq!(
+        strip_inline_markdown("&copy; &nosuch; &amp"),
+        "© &nosuch; &amp"
+    );
+    // A reference is no markup, and an escaped `&` is no reference.
+    assert_eq!(strip_inline_markdown("&#42;a&#42;"), "*a*");
+    assert_eq!(strip_inline_markdown("\\&amp;"), "&amp;");
+    // Code keeps references as written.
+    assert_eq!(strip_inline_markdown("`&amp;`"), "&amp;");
+    // Emphasis that pairs is dropped; markers that do not are kept.
+    assert_eq!(strip_inline_markdown("*a* and **b**"), "a and b");
+    assert_eq!(strip_inline_markdown("*note"), "*note");
+    assert_eq!(strip_inline_markdown("a* b"), "a* b");
+    assert_eq!(strip_inline_markdown("**a*"), "*a");
+    assert_eq!(strip_inline_markdown("*a**"), "a*");
+    assert_eq!(strip_inline_markdown("2 * 3 = 6"), "2 * 3 = 6");
+    assert_eq!(
+        strip_inline_markdown("snake_case and _it_"),
+        "snake_case and it"
+    );
+    assert_eq!(strip_inline_markdown("_a*"), "_a*");
+    // The rule of three: `*a**b*` is one emphasis holding `a**b`.
+    assert_eq!(strip_inline_markdown("*a**b*"), "a**b");
+}

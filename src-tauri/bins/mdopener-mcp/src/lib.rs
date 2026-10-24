@@ -8443,6 +8443,9 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
     }
     let mut spans = spans.into_iter().peekable();
     let mut i = 0;
+    // The `*` and `_` runs met so far, each where its markers would go in
+    // `out`; [`resolve_emphasis`] pairs them at the end.
+    let mut delims: Vec<EmphasisRun> = Vec::new();
 
     while i < n {
         // Inline code `` `…` `` and inline math `$…$` read their content
@@ -8477,6 +8480,17 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
                 }
             }
             continue;
+        }
+        // A character reference is the character it names, as CommonMark
+        // decodes it (`&amp;` reads `&`, `&#123;` `{`, `&#x1F600;` 😀), and
+        // is no markup (`&#42;a&#42;` reads `*a*`). It used to be kept as
+        // written. An unknown name (`&nosuch;`) stays text.
+        if chars[i] == '&' {
+            if let Some((text, len)) = character_reference(&chars[i..]) {
+                out.push_str(&text);
+                i += len;
+                continue;
+            }
         }
         // The text of `chars` between `from` and `to`.
         let text_of = |from: usize, to: usize| -> String { chars[from..to].iter().collect() };
@@ -8580,21 +8594,42 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
                 continue;
             }
         }
-        // Bold/italic markers: ***, **, __, *, _ — remove markers, but keep
-        // a run that cannot be emphasis: one between spaces (`2 * 3`) or an
-        // underscore inside a word (`snake_case`).
+        // Bold/italic markers (`***`, `**`, `__`, `*`, `_`) are dropped
+        // when they pair as emphasis, by CommonMark's delimiter rules
+        // ([`resolve_emphasis`]: flanking, `_` inside a word, the rule of
+        // three), and kept when they do not: `2 * 3`, `snake_case`, and an
+        // unpaired `*note` or `**a*` keep theirs. Every run that was not
+        // between spaces or inside a word used to be dropped.
         if chars[i] == '*' || chars[i] == '_' {
             let marker = chars[i];
             let run = chars[i..].iter().take_while(|&&c| c == marker).count();
-            let before = i.checked_sub(1).map(|j| chars[j]);
-            let after = chars.get(i + run).copied();
-            let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
-            let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
-            let literal =
-                (space(before) && space(after)) || (marker == '_' && word(before) && word(after));
-            if literal {
-                out.extend(&chars[i..i + run]);
-            }
+            let prev = i.checked_sub(1).map(|j| chars[j]);
+            let next = chars.get(i + run).copied();
+            let (before, after) = (class_of(prev), class_of(next));
+            // micromark's flanking rules: a run next to another attention
+            // marker (`*`, `_`, `~`) may open or close on that side.
+            let marker_at = |c: Option<char>| matches!(c, Some('*' | '_' | '~'));
+            let left = after == CharClass::Other
+                || (after == CharClass::Punct && before != CharClass::Other)
+                || marker_at(next);
+            let right = before == CharClass::Other
+                || (before == CharClass::Punct && after != CharClass::Other)
+                || marker_at(prev);
+            let (open, close) = if marker == '*' {
+                (left, right)
+            } else {
+                (
+                    left && (before != CharClass::Other || !right),
+                    right && (after != CharClass::Other || !left),
+                )
+            };
+            delims.push(EmphasisRun {
+                at: out.len(),
+                marker,
+                len: run,
+                open,
+                close,
+            });
             i += run;
             continue;
         }
@@ -8616,7 +8651,292 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
         i += 1;
     }
 
-    out
+    if delims.is_empty() {
+        return out;
+    }
+    resolve_emphasis(&mut delims);
+    // Put back the markers no emphasis took, where each run was.
+    let mut text = String::with_capacity(out.len());
+    let mut from = 0;
+    for d in &delims {
+        text.push_str(&out[from..d.at]);
+        text.extend(std::iter::repeat_n(d.marker, d.len));
+        from = d.at;
+    }
+    text.push_str(&out[from..]);
+    text
+}
+
+/// A run of `*` or `_` in inline text, for [`resolve_emphasis`]: where its
+/// markers go in the output, what is left of it (`len`, its length as
+/// written until it pairs), and whether it may open or close emphasis.
+struct EmphasisRun {
+    at: usize,
+    marker: char,
+    len: usize,
+    open: bool,
+    close: bool,
+}
+
+/// What micromark's flanking rules see on each side of a delimiter run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    /// Whitespace, or the start or end of the text.
+    Space,
+    /// Unicode punctuation or a symbol (approximated: neither alphanumeric
+    /// nor whitespace).
+    Punct,
+    Other,
+}
+
+fn class_of(c: Option<char>) -> CharClass {
+    match c {
+        None => CharClass::Space,
+        Some(c) if c.is_whitespace() => CharClass::Space,
+        Some(c) if c.is_alphanumeric() => CharClass::Other,
+        Some(_) => CharClass::Punct,
+    }
+}
+
+/// Pair the runs of `delims` (in text order) as micromark's attention
+/// resolver does: each closer takes the nearest opener of its marker
+/// before it, two markers when both have two left, else one, unless the
+/// rule of three forbids it (one of them can both open and close, and what
+/// is left of the two sums to a multiple of three that is not two
+/// multiples of three); runs between a matched pair can no longer pair.
+/// What is left of each run (`len`) is literal text. A closer looks at
+/// most [`MAX_OPENER_SEARCH`] openers back, so a hostile line stays linear.
+fn resolve_emphasis(delims: &mut [EmphasisRun]) {
+    // The openers still available, innermost last.
+    let mut stack: Vec<usize> = Vec::new();
+    for c in 0..delims.len() {
+        if delims[c].close {
+            while delims[c].len > 0 {
+                let floor = stack.len().saturating_sub(MAX_OPENER_SEARCH);
+                let found = (floor..stack.len()).rev().find(|&p| {
+                    let o = &delims[stack[p]];
+                    let cl = &delims[c];
+                    o.marker == cl.marker
+                        && o.len > 0
+                        && !((o.close || cl.open)
+                            && (o.len + cl.len).is_multiple_of(3)
+                            && !(o.len.is_multiple_of(3) && cl.len.is_multiple_of(3)))
+                });
+                let Some(p) = found else {
+                    break;
+                };
+                let o = stack[p];
+                let used = if delims[o].len >= 2 && delims[c].len >= 2 {
+                    2
+                } else {
+                    1
+                };
+                delims[o].len -= used;
+                delims[c].len -= used;
+                // The runs between them are text now.
+                stack.truncate(if delims[o].len == 0 { p } else { p + 1 });
+            }
+        }
+        if delims[c].open && delims[c].len > 0 {
+            stack.push(c);
+        }
+    }
+}
+
+/// How many openers back [`resolve_emphasis`] looks for a closer's match.
+const MAX_OPENER_SEARCH: usize = 256;
+
+/// The character reference that starts `chars` (at its `&`), as CommonMark
+/// reads one, with how many chars it takes: `&#` and 1 to 7 digits, `&#x`
+/// and 1 to 6 hex digits, or `&` and a name this table knows, then `;`. A
+/// numeric reference to no character (0, a surrogate, past U+10FFFF) reads
+/// U+FFFD, as micromark decodes it. Named references are a common subset
+/// of HTML's; an unknown one is `None` and stays text.
+fn character_reference(chars: &[char]) -> Option<(String, usize)> {
+    if chars.first() != Some(&'&') {
+        return None;
+    }
+    let semi = chars.iter().take(40).position(|&c| c == ';')?;
+    let body: String = chars[1..semi].iter().collect();
+    let numeric = |digits: &str, radix: u32, max: usize| -> Option<String> {
+        if digits.is_empty() || digits.len() > max || !digits.chars().all(|c| c.is_digit(radix)) {
+            return None;
+        }
+        let code = u32::from_str_radix(digits, radix).ok()?;
+        let bad = code < 9
+            || code == 11
+            || (14..32).contains(&code)
+            || (127..160).contains(&code)
+            || (0xD800..0xE000).contains(&code)
+            || (0xFDD0..0xFDF0).contains(&code)
+            || code & 0xFFFF >= 0xFFFE
+            || code > 0x10FFFF;
+        Some(if bad {
+            "\u{FFFD}".to_string()
+        } else {
+            char::from_u32(code).map_or("\u{FFFD}".to_string(), String::from)
+        })
+    };
+    let text = if let Some(hex) = body.strip_prefix("#x").or_else(|| body.strip_prefix("#X")) {
+        numeric(hex, 16, 6)?
+    } else if let Some(dec) = body.strip_prefix('#') {
+        numeric(dec, 10, 7)?
+    } else {
+        named_reference(&body)?.to_string()
+    };
+    Some((text, semi + 1))
+}
+
+/// The text of the HTML named character references most often written in
+/// Markdown. CommonMark knows all of HTML's (over 2000); a name missing
+/// here is left as written.
+fn named_reference(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "amp" | "AMP" => "&",
+        "lt" | "LT" => "<",
+        "gt" | "GT" => ">",
+        "quot" | "QUOT" => "\"",
+        "apos" => "'",
+        "nbsp" => "\u{a0}",
+        "ensp" => "\u{2002}",
+        "emsp" => "\u{2003}",
+        "thinsp" => "\u{2009}",
+        "zwj" => "\u{200d}",
+        "zwnj" => "\u{200c}",
+        "shy" => "\u{ad}",
+        "copy" | "COPY" => "©",
+        "reg" | "REG" => "®",
+        "trade" | "TRADE" => "™",
+        "hellip" | "mldr" => "…",
+        "mdash" => "—",
+        "ndash" => "–",
+        "minus" => "−",
+        "lsquo" => "‘",
+        "rsquo" => "’",
+        "ldquo" => "“",
+        "rdquo" => "”",
+        "sbquo" => "‚",
+        "bdquo" => "„",
+        "laquo" => "«",
+        "raquo" => "»",
+        "lsaquo" => "‹",
+        "rsaquo" => "›",
+        "middot" => "·",
+        "bull" => "•",
+        "deg" => "°",
+        "plusmn" => "±",
+        "times" => "×",
+        "divide" => "÷",
+        "frac12" => "½",
+        "frac14" => "¼",
+        "frac34" => "¾",
+        "sup2" => "²",
+        "sup3" => "³",
+        "micro" => "µ",
+        "para" => "¶",
+        "sect" => "§",
+        "dagger" => "†",
+        "Dagger" => "‡",
+        "permil" => "‰",
+        "prime" => "′",
+        "Prime" => "″",
+        "euro" => "€",
+        "pound" => "£",
+        "yen" => "¥",
+        "cent" => "¢",
+        "curren" => "¤",
+        "larr" => "←",
+        "rarr" => "→",
+        "uarr" => "↑",
+        "darr" => "↓",
+        "harr" => "↔",
+        "lArr" => "⇐",
+        "rArr" => "⇒",
+        "hArr" => "⇔",
+        "le" => "≤",
+        "ge" => "≥",
+        "ne" => "≠",
+        "asymp" => "≈",
+        "equiv" => "≡",
+        "infin" => "∞",
+        "sum" => "∑",
+        "prod" => "∏",
+        "radic" => "√",
+        "part" => "∂",
+        "nabla" => "∇",
+        "isin" => "∈",
+        "forall" => "∀",
+        "exist" => "∃",
+        "empty" => "∅",
+        "and" => "∧",
+        "or" => "∨",
+        "cap" => "∩",
+        "cup" => "∪",
+        "alpha" => "α",
+        "beta" => "β",
+        "gamma" => "γ",
+        "delta" => "δ",
+        "epsilon" => "ε",
+        "lambda" => "λ",
+        "mu" => "μ",
+        "pi" => "π",
+        "sigma" => "σ",
+        "theta" => "θ",
+        "omega" => "ω",
+        "Delta" => "Δ",
+        "Sigma" => "Σ",
+        "Omega" => "Ω",
+        "check" => "✓",
+        "star" => "☆",
+        "starf" => "★",
+        "hearts" => "♥",
+        "iexcl" => "¡",
+        "iquest" => "¿",
+        "ast" => "*",
+        "lowbar" => "_",
+        "num" => "#",
+        "excl" => "!",
+        "lsqb" | "lbrack" => "[",
+        "rsqb" | "rbrack" => "]",
+        "lpar" => "(",
+        "rpar" => ")",
+        "grave" => "`",
+        "tilde" => "˜",
+        "verbar" | "vert" => "|",
+        "bsol" => "\\",
+        "sol" => "/",
+        "colon" => ":",
+        "semi" => ";",
+        "comma" => ",",
+        "period" => ".",
+        "quest" => "?",
+        "equals" => "=",
+        "plus" => "+",
+        "percnt" => "%",
+        "dollar" => "$",
+        "commat" => "@",
+        "lcub" | "lbrace" => "{",
+        "rcub" | "rbrace" => "}",
+        "Hat" => "^",
+        "eacute" => "é",
+        "Eacute" => "É",
+        "egrave" => "è",
+        "agrave" => "à",
+        "aacute" => "á",
+        "auml" => "ä",
+        "ouml" => "ö",
+        "uuml" => "ü",
+        "Auml" => "Ä",
+        "Ouml" => "Ö",
+        "Uuml" => "Ü",
+        "szlig" => "ß",
+        "ccedil" => "ç",
+        "ntilde" => "ñ",
+        "oslash" => "ø",
+        "aring" => "å",
+        "aelig" => "æ",
+        _ => return None,
+    })
 }
 
 /// A code span or inline math in a block's inline text, from

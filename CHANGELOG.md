@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Agents' plain text decodes character references and keeps unpaired
+  emphasis markers.** mdopener-mcp's inline stripping (export text, titles,
+  headings) kept `&amp;`, `&#123;` and `&#x1F600;` as written where the page
+  shows `&`, `{` and 😀, and dropped every `*` and `_` run that was not
+  between spaces or inside a word, so `*note` lost its star. References are
+  now decoded as CommonMark does (numeric ones, and a table of the common
+  named ones; an unknown name stays as written), and markers are dropped only
+  when they pair as emphasis by micromark's rules (flanking, `_` in words,
+  the rule of three), fuzzed against remark-parse.
 - **A lone CR ends a line for the Rust Markdown scanners too.** The shared
   line scanner (`markdown_lines.rs`: front matter, fences, headings, tasks,
   wikilinks, export text, semantic-search chunks) split lines at LF only, so
