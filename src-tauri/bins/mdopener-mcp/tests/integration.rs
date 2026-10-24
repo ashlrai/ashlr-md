@@ -8280,7 +8280,7 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     );
     let docs = include_str!("../../../../docs/AGENTS.md");
     for said in [
-        "(a `- [ ]` line in fenced code or front matter is not a task;",
+        "a `- [ ]` line in fenced or indented code or front matter is not,",
         "(code blocks kept as written, by the fence rule of `export_metadata`;",
         "images outside fenced code and front matter",
     ] {
@@ -8516,6 +8516,23 @@ fn export_text_reads_lines_past_their_containers() {
         ("- [ ] task\n- [x] done", "task\ndone"),
         ("- a\n-\n- b", "a\nb"),
         ("> - ---\n> after", "after"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// `export_text` took `[ ] ` off a line that opens a list item, so a
+/// checkbox on a bare item's next line (`-`, then `  [ ] t`) kept its
+/// `[ ]`. It now drops a checkbox where `get_user_annotations` reads a
+/// task, as the renderer does.
+#[test]
+fn export_text_drops_the_checkboxes_the_renderer_shows() {
+    let cases = [
+        ("-\n  [ ] next line", "next line"),
+        ("> - [x] quoted", "quoted"),
+        ("1. [X] ordered", "ordered"),
+        ("- [ ]\ttab", "tab"),
     ];
     for (doc, want) in cases {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");

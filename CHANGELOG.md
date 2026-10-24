@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Task checkboxes are read where the page shows them.** `get_user_annotations`
+  and the app's `/annotations` read `- [ ]` on raw lines, so a task in a
+  blockquote (`> - [ ] t`) or an ordered item (`1. [ ] t`) was missed, and an
+  indented `    - [ ] t` (code on the page) was listed. Tasks now follow the
+  container rule the Outline and `export_text` use: a checkbox opens a list
+  item's first content and is followed by text, as remark-gfm reads it, so
+  `- [x]` alone is text. `export_text` drops the same checkboxes. Checked
+  against the renderer on generated documents.
 - **Outline jumps land on the right heading after a setext heading.** The
   page gives a heading underlined with `===` or `---` an id, but the
   Outline did not count it, so in a document with `Title`, `=====` and

@@ -2741,7 +2741,9 @@ mod tests {
 
     #[test]
     fn handles_indented_tasks_and_empty_text() {
-        let md = "  - [ ] indented\n- [x]\n";
+        // `- [x]` with nothing after it is text, as the renderer shows it;
+        // it is a task with empty text only when its paragraph goes on.
+        let md = "  - [ ] indented\n- [x]\n- [x]\n  next line\n";
         assert_eq!(
             pairs(md),
             vec![
