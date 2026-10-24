@@ -1134,7 +1134,9 @@ export function listSpread(value: unknown): boolean {
 /**
  * Milkdown config: write a tight bullet list tight, and a list item's
  * paragraph and nested list without a blank line between them when the item
- * is tight (see {@link listSpread}). Pass to `editor.config` before the
+ * is tight (see {@link listSpread}), and an item that starts with a block
+ * other than a paragraph without a `<br />` before it
+ * ({@link withoutLeadingEmptyParagraph}). Pass to `editor.config` before the
  * editor is created.
  */
 export function keepTightBulletLists(ctx: Ctx): void {
@@ -1173,13 +1175,35 @@ export function keepTightBulletLists(ctx: Ctx): void {
             state.openNode("listItem", undefined, {
               spread: listSpread(node.attrs.spread),
             });
-            state.next(node.content);
+            state.next(withoutLeadingEmptyParagraph(node.content));
             state.closeNode();
           },
         },
       };
     });
   }
+}
+
+/**
+ * A list item's content less the empty paragraph it starts with, when more
+ * follows. The editor's list item must start with a paragraph, so an item
+ * that starts with another block (`- > [!TIP]`, `- ```js`) is read with an
+ * empty one first, which was written as `<br />` on a line of its own: the
+ * item was saved as `- <br />` with the callout under it. Without it the
+ * item is written as the source had it. An item that is only an empty
+ * paragraph is left as it is.
+ */
+export function withoutLeadingEmptyParagraph(content: Fragment): Fragment {
+  const first = content.firstChild;
+  if (
+    content.childCount < 2 ||
+    first == null ||
+    first.type.name !== "paragraph" ||
+    first.content.size !== 0
+  ) {
+    return content;
+  }
+  return content.cut(first.nodeSize);
 }
 
 /**

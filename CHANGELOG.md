@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A list item that starts with a callout keeps it.** Editing such an item
+  (`- > [!TIP]`, or one that starts with a code block) in the WYSIWYG editor
+  saved it as `- <br />` with the callout on the lines under it, as the
+  editor gives every item a paragraph first. That empty paragraph is no
+  longer written, so the item is saved as it was typed.
 - **mdopen's timeout test no longer flakes under load.** It answered 500 ms
   after mdopen's 6 s read timeout, and an mdopen that started its read late
   got the answer in time and failed the test. The fake app now never answers
