@@ -42,6 +42,7 @@ import {
   tableOffsetAt,
 } from "../../lib/milkdownTable";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
+import { registerPendingEdits } from "../../lib/pendingEdits";
 import { applyTableEdit, type ColAlignment } from "../../lib/tableEditor";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
@@ -428,6 +429,14 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     return crepe;
   }, []);
   getRef.current = get;
+
+  // The store asks for edits not reported yet before it reads the text
+  // (lib/pendingEdits.ts): a change on disk, a save or a tab switch within
+  // 200 ms of a keystroke used to miss it.
+  useEffect(() => {
+    if (loading) return;
+    return registerPendingEdits(() => keeperRef.current?.flush());
+  }, [loading]);
 
   // Once the editor has finished loading, capture the ProseMirror view so
   // inline AI can read selections and dispatch in-place replacements. It

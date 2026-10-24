@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **What was just typed in the WYSIWYG view is never dropped.** The editor
+  reports a change 200 ms after the last keystroke, and drops the report
+  when it closes. A change on disk in that time (a sync client, an agent)
+  found the tab clean, took the disk's text and reloaded the editor, so the
+  typing was lost without a word; a save in that time left it out, and a tab
+  or view switch lost it. The editor's text is now taken before any of
+  these, so the change on disk is offered in the banner as usual.
 - **Two quick changes on disk end on the newer text.** Each change the file
   watcher reports is read again, and the reads run side by side, so for two
   quick saves in another app the first read could answer last: the window

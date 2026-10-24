@@ -937,18 +937,35 @@ export function keepSourceOnSave(
     .use(keepInlineLineBreaks);
   let keep: ((written: string) => string) | null = null;
   let mounted: Ctx | null = null;
+  // The tree the last report was of: a flush with nothing new reports
+  // nothing (the store may hold a newer text from elsewhere).
+  let reported: ProseNode | null = null;
+  const viewDoc = (ctx: Ctx) => ctx.get(editorViewCtx).state.doc;
   crepe.on((api) => {
     api.mounted((ctx) => {
       mounted = ctx;
       keep = sourceKeeper(ctx, original);
+      reported = viewDoc(ctx);
     });
-    api.markdownUpdated((_ctx, written) => {
+    api.markdownUpdated((ctx, written) => {
+      reported = viewDoc(ctx);
       onChange(keep ? keep(written) : written);
     });
   });
   return {
     rebase: (body) => {
-      if (mounted) keep = sourceKeeper(mounted, body);
+      if (!mounted) return;
+      keep = sourceKeeper(mounted, body);
+      reported = viewDoc(mounted);
+    },
+    flush: () => {
+      const ctx: Ctx | null = mounted;
+      if (!ctx) return;
+      const doc = viewDoc(ctx);
+      if (reported?.eq(doc)) return;
+      reported = doc;
+      const written = ctx.get(serializerCtx)(doc);
+      onChange(keep ? keep(written) : written);
     },
   };
 }
@@ -962,4 +979,10 @@ export interface SourceKeeping {
    * are spliced into it. Before the editor is mounted it does nothing.
    */
   rebase: (body: string) => void;
+  /**
+   * Report the editor's text now, as its next change report would (which
+   * comes 200 ms after the last keystroke, and never once the editor is
+   * destroyed). Nothing when the tree has not changed since the last report.
+   */
+  flush: () => void;
 }

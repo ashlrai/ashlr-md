@@ -11,6 +11,7 @@ import {
   resolveConflict,
   transformCursor,
 } from "../lib/ot";
+import { flushPendingEdits } from "../lib/pendingEdits";
 import { useOtLogStore } from "./memoryStore";
 import { isMissingFileError, useRecentStore } from "./recentStore";
 import { toast } from "./toastStore";
@@ -704,13 +705,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   clearOpLog: (docPath) =>
     set((s) => ({ opLog: s.opLog.filter((e) => e.docPath !== docPath) })),
 
-  setViewMode: (viewMode) =>
+  setViewMode: (viewMode) => {
+    // The editor being left reports what was just typed first.
+    flushPendingEdits();
     set((s) => {
       // Read view has no editor, so a split preview is meaningless — clear it.
       const splitView = viewMode === "read" ? false : s.splitView;
       const next = { ...s, viewMode, splitView };
       return { viewMode, splitView, tabs: syncActiveTab(next) };
-    }),
+    });
+  },
 
   toggleSplitView: () =>
     set((s) => {
@@ -722,6 +726,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   save: async (opts) => {
+    // What was just typed is saved too (lib/pendingEdits.ts).
+    flushPendingEdits();
     // The document to save: the tab named (an agent's edit names the tab
     // it changed, which may no longer be active), else the active one.
     const st = get();
@@ -805,6 +811,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   saveAs: async () => {
+    flushPendingEdits();
     const { path, content, activeId } = get();
     if (!path || activeId == null) return "no document is open";
     let dest: string | null;
@@ -965,6 +972,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   // Called when the watcher reports the file changed on disk and we've re-read it.
   handleDiskUpdate: (disk, version) => {
+    // Edits the editor has not reported yet count: without them the tab
+    // looked clean, took the disk's text, and what was just typed was lost.
+    flushPendingEdits();
     const s0 = get();
     if (!s0.path) return;
     // The file is there (again): a tab flagged missing no longer is.
@@ -1136,8 +1146,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    * This keeps the watcher model simple; multi-watch can come later if needed.
    */
   switchTab: (id) => {
+    if (id === get().activeId) return;
+    // The tab being left keeps what was just typed in it.
+    flushPendingEdits();
     const s = get();
-    if (id === s.activeId) return;
     const target = s.tabs.find((t) => t.id === id);
     if (!target) return;
 
@@ -1160,6 +1172,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    * else left). Closing the last tab returns to the empty state.
    */
   closeTab: (id) => {
+    // Closing asks about what was just typed too.
+    if (id === get().activeId) flushPendingEdits();
     const s = get();
     const idx = s.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;
