@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getStoredState } from "../test-setup";
 import {
   isDefaultPromptSnoozed,
@@ -6,6 +6,7 @@ import {
   NO_TEMPLATE_ID,
   useSettingsStore,
 } from "./settingsStore";
+import { useToastStore } from "./toastStore";
 
 // ─── Export template registry ─────────────────────────────────────────────────
 
@@ -270,5 +271,69 @@ describe("settingsStore — loading a damaged, partial or newer settings file", 
     const s = await load("{not json");
     expect(s.theme).toBe("paper");
     expect(s.loadRemoteImages).toBe(true);
+  });
+
+  it("keeps a newer version's version number when it saves", async () => {
+    // Written back as 8, the newer app re-ran its migrations on the next run.
+    const s = await load(
+      JSON.stringify({ state: { theme: "sepia", fromTheFuture: 1 }, version: 12 }),
+    );
+    s.setFontSize(19);
+    const stored = getStoredState<Record<string, unknown>>("mdopener-settings");
+    expect(stored?.version).toBe(12);
+    expect(stored?.state.fromTheFuture).toBe(1);
+    expect(stored?.state.fontSize).toBe(19);
+  });
+
+  it("writes its own version over an older file's", async () => {
+    const s = await load(JSON.stringify({ state: { theme: "sepia" }, version: 7 }));
+    s.setFontSize(18);
+    expect(getStoredState("mdopener-settings")?.version).toBe(8);
+  });
+});
+
+describe("settingsStore — settings that are not readable", () => {
+  const load = async (raw: string) => {
+    useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+    localStorage.setItem("mdopener-settings", raw);
+    await useSettingsStore.persist.rehydrate();
+    return useSettingsStore.getState();
+  };
+
+  it("keeps a copy before the next change overwrites them, and says so once", async () => {
+    vi.useFakeTimers();
+    try {
+      useToastStore.getState().clear();
+      const notices = () =>
+        useToastStore
+          .getState()
+          .toasts.filter((t) => t.message.includes("could not be read"));
+      const s = await load("{not json");
+      expect(localStorage.getItem("mdopener-settings.bak")).toBe("{not json");
+      s.setFontSize(20);
+      expect(getStoredState("mdopener-settings")?.state).toMatchObject({
+        fontSize: 20,
+      });
+      expect(localStorage.getItem("mdopener-settings.bak")).toBe("{not json");
+      vi.advanceTimersByTime(2000);
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0].message).toContain('"mdopener-settings.bak"');
+      expect(notices()[0].kind).toBe("error");
+      // The next launch reads the settings written since: nothing to say.
+      await useSettingsStore.persist.rehydrate();
+      vi.advanceTimersByTime(2000);
+      expect(notices()).toHaveLength(1);
+      // A second damaged file keeps the first backup and adds another.
+      await load("[1, 2");
+      expect(localStorage.getItem("mdopener-settings.bak")).toBe("{not json");
+      expect(localStorage.getItem(`mdopener-settings.bak-${Date.now()}`)).toBe("[1, 2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a copy of JSON that is not a settings object", async () => {
+    await load("42");
+    expect(localStorage.getItem("mdopener-settings.bak")).toBe("42");
   });
 });

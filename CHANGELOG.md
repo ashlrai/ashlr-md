@@ -128,6 +128,88 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Editing in the WYSIWYG view no longer rewrites the whole file.** One
+  typed character wrote every block back the way the editor spells it:
+  setext headings became `#` headings, `-` and `+` bullets became `*` and
+  tight lists loose, reference links became inline and their definitions
+  were dropped, indented code and `~~~` fences became backtick fences (an
+  info string lost its `title="..."`), tables were re-padded, entities were
+  decoded, trailing-space line breaks became backslashes, the blank line
+  after the front matter went away and a final newline was added. Now only
+  the blocks you edit are written; every other block, and the text between
+  them, is kept byte for byte. In an edited block a tight bullet list stays
+  tight and an empty table cell stays empty (it was written `<br />`).
+- **Exports name the document's language.** Every exported page said
+  `<html lang="en">`, so a screen reader read a French document with English
+  rules. The front matter's `lang` (`lang: fr-CA`) now names it, in HTML
+  exports, export profiles, DOCX and EPUB, when it is a language tag in the
+  BCP 47 shape (`en_US` reads as `en-US`); anything else, or none, is `en`.
+- **Copy as rich text waits for images still loading.** A local image or
+  embed shows "Loading…" until Rust has read it, and a rich copy taken then
+  carried its name instead of the image. Both rich copy commands now wait
+  for them as the exports do (at most five seconds).
+- **MCP: `export` without `overwrite` cannot replace a file.** It checked
+  for a file at `output_path` and then the app wrote the export, so a file
+  put there in between was replaced. The app is now told not to replace
+  one, and writes the export to a temp file published with a hard link
+  (created with `O_EXCL` where links are not supported), which fails when
+  anything is at the path. With `overwrite: true` nothing changes.
+- **MCP: `edit_canvas` is listed as destructive.** It writes the canvas
+  file back in place (`save` defaults to true) and can remove nodes and
+  edges, but said `destructiveHint: false`, so a client that confirms
+  destructive tools let it rewrite a canvas unasked. It now says `true`, is
+  in the destructive tier, and is listed with the destructive tools after
+  `export_metadata` (docs/AGENTS.md moves its row).
+- **Opening the outline or agent activity moves focus into it.** Opened
+  from a shortcut, either panel left focus where it was, so a keyboard user
+  had to find it. Focus now goes to the current heading's entry (else the
+  first, else the close button) in the outline, and to the open file's
+  entry (else the newest, else "Watch a folder…") in agent activity. On
+  close it goes back, as before.
+- **Command palette groups are real groups.** The group headings were plain
+  elements among the palette's options, which a list box may not hold. Each
+  group's commands now sit in a group labelled by its heading, so a screen
+  reader names the group once as you move into it.
+- **The tab bar follows the ARIA tabs pattern.** Each tab's close button sat
+  inside the tab list, which may hold tabs only, and no tab named the
+  document area it shows. The row wrappers are now presentational, the
+  close buttons are a pointer affordance hidden from screen readers and out
+  of the Tab order (Delete on a tab closes it, and so does ⌘W), and the
+  active tab controls the document area, which is a tab panel labelled by
+  it while tabs are shown.
+- **Restoring a session: at most 20 tabs, Recents untouched, gone files
+  named.** A session of hundreds of tabs reopened every one, and each
+  reopened tab was pushed to the top of Recents, so Recents ended up in tab
+  order. Now the first 20 tabs reopen (the active tab always among them, and
+  the message says how many stayed closed), and Recents keep their order. A
+  saved tab whose file was moved or deleted since was dropped without a
+  word; the launch message now names it. A failed existence check no longer
+  clears the saved session.
+- **Unreadable settings are kept, not overwritten.** Settings that were not
+  readable JSON were replaced by the defaults on the next change, without a
+  word. A copy is now kept first (`mdopener-settings.bak` in the app's
+  storage, or a timestamped `.bak-` key when an earlier copy is there), and
+  a message says so once.
+- **Settings from a newer version keep their version.** Settings written by
+  a newer Ashlr MD were saved back as version 8 by this one, so the newer
+  app, run again, re-ran its migrations over them. The higher version is now
+  kept (with the keys this version does not know, as before).
+- **Unsaved text survives a crash or forced quit.** The text of every tab
+  with unsaved edits is now kept in the app's local storage half a second
+  after the last change, and put back in its tab (still unsaved) on the next
+  launch, with one message saying which. A quit the close prompt cannot
+  catch (⌘Q on macOS), a crash, or an update's relaunch no longer loses it.
+  When the file changed on disk meanwhile, the external-change banner offers
+  the disk version. Close Without Saving forgets the copy. A document over
+  a million characters (or past three million in all) is not kept, and text
+  whose file can no longer be opened is reported, not restored.
+- **Closing the window asks about unsaved edits.** Closing the window (its
+  close button, Alt+F4, Close Window) with unsaved edits in any tab dropped
+  them without a word. It now asks: Save All, Close Without Saving, or
+  Cancel. A failed or cancelled save keeps the window open. The close is
+  held in Rust, not by a page listener, so it cannot leave a window that
+  will not close: a window that does not answer within 1.5 seconds, or
+  whose prompt fails, closes as before.
 - **Focus comes back after a review.** An agent's review request takes
   keyboard focus so it is noticed; once approved, sent back, dismissed or
   timed out, the panel was gone and focus with it. Focus now returns to

@@ -2,6 +2,14 @@ import type React from "react";
 import "../../styles/tabbar.css";
 import { useDocumentStore } from "../../store/documentStore";
 
+/** The id of the document area the tabs control (Shell's <main>). */
+export const DOCUMENT_PANEL_ID = "document-panel";
+
+/** The DOM id of tab `id`'s tab element. */
+export function tabElementId(id: string): string {
+  return `doc-tab-${id}`;
+}
+
 /** Small × glyph for the per-tab close button. */
 function CloseIcon() {
   return (
@@ -37,6 +45,12 @@ function arrowTarget(key: string, from: number, count: number): number | null {
  * order, and Left/Right (Home/End) move to and open the previous/next (first/
  * last) document. Every tab used to be its own Tab stop with no arrow keys,
  * so a list announced as tabs did not answer the keys it promised.
+ *
+ * A tablist owns tabs only: the row wrappers are presentational, and the
+ * close buttons are a pointer affordance hidden from assistive technology
+ * (Delete on a tab closes it, as the pattern describes, and so does ⌘W).
+ * They used to be buttons inside the tablist. The active tab names the
+ * document area it controls (aria-controls), which is labelled by it.
  */
 export function TabBar() {
   const tabs = useDocumentStore((s) => s.tabs);
@@ -52,6 +66,11 @@ export function TabBar() {
     );
     const from = buttons.indexOf(e.target as HTMLElement);
     if (from === -1) return;
+    if (e.key === "Delete") {
+      e.preventDefault();
+      closeTab(tabs[from].id);
+      return;
+    }
     const to = arrowTarget(e.key, from, buttons.length);
     if (to === null) return;
     e.preventDefault();
@@ -71,13 +90,17 @@ export function TabBar() {
         return (
           <div
             key={tab.id}
+            role="presentation"
             className={`tab${active ? " active" : ""}`}
             title={tab.path}
           >
             <button
               type="button"
               role="tab"
+              id={tabElementId(tab.id)}
               aria-selected={active}
+              aria-controls={active ? DOCUMENT_PANEL_ID : undefined}
+              aria-keyshortcuts="Delete"
               tabIndex={active ? 0 : -1}
               className="tab-switch"
               onClick={() => switchTab(tab.id)}
@@ -100,7 +123,11 @@ export function TabBar() {
             <button
               type="button"
               className="tab-close"
-              aria-label={`Close ${tab.fileName || "tab"}`}
+              aria-hidden="true"
+              tabIndex={-1}
+              title={`Close ${tab.fileName || "tab"}`}
+              // A pointer affordance: clicking it must not take focus.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => closeTab(tab.id)}
             >
               <CloseIcon />

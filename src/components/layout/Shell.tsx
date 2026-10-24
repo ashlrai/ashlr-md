@@ -23,7 +23,7 @@ import { Breadcrumb } from "./Breadcrumb";
 import { ExternalChangeBanner } from "./ExternalChangeBanner";
 import { MissingFileBanner } from "./MissingFileBanner";
 import { StatusBar } from "./StatusBar";
-import { TabBar } from "./TabBar";
+import { DOCUMENT_PANEL_ID, TabBar, tabElementId } from "./TabBar";
 import { TitleBar } from "./TitleBar";
 
 // Heavy editors — lazy-loaded so they split into their own on-demand chunks.
@@ -68,6 +68,7 @@ export function Shell({ dragOver }: ShellProps) {
   // The TabBar only renders with 2+ docs; when it does, the side docks must
   // start below it so they don't cover the leftmost/rightmost tabs.
   const hasTabs = useDocumentStore((s) => s.tabs.length >= 2);
+  const activeId = useDocumentStore((s) => s.activeId);
   // `.canvas` files render in the read-only Canvas viewer, not the MD editor.
   const isCanvas = path?.toLowerCase().endsWith(".canvas") ?? false;
   const contentRef = useRef<HTMLElement>(null);
@@ -133,9 +134,13 @@ export function Shell({ dragOver }: ShellProps) {
       <DigestCard />
       {path && <Breadcrumb />}
       <main
+        id={DOCUMENT_PANEL_ID}
         className={`app-content${scrolls ? "" : " no-scroll"}`}
         ref={contentRef}
         tabIndex={-1}
+        // With tabs shown, this is the panel the active tab controls.
+        role={hasTabs ? "tabpanel" : undefined}
+        aria-labelledby={hasTabs && activeId ? tabElementId(activeId) : undefined}
       >
         {error ? (
           <div className="error-state">{error}</div>

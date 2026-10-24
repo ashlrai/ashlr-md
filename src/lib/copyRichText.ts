@@ -38,7 +38,11 @@ import { useDocumentStore } from "../store/documentStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { buildStandaloneHtml, cloneWithoutInjectedChrome } from "./export";
+import {
+  buildStandaloneHtml,
+  cloneWithoutInjectedChrome,
+  waitForRenderedImages,
+} from "./export";
 import { waitForElement } from "./waitForElement";
 
 /**
@@ -130,6 +134,9 @@ export async function copyDocumentAsRichText(): Promise<void> {
     doc.setViewMode("read");
     await waitForElement(".markdown-body");
   }
+  // Images and embeds still loading are copied as their names otherwise:
+  // wait for them as the exports do (at most a few seconds).
+  await waitForRenderedImages();
 
   const html = buildRichTextHtml(captureRenderedBodyHtml());
 
@@ -343,6 +350,9 @@ export async function copyAsRichText(
     doc.setViewMode("read");
     await waitForElement(".markdown-body");
   }
+
+  // Wait for images and embeds still loading, as the exports do.
+  await waitForRenderedImages();
 
   // Capture and sanitize the rendered body.
   const rawBodyHtml = captureRenderedBodyHtmlForRichCopy();

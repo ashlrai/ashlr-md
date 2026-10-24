@@ -4,11 +4,17 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState } from "react";
 import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
+import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { restoreSession } from "./lib/session";
+import { restoreSession, sessionRestoreMessage } from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
+import {
+  restoreBuffers,
+  restoreMessage,
+  startKeepingBuffers,
+} from "./lib/unsavedBuffers";
 import { checkForUpdates } from "./lib/updater";
 import { useMcpBridge } from "./mcp/bridge";
 import { useActivationStore } from "./store/activationStore";
@@ -53,6 +59,8 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let unsubSave: (() => void) | undefined;
+    let keeping: { stop: () => void } | undefined;
+    let gone = false;
     (async () => {
       const pending = await invoke<string[]>("take_pending_files").catch(
         () => [] as string[],
@@ -61,13 +69,19 @@ export default function App() {
         // Open every queued file (openPath dedupes); the last stays active.
         await openOpenedFiles(pending, openPath);
       } else {
-        const n = await restoreSession();
-        if (n >= 1) {
-          toast.info(
-            `Reopened ${n} document${n > 1 ? "s" : ""} from your last session`,
-          );
+        const restored = await restoreSession();
+        const said = sessionRestoreMessage(restored);
+        if (said) {
+          if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
+          else toast.info(said);
         }
       }
+      // Put back the unsaved text a crash or forced quit left, then keep
+      // it from here on (see lib/unsavedBuffers.ts).
+      const kept = await restoreBuffers(openPath);
+      const keptNote = restoreMessage(kept);
+      if (keptNote) toast[keptNote.kind](keptNote.text);
+      if (!gone) keeping = startKeepingBuffers();
       // Recents whose file was deleted or moved since are dropped, so the
       // Recent list and the agents' `list_recent` only offer real files.
       void useRecentStore.getState().pruneMissing();
@@ -84,8 +98,10 @@ export default function App() {
       unlisten = await listenForOpenedFiles(openPath);
     })();
     return () => {
+      gone = true;
       unlisten?.();
       unsubSave?.();
+      keeping?.stop();
     };
   }, [openPath]);
 
@@ -108,6 +124,21 @@ export default function App() {
     })();
     return () => unlisten?.();
   }, [openPath]);
+
+  // Ask before closing the window with unsaved edits (Rust holds the close;
+  // see src/lib/closeGuard.ts).
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let gone = false;
+    void installCloseGuard().then((s) => {
+      if (gone) s();
+      else stop = s;
+    });
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, []);
 
   // Global keyboard shortcuts, driven by the command registry (see
   // src/lib/globalKeys.ts).

@@ -37,6 +37,11 @@ export interface ExportPayload {
   editId?: string;
   format: "pdf" | "docx" | "html" | "epub";
   outputPath?: string | null;
+  /**
+   * False: a file already at `outputPath` is refused in the write itself
+   * (the MCP `export` without `overwrite: true`). Absent or true: replaced.
+   */
+  overwrite?: boolean;
 }
 
 // ── Review / present ──────────────────────────────────────────────────────────

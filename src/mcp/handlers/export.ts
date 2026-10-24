@@ -38,7 +38,7 @@ export const NO_DOCUMENT_TO_EXPORT =
 
 export function handleExportPayload(): Promise<UnlistenFn> {
   return listen<ExportPayload>("mcp://export", async (e) => {
-    const { editId, format, outputPath } = e.payload;
+    const { editId, format, outputPath, overwrite } = e.payload;
     if (!useDocumentStore.getState().path) {
       toast.info("Open a document before exporting.");
       await replyToExport(editId, NO_DOCUMENT_TO_EXPORT);
@@ -53,14 +53,18 @@ export function handleExportPayload(): Promise<UnlistenFn> {
           fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
         // html/docx/epub write to the agent's path with no dialog. pdf can only
         // print, so the MCP server never sends a path for it.
+        // Without `overwrite`, the write itself refuses a file that is
+        // there (the agent's check came before, and a file may have
+        // appeared since).
+        const opts = { newFile: overwrite === false };
         if (format === "pdf") {
           await exportPdf(title);
         } else if (format === "docx") {
-          await exportDocx(title, outputPath);
+          await exportDocx(title, outputPath, opts);
         } else if (format === "epub") {
-          await exportEpub(title, outputPath);
+          await exportEpub(title, outputPath, opts);
         } else {
-          await exportHtml(title, outputPath);
+          await exportHtml(title, outputPath, opts);
         }
         await replyToExport(editId, null);
       } catch (err) {

@@ -32,6 +32,7 @@ import {
   usesCrlf,
 } from "../../lib/frontmatter";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
+import { keepSourceOnSave } from "../../lib/milkdownFidelity";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { listEnterTransaction } from "../../lib/milkdownListEnter";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
@@ -381,14 +382,14 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     });
     // A CRLF file keeps its line breaks (Crepe writes LF).
     const crlf = usesCrlf(initialContent);
-    crepe.on((api) => {
-      api.markdownUpdated((_ctx, written) => {
-        const markdown = inLineBreaks(written, crlf);
-        // Ignore no-op echoes; only propagate real content changes.
-        if (markdown === lastBodyRef.current) return;
-        lastBodyRef.current = markdown;
-        setContentRef.current(joinFrontmatter(fmRef.current, markdown));
-      });
+    // Only the blocks edited are written by the serializer; the rest of the
+    // file keeps its text (lib/milkdownFidelity.ts).
+    keepSourceOnSave(crepe, body, (written) => {
+      const markdown = inLineBreaks(written, crlf);
+      // Ignore no-op echoes; only propagate real content changes.
+      if (markdown === lastBodyRef.current) return;
+      lastBodyRef.current = markdown;
+      setContentRef.current(joinFrontmatter(fmRef.current, markdown));
     });
     return crepe;
   }, []);

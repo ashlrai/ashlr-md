@@ -59,7 +59,9 @@ import {
   cloneWithoutInjectedChrome,
   exportDocx,
   exportHtml,
+  exportLang,
   exportPdf,
+  languageTag,
   waitForRenderedImages,
 } from "./export";
 
@@ -406,6 +408,16 @@ describe("exportHtml", () => {
       path: "/out/agent.html",
       text: expect.stringContaining("<!doctype html>"),
     });
+  });
+
+  it("asks for a write that replaces nothing when told to", async () => {
+    const headers = () =>
+      invokeMock.mock.calls.filter((c) => c[0] === "write_file_bytes").at(-1)?.[2]
+        .headers as Record<string, string>;
+    await exportHtml("My Doc", "/out/agent.html", { newFile: true });
+    expect(headers()["x-export-new"]).toBe("1");
+    await exportHtml("My Doc", "/out/agent.html");
+    expect(headers()["x-export-new"]).toBeUndefined();
   });
 
   it("does nothing (no invoke, no toast) when the user cancels the dialog", async () => {
@@ -1568,6 +1580,38 @@ describe("exportWithProfile", () => {
     );
   });
 
+  it("names the page's language by the front matter's lang, else en", async () => {
+    // Every export said lang="en", whatever the document's language.
+    const doc = (content: string) => ({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content,
+    });
+    const defaults = mockDocGetState.getMockImplementation();
+    saveMock.mockResolvedValue("/out/doc.html");
+    mockGetState.mockReturnValue({ activeTemplateId: "none", userTemplates: [] });
+    try {
+      mockDocGetState.mockImplementation(() =>
+        doc("---\nlang: fr-CA\n---\n# Bonjour\n"),
+      );
+      await exportHtml("my-doc");
+      expect(writtenExport()?.text).toContain('<html lang="fr-CA"');
+      await exportWithProfile("notion-html", "my-doc");
+      expect(writtenExport()?.text).toContain('<html lang="fr-CA"');
+      mockDocGetState.mockImplementation(() =>
+        doc("---\nlang: '\"><script>x</script>'\n---\n# Hi\n"),
+      );
+      await exportHtml("my-doc");
+      expect(writtenExport()?.text).toContain('<html lang="en"');
+      expect(writtenExport()?.text).not.toContain("<script>x");
+      mockDocGetState.mockImplementation(() => doc("# No front matter\n"));
+      await exportWithProfile("email-html", "my-doc");
+      expect(writtenExport()?.text).toContain('<html lang="en"');
+    } finally {
+      if (defaults) mockDocGetState.mockImplementation(defaults);
+    }
+  });
+
   it("titles a profile export by the front matter's title, else the file's", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     mockDocGetState.mockReturnValueOnce({
@@ -2317,5 +2361,37 @@ describe("buildExportHtml — slack-rich-markdown profile", () => {
   it("has no external resource references", () => {
     const html = buildExportHtml("slack-rich-markdown", SAMPLE_BODY);
     expect(html).not.toMatch(/<link[^>]+href="https?:/);
+  });
+});
+
+describe("languageTag / exportLang", () => {
+  it("takes tags in the BCP 47 shape and nothing else", () => {
+    for (const ok of ["en", "pt-BR", "zh-Hant-TW", "sr-Latn", "de-CH-1901", "fil"]) {
+      expect(languageTag(ok)).toBe(ok);
+    }
+    expect(languageTag(" en_US ")).toBe("en-US");
+    for (const bad of [
+      "",
+      "e",
+      "english please",
+      "en--US",
+      "-en",
+      "en-",
+      'en" onload="x',
+      "12",
+      `en-${"a".repeat(40)}`,
+      null,
+      undefined,
+    ]) {
+      expect(languageTag(bad)).toBeNull();
+    }
+  });
+
+  it("reads the front matter's lang, defaulting to en", () => {
+    expect(exportLang("---\nlang: ja\n---\nx")).toBe("ja");
+    expect(exportLang('---\nlang: "de-AT"\n---\nx')).toBe("de-AT");
+    expect(exportLang("---\nlang: not a tag\n---\nx")).toBe("en");
+    expect(exportLang("---\ntitle: x\n---\nx")).toBe("en");
+    expect(exportLang("lang: fr\n")).toBe("en");
   });
 });

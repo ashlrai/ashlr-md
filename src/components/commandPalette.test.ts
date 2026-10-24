@@ -68,4 +68,45 @@ describe("command palette focus", () => {
     expect(input?.getAttribute("aria-controls")).toBe(list?.id);
     expect(list?.getAttribute("aria-label")).toBe("Commands");
   });
+
+  it("puts each group's options in a role=group labelled by its header", () => {
+    act(() => root.render(createElement(CommandPalette)));
+    act(() => useUiStore.setState({ commandPaletteOpen: true }));
+    const list = host.querySelector('[role="listbox"]') as HTMLElement;
+    const groups = Array.from(list.children);
+    expect(groups.length).toBeGreaterThan(1);
+    let index = 0;
+    for (const g of groups) {
+      expect(g.getAttribute("role")).toBe("group");
+      const label = document.getElementById(g.getAttribute("aria-labelledby") ?? "");
+      expect(label?.classList.contains("cmdk-group")).toBe(true);
+      expect(label?.textContent).not.toBe("");
+      expect(label?.getAttribute("aria-hidden")).toBe("true");
+      // A group holds its header and options only, in the palette's order.
+      for (const child of Array.from(g.children)) {
+        if (child === label) continue;
+        expect(child.getAttribute("role")).toBe("option");
+        expect(child.id).toBe(`cmdk-row-${index}`);
+        index += 1;
+      }
+    }
+    expect(index).toBe(list.querySelectorAll('[role="option"]').length);
+  });
+});
+
+describe("groupRuns", () => {
+  it("splits rows into runs of one group, with each run's first index", async () => {
+    const { groupRuns } = await import("./CommandPalette");
+    const runs = groupRuns([
+      { group: "A" },
+      { group: "A" },
+      { group: "B" },
+      { group: "A" },
+    ]);
+    expect(runs.map((r) => [r.group, r.start, r.rows.length])).toEqual([
+      ["A", 0, 2],
+      ["B", 2, 1],
+      ["A", 3, 1],
+    ]);
+  });
 });

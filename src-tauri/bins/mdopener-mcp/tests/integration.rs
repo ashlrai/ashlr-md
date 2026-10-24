@@ -333,6 +333,7 @@ fn destructive_tools_are_listed_last() {
     let pos = |n: &str| names.iter().position(|&x| x == n).unwrap();
     assert!(pos("edit_document") < pos("set_content"));
     assert!(pos("edit_document") < pos("replace_document"));
+    assert!(pos("export_metadata") < pos("edit_canvas"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -7518,6 +7519,33 @@ fn export_replaces_an_existing_file_only_with_overwrite() {
         def.input_schema["properties"]["overwrite"]["type"],
         json!("boolean")
     );
+}
+
+/// The no-overwrite check and the app's write were two steps: a file put at
+/// `output_path` between them was replaced. The app is now told whether it
+/// may replace one (`overwrite`), and refuses it in the write itself.
+#[test]
+fn export_tells_the_app_whether_it_may_replace_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    for (arg, sent) in [
+        (json!(null), false),
+        (json!(false), false),
+        (json!(true), true),
+    ] {
+        let out = base.join(format!("plan-{sent}-{}.html", arg.is_null()));
+        let app = exporting_app(true);
+        let resp = tool_export_with(
+            id(1),
+            &json!({ "format": "html", "output_path": out.to_string_lossy(), "overwrite": arg }),
+            &app,
+            SHORT,
+        );
+        assert!(!is_error(&resp), "{resp:?}");
+        let posts = app.posts.lock().unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0]["overwrite"], json!(sent), "overwrite {arg}");
+    }
 }
 
 #[test]
@@ -14862,4 +14890,21 @@ fn an_escaped_alias_pipe_is_no_part_of_the_wikilink_target() {
     let doc = "| a | b |\n|---|---|\n| [[note\\|alias]] | [[n#h\\|x]] |\n\n[[p\\|q]]\n";
     assert_eq!(extract_wikilinks(doc), ["n", "note", "p"]);
     assert_eq!(strip_markdown(doc), "a\tb\nalias\tx\n\nq");
+}
+
+/// `edit_canvas` writes the canvas back in place (`save` defaults to true)
+/// and can remove nodes and edges, but was listed `destructiveHint: false`
+/// (a Modifier), so a client that confirms destructive tools let it rewrite
+/// a canvas unasked.
+#[test]
+fn edit_canvas_is_listed_as_destructive() {
+    let reg = tool_registry();
+    let def = reg
+        .iter()
+        .find(|d| d.name == "edit_canvas")
+        .expect("edit_canvas must be in registry");
+    assert_eq!(def.tier, ToolTier::Destructive);
+    let ann = def.annotations.as_ref().expect("annotations");
+    assert_eq!(ann["destructiveHint"].as_bool(), Some(true));
+    assert_eq!(ann["readOnlyHint"].as_bool(), Some(false));
 }

@@ -268,7 +268,7 @@ export function buildStandaloneHtml(
     : "";
 
   return `<!doctype html>
-<html lang="en" data-theme="${theme}"${template ? ` data-export-template="${escapeHtml(template.id)}"` : ""}>
+<html lang="${escapeHtml(openDocumentLang())}" data-theme="${theme}"${template ? ` data-export-template="${escapeHtml(template.id)}"` : ""}>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -352,12 +352,47 @@ export function buildStandaloneHtmlWithActiveTemplate(title: string): string {
 export function exportMetadata(fallbackTitle: string): {
   title: string;
   author: string;
+  lang: string;
 } {
   const content = useDocumentStore.getState().content ?? "";
   return {
     title: frontmatterText(content, "title") ?? fallbackTitle,
     author: frontmatterText(content, "author") ?? "",
+    lang: exportLang(content),
   };
+}
+
+/** The language exports name when the front matter names none (or no valid one). */
+export const DEFAULT_EXPORT_LANG = "en";
+
+/**
+ * `value` as a language tag, when it is one in the shape BCP 47 gives
+ * (`en`, `pt-BR`, `zh-Hant-TW`, `sr-Latn`): a primary subtag of 2 to 8
+ * letters, then subtags of 1 to 8 letters and digits, joined by hyphens, at
+ * most 35 characters. `en_US` reads as `en-US`. Anything else (a sentence,
+ * markup, quotes) is null: it is written into an attribute.
+ */
+export function languageTag(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const tag = value.trim().replace(/_/g, "-");
+  if (tag.length === 0 || tag.length > 35) return null;
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(tag) ? tag : null;
+}
+
+/**
+ * The language of the document's export: its front matter `lang` (as
+ * Pandoc and most static site generators read it), else
+ * {@link DEFAULT_EXPORT_LANG}. Every export said `lang="en"`, so a screen
+ * reader read a French document with English rules, and a browser offered
+ * to translate it from English.
+ */
+export function exportLang(content: string): string {
+  return languageTag(frontmatterText(content, "lang")) ?? DEFAULT_EXPORT_LANG;
+}
+
+/** {@link exportLang} of the open document. */
+function openDocumentLang(): string {
+  return exportLang(useDocumentStore.getState().content ?? "");
 }
 
 /** Minimal HTML-entity escaping for the document title. */
@@ -379,7 +414,11 @@ function escapeHtml(s: string): string {
  * file the link points to, so an export over a `report.html` linked to
  * `~/.bashrc` replaced the shell profile.
  */
-export async function exportHtml(title: string, outputPath?: string): Promise<void> {
+export async function exportHtml(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
@@ -394,7 +433,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
   if (!path) return; // user cancelled — no toast
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(html));
+    await writeExportBytes(path, new TextEncoder().encode(html), opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -413,7 +452,11 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
  * and returns a Blob.  We convert that to Uint8Array and write via the Rust
  * `write_file_bytes` command for an atomic save.
  */
-export async function exportDocx(title: string, outputPath?: string): Promise<void> {
+export async function exportDocx(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
@@ -443,6 +486,8 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
   const result = await HTMLtoDOCX(bodyHtml, null, {
     title: meta.title,
     ...(meta.author ? { creator: meta.author } : {}),
+    // The document's language (front matter `lang`), for Word's proofing.
+    lang: meta.lang,
     // Margins in twips (1 inch = 1440 twips).
     margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
     // Embed a minimal set of font hints so Word renders reasonably.
@@ -459,7 +504,7 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await writeExportBytes(path, bytes);
+    await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -746,7 +791,11 @@ async function withEpubImages<T>(
  * Requires: `epub-gen-memory` must be installed (`bun add epub-gen-memory`).
  * The import is dynamic so the rest of the app loads even if it is absent.
  */
-export async function exportEpub(title: string, outputPath?: string): Promise<void> {
+export async function exportEpub(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
@@ -790,6 +839,8 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
         title: meta.title,
         // The front matter's `author`, else none.
         author: meta.author,
+        // The front matter's `lang`, else "en" (the library's default was "en").
+        lang: meta.lang,
         // Use the theme-aware chapter CSS as the stylesheet.
         css,
         // EPUB 3 for widest modern reader support.
@@ -810,7 +861,7 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await writeExportBytes(path, bytes);
+    await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -861,7 +912,7 @@ export function buildExportHtml(
     profileId === "email-html" ? inlineEmailStyles(bodyHtml) : bodyHtml;
 
   return `<!doctype html>
-<html lang="en" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
+<html lang="${escapeHtml(openDocumentLang())}" data-theme="${theme}" data-export-profile="${escapeHtml(profileId)}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -1027,10 +1078,22 @@ export async function exportWithProfile(
  * (`Array.from(bytes)`), about 3.6 bytes of JSON per byte, built and parsed
  * on both sides: a 32 MiB EPUB sent 114 MiB of JSON.
  */
-export async function writeExportBytes(path: string, bytes: Uint8Array): Promise<void> {
-  await invoke("write_file_bytes", bytes, {
-    headers: { "x-export-path": encodeURIComponent(path) },
-  });
+export interface WriteOptions {
+  /**
+   * Refuse a file already at the path, in the write itself (the Rust side
+   * publishes a temp file with a hard link), so nothing there is replaced.
+   */
+  newFile?: boolean;
+}
+
+export async function writeExportBytes(
+  path: string,
+  bytes: Uint8Array,
+  opts: WriteOptions = {},
+): Promise<void> {
+  const headers: Record<string, string> = { "x-export-path": encodeURIComponent(path) };
+  if (opts.newFile) headers["x-export-new"] = "1";
+  await invoke("write_file_bytes", bytes, { headers });
 }
 
 /** Normalise an unknown error into a user-readable string. */
