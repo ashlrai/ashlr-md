@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Diff hunks apply to CRLF documents.** An agent's diff hunk is matched by
+  its lines joined with LF, so Apply on a hunk in a CRLF document always said
+  the patch was not found. Its lines now take the document's line breaks.
+  `applyHunkToContent` also read `$$`, `$&` and `` $` `` in the replacement as
+  `String.replace` patterns, so `$$` math in a hunk became `$`.
 - **Lint fixes leave code and line breaks alone.** `invalid-link-target` and
   `missing-alt-text` (both on by default) read the raw document, so a
   `[x](#)` or `![](a.png)` in a code sample was flagged and its fix rewrote

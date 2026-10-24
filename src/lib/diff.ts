@@ -229,6 +229,22 @@ export interface ApplyError {
 }
 
 /**
+ * `find` and `replace` in the line breaks of `content`: a hunk's lines are
+ * joined by `\n`, so in a CRLF document (one with `\r\n` and no lone `\n`)
+ * they take `\r\n`. A hunk was never found in a CRLF document, and one
+ * applied there would have added LF lines.
+ */
+export function inLineBreaksOf(
+  content: string,
+  find: string,
+  replace: string,
+): { find: string; replace: string } {
+  const crlf = content.includes("\r\n") && !/(^|[^\r])\n/.test(content);
+  if (!crlf || find.includes("\r") || replace.includes("\r")) return { find, replace };
+  return { find: find.replace(/\n/g, "\r\n"), replace: replace.replace(/\n/g, "\r\n") };
+}
+
+/**
  * Apply a single {@link ParsedHunk} to `content` using find/replace semantics.
  *
  * Returns `{ ok: true, newContent }` on success or `{ ok: false, error }` when:
@@ -247,7 +263,8 @@ export function applyHunkToContent(
     // Nothing to change — treat as a successful no-op.
     return { ok: true, newContent: content };
   }
-  const occurrences = content.split(hunk.find).length - 1;
+  const { find, replace } = inLineBreaksOf(content, hunk.find, hunk.replace);
+  const occurrences = content.split(find).length - 1;
   if (occurrences === 0) {
     return { ok: false, error: "Patch anchor not found in content" };
   }
@@ -258,7 +275,13 @@ export function applyHunkToContent(
         "Patch anchor is ambiguous (appears more than once): include more context lines",
     };
   }
-  return { ok: true, newContent: content.replace(hunk.find, hunk.replace) };
+  // Spliced, not String.replace, whose `$&`, `$'` and `$$` patterns in the
+  // replacement used to rewrite it (`$$` math became `$`).
+  const at = content.indexOf(find);
+  return {
+    ok: true,
+    newContent: content.slice(0, at) + replace + content.slice(at + find.length),
+  };
 }
 
 // ---------------------------------------------------------------------------
