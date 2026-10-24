@@ -66,6 +66,12 @@ export interface Tab {
   diskVersion: string | null;
   /** The `version` of `pendingDisk`. */
   pendingVersion: string | null;
+  /**
+   * The file was deleted or moved outside the app while open. The text is
+   * kept, and a save asks before writing the file again (or the banner
+   * offers Save As).
+   */
+  missing: boolean;
   reloadNonce: number;
   /** When true, show a live read-preview pane beside the editor. */
   splitView: boolean;
@@ -96,6 +102,8 @@ interface DocumentState {
   diskVersion: string | null;
   /** See {@link Tab.pendingVersion}. */
   pendingVersion: string | null;
+  /** See {@link Tab.missing}. */
+  missing: boolean;
   /** Bumped to force editors to remount with fresh content (e.g. after reload). */
   reloadNonce: number;
   /** When true, render a live read preview beside the editor (per-document). */
@@ -177,7 +185,24 @@ interface DocumentState {
   clearOpLog: (docPath: string) => void;
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
-  save: () => Promise<void>;
+  /**
+   * Save the active document. Resolves to `null` once it is on disk, or to
+   * why it is not (also set as `error` and toasted). A file deleted or moved
+   * since it was read is written again only after the user confirms;
+   * `agent` saves never ask, and are refused instead.
+   */
+  save: (opts?: SaveOptions) => Promise<string | null>;
+  /**
+   * Save the active document under a name the user picks, which the tab
+   * then follows. Resolves like `save` (`"cancelled"` when no name was picked).
+   */
+  saveAs: () => Promise<string | null>;
+  /**
+   * Read the active document's file again after the watcher reported a
+   * change to `path`: hand its text to `handleDiskUpdate`, or flag the tab
+   * `missing` when the file is gone.
+   */
+  refreshFromDisk: (path: string) => Promise<void>;
   /** `version` is the read's (`read_markdown_file`), when known. */
   handleDiskUpdate: (diskContent: string, version?: string | null) => void;
   acceptExternalChange: () => void;
@@ -190,6 +215,15 @@ interface DocumentState {
   nextTab: () => void;
   prevTab: () => void;
 }
+
+export interface SaveOptions {
+  /** A save an agent asked for: never shows a dialog. */
+  agent?: boolean;
+}
+
+/** Why an agent save of a deleted or moved file is refused. */
+export const MISSING_FILE_REASON =
+  "the file was deleted or moved outside Ashlr MD; it is written again only when the user confirms (Save, or Save As)";
 
 /** Fields a Tab and the top-level mirror share, sans `id`. */
 type TabFields = Omit<Tab, "id">;
@@ -206,6 +240,7 @@ const EMPTY_TOP = {
   pendingDisk: null,
   diskVersion: null,
   pendingVersion: null,
+  missing: false,
   viewMode: "read" as ViewMode,
   splitView: false,
 };
@@ -230,6 +265,7 @@ function topToTabFields(s: DocumentState): TabFields {
     pendingDisk: s.pendingDisk,
     diskVersion: s.diskVersion,
     pendingVersion: s.pendingVersion,
+    missing: s.missing,
     reloadNonce: s.reloadNonce,
     splitView: s.splitView,
   };
@@ -249,6 +285,7 @@ function tabFieldsToTop(t: TabFields) {
     pendingDisk: t.pendingDisk,
     diskVersion: t.diskVersion,
     pendingVersion: t.pendingVersion,
+    missing: t.missing,
     reloadNonce: t.reloadNonce,
     splitView: t.splitView,
   };
@@ -272,7 +309,12 @@ function syncActiveTab(s: DocumentState): Tab[] {
  * over the change). Now it reloads a clean tab, or offers the change when
  * the tab has edits, as a watched change does.
  */
-function recheckDisk(get: () => DocumentState, id: string, path: string) {
+function recheckDisk(
+  get: () => DocumentState,
+  set: SetState,
+  id: string,
+  path: string,
+) {
   invoke<MarkdownFile>("read_markdown_file", { path })
     .then((file) => {
       const cur = get();
@@ -280,7 +322,49 @@ function recheckDisk(get: () => DocumentState, id: string, path: string) {
         cur.handleDiskUpdate(file.content, file.version ?? null);
       }
     })
-    .catch(() => {});
+    .catch((e) => {
+      const cur = get();
+      if (cur.activeId === id && cur.path === path && isMissingFileError(e)) {
+        markMissing(get, set, path);
+      }
+    });
+}
+
+type SetState = (partial: Partial<DocumentState>) => void;
+
+/**
+ * Flag the active tab's file (`path`) as gone: the window used to show
+ * nothing, and the next save silently wrote the file again.
+ */
+function markMissing(get: () => DocumentState, set: SetState, path: string) {
+  const s = get();
+  if (s.path !== path || s.missing) return;
+  const next = { ...s, missing: true };
+  set({ missing: true, tabs: syncActiveTab(next) });
+}
+
+/** Ask before writing a file that was deleted or moved since it was read. */
+async function confirmRecreate(fileName: string): Promise<boolean> {
+  try {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    return await ask(
+      `"${fileName}" was deleted or moved outside Ashlr MD. Save it again at its old location? (Or use Save As in the banner.)`,
+      {
+        title: "File not found",
+        kind: "warning",
+        okLabel: "Recreate",
+        cancelLabel: "Cancel",
+      },
+    );
+  } catch {
+    // No dialog, no recreate: the text stays in the window.
+    return false;
+  }
+}
+
+/** The last path component, for a tab title. */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
 }
 
 export const useDocumentStore = create<DocumentState>((set, get) => ({
@@ -297,6 +381,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   pendingDisk: null,
   diskVersion: null,
   pendingVersion: null,
+  missing: false,
   reloadNonce: 0,
   splitView: false,
 
@@ -332,6 +417,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         pendingDisk: null,
         diskVersion: file.version ?? null,
         pendingVersion: null,
+        missing: false,
         // Bump nonce so editors keying on path+reloadNonce remount fresh.
         reloadNonce: get().reloadNonce + 1,
         splitView: false,
@@ -505,15 +591,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return { splitView, tabs: syncActiveTab(next) };
     }),
 
-  save: async () => {
-    const { path, content, activeId, diskVersion } = get();
-    if (!path) return;
+  save: async (opts) => {
+    const { path, content, activeId, diskVersion, missing, fileName } = get();
+    if (!path) return "no document is open";
+    let recreate = false;
+    if (missing) {
+      // Gone since it was read: write it again only when the user says so.
+      if (opts?.agent) return MISSING_FILE_REASON;
+      if (!(await confirmRecreate(fileName))) return "cancelled";
+      recreate = true;
+    }
     try {
       const written = await invoke<unknown>("write_markdown_file", {
         path,
         content,
-        // Refused when the file changed on disk since this text's read.
-        expected: diskVersion ?? undefined,
+        // Refused when the file changed on disk since this text's read, or
+        // is gone. A recreate the user confirmed is not checked.
+        expected: recreate ? undefined : (diskVersion ?? undefined),
       });
       const version = typeof written === "string" ? written : null;
       set((s) => {
@@ -530,6 +624,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           externalChange: false,
           pendingDisk: null,
           pendingVersion: null,
+          missing: false,
         };
         if (s.activeId !== activeId || s.path !== path) {
           return {
@@ -545,9 +640,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         return { ...saved, isDirty, tabs: syncActiveTab(next) };
       });
       toast.success("Saved");
+      return null;
     } catch (e) {
       const error = String(e);
-      set({ error: untagged(error) });
       if (error.includes(SAVE_CONFLICT_TAG)) {
         // Another app changed the file since it was read: nothing was
         // written. Offer its text (the banner) as a watched change does, so
@@ -555,17 +650,104 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         toast.error(
           "Not saved: the file changed on disk. Reload it, or keep your version and save again.",
         );
-        recheckDisk(get, activeId ?? "", path);
-        return;
+        recheckDisk(get, set, activeId ?? "", path);
+        return untagged(error);
       }
+      if (error.includes(SAVE_MISSING_TAG)) {
+        // Gone, and the watcher has not said so yet: show it, and ask.
+        markMissing(get, set, path);
+        const now = get();
+        if (opts?.agent || now.activeId !== activeId || !now.missing) {
+          return MISSING_FILE_REASON;
+        }
+        return now.save(opts);
+      }
+      set({ error: untagged(error) });
       toast.error(`Couldn’t save: ${untagged(error)}`);
+      return untagged(error);
+    }
+  },
+
+  saveAs: async () => {
+    const { path, content, activeId } = get();
+    if (!path || activeId == null) return "no document is open";
+    let dest: string | null;
+    try {
+      const { save: pick } = await import("@tauri-apps/plugin-dialog");
+      dest = await pick({
+        defaultPath: path,
+        filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx", "txt"] }],
+      });
+    } catch (e) {
+      return String(e);
+    }
+    if (!dest) return "cancelled";
+    try {
+      // The dialog asked before replacing an existing file, so no check.
+      const written = await invoke<unknown>("write_markdown_file", {
+        path: dest,
+        content,
+      });
+      const version = typeof written === "string" ? written : null;
+      const fileName = baseName(dest);
+      set((s) => {
+        const saved = {
+          path: dest,
+          fileName,
+          diskContent: content,
+          diskVersion: version,
+          externalChange: false,
+          pendingDisk: null,
+          pendingVersion: null,
+          missing: false,
+        };
+        if (s.activeId !== activeId) {
+          return {
+            tabs: s.tabs.map((t) =>
+              t.id === activeId
+                ? { ...t, ...saved, isDirty: t.content !== content }
+                : t,
+            ),
+          };
+        }
+        const isDirty = s.content !== content;
+        const next = { ...s, ...saved, isDirty };
+        return { ...saved, isDirty, tabs: syncActiveTab(next) };
+      });
+      useRecentStore.getState().add(dest, fileName, Date.now());
+      if (get().activeId === activeId) {
+        invoke("watch_file", { path: dest }).catch(() => {});
+      }
+      toast.success(`Saved as ${fileName}`);
+      return null;
+    } catch (e) {
+      toast.error(`Couldn’t save: ${untagged(String(e))}`);
+      return untagged(String(e));
+    }
+  },
+
+  refreshFromDisk: async (path) => {
+    if (get().path !== path) return;
+    try {
+      const file = await invoke<MarkdownFile>("read_markdown_file", { path });
+      if (get().path === path)
+        get().handleDiskUpdate(file.content, file.version ?? null);
+    } catch (e) {
+      // Deleted, or moved away: say so. Any other failure may be a write in
+      // progress, which the next event settles.
+      if (isMissingFileError(e)) markMissing(get, set, path);
     }
   },
 
   // Called when the watcher reports the file changed on disk and we've re-read it.
   handleDiskUpdate: (disk, version) => {
+    const s0 = get();
+    if (!s0.path) return;
+    // The file is there (again): a tab flagged missing no longer is.
+    if (s0.missing) {
+      set({ missing: false, tabs: syncActiveTab({ ...s0, missing: false }) });
+    }
     const s = get();
-    if (!s.path) return;
     const diskVersion = version === undefined ? s.diskVersion : version;
     // Our own save (or no real change) — just resync the disk baseline.
     if (disk === s.content) {
@@ -746,7 +928,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     });
     // Re-issue the watch so the active doc is the one being watched.
     invoke("watch_file", { path: target.path }).catch(() => {});
-    recheckDisk(get, id, target.path);
+    recheckDisk(get, set, id, target.path);
   },
 
   /**
@@ -790,7 +972,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         error: null,
       });
       invoke("watch_file", { path: neighbor.path }).catch(() => {});
-      recheckDisk(get, neighbor.id, neighbor.path);
+      recheckDisk(get, set, neighbor.id, neighbor.path);
     };
 
     if (dirty) {

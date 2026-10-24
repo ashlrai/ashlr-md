@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A file deleted or moved while open is shown, and is not silently
+  recreated.** The window showed nothing when the open file was deleted or
+  moved by another app, and the next save wrote it back at its old place. The
+  tab is now flagged and a banner says so, keeping the text, with Save As… and
+  Recreate…. A save asks before writing the file again; an agent's save
+  (`save: true`) is refused instead of asking. A file that comes back clears
+  the flag. "Save As…" is also in the command palette.
 - **A save no longer overwrites a change made on disk since the file was
   read.** The window sent its text and the file was replaced, whatever was
   there: a change another app (or a sync client) made while the tab was open,
