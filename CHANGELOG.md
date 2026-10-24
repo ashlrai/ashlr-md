@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The inline AI's retry comment matches what it does.** The source
+  editor said a failed rewrite got "one automatic retry with exponential
+  back-off", but the Retry button runs it once after a 500 ms pause and
+  nothing retries on its own. Both editors now say so.
 - **A refused key or an empty account no longer offers a Retry.** After
   Anthropic refused the key (or the cloud token) or said the account was
   out of credit, the sidebar's toast offered Retry, which failed the same

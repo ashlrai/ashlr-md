@@ -237,6 +237,10 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           });
         } else {
           const { detail } = describeAIError(e);
+          // Offer one Retry: the message's Retry button reruns the transform
+          // after a 500 ms pause. Nothing retries on its own, and a failed
+          // retry offers none (this used to say "one automatic retry with
+          // exponential back-off (500 ms -> 1 s)", which never happened).
           const retryFn =
             retryCount < 1
               ? () => {
