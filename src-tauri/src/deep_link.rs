@@ -123,6 +123,24 @@ pub struct LinkViewModes(pub LinkRequests);
 #[derive(Default)]
 pub struct LinkExports(pub LinkRequests);
 
+/// The heading each `mdopener://open` link asked for (`&heading=<slug>`, the
+/// link a heading's "copy link" button makes), by the path it opened, until
+/// the window opens that path and scrolls to it. The parameter used to be
+/// ignored, so a copied heading link opened the document at its top.
+#[derive(Default)]
+pub struct LinkHeadings(Mutex<HashMap<String, String>>);
+
+/// The `heading` of an `open` link, percent-decoded: `None` without one, or
+/// for one that is empty, longer than 512 bytes or holds a control
+/// character (no heading's slug does).
+fn link_heading(query: &str) -> Option<String> {
+    let params = parse_query(query);
+    let (_, raw) = params.iter().find(|(k, _)| k == "heading")?;
+    let heading = percent_decode(raw);
+    (!heading.is_empty() && heading.len() <= 512 && !heading.chars().any(char::is_control))
+        .then_some(heading)
+}
+
 /// One value a link asked for per path, waiting for the window to take it.
 #[derive(Default)]
 pub struct LinkRequests(Mutex<HashMap<String, &'static str>>);
@@ -174,7 +192,25 @@ fn handle_open(app: &AppHandle, query: &str) {
     // A link without `mode` keeps the view, even after an earlier link for
     // the same file asked for one.
     app.state::<LinkViewModes>().0.set(&abs, mode);
+    // Likewise a link without `heading` drops one an earlier link left.
+    {
+        let state = app.state::<LinkHeadings>();
+        let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        match link_heading(query) {
+            Some(h) => map.insert(abs.clone(), h),
+            None => map.remove(&abs),
+        };
+    }
     open_path(app, abs);
+}
+
+/// The heading an `mdopener://open` link asked for `path` (a slug), removed
+/// so it applies once, or `None`. The window calls this after opening a
+/// file from a link and scrolls to that heading.
+#[tauri::command]
+pub fn take_link_heading(path: String, state: tauri::State<LinkHeadings>) -> Option<String> {
+    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    map.remove(&path)
 }
 
 /// The view an `mdopener://open` link asked for `path` (`"read"` or
@@ -295,7 +331,27 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{link_export_mode, link_format, link_mode, link_target, LinkRequests};
+    use super::{
+        link_export_mode, link_format, link_heading, link_mode, link_target, LinkRequests,
+    };
+
+    /// A heading's copied link (`&heading=<slug>`) opened its document at
+    /// the top: the parameter was never read.
+    #[test]
+    fn open_links_read_their_heading() {
+        assert_eq!(link_heading("path=%2Fa.md"), None);
+        assert_eq!(
+            link_heading("path=%2Fa.md&heading=caf%C3%A9-menu"),
+            Some("café-menu".to_string())
+        );
+        assert_eq!(
+            link_heading("heading=a%20b&path=x"),
+            Some("a b".to_string())
+        );
+        assert_eq!(link_heading("heading="), None);
+        assert_eq!(link_heading("heading=a%0Ab"), None);
+        assert_eq!(link_heading(&format!("heading={}", "a".repeat(513))), None);
+    }
 
     /// An export link ignored `mode`, so it exported from whatever view the
     /// file was in, and Edit view cannot export. Other parameters are

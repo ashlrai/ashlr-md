@@ -10,6 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "../store/documentStore";
+import { scrollToFragment } from "./docLinks";
 
 /**
  * After `path` was opened from a link, switch to the view the link asked for,
@@ -23,4 +24,19 @@ export async function applyLinkViewMode(path: string): Promise<void> {
   const doc = useDocumentStore.getState();
   if (doc.path !== path) return;
   doc.setViewMode(mode);
+}
+
+/**
+ * After `path` was opened from a link, scroll to the heading it named
+ * (`mdopener://open?…&heading=<slug>`, what a heading's "copy link" button
+ * copies), if it named one and `path` is still the active document. The
+ * heading used to be ignored, so the link opened the document at its top.
+ */
+export async function applyLinkHeading(path: string): Promise<void> {
+  const heading = await invoke<string | null>("take_link_heading", { path }).catch(
+    () => null,
+  );
+  if (typeof heading !== "string" || heading === "") return;
+  if (useDocumentStore.getState().path !== path) return;
+  scrollToFragment(heading);
 }

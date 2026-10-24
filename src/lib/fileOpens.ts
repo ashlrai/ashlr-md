@@ -13,7 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { applyLinkExport } from "./linkExport";
-import { applyLinkViewMode } from "./linkViewMode";
+import { applyLinkHeading, applyLinkViewMode } from "./linkViewMode";
 
 type OpenPath = (path: string) => Promise<unknown>;
 
@@ -31,6 +31,7 @@ export async function openOpenedFiles(
   for (const p of paths) {
     await openPath(p);
     await applyLinkViewMode(p);
+    await applyLinkHeading(p);
     await applyLinkExport(p);
   }
 }

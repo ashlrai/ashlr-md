@@ -91,6 +91,7 @@ pub fn run() {
         .manage(PendingFiles::default())
         .manage(deep_link::LinkViewModes::default())
         .manage(deep_link::LinkExports::default())
+        .manage(deep_link::LinkHeadings::default())
         .manage(watcher::FileWatcher::default())
         .manage(ipc::DocMirror::default())
         .manage(ipc::RecentMirror::default())
@@ -119,6 +120,7 @@ pub fn run() {
             file_handler::pending_files_listening,
             deep_link::take_link_view_mode,
             deep_link::take_link_export,
+            deep_link::take_link_heading,
             watcher::watch_file,
             watcher::unwatch_file,
             ai::ai_detect_ollama,

@@ -105,6 +105,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A heading's copied link opens at that heading.** The "copy link" button
+  on a heading copies `mdopener://open?path=…&heading=<slug>`, but the link
+  handler ignored `heading`, so the link opened the document at its top. The
+  heading now waits for the window like the link's `mode` does, and the
+  window scrolls to it once the document has opened.
 - **Links and images in the read view work.** A `[x](#heading)` link did
   nothing (every link opens in a new context, which only web and mail links
   had a handler for), a link to another Markdown file did nothing, or on
