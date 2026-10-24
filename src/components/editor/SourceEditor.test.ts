@@ -25,7 +25,11 @@ vi.mock("@tauri-apps/api/event", () => ({
 // Module under test
 // ---------------------------------------------------------------------------
 
-import { NoProviderError, runInlineTransform } from "../../ai/inline";
+import {
+  INLINE_RETRY_DELAY_MS,
+  NoProviderError,
+  runInlineTransform,
+} from "../../ai/inline";
 import { useAIStore } from "../../store/aiStore";
 
 // ---------------------------------------------------------------------------
@@ -387,12 +391,11 @@ describe("integration: error UI → retry → success", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("exponential backoff delay doubles on consecutive retries", () => {
-    // Verify the backoff formula used in the editor: 500ms * 2^retryCount
-    const delays = [0, 1, 2].map((retryCount) => 500 * 2 ** retryCount);
-    expect(delays[0]).toBe(500); // first retry after 500ms
-    expect(delays[1]).toBe(1000); // second retry after 1000ms
-    expect(delays[2]).toBe(2000); // third retry after 2000ms
+  it("waits a constant 500 ms before the one retry", () => {
+    // Only one retry is offered, so the editors' pause is a constant. A
+    // doubling formula (500 ms * 2^retryCount) used to sit here, and in the
+    // editors, though it only ever ran with retryCount 0.
+    expect(INLINE_RETRY_DELAY_MS).toBe(500);
   });
 
   it("only offers retry for the first failure (retryCount < 1 gate)", () => {

@@ -13,7 +13,11 @@ import {
   describeAIError,
   NO_PROVIDER_MESSAGE,
 } from "../../ai/errors";
-import { NoProviderError, runInlineTransform } from "../../ai/inline";
+import {
+  INLINE_RETRY_DELAY_MS,
+  NoProviderError,
+  runInlineTransform,
+} from "../../ai/inline";
 import {
   buildLinkMarkdown,
   buildTableMarkdown,
@@ -250,19 +254,20 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         } else {
           const { detail, setup: fix } = describeAIError(e);
           // Offer one Retry: the message's Retry button reruns the transform
-          // after a 500 ms pause. Nothing retries on its own, and a failed
-          // retry offers none (this used to say "one automatic retry with
-          // exponential back-off (500 ms -> 1 s)", which never happened).
+          // after a 500 ms pause (INLINE_RETRY_DELAY_MS). Nothing retries on
+          // its own, and a failed retry offers none (this used to say "one
+          // automatic retry with exponential back-off (500 ms -> 1 s)",
+          // which never happened, and computed a doubling delay that only
+          // ever ran with retryCount 0).
           // A refused key or an empty account fails a retry the same way,
           // so it offers the step that fixes it instead, as the AI sidebar
           // does.
           const retryFn =
             !fix && retryCount < 1
               ? () => {
-                  const delay = 500 * 2 ** retryCount;
                   setTimeout(
                     () => void runTransformRef.current(actionId, label, retryCount + 1),
-                    delay,
+                    INLINE_RETRY_DELAY_MS,
                   );
                 }
               : null;

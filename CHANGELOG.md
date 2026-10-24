@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The inline AI's Retry pause is one constant.** Both editors computed
+  a doubling delay (500 ms times 2 to the retry count) for a Retry that is
+  offered only once, so it was always 500 ms. They now share that 500 ms
+  pause as a constant; the Retry button works as before.
 - **The AI sidebar's retry toast is styled.** The toast shown after a
   failed generation, its Retry, Open Preferences and Add credit actions
   and its dismiss button had no styles, so they showed as bare browser
