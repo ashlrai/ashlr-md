@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The document-kind classifier reads no structure in code.** Its heading
+  patterns and numbered steps were matched on the whole text, so a code sample
+  listing `## Rollback` or `1. step` lines scored as the document's own and could
+  make a note a runbook. Its code density toggled on lines starting with three
+  backticks, so `~~~` blocks and quoted fences were not code, and its front
+  matter hint was missed when a delimiter had spaces after it. It now reads lines
+  by the rule of the Outline and the task checkboxes.
 - **Spec and review renderers read headings and list items as the page does.**
   Their section headings were matched on raw lines, so a `# comment` in a code
   block ended a spec section (or became the title) and a `## Notes` line in one
