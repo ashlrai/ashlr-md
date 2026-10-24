@@ -101,6 +101,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **Docs: `stream_edit` with `path` reads only the open path.** The
+  `docs/AGENTS.md` row said a `path` made it fetch the whole document to
+  compare, which it stopped doing when the app gained a path-only route,
+  so an agent could leave out the check on a large document. It now says
+  only the open document's path is asked for.
 - **`stream_edit` says its result has no diff without a preview.** With
   `preview: false` the edit is applied at once and the result's `diff` is
   empty and `candidates` null, but the description called `diff` the diff

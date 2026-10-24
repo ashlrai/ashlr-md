@@ -11468,6 +11468,11 @@ fn stream_edit_is_not_preferred_for_large_files() {
         "{d}"
     );
     assert!(d.contains("not for large files"), "{d}");
+    // docs/AGENTS.md said `path` fetched the whole document, so an agent
+    // left out the check on a large one.
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(!docs.contains("it also fetches the whole document"));
+    assert!(docs.contains("asks the app for the open document's path, not its content"));
     let big = "x".repeat(1 << 20);
     let doc = json!({ "path": "/notes/big.md", "content": big });
     let reply =
