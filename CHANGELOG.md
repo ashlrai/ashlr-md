@@ -119,6 +119,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   blank line, then `  # Sub`) or after a bare `-` is part of the item, and
   the Outline already left out headings in list items. It was still
   listed. It is now counted for the page's heading ids but not listed.
+- **Partial embeds, link previews and agents skip a list item's heading.**
+  A heading on a list item's continuation line (`- x`, a blank line, then
+  `  # Sub`) was still a heading of the note for `![[Note#Sub]]` embeds,
+  link previews, Related notes and document kinds, and agents'
+  `export_metadata` listed it and could take it as the title. They now
+  leave it out, as the Outline does, by the container rule fences follow.
+- **The Outline lists a heading after a list marker that opens no item.**
+  `2. z` after a paragraph (it cannot interrupt one) or a bare `-` before
+  an unindented line was read as a list item holding the `   # Sub` after
+  it, so that heading was left out of the Outline. The Outline now reads
+  list items and blockquotes by the rule fences follow, which agrees with
+  the preview on every ATX heading of a generated test corpus.
 - **The inline AI's Retry pause is one constant.** Both editors computed
   a doubling delay (500 ms times 2 to the retry count) for a Retry that is
   offered only once, so it was always 500 ms. They now share that 500 ms

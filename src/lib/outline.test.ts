@@ -233,6 +233,27 @@ describe("parseHeadings", () => {
       ["Sub", "sub-1", 8],
       ["Bare", "bare-1", 9],
     ]);
+    // atxHeadings (partial embeds, link previews) leaves them out too.
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([7, 8, 9]);
+  });
+  it("reads a heading's containers by the rule of markdownLines", () => {
+    // `2. z` cannot interrupt a paragraph and a bare `-` before an
+    // unindented line ends at once, so the `   # Sub` after them is a
+    // heading of the document, as the renderer reads it. Both used to be
+    // read as list items holding it.
+    const doc = ["text", "2. z", "   # Sub", "", "-", "text", "   # Bare"].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.line])).toEqual([
+      ["Sub", 3],
+      ["Bare", 7],
+    ]);
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([3, 7]);
+    const lines = markdownLines("> - # Q\n- x\n\n  # Sub");
+    expect(lines.map((l) => [l.contained, l.content])).toEqual([
+      [true, "# Q"],
+      [true, "x"],
+      [false, ""],
+      [true, "# Sub"],
+    ]);
   });
   it("reads a fence in a list item as a fence", () => {
     // A list-item fence used to be text, so `  # comment` in the item's

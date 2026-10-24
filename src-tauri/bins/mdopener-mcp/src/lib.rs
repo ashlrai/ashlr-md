@@ -6100,10 +6100,13 @@ fn not_running_msg_then(err: &str, path: Option<&str>, then: Option<&str>) -> St
 /// [`markdown_lines::atx_heading`], the rule of `export_metadata`'s
 /// headings: only `# ` at the start of a line used to count, so `  # Title`
 /// and `#\tTitle` were not titles, `# Title #` kept its closing `#`, and an
-/// empty `# ` named the document with an empty title.
+/// empty `# ` named the document with an empty title. A heading in a
+/// blockquote or a list item is not a title
+/// ([`markdown_lines::document_headings`]), as the app's Outline lists none:
+/// one on an item's continuation line (`- x`, a blank line, then `  # Sub`)
+/// used to name the document.
 pub fn document_title(content: &str) -> Option<String> {
-    markdown_lines::text_lines(content)
-        .filter_map(markdown_lines::atx_heading)
+    markdown_lines::document_headings(content)
         .find(|&(level, text)| level == 1 && !text.is_empty())
         .map(|(_, text)| text.to_string())
 }
@@ -8858,10 +8861,12 @@ fn split_flow_items(inner: &str) -> Vec<&str> {
 /// was a heading. A heading is read by [`markdown_lines::atx_heading`], as
 /// [`document_title`] reads one: the whole line used to be trimmed, so a
 /// `# comment` indented four spaces (indented code) was a heading. An empty
-/// heading is left out.
+/// heading is left out, and so is one in a blockquote or a list item
+/// ([`markdown_lines::document_headings`]), as the app's Outline lists none.
+/// One on an item's continuation line (`- x`, a blank line, then `  # Sub`)
+/// used to be listed.
 pub fn extract_headings(content: &str) -> Vec<Value> {
-    markdown_lines::text_lines(content)
-        .filter_map(markdown_lines::atx_heading)
+    markdown_lines::document_headings(content)
         .filter(|(_, text)| !text.is_empty())
         .map(|(level, text)| json!({ "level": level, "text": text }))
         .collect()

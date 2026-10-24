@@ -8101,6 +8101,35 @@ fn a_fence_in_an_item_continuation_nested_item_or_item_quote_is_a_fence() {
     );
 }
 
+/// A heading on a list item's continuation line (`- x`, a blank line, then
+/// `  # Sub`, or a bare `-` then `  # Sub`) was a heading of the document
+/// in `export_metadata` and could be its title, while the app's Outline
+/// lists none in an item. Both now read containers by the rule fences
+/// follow, so it is left out, and a line that leaves the item (or a `2.`
+/// that cannot interrupt a paragraph) is still a heading.
+#[test]
+fn a_heading_on_a_list_items_continuation_line_is_not_listed() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let cases: [(&str, &[&str], Option<&str>); 6] = [
+        ("- x\n\n  # Sub\n", &[], None),
+        ("-\n  # Sub\n", &[], None),
+        ("- x\n  # Sub\n\n # Out\n", &["Out"], Some("Out")),
+        ("> - x\n>\n>   # Sub\n", &[], None),
+        ("1. x\n\n   # Sub\n# Top\n", &["Top"], Some("Top")),
+        ("text\n2. z\n   # Sub\n", &["Sub"], Some("Sub")),
+    ];
+    for (doc, want, title) in cases {
+        assert_eq!(texts(doc), want, "{doc:?}");
+        assert_eq!(document_title(doc).as_deref(), title, "{doc:?}");
+    }
+}
+
 /// export_text kept a list item's indentation on the code of a fence in
 /// the item, while quoted code lost its `>` markers. Fenced code now loses
 /// its containers' markers and indentation and up to as many spaces as its

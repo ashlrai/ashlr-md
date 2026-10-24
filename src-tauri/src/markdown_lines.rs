@@ -52,7 +52,7 @@ pub enum LineKind {
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
-    scan(content).map(|(kind, line, _)| (kind, line))
+    scan(content).map(|l| (l.kind, l.line))
 }
 
 /// For each line of `content`, as [`markdown_lines`] yields them, the code
@@ -63,11 +63,36 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
 pub fn fenced_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
-    scan(content).map(|(_, _, code)| code)
+    scan(content).map(|l| l.code)
 }
 
-/// [`markdown_lines`], with each code line's code ([`fenced_code`]).
-fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, str>>)> {
+/// The ATX headings ([`atx_heading`]) of the text lines of `content`
+/// ([`text_lines`]) that sit in no blockquote or list item, empty ones
+/// included: a document's title and `export_metadata`'s headings. A line
+/// behind `> ` or `- ` markers, or indented into an open item's content
+/// column (`- x`, a blank line, then `  # Sub`), is in a container by the
+/// rule fences follow, as the app's Outline reads it.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
+pub fn document_headings(content: &str) -> impl Iterator<Item = (usize, &str)> {
+    scan(content)
+        .filter(|l| l.kind == LineKind::Text && !l.contained)
+        .filter_map(|l| atx_heading(l.line))
+}
+
+/// A line of [`scan`].
+struct Scanned<'a> {
+    kind: LineKind,
+    line: &'a str,
+    /// The code of a [`LineKind::Code`] line ([`fenced_code`]).
+    code: Option<Cow<'a, str>>,
+    /// Whether the line sits in a blockquote or a list item.
+    contained: bool,
+}
+
+/// [`markdown_lines`], with each code line's code ([`fenced_code`]) and
+/// whether each line sits in a container.
+fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     let front_matter = front_matter_len(content);
     // The open fence (its character, its length and how far it is
     // indented), with the containers its code lines stay in.
@@ -86,11 +111,17 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
     let mut closer = false;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
-            return (LineKind::FrontMatter, line, None);
+            return Scanned {
+                kind: LineKind::FrontMatter,
+                line,
+                code: None,
+                contained: false,
+            };
         }
         let expanded = expand_tabs(line);
         let mut ends_bare = false;
         let quoted;
+        let contained;
         let mut kind = LineKind::Text;
         let mut code = None;
         let inside = fence
@@ -98,6 +129,7 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
             .and_then(|(_, _, _, list)| continues(&expanded, list));
         if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
             quoted = list.contains(&Container::Quote);
+            contained = !list.is_empty();
             kind = match code_fence(inside) {
                 Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
                     LineKind::Fence
@@ -118,6 +150,7 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
             fence = None;
             let (list, matched, rest) = containers(&expanded, &items, paragraph.or(indented));
             quoted = list.contains(&Container::Quote);
+            contained = !list.is_empty();
             let empty = rest.trim().is_empty();
             let opened = list.len() > matched;
             if let Some((c, n, _)) = code_fence(rest) {
@@ -171,7 +204,12 @@ fn scan(content: &str) -> impl Iterator<Item = (LineKind, &str, Option<Cow<'_, s
             }
         }
         closer = ends_bare || quoted;
-        (kind, line, code)
+        Scanned {
+            kind,
+            line,
+            code,
+            contained,
+        }
     })
 }
 
