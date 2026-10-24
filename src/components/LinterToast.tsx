@@ -284,6 +284,7 @@ export function LinterToast({
               <span
                 className="linter-toast__severity"
                 style={{ color: severityColor(v.severity) }}
+                role="img"
                 aria-label={v.severity}
               />
               <span className="linter-toast__message">
