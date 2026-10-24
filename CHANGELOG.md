@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Unreadable settings are kept, not overwritten.** Settings that were not
+  readable JSON were replaced by the defaults on the next change, without a
+  word. A copy is now kept first (`mdopener-settings.bak` in the app's
+  storage, or a timestamped `.bak-` key when an earlier copy is there), and
+  a message says so once.
 - **Settings from a newer version keep their version.** Settings written by
   a newer Ashlr MD were saved back as version 8 by this one, so the newer
   app, run again, re-ran its migrations over them. The higher version is now

@@ -4,6 +4,7 @@ import type { ExportProfileId, ExportTemplate } from "../lib/exportTemplates";
 import { ALL_PROFILE_IDS, NO_TEMPLATE_ID, newTemplateId } from "../lib/exportTemplates";
 import type { LintRuleConfig } from "../lib/mdlint";
 import type { UserSnippet } from "../lib/snippets";
+import { toast } from "./toastStore";
 
 export type ThemeId = "paper" | "sepia" | "midnight";
 
@@ -317,8 +318,34 @@ function settingsLocalStorage(): Storage | null {
 }
 
 /**
+ * Keep settings that are not readable JSON under another key before the
+ * defaults replace them, and say so. The key is `<name>.bak`, or
+ * `<name>.bak-<ms>` when an earlier backup is there (it is kept too).
+ */
+function keepUnreadable(ls: Storage, name: string, raw: string): string | null {
+  const first = `${name}.bak`;
+  const key = ls.getItem(first) === null ? first : `${name}.bak-${Date.now()}`;
+  try {
+    ls.setItem(key, raw);
+  } catch {
+    return null;
+  }
+  // Said once, after the window is up so the toast is seen. The next
+  // change writes readable settings, so a later launch says nothing.
+  setTimeout(() => {
+    toast.error(
+      `Your settings could not be read, so the defaults are in use. The unreadable copy was kept as "${key}" in the app's storage.`,
+      { timeout: 10000 },
+    );
+  }, 1500);
+  return key;
+}
+
+/**
  * The settings' storage (`persist`'s): JSON in localStorage, as before,
- * except that a file a newer version wrote keeps its higher version when this one
+ * with two changes. Settings that are not readable are copied aside
+ * ({@link keepUnreadable}) instead of being overwritten by the next change.
+ * And a file a newer version wrote keeps its higher version when this one
  * saves it (its unknown keys are kept by {@link mergePersistedSettings}):
  * it used to be written back as version 8, so the newer app, run again,
  * re-ran its migrations over settings already migrated.
@@ -333,9 +360,13 @@ export const settingsStorage: PersistStorage<SettingsState> = {
     try {
       parsed = JSON.parse(raw);
     } catch {
+      keepUnreadable(ls, name, raw);
       return null;
     }
-    if (!isRecord(parsed)) return null;
+    if (!isRecord(parsed)) {
+      keepUnreadable(ls, name, raw);
+      return null;
+    }
     const v = parsed.version;
     if (typeof v === "number" && Number.isFinite(v)) fileVersion = v;
     return parsed as unknown as StorageValue<SettingsState>;
