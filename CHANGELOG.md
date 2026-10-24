@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: `export` without `overwrite` cannot replace a file.** It checked
+  for a file at `output_path` and then the app wrote the export, so a file
+  put there in between was replaced. The app is now told not to replace
+  one, and writes the export to a temp file published with a hard link
+  (created with `O_EXCL` where links are not supported), which fails when
+  anything is at the path. With `overwrite: true` nothing changes.
 - **MCP: `edit_canvas` is listed as destructive.** It writes the canvas
   file back in place (`save` defaults to true) and can remove nodes and
   edges, but said `destructiveHint: false`, so a client that confirms

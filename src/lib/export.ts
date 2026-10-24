@@ -379,7 +379,11 @@ function escapeHtml(s: string): string {
  * file the link points to, so an export over a `report.html` linked to
  * `~/.bashrc` replaced the shell profile.
  */
-export async function exportHtml(title: string, outputPath?: string): Promise<void> {
+export async function exportHtml(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
@@ -394,7 +398,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
   if (!path) return; // user cancelled — no toast
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(html));
+    await writeExportBytes(path, new TextEncoder().encode(html), opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -413,7 +417,11 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
  * and returns a Blob.  We convert that to Uint8Array and write via the Rust
  * `write_file_bytes` command for an atomic save.
  */
-export async function exportDocx(title: string, outputPath?: string): Promise<void> {
+export async function exportDocx(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
@@ -459,7 +467,7 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await writeExportBytes(path, bytes);
+    await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -746,7 +754,11 @@ async function withEpubImages<T>(
  * Requires: `epub-gen-memory` must be installed (`bun add epub-gen-memory`).
  * The import is dynamic so the rest of the app loads even if it is absent.
  */
-export async function exportEpub(title: string, outputPath?: string): Promise<void> {
+export async function exportEpub(
+  title: string,
+  outputPath?: string,
+  opts: WriteOptions = {},
+): Promise<void> {
   await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
@@ -810,7 +822,7 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await writeExportBytes(path, bytes);
+    await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -1027,10 +1039,22 @@ export async function exportWithProfile(
  * (`Array.from(bytes)`), about 3.6 bytes of JSON per byte, built and parsed
  * on both sides: a 32 MiB EPUB sent 114 MiB of JSON.
  */
-export async function writeExportBytes(path: string, bytes: Uint8Array): Promise<void> {
-  await invoke("write_file_bytes", bytes, {
-    headers: { "x-export-path": encodeURIComponent(path) },
-  });
+export interface WriteOptions {
+  /**
+   * Refuse a file already at the path, in the write itself (the Rust side
+   * publishes a temp file with a hard link), so nothing there is replaced.
+   */
+  newFile?: boolean;
+}
+
+export async function writeExportBytes(
+  path: string,
+  bytes: Uint8Array,
+  opts: WriteOptions = {},
+): Promise<void> {
+  const headers: Record<string, string> = { "x-export-path": encodeURIComponent(path) };
+  if (opts.newFile) headers["x-export-new"] = "1";
+  await invoke("write_file_bytes", bytes, { headers });
 }
 
 /** Normalise an unknown error into a user-readable string. */

@@ -2456,8 +2456,8 @@ pub fn tool_export_with(
     };
     // An existing file is replaced only when the agent says so: the export
     // used to overwrite whatever was at `output_path`, unasked.
+    let overwrite = args["overwrite"].as_bool().unwrap_or(false);
     if let Some(out) = output_path.as_deref() {
-        let overwrite = args["overwrite"].as_bool().unwrap_or(false);
         if !overwrite && std::fs::symlink_metadata(out).is_ok() {
             return tool_error(
                 id,
@@ -2471,9 +2471,14 @@ pub fn tool_export_with(
     }
     let before = output_path.as_deref().and_then(file_fingerprint);
 
+    // The check above answers at once, but a file can appear after it: the
+    // app is told not to replace one, and refuses it in the write itself
+    // (a temp file published with a hard link), so the no-overwrite path
+    // never replaces a file. It used to be this check, then the app's write.
     let body = json!({
         "format": format,
         "outputPath": output_path.as_ref().map(|p| p.to_string_lossy()),
+        "overwrite": overwrite,
     });
     // A headless export is answered once the window has written the file, or
     // with its reason for not writing it, which can take up to the deadline.

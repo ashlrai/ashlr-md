@@ -224,10 +224,32 @@ describe("handlers integration — smoke tests per module", () => {
     >[0]);
     mountBridge();
     await fireEvent("mcp://export", { format: "html", outputPath: "/out/doc.html" });
-    expect(vi.mocked(exportHtml)).toHaveBeenCalledWith("doc", "/out/doc.html");
+    expect(vi.mocked(exportHtml)).toHaveBeenCalledWith("doc", "/out/doc.html", {
+      newFile: false,
+    });
     await fireEvent("mcp://export", { format: "docx", outputPath: "/out/doc.docx" });
-    expect(vi.mocked(exportDocx)).toHaveBeenCalledWith("doc", "/out/doc.docx");
+    expect(vi.mocked(exportDocx)).toHaveBeenCalledWith("doc", "/out/doc.docx", {
+      newFile: false,
+    });
     expect(useUiStore.getState().exportOpen).toBe(false);
+  });
+
+  it("export handler: overwrite false asks for a write that replaces nothing", async () => {
+    // The agent's existence check came before the write, and a file put
+    // there in between was replaced.
+    const { exportEpub } = await import("../lib/export");
+    useDocumentStore.setState({ path: "/doc.md", fileName: "doc.md" } as Parameters<
+      typeof useDocumentStore.setState
+    >[0]);
+    mountBridge();
+    await fireEvent("mcp://export", {
+      format: "epub",
+      outputPath: "/out/doc.epub",
+      overwrite: false,
+    });
+    expect(vi.mocked(exportEpub)).toHaveBeenCalledWith("doc", "/out/doc.epub", {
+      newFile: true,
+    });
   });
 
   it("export handler: with no document open names open_file as the next step", async () => {

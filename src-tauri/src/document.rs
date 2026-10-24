@@ -291,7 +291,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Sync the folder holding `path`, so a rename into it survives a crash.
 /// Best effort: the file is already saved, and some filesystems refuse to
 /// sync a folder. A no-op off Unix, where a folder cannot be opened this way.
-fn sync_parent_dir(path: &Path) {
+pub(crate) fn sync_parent_dir(path: &Path) {
     #[cfg(unix)]
     {
         let parent = match path.parent() {
@@ -309,7 +309,9 @@ fn sync_parent_dir(path: &Path) {
 /// Create a new, empty `<path>.<random>.mdopener.tmp` next to `path` (the
 /// Activity drawer ignores that suffix). `create_new` refuses an existing
 /// name, a symlink included, so another name is tried.
-fn create_temp_sibling(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+pub(crate) fn create_temp_sibling(
+    path: &Path,
+) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
     for _ in 0..16 {
         let mut nonce = [0u8; 8];
         getrandom::getrandom(&mut nonce).map_err(|e| std::io::Error::other(e.to_string()))?;

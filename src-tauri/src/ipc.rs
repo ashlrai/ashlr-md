@@ -13,7 +13,7 @@
 //! | POST   | /content   | `{"content":"…","save":true|false}`   | Replace doc content (round-trip)   |
 //! | POST   | /open      | `{"path":"…","mode":"read|edit"}`     | Open a file (round-trip)           |
 //! | GET    | /recent    | `?limit=N` (default 10, 1 to 200)     | Recent-file list                   |
-//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null"}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir) |
+//! | POST   | /export    | `{"format":"pdf|docx|html|epub","outputPath":"…|null","overwrite":bool}` | Trigger export (`outputPath`: absolute, the format's extension, no dotfile, existing dir; `overwrite: false` refuses an existing file in the write itself) |
 //! | GET    | /vault     | —                                     | Watched-folder files + recents     |
 //! | GET    | /search    | `?q=…&limit=N`                        | Full-text search across the vault  |
 //! | POST   | /edit      | `{"find":"…","replace":"…","save":bool}` | Exact find/replace on LIVE doc (round-trip) |
@@ -1220,6 +1220,9 @@ fn handle_export(mut req: Request, app: &AppHandle) {
         format: String,
         #[serde(rename = "outputPath")]
         output_path: Option<String>,
+        /// False: the window refuses a file already at `outputPath`, in
+        /// the write itself. Absent: replaced, as before the flag.
+        overwrite: Option<bool>,
     }
 
     let body = read_json_body::<Body>(&mut req);
@@ -1239,10 +1242,7 @@ fn handle_export(mut req: Request, app: &AppHandle) {
                 Ok(p) => p.map(|p| p.to_string_lossy().into_owned()),
                 Err(e) => return send_error(req, 400, &e),
             };
-            let payload = serde_json::json!({
-                "format": b.format,
-                "outputPath": output_path,
-            });
+            let payload = export_payload(&b.format, output_path.as_deref(), b.overwrite);
             // A headless export waits for the window to report it written
             // (or why not) through `mcp_edit_result`; one for the dialog
             // returns once the window is told. It can wait up to 30 s, so it
@@ -1269,6 +1269,23 @@ fn handle_export(mut req: Request, app: &AppHandle) {
         }
         Err((code, e)) => send_error(req, code, &e),
     }
+}
+
+/// What `/export` sends the window. `overwrite` is true unless the caller
+/// said false (mdopener-mcp's `export` without `overwrite: true`): then the
+/// window writes the file only if nothing is there, in one step, where the
+/// caller's own check and this write used to leave a gap a file could
+/// appear in and be replaced.
+fn export_payload(
+    format: &str,
+    output_path: Option<&str>,
+    overwrite: Option<bool>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "format": format,
+        "outputPath": output_path,
+        "overwrite": overwrite.unwrap_or(true),
+    })
 }
 
 /// How long a headless `/export` waits for the window to write the file.
@@ -2625,6 +2642,15 @@ mod tests {
         // The state is still usable, and later requests see it.
         m.lock_recover().push(3);
         assert_eq!(*m.lock_recover(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn export_payload_carries_overwrite_and_defaults_it_to_true() {
+        let p = super::export_payload("html", Some("/tmp/a.html"), Some(false));
+        assert_eq!(p["overwrite"], false);
+        assert_eq!(p["outputPath"], "/tmp/a.html");
+        assert_eq!(super::export_payload("pdf", None, None)["overwrite"], true);
+        assert_eq!(super::export_payload("epub", None, Some(true))["overwrite"], true);
     }
 
     #[test]

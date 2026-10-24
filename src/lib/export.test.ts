@@ -408,6 +408,16 @@ describe("exportHtml", () => {
     });
   });
 
+  it("asks for a write that replaces nothing when told to", async () => {
+    const headers = () =>
+      invokeMock.mock.calls.filter((c) => c[0] === "write_file_bytes").at(-1)?.[2]
+        .headers as Record<string, string>;
+    await exportHtml("My Doc", "/out/agent.html", { newFile: true });
+    expect(headers()["x-export-new"]).toBe("1");
+    await exportHtml("My Doc", "/out/agent.html");
+    expect(headers()["x-export-new"]).toBeUndefined();
+  });
+
   it("does nothing (no invoke, no toast) when the user cancels the dialog", async () => {
     saveMock.mockResolvedValue(null);
     await exportHtml("Cancelled");

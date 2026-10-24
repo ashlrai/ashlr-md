@@ -7521,6 +7521,29 @@ fn export_replaces_an_existing_file_only_with_overwrite() {
     );
 }
 
+/// The no-overwrite check and the app's write were two steps: a file put at
+/// `output_path` between them was replaced. The app is now told whether it
+/// may replace one (`overwrite`), and refuses it in the write itself.
+#[test]
+fn export_tells_the_app_whether_it_may_replace_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    for (arg, sent) in [(json!(null), false), (json!(false), false), (json!(true), true)] {
+        let out = base.join(format!("plan-{sent}-{}.html", arg.is_null()));
+        let app = exporting_app(true);
+        let resp = tool_export_with(
+            id(1),
+            &json!({ "format": "html", "output_path": out.to_string_lossy(), "overwrite": arg }),
+            &app,
+            SHORT,
+        );
+        assert!(!is_error(&resp), "{resp:?}");
+        let posts = app.posts.lock().unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0]["overwrite"], json!(sent), "overwrite {arg}");
+    }
+}
+
 #[test]
 fn export_output_path_errors_when_the_app_never_writes_it() {
     let dir = tempfile::tempdir().unwrap();
