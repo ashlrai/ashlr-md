@@ -2,7 +2,7 @@
  * domFind.ts — find-in-page for the rendered read view.
  *
  * Highlights case-insensitive matches inside `.markdown-body` by wrapping them
- * in `<mark class="find-hit">`, skipping code/math/diagram regions, and exposes
+ * in `<mark class="find-hit">`, skipping code block/math/diagram regions, and exposes
  * helpers to navigate and clear. Pure DOM — no React, no editor model.
  */
 
@@ -12,8 +12,9 @@ const HIT = "find-hit";
 const ACTIVE = "find-hit--active";
 // Only find's own marks are skipped: a `==highlight==` renders as a
 // `<mark class="highlight">`, and skipping every `mark` left its words
-// unfound.
-const SKIP_SELECTOR = `pre, code, .katex, .katex-display, .mermaid-block, mark.${HIT}`;
+// unfound. Inline `code` is searched (an identifier is often written so);
+// only code blocks (`pre`, whose highlighted spans are rebuilt) are skipped.
+const SKIP_SELECTOR = `pre, .katex, .katex-display, .mermaid-block, mark.${HIT}`;
 
 function container(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".app-content .markdown-body");

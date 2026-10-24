@@ -26,9 +26,20 @@ describe("domFind", () => {
     expect(document.querySelectorAll("mark.find-hit").length).toBe(2);
   });
 
-  it("skips code and pre regions", () => {
+  it("skips code blocks", () => {
     setup("<p>alpha</p><pre><code>alpha</code></pre>");
     expect(highlight("alpha")).toBe(1);
+  });
+
+  /** An identifier written as inline code could not be found. */
+  it("finds text in inline code", () => {
+    setup("<p>Call <code>parseConfig()</code> once; parseConfig is cached.</p>");
+    expect(highlight("parseConfig")).toBe(2);
+    expect(document.querySelector("code mark.find-hit")?.textContent).toBe(
+      "parseConfig",
+    );
+    clearHighlights();
+    expect(document.querySelector("code")?.textContent).toBe("parseConfig()");
   });
 
   it("finds text inside a ==highlight== mark", () => {

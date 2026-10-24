@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Find in the read view finds text in inline code.** Find skipped every
+  `code` element, so an identifier written as `` `parseConfig()` `` could not
+  be found. Inline code is searched now; code blocks are still skipped. A match
+  must still lie within one element (`foo` and `` `bar` `` do not match
+  "foo bar").
 - **A file search that fails says so.** Any error from the search was shown as
   "0 matches in 0 files", so a failed search looked like a word that is in no
   file. The panel now shows "Couldn’t search the files" and the reason. The AI
