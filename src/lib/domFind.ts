@@ -20,10 +20,30 @@ function container(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".app-content .markdown-body");
 }
 
+/**
+ * Each text node {@link highlight} split, and the nodes put in its place.
+ * The text nodes are React's: clearing puts these very nodes back, so React
+ * can still update or remove them. Clearing used to put new text nodes in
+ * their place, so a later change to that text (an agent's edit, a reload)
+ * went to a node no longer in the page and the read view kept the old text,
+ * or React threw removing it.
+ */
+let split: { text: Text; pieces: Node[] }[] = [];
+
 /** Remove all highlight marks, restoring the original text nodes. */
 export function clearHighlights(): void {
+  for (const { text, pieces } of split) {
+    const first = pieces[0];
+    const parent = first?.parentNode;
+    if (!parent) continue;
+    parent.insertBefore(text, first);
+    for (const piece of pieces) piece.parentNode?.removeChild(piece);
+  }
+  split = [];
   const root = container();
   if (!root) return;
+  // Any mark left (its text node was not one this module split) is undone
+  // as text.
   const parents = new Set<Node>();
   for (const mark of Array.from(root.querySelectorAll(`mark.${HIT}`))) {
     const parent = mark.parentNode;
@@ -67,6 +87,7 @@ export function highlight(query: string): number {
   for (const text of targets) {
     const value = text.nodeValue ?? "";
     const frag = document.createDocumentFragment();
+    const pieces: Node[] = [];
     let last = 0;
     for (const m of value.matchAll(all)) {
       const idx = m.index ?? 0;
@@ -80,7 +101,10 @@ export function highlight(query: string): number {
     }
     if (last < value.length)
       frag.appendChild(document.createTextNode(value.slice(last)));
-    text.parentNode?.replaceChild(frag, text);
+    pieces.push(...frag.childNodes);
+    if (!text.parentNode) continue;
+    split.push({ text, pieces });
+    text.parentNode.replaceChild(frag, text);
   }
   return count;
 }

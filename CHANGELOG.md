@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The read view shows a document's changes after Find was used.** Find put
+  its highlights in place of the text React had rendered, and clearing them
+  put new text in its place again. A later change to that text (an agent's
+  edit, a reload from disk) went to a node no longer in the page, so the read
+  view kept the old words, and removing such a line threw. Find now puts
+  React's own text back, and clears its highlights before a change renders.
 - **A wikilink to a note deleted or renamed since shows as broken.** A
   resolved link was cached for the whole session, so it kept looking like a
   working link and a click failed. A file change, rename or new note seen by
