@@ -8,10 +8,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { scrollToFragment, wikilinkFragment } from "../../lib/docLinks";
+import { linkOpenError, scrollToFragment, wikilinkFragment } from "../../lib/docLinks";
 import { splitFragment } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
+import { toast } from "../../store/toastStore";
 import { useDocPath } from "./docPath";
 
 interface WikilinkProps {
@@ -50,12 +51,15 @@ export function Wikilink({ target, alias }: WikilinkProps) {
       onClick={() => {
         if (!resolved) return;
         cancelScrollRef.current?.(); // cancel any prior pending scroll
-        const open = useDocumentStore.getState().openPath(resolved);
-        if (fragment) {
-          open.then(() => {
-            cancelScrollRef.current = scrollToFragment(fragment);
+        // A note deleted since the link was resolved is said in a toast;
+        // the document holding the link stays in view.
+        void useDocumentStore
+          .getState()
+          .openPath(resolved, { keepViewOnError: true })
+          .then((error) => {
+            if (error !== null) toast.error(linkOpenError(resolved, error));
+            else if (fragment) cancelScrollRef.current = scrollToFragment(fragment);
           });
-        }
       }}
       disabled={resolved === undefined || broken}
       title={broken ? `Not found: ${target}` : target}

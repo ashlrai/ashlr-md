@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A link to a missing file leaves the document in view.** Clicking a link
+  (or a wikilink) to a file that is not there replaced the document holding
+  it with the read error, which stayed until another tab was chosen; with
+  one tab open the document could not be got back without opening it again.
+  The document now stays in view and a toast names the file and why it could
+  not be opened.
 - **File search shows the results of the query in the box.** A search for
   an earlier query that finished after a later one replaced the later
   results, so typing on while a big folder was searched could leave hits for

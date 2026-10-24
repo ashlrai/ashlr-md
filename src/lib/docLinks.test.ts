@@ -188,7 +188,9 @@ describe("the read view follows links and shows local images", () => {
       "[Other](other%20note.md#Intro) [Top](#My%20Heading) [Slug](#my-heading) [Web](https://x.org) [App](irc://x)\n\n# My Heading\n",
     );
     expect(click("Other")).toBe(true);
-    expect(openPath).toHaveBeenCalledWith("/v/other note.md");
+    expect(openPath).toHaveBeenCalledWith("/v/other note.md", {
+      keepViewOnError: true,
+    });
     // A fragment is the heading's text or its slug.
     expect(click("Top")).toBe(true);
     click("Slug");
@@ -224,7 +226,9 @@ describe("the read view follows links and shows local images", () => {
       target: "Plan",
       vaultRoot: null,
     });
-    expect(openPath).toHaveBeenCalledWith("/v/notes/Plan.md");
+    expect(openPath).toHaveBeenCalledWith("/v/notes/Plan.md", {
+      keepViewOnError: true,
+    });
     expect(click("Gone")).toBe(true);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 0));

@@ -175,6 +175,15 @@ export async function resolveLinkTarget(
   return { kind: "document", path, fragment: target.fragment };
 }
 
+/**
+ * What a toast says when the file a link names cannot be opened (it is not
+ * there, say). The document holding the link stays in view.
+ */
+export function linkOpenError(path: string, error: string): string {
+  const name = path.split(/[\\/]/).pop() || path;
+  return `Could not open the link to ${name}: ${error}`;
+}
+
 export type ImageSource =
   /** Shown as written (a web image). */
   | { kind: "remote"; src: string }

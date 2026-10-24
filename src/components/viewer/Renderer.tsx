@@ -31,6 +31,7 @@ import {
   anchorElement,
   imageSource,
   type LinkTarget,
+  linkOpenError,
   linkTarget,
   resolveLinkTarget,
   scrollToFragment,
@@ -151,9 +152,10 @@ function openLinkTarget(target: LinkTarget) {
   const { path, fragment } = target;
   void useDocumentStore
     .getState()
-    .openPath(path)
+    .openPath(path, { keepViewOnError: true })
     .then((error) => {
-      if (error === null && fragment) scrollToFragment(fragment);
+      if (error !== null) toast.error(linkOpenError(path, error));
+      else if (fragment) scrollToFragment(fragment);
     });
 }
 

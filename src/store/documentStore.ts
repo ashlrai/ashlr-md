@@ -263,6 +263,13 @@ export interface OpenOptions {
    * anew, and it used to reorder Recents by tab order.
    */
   addRecent?: boolean;
+  /**
+   * Leave the open document in view if the file cannot be opened, and
+   * only return the error (the caller says it). A link to a file that is
+   * not there used to replace the document holding the link with the read
+   * error, until another tab was chosen.
+   */
+  keepViewOnError?: boolean;
 }
 
 export interface SaveOptions {
@@ -553,7 +560,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return null;
     }
 
-    set({ isLoading: true, error: null });
+    const inPlace = !opts?.keepViewOnError;
+    if (inPlace) set({ isLoading: true, error: null });
     try {
       const file = await invoke<MarkdownFile>("read_markdown_file", { path });
       const key = fileKey(file);
@@ -601,7 +609,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return null;
     } catch (e) {
       const error = String(e);
-      set({ isLoading: false, error });
+      if (inPlace) set({ isLoading: false, error });
       // A recent that is gone stays gone: drop it rather than keep offering it.
       if (isMissingFileError(e)) useRecentStore.getState().remove(path);
       return error;
