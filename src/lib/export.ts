@@ -1060,70 +1060,138 @@ ${processedBody}
  * used email clients are known to reset: headings, paragraphs, links, tables.
  * It does NOT attempt to replicate the full cascade (that would require a real
  * CSS parser + CSSOM).
+ *
+ * An element that has a `style` (a Shiki code block, raw HTML) or a table
+ * that has a `class` gets these merged into it: they used to be added as a
+ * second attribute, which browsers drop, so the email lost them.
  */
 function inlineEmailStyles(html: string): string {
-  // Replace the body fragment via regex-based inline style injection.
-  // Order: most specific patterns first.
-  return (
-    html
-      // Tables: add class for the email profile table rules + cellpadding/spacing reset
-      .replace(
-        /<table(?![^>]*class="content-table")/gi,
-        '<table class="content-table" cellpadding="0" cellspacing="0"',
-      )
-      // Headings
-      .replace(
-        /<h1(\s|>)/gi,
-        '<h1 style="font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;"$1',
-      )
-      .replace(
-        /<h2(\s|>)/gi,
-        '<h2 style="font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;"$1',
-      )
-      .replace(
-        /<h3(\s|>)/gi,
-        '<h3 style="font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;"$1',
-      )
-      .replace(
-        /<h4(\s|>)/gi,
-        '<h4 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      .replace(
-        /<h5(\s|>)/gi,
-        '<h5 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      .replace(
-        /<h6(\s|>)/gi,
-        '<h6 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      // Paragraphs
-      .replace(
-        /<p(\s|>)/gi,
-        '<p style="margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;"$1',
-      )
-      // Links
-      .replace(/<a(\s)/gi, '<a style="color:#0066cc;text-decoration:underline;"$1')
-      // Inline code (not inside pre)
-      .replace(
-        /<code(\s|>)/gi,
-        "<code style=\"font-family:'Courier New',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;\"$1",
-      )
-      // Pre blocks (reset code inside pre)
-      .replace(
-        /<pre(\s|>)/gi,
-        "<pre style=\"background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.5;\"$1",
-      )
-      // Blockquotes
-      .replace(
-        /<blockquote(\s|>)/gi,
-        '<blockquote style="border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;"$1',
-      )
-      // Images — preserve data URIs, add responsive max-width
-      .replace(
-        /<img(\s)/gi,
-        '<img style="max-width:100%;height:auto;display:block;margin:0 0 16px;"$1',
-      )
+  // Tables: add the class for the email profile table rules + a
+  // cellpadding/spacing reset. A table with a class of its own keeps it.
+  let out = html.replace(
+    openingTag("table", false),
+    (tag, attrs: string, close: string) => {
+      const cls = attributeValue(attrs, "class");
+      if (cls?.value.split(/\s+/).includes("content-table")) return tag;
+      const classed = cls
+        ? replaceAttribute(attrs, cls, "class", `content-table ${cls.value.trim()}`)
+        : attrs;
+      const added = cls ? "" : ' class="content-table"';
+      const reset = /\scellpadding\s*=/i.test(attrs)
+        ? ""
+        : ' cellpadding="0" cellspacing="0"';
+      return `<table${added}${reset}${classed}${close}>`;
+    },
   );
+  for (const { tag, css, withAttributes } of EMAIL_INLINE_STYLES) {
+    out = out.replace(
+      openingTag(tag, withAttributes ?? false),
+      (_, attrs: string, close: string) => {
+        const style = attributeValue(attrs, "style");
+        // The element's own style comes after, so it still wins where both
+        // set a property (a Shiki block's colours, an image's width).
+        const merged = style
+          ? replaceAttribute(attrs, style, "style", `${css}${style.value.trim()}`)
+          : ` style="${css}"${attrs}`;
+        return `<${tag}${merged}${close}>`;
+      },
+    );
+  }
+  return out;
+}
+
+/**
+ * The inline styles {@link inlineEmailStyles} gives each element, in order;
+ * `withAttributes`: only an element that has an attribute (a link with its
+ * `href`, an image with its `src`).
+ */
+const EMAIL_INLINE_STYLES: readonly {
+  tag: string;
+  css: string;
+  withAttributes?: boolean;
+}[] = [
+  {
+    tag: "h1",
+    css: "font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;",
+  },
+  {
+    tag: "h2",
+    css: "font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;",
+  },
+  { tag: "h3", css: "font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;" },
+  { tag: "h4", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "h5", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "h6", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "p", css: "margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;" },
+  { tag: "a", css: "color:#0066cc;text-decoration:underline;", withAttributes: true },
+  {
+    tag: "code",
+    css: "font-family:'Courier New',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;",
+  },
+  {
+    tag: "pre",
+    css: "background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.5;",
+  },
+  {
+    tag: "blockquote",
+    css: "border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;",
+  },
+  {
+    tag: "img",
+    css: "max-width:100%;height:auto;display:block;margin:0 0 16px;",
+    withAttributes: true,
+  },
+];
+
+/** One attribute of an HTML start tag, with or without a value. */
+const TAG_ATTRIBUTE = String.raw`[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>\x60]+))?`;
+
+/**
+ * Start tags `<tag ...>` of `tag` (any case): group 1 is the attributes,
+ * with their leading space, group 2 a self-closing `/`. With `withAttributes`,
+ * only a tag that has one.
+ */
+function openingTag(tag: string, withAttributes: boolean): RegExp {
+  return new RegExp(
+    `<${tag}((?:\\s+${TAG_ATTRIBUTE})${withAttributes ? "+" : "*"})\\s*(/?)>`,
+    "gi",
+  );
+}
+
+/** An attribute found in a start tag's attributes. */
+interface FoundAttribute {
+  /** Where it starts (at its leading space) and ends in the attributes. */
+  start: number;
+  end: number;
+  value: string;
+}
+
+/** The first `name` attribute in `attrs` (a start tag's attributes), its value decoded of `&quot;`. */
+function attributeValue(attrs: string, name: string): FoundAttribute | null {
+  const re = new RegExp(String.raw`\s+(${TAG_ATTRIBUTE})`, "gy");
+  for (let m = re.exec(attrs); m; m = re.exec(attrs)) {
+    const eq = m[1].indexOf("=");
+    const key = (eq === -1 ? m[1] : m[1].slice(0, eq)).trim().toLowerCase();
+    if (key !== name) continue;
+    let value = eq === -1 ? "" : m[1].slice(eq + 1).trim();
+    if (/^(["']).*\1$/s.test(value)) value = value.slice(1, -1);
+    return {
+      start: m.index,
+      end: re.lastIndex,
+      value: value.replaceAll("&quot;", '"'),
+    };
+  }
+  return null;
+}
+
+/** `attrs` with `found` replaced by `name="value"`, where it was. */
+function replaceAttribute(
+  attrs: string,
+  found: FoundAttribute,
+  name: string,
+  value: string,
+): string {
+  return `${attrs.slice(0, found.start)} ${name}="${value.replaceAll('"', "&quot;")}"${attrs.slice(found.end)}`;
 }
 
 /**

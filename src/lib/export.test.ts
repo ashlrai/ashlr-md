@@ -1548,6 +1548,32 @@ describe("buildExportHtml — email-html profile", () => {
     document.body.innerHTML = "";
     expect(() => buildExportHtml("email-html")).toThrow("Switch to Read view");
   });
+
+  it("merges into an element's own style and class, not a second attribute", () => {
+    const html = buildExportHtml(
+      "email-html",
+      '<pre class="shiki" style="background-color:#24292e;color:#e1e4e8" tabindex="0"><code>x</code></pre>' +
+        "<p style='text-align:center' id=\"c\">mid</p>" +
+        '<img src="a.png" style="width:50%" />' +
+        '<table class="wide"><tr><td>1</td></tr></table>',
+    );
+    const body = html.slice(html.indexOf("<article"));
+    for (const tag of body.match(/<[a-z][^>]*>/gi) ?? []) {
+      expect(tag.match(/\sstyle=/gi)?.length ?? 0, tag).toBeLessThanOrEqual(1);
+      expect(tag.match(/\sclass=/gi)?.length ?? 0, tag).toBeLessThanOrEqual(1);
+    }
+    // The element's own declarations come last, so they win.
+    expect(body).toMatch(
+      /<pre class="shiki" style="background-color:#f8f8f8;[^"]*;background-color:#24292e;color:#e1e4e8" tabindex="0">/,
+    );
+    expect(body).toMatch(/<p style="margin:0 0 16px;[^"]*;text-align:center" id="c">/);
+    expect(body).toContain(
+      '<img src="a.png" style="max-width:100%;height:auto;display:block;margin:0 0 16px;width:50%"/>',
+    );
+    expect(body).toContain(
+      '<table cellpadding="0" cellspacing="0" class="content-table wide">',
+    );
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

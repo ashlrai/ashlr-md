@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Email export keeps an element's own style.** The email export added its
+  inline style as a second `style` attribute to an element that had one (a
+  highlighted code block, raw HTML with a style), and a second `class` to a
+  table with a class. Browsers and mail clients read only the first, so the
+  code block lost its colours. Both are now merged into the one attribute,
+  with the element's own declarations last so they still win.
 - **A list item that starts with a callout keeps it.** Editing such an item
   (`- > [!TIP]`, or one that starts with a code block) in the WYSIWYG editor
   saved it as `- <br />` with the callout on the lines under it, as the
