@@ -105,6 +105,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Links and images in the read view work.** A `[x](#heading)` link did
+  nothing (every link opens in a new context, which only web and mail links
+  had a handler for), a link to another Markdown file did nothing, or on
+  Windows opened the app's own origin in the browser, and a Markdown image
+  with a relative path (`![](assets/x.png)`, which pasting an image inserts)
+  never showed. A `#fragment` now scrolls to the heading (its id, or the slug
+  of its text), a link to a Markdown document opens it in a tab (relative to
+  the document, percent-decoded, `#heading` included), and a local image is
+  read through Rust as `![[x.png]]` embeds are, with spaces and non-ASCII
+  names, and a "Missing image" note when it is not there. Links to other
+  schemes, to files that are no Markdown, or into hidden folders
+  (`../.ssh/x`) are not followed, and a toast says why.
 - **`[[note\|alias]]` links to `note`.** In a table cell an alias's pipe is
   written `\|`; mdopener-mcp's `export_metadata` and the app's
   "Wikilink targets exist" lint read the target as `note\`, so a link that

@@ -7,8 +7,8 @@
  * disabled.
  */
 
-import GithubSlugger from "github-slugger";
 import { useEffect, useRef, useState } from "react";
+import { scrollToFragment } from "../../lib/docLinks";
 import { splitFragment } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
@@ -16,31 +16,6 @@ import { useDocumentStore } from "../../store/documentStore";
 interface WikilinkProps {
   target: string;
   alias?: string;
-}
-
-/**
- * Scroll to a heading by slug once it appears (the doc renders async after
- * open). Returns a cancel fn so a pending retry loop can be stopped if the
- * component unmounts or the user navigates again.
- */
-function scrollToHeading(fragment: string): () => void {
-  // Block references (^id) have no rendered anchor — skip gracefully.
-  if (fragment.startsWith("^")) return () => {};
-  const slug = new GithubSlugger().slug(fragment);
-  let tries = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const tick = () => {
-    const el = document.getElementById(slug);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    if (tries++ < 12) timer = setTimeout(tick, 60);
-  };
-  tick();
-  return () => {
-    if (timer !== null) clearTimeout(timer);
-  };
 }
 
 export function Wikilink({ target, alias }: WikilinkProps) {
@@ -74,7 +49,7 @@ export function Wikilink({ target, alias }: WikilinkProps) {
         const open = useDocumentStore.getState().openPath(resolved);
         if (fragment) {
           open.then(() => {
-            cancelScrollRef.current = scrollToHeading(fragment);
+            cancelScrollRef.current = scrollToFragment(fragment);
           });
         }
       }}
