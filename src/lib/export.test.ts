@@ -377,6 +377,34 @@ describe("exportHtml", () => {
     expect(clone.querySelector(".wikiembed--loading")).toBeNull();
   });
 
+  it("waits for a diagram still rendering, or exports its source", async () => {
+    // An export taken while mermaid was rendering held an empty block.
+    const body = document.querySelector(".markdown-body");
+    body?.insertAdjacentHTML(
+      "beforeend",
+      '<div class="mermaid-block mermaid-block--loading" data-code="graph TD; A--&gt;B"></div>',
+    );
+    setTimeout(() => {
+      const block = document.querySelector(".mermaid-block--loading");
+      block?.classList.remove("mermaid-block--loading");
+      if (block) block.innerHTML = '<svg id="drawn"></svg>';
+    }, 20);
+    await exportHtml("My Doc");
+    expect(writtenExport()?.text).toContain('<svg id="drawn">');
+
+    // Never drawn: the export holds the diagram's source.
+    body?.insertAdjacentHTML(
+      "beforeend",
+      '<div class="mermaid-block mermaid-block--loading" data-code="graph LR; X--&gt;Y"></div>',
+    );
+    await waitForRenderedImages(30);
+    const clone = cloneWithoutInjectedChrome(body as Element);
+    expect(clone.querySelector(".mermaid-block--loading")).toBeNull();
+    expect(clone.querySelector("pre code.language-mermaid")?.textContent).toBe(
+      "graph LR; X-->Y",
+    );
+  });
+
   it("never writes through write_markdown_file, which follows a symbolic link", async () => {
     // write_file_bytes refuses a link (src-tauri/src/export.rs); the save
     // command writes into the file a link points to.

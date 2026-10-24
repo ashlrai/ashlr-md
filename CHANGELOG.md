@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports wait for Mermaid diagrams.** A diagram is drawn once mermaid has
+  loaded, and an export taken before then (always, from the palette in Edit
+  view, which switches to Read view just before) held an empty block where
+  the diagram goes. Exports now wait for diagrams as they do for images, up
+  to the same 5 seconds, and a diagram still not drawn is exported as its
+  Mermaid source in a code block.
 - **A cancelled export is not reported as done.** Cancelling the save dialog
   of an HTML, Word, EPUB, Notion, Slack or email export left the Export
   dialog saying "HTML exported." and closing it, though nothing was written.

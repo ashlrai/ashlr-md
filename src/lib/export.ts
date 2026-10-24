@@ -161,6 +161,16 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
     node.replaceWith(
       node.ownerDocument.createTextNode(node.getAttribute("data-name") ?? ""),
     );
+  // A diagram still rendering is its source, as a code block: it was an
+  // empty block.
+  for (const node of clone.querySelectorAll(".mermaid-block--loading")) {
+    const pre = node.ownerDocument.createElement("pre");
+    const code = node.ownerDocument.createElement("code");
+    code.className = "language-mermaid";
+    code.textContent = node.getAttribute("data-code") ?? "";
+    pre.appendChild(code);
+    node.replaceWith(pre);
+  }
   return clone;
 }
 
@@ -168,14 +178,20 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
 export const EXPORT_IMAGE_WAIT_MS = 5000;
 
 /**
- * Resolves once the read view shows no image or embed still loading (a
- * local image is read through Rust, so it shows "Loading x…" first), or
- * after `timeoutMs`, whichever comes first. An export taken while one was
- * loading used to contain the placeholder text instead of the image.
+ * Resolves once the read view shows no image, embed or diagram still
+ * loading (a local image is read through Rust, so it shows "Loading x…"
+ * first; a Mermaid diagram renders once mermaid has loaded), or after
+ * `timeoutMs`, whichever comes first. An export taken while one was
+ * loading used to contain the placeholder text instead of the image, and
+ * an empty block instead of the diagram (an export from the palette in
+ * Edit view switches to Read view just before, so every diagram was still
+ * rendering).
  */
 export function waitForRenderedImages(timeoutMs = EXPORT_IMAGE_WAIT_MS): Promise<void> {
   const loading = () =>
-    document.querySelector(".markdown-body .wikiembed--loading") !== null;
+    document.querySelector(
+      ".markdown-body .wikiembed--loading, .markdown-body .mermaid-block--loading",
+    ) !== null;
   if (!loading()) return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {

@@ -53,6 +53,13 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     );
   }
 
+  // Still rendering (mermaid loads on demand): marked, so an export waits
+  // for the diagram, and keeps its source if it never comes. An export
+  // taken meanwhile held an empty block.
+  if (!svg) {
+    return <div className="mermaid-block mermaid-block--loading" data-code={code} />;
+  }
+
   return (
     <div
       className="mermaid-block"
