@@ -33,7 +33,7 @@
  * keeps doing so, and `&nbsp;`, `&copy;` and other character references stay
  * as they were written ({@link keepSpellings}). An edited code block keeps
  * its fence (`~~~` or backticks, at its length) and its whole info string
- * ({@link codeBlockText}).
+ * ({@link codeBlockText}), and an indented one stays indented.
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -549,9 +549,10 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
  * indentation) and the whole info string are kept. The editor's code block
  * holds only the language, so the serializer wrote every edited block with
  * backticks and dropped the rest of the info string (`title="a.ts"`). A
- * changed language replaces the first word of the info string only. Null
- * when the source is no closed fence, or `code` holds a line that would
- * close it.
+ * changed language replaces the first word of the info string only. An
+ * indented block stays indented ({@link indentedCode}); the serializer
+ * fenced it. Null when the source is no closed fence, or `code` holds a
+ * line that would close it.
  */
 export function codeBlockText(
   original: string,
@@ -568,7 +569,8 @@ export function codeBlockText(
   if (!/^ *$/.test(lead)) return null;
   const lines = original.slice(lineStart, r.end).split("\n");
   const open = /^( {0,3})(`{3,}|~{3,})([^\r]*)(\r?)$/.exec(lines[0]);
-  if (!open || lines.length < 2) return null;
+  if (!open) return indentedCode(lines[0], language, code);
+  if (lines.length < 2) return null;
   const [, indent, fence, info] = open;
   const close = lines[lines.length - 1];
   if (!isClosingFence(close, fence)) return null;
@@ -586,6 +588,20 @@ export function codeBlockText(
   }
   const body = codeLines.map((line) => (line === "" ? line : indent + line));
   return [opening, ...body, close].join("\n");
+}
+
+/**
+ * {@link codeBlockText} for an indented code block, whose first line is
+ * `first`: `code` indented as that line is (four spaces or a tab). Null
+ * when it cannot be written so: a language was given it, or it is empty or
+ * starts or ends with a blank line (which indentation cannot hold).
+ */
+function indentedCode(first: string, language: string, code: string): string | null {
+  const indent = /^( {4}|\t)/.exec(first)?.[1];
+  if (!indent || language !== "" || code.trim() === "") return null;
+  const lines = code.split("\n");
+  if (lines[0].trim() === "" || (lines.at(-1) ?? "").trim() === "") return null;
+  return lines.map((line) => (line === "" ? line : indent + line)).join("\n");
 }
 
 /** Whether `line` closes a fence opened with `fence` (same character, as long or longer). */

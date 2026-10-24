@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited indented code block stays indented.** Typing in a code block
+  written with four spaces (or a tab) in the WYSIWYG editor saved it as a
+  backtick fence. It is written indented as it was, unless a language was
+  picked for it.
 - **An edited code block keeps its fence and info string.** The WYSIWYG
   editor's code block holds only the language, so typing in a block fenced
   with `~~~` wrote it with backticks, and an info string such as
