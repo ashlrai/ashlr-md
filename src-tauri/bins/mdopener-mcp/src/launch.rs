@@ -25,6 +25,9 @@ pub enum Launch {
     /// A launcher ran and exited non-zero (e.g. no handler registered for the
     /// `mdopener://` scheme, or no display).
     Failed { launcher: String, code: Option<i32> },
+    /// A launcher exists but could not be started (not executable, say).
+    /// It used to be reported as one that "exited with status signal".
+    Unstartable { launcher: String, error: String },
     /// None of the platform's launchers exist on this machine.
     NoLauncher { tried: Vec<String> },
 }
@@ -44,6 +47,9 @@ impl Launch {
                  handles mdopener:// URLs), or there is no desktop session",
                 code.map_or_else(|| "signal".to_string(), |c| c.to_string())
             ),
+            Launch::Unstartable { launcher, error } => {
+                format!("`{launcher}` could not be started: {error}")
+            }
             Launch::NoLauncher { tried } => format!(
                 "no URL launcher found (tried {}); a desktop session is required to open Ashlr MD",
                 tried.join(", ")
@@ -113,10 +119,10 @@ pub fn run_first(
                 tried.push(display_name(prog));
                 continue;
             }
-            Err(_) => {
-                return Launch::Failed {
+            Err(e) => {
+                return Launch::Unstartable {
                     launcher: display_name(prog),
-                    code: None,
+                    error: e.to_string(),
                 }
             }
         };
@@ -238,6 +244,24 @@ mod tests {
         assert!(why.contains("status 4"), "{why}");
         assert!(why.contains("may not be installed"), "{why}");
         assert!(!why.contains('?'), "{why}");
+    }
+
+    #[test]
+    fn a_launcher_that_cannot_be_started_says_so() {
+        let s = Scratch::new("unstartable");
+        let prog = s.script("xdg-open", "exit 0");
+        std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let r = run_first(&one(prog), Duration::from_secs(5), false);
+        let why = r.describe();
+        assert!(
+            matches!(&r, Launch::Unstartable { launcher, .. } if launcher == "xdg-open"),
+            "{r:?}"
+        );
+        assert!(
+            why.starts_with("`xdg-open` could not be started: "),
+            "{why}"
+        );
+        assert!(!why.contains("status"), "{why}");
     }
 
     #[test]

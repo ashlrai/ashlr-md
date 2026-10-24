@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen and the MCP server: a launcher that cannot start says so.** An
+  `xdg-open` (or `gio`, `open`) on the PATH that could not be started, not
+  being executable for one, was reported as having "exited with status
+  signal", which read as a crash of the launcher. The message now says it
+  could not be started, with the system's reason.
 - **mdopen: `~/` is the home folder, even quoted.** `mdopen "~/notes.md"`,
   or a script's `FILE="~/notes.md"`, reaches mdopen unexpanded, and it
   looked for a folder named `~` in the working directory ("does not exist").
