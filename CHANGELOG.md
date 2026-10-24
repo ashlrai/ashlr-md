@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`no-consecutive-blank-lines` keeps indented code whole.** Blank lines
+  between two parts of an indented code block belong to the code, but the
+  rule flagged them and its fix collapsed them, changing the code. They are
+  now read as code, as micromark reads them.
 - **Snippet completion reads only up to the cursor.** The check that keeps
   snippets out of code read the whole document on every keystroke. It now
   reads up to the end of the cursor's line, with the same answers (front

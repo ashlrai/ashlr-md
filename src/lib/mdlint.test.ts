@@ -999,6 +999,16 @@ describe("lint fixes leave code and line breaks alone", () => {
     expect(fixAll("```\na\n\n\n\nb\n```\n", rules)).toBe("```\na\n\n\n\nb\n```\n");
     expect(fixAll("a\r\n\r\n\r\n\r\nb\r\n", rules)).toBe("a\r\n\r\nb\r\n");
     expect(fixAll("a\n\n  \n\nb\n\n\n\nc\n", rules)).toBe("a\n\nb\n\nc\n");
+    // The blank lines between the parts of an indented code block are code.
+    const code = "Text\n\n    a()\n\n\n    b()\n";
+    expect(lintDocument(code, rules)).toHaveLength(0);
+    const item = "- x\n\n      a()\n\n\n      b()\n";
+    expect(lintDocument(item, rules)).toHaveLength(0);
+    // Two blocks in two blockquotes, and the run after a block, are gaps.
+    expect(fixAll("> ····a\n\n\n> ····b\n".replace(/·/g, " "), rules)).toBe(
+      ">     a\n\n>     b\n",
+    );
+    expect(fixAll("    a\n\n\n\nText\n", rules)).toBe("    a\n\nText\n");
   });
 
   it("adds front matter in the document's line breaks", () => {

@@ -408,6 +408,40 @@ export function maskInlineCode(lines: MarkdownLine[]): string[] {
 }
 
 /**
+ * For each of `lines` ({@link markdownLines}), whether it is in an
+ * indented code block: an `indented` line, or a blank line between two of
+ * them in the same containers, which CommonMark reads as one block holding
+ * the blank lines. markdownLines marks those blank lines `text`, as a
+ * blank line alone cannot tell, so a caller that took them for gaps
+ * between blocks split the code (a blank line at the end of the block, or
+ * one that leaves a blockquote, is not in it). Fuzzed against mdast.
+ */
+export function inIndentedCode(lines: MarkdownLine[]): boolean[] {
+  const out = lines.map((l) => l.kind === "indented");
+  const blank = (l: MarkdownLine) => l.kind === "text" && l.content.trim() === "";
+  // The containers of a line, as far as a blank line shows them: whether
+  // it is in one, and how many blockquotes deep.
+  const quotes = (l: MarkdownLine) =>
+    (/^(?:[ \t]*>)*/.exec(l.text)?.[0].match(/>/g) ?? []).length;
+  const same = (a: MarkdownLine, b: MarkdownLine) =>
+    a.contained === b.contained && quotes(a) === quotes(b);
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].kind !== "indented") continue;
+    // A code line right after a blockquote's line, outside it, is a block
+    // of its own line, as micromark reads it (it tries the line as a lazy
+    // one of the quote first).
+    const prev = lines[i - 1];
+    if (prev?.contained && !lines[i].contained && /^ {0,3}>/.test(prev.text)) continue;
+    let j = i + 1;
+    while (j < lines.length && blank(lines[j]) && same(lines[j], lines[i])) j++;
+    if (j > i + 1 && lines[j]?.kind === "indented" && same(lines[j], lines[i])) {
+      out.fill(true, i + 1, j);
+    }
+  }
+  return out;
+}
+
+/**
  * `markdown` with every character the page does not read as Markdown text
  * replaced by a NUL, line breaks (and a `\r` before one) kept, so offsets
  * stay: front matter, fenced and indented code and HTML blocks (by the

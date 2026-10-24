@@ -17,6 +17,7 @@
 import {
   type AtxHeading,
   atxHeading,
+  inIndentedCode,
   type MarkdownLine,
   markdownLines,
   maskInlineCode,
@@ -482,13 +483,16 @@ export const ruleNoConsecutiveBlankLines: LintRule = {
     let blankRunStart = 0;
     // Where the run's second blank line starts.
     let secondBlank = 0;
-    // Blank lines in code are code, not gaps between sections.
+    // Blank lines in code are code, not gaps between sections, also those
+    // between the lines of an indented code block (inIndentedCode), which
+    // the fix used to collapse.
     const kinds = markdownLines(doc);
+    const indented = inIndentedCode(kinds);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const kind = kinds[i]?.kind;
-      if (line.trim() === "" && kind !== "code" && kind !== "indented") {
+      if (line.trim() === "" && kind !== "code" && !indented[i]) {
         if (blankRun === 0) blankRunStart = offset;
         if (blankRun === 1) secondBlank = offset;
         blankRun++;
