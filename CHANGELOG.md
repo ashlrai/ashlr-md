@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited block keeps bare links bare.** Editing a paragraph in the
+  WYSIWYG view wrote `www.example.com` as
+  `[www.example.com](http://www.example.com)` and `https://example.com` as
+  `<https://example.com>`. A URL, `www.` address or email address the
+  source wrote bare stays bare; one written `<...>` or `[...](...)` stays so.
 - **An edited block keeps its character references.** Editing a paragraph
   in the WYSIWYG view wrote `&nbsp;`, `&copy;`, `&#169;` and the like as the
   characters they stand for, and `&lt;tag&gt;` as `\<tag>`. Each is now

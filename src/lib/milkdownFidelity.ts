@@ -374,6 +374,7 @@ export function restyled(written: string, original: string, node: MdNode): strin
 interface SpelledNode {
   type: string;
   value?: string;
+  url?: string;
   children?: SpelledNode[];
 }
 
@@ -386,13 +387,16 @@ interface SpelledNode {
  * written as it was again (the editor holds the character, which the
  * serializer wrote as it is, or escaped): each one as its source did while
  * the block holds as many, else the one way the source wrote it, if one.
+ * A link the block wrote as a bare URL (`www.example.com`,
+ * `https://example.com`, `a@example.com`, which GFM makes links) stays
+ * bare: the serializer wrote `[www.example.com](http://www.example.com)`
+ * and `<https://example.com>`.
  * Each is put in as raw text (an `html` node, which is written as it is).
  */
 export function keepSpellings(tree: unknown, source: string): void {
   const spaces = /( {2,})\r?\n/.exec(source);
   const breakText = spaces && !/\\\r?\n/.test(source) ? `${spaces[1]}\n` : null;
   const refs = characterReferences(source);
-  if (breakText === null && refs === null) return;
   // How many of each referenced character the block holds now.
   const counts = new Map<string, number>();
   const seen = new Map<string, number>();
@@ -411,7 +415,10 @@ export function keepSpellings(tree: unknown, source: string): void {
     const line = inLine || node.type === "heading" || node.type === "tableCell";
     const out: SpelledNode[] = [];
     for (const kid of kids) {
-      if (kid.type === "break" && !line && breakText !== null) {
+      const bare = bareLink(kid, source);
+      if (bare !== null) {
+        out.push({ type: "html", value: bare });
+      } else if (kid.type === "break" && !line && breakText !== null) {
         out.push({ type: "html", value: breakText });
       } else if (
         kid.type === "text" &&
@@ -427,6 +434,25 @@ export function keepSpellings(tree: unknown, source: string): void {
     node.children = out;
   };
   walk(tree as SpelledNode, false);
+}
+
+/**
+ * The text of `node` when it is a link `source` wrote as a bare URL (a GFM
+ * autolink literal): its one text child is its URL, or its URL less the
+ * `http://` or `mailto:` GFM adds, and the source shows that text, but not
+ * as `<url>` or `[text](url)`. Else null.
+ */
+function bareLink(node: SpelledNode, source: string): string | null {
+  if (node.type !== "link" || node.children?.length !== 1) return null;
+  const child = node.children[0];
+  const text = child.type === "text" ? child.value : undefined;
+  const url = node.url;
+  if (!text || !url || /\s/.test(text)) return null;
+  if (url !== text && url !== `http://${text}` && url !== `mailto:${text}`) return null;
+  if (!source.includes(text)) return null;
+  if (source.includes(`<${text}>`) || source.includes(`<${url}>`)) return null;
+  if (source.includes(`](${url}`) || source.includes(`](<${url}`)) return null;
+  return text;
 }
 
 /** A character reference's text: `&name;`, `&#169;` or `&#xA9;`. */
