@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An export never writes through a symbolic link.** An HTML (or Notion,
+  Slack or email) export chosen in the dialog was saved like a document,
+  into the file a link points to, so exporting over a `report.html` linked
+  to `~/.bashrc` replaced the shell profile; a DOCX or EPUB replaced the
+  link with a file. Every export is now written by one command that refuses
+  a symbolic link, as the agent's headless export already did, and the
+  error says to export to the file it points to or to another name.
 - **Large DOCX and EPUB exports are written without a JSON detour.** Their
   bytes crossed to the app as a JSON array of numbers, about 3.6 bytes of
   JSON for each byte of the file: a 32 MiB EPUB became 114 MiB of JSON, and

@@ -61,8 +61,21 @@ fn export_path_header(raw: Option<&[u8]>) -> Result<String, String> {
 /// ([`crate::document::refuse_protected_write`]), then the same writer: a
 /// new temp file under a random name (never a planted
 /// `<path>.mdopener.tmp` symlink), then a rename.
+///
+/// A symbolic link at `path` is refused, as the headless export's
+/// `outputPath` is ([`crate::export_path::checked_export_path`]). An HTML
+/// export chosen in the dialog went through `write_markdown_file`, which
+/// saves a linked document into the file the link points to, so a
+/// `report.html` linked to `~/.bashrc` had the export written over the shell
+/// profile; a DOCX or EPUB replaced the link with a file. A link put there
+/// after this check is replaced by the rename, never followed.
 pub(crate) fn write_export_file(path: &str, data: &[u8]) -> Result<(), String> {
     crate::document::refuse_protected_write(path)?;
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(format!(
+            "Could not save {path}: it is a symbolic link (export to the file it points to, or to another name)"
+        ));
+    }
     crate::document::write_atomic(Path::new(path), data)
         .map_err(|e| format!("Could not save {path}: {e}"))
 }
@@ -94,6 +107,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    /// An export to a symbolic link was written into the file it points to
+    /// (HTML, through `write_markdown_file`) or replaced the link (DOCX,
+    /// EPUB); the headless path refused it. It is refused, and both the link
+    /// and its target stay as they were.
+    #[cfg(unix)]
+    #[test]
+    fn an_export_to_a_symbolic_link_is_refused() {
+        let root = temp_root("link");
+        let target = root.join("profile");
+        std::fs::write(&target, "export PATH=x").unwrap();
+        let link = root.join("report.html");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let dangling = root.join("gone.docx");
+        std::os::unix::fs::symlink(root.join("missing"), &dangling).unwrap();
+
+        for l in [&link, &dangling] {
+            let err = write_export_file(&l.to_string_lossy(), b"<html>").unwrap_err();
+            assert!(err.contains("symbolic link"), "{err}");
+            assert!(std::fs::symlink_metadata(l)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "export PATH=x");
+        assert!(!root.join("missing").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// An export into an Obsidian config folder replaced the vault's

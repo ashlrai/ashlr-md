@@ -62,6 +62,19 @@ import {
   exportPdf,
 } from "./export";
 
+/**
+ * The last export written through `write_file_bytes`: its path (the
+ * percent-encoded header) and its bytes as UTF-8 text.
+ */
+function writtenExport(): { path: string; text: string } | undefined {
+  const call = invokeMock.mock.calls.filter((c) => c[0] === "write_file_bytes").at(-1);
+  if (!call) return undefined;
+  return {
+    path: decodeURIComponent(call[2].headers["x-export-path"]),
+    text: new TextDecoder().decode(call[1]),
+  };
+}
+
 // ─── DOM fixture helpers ──────────────────────────────────────────────────────
 
 /** Rich markdown fixture covering code, tables, math, diagrams, callouts, etc. */
@@ -300,12 +313,27 @@ describe("exportHtml", () => {
   });
   afterEach(() => teardownDom());
 
-  it("calls write_markdown_file with the built HTML and chosen path", async () => {
+  it("writes the built HTML as UTF-8 through write_file_bytes at the chosen path", async () => {
     await exportHtml("My Doc");
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/home/user/my-doc.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
+  });
+
+  it("never writes through write_markdown_file, which follows a symbolic link", async () => {
+    // write_file_bytes refuses a link (src-tauri/src/export.rs); the save
+    // command writes into the file a link points to.
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "write_file_bytes"
+        ? Promise.reject("Could not save /home/user/my-doc.html: it is a symbolic link")
+        : Promise.resolve(undefined),
+    );
+    await expect(exportHtml("My Doc")).rejects.toMatch("symbolic link");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(false);
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("symbolic link"),
+    );
   });
 
   it("shows a success toast with the base filename", async () => {
@@ -318,9 +346,9 @@ describe("exportHtml", () => {
   it("writes to an agent-supplied outputPath without opening the dialog", async () => {
     await exportHtml("My Doc", "/out/agent.html");
     expect(saveMock).not.toHaveBeenCalled();
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/out/agent.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
   });
 
@@ -392,7 +420,7 @@ describe("exportHtml", () => {
 
   it("the written content is self-contained (no external links)", async () => {
     await exportHtml("Offline");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).not.toMatch(/<link[^>]+href="https?:/);
     expect(written).not.toMatch(/<script[^>]+src="https?:/);
   });
@@ -1413,9 +1441,9 @@ describe("exportWithProfile", () => {
         ]),
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/out/doc.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
   });
 
@@ -1430,9 +1458,9 @@ describe("exportWithProfile", () => {
         ]),
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/out/doc.txt",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
   });
 
@@ -1483,21 +1511,21 @@ describe("exportWithProfile", () => {
   it("written content contains profile-specific CSS marker for notion-html", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     await exportWithProfile("notion-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).toContain("notion-html export profile");
   });
 
   it("written content contains profile-specific CSS marker for slack-html", async () => {
     saveMock.mockResolvedValue("/out/doc.txt");
     await exportWithProfile("slack-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).toContain("slack-html export profile");
   });
 
   it("written content contains profile-specific CSS marker for email-html", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     await exportWithProfile("email-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).toContain("email-html export profile");
   });
 

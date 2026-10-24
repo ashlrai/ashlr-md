@@ -308,9 +308,12 @@ function escapeHtml(s: string): string {
 // ─── export functions ────────────────────────────────────────────────────────
 
 /**
- * Export as a self-contained HTML file.
- * Uses `write_markdown_file` (text) since HTML is UTF-8 text — no new
- * Rust command needed for this format.
+ * Export as a self-contained HTML file, written as UTF-8 through
+ * `write_file_bytes` like every export, which refuses a symbolic link (as
+ * the headless path does) and an Obsidian config folder. It used to go
+ * through `write_markdown_file`, which saves a linked document into the
+ * file the link points to, so an export over a `report.html` linked to
+ * `~/.bashrc` replaced the shell profile.
  */
 export async function exportHtml(title: string, outputPath?: string): Promise<void> {
   const html = buildStandaloneHtmlWithActiveTemplate(title); // throws if not in read view
@@ -325,7 +328,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
   if (!path) return; // user cancelled — no toast
 
   try {
-    await invoke("write_markdown_file", { path, content: html });
+    await writeExportBytes(path, new TextEncoder().encode(html));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -921,7 +924,7 @@ export async function exportWithProfile(
   if (!path) return; // user cancelled — no toast
 
   try {
-    await invoke("write_markdown_file", { path, content: html });
+    await writeExportBytes(path, new TextEncoder().encode(html));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
