@@ -19,6 +19,7 @@ import {
   atxHeading,
   type MarkdownLine,
   markdownLines,
+  maskCodeSpans,
 } from "./outline";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -714,47 +715,6 @@ export function applyFix(doc: string, violation: LintViolation): string {
  * ``` to the next ```, so a `~~~` block was linted and a ```` block
  * holding ``` ended early.
  */
-/**
- * `text` with each code span in it (`` `x` ``, ` `` a`b `` `) masked by
- * `\r`s, line breaks kept, so it keeps its length: a run of backticks is
- * closed by the next run of exactly as many, and one never closed is
- * text. The rule of mdopener-mcp's `prose_chars`, where `export_metadata`
- * reads wikilinks.
- */
-function maskCodeSpans(text: string): string {
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] !== "`") {
-      out += text[i];
-      i++;
-      continue;
-    }
-    let run = 0;
-    while (text[i + run] === "`") run++;
-    // The next run of exactly as many backticks closes the span.
-    let j = i + run;
-    let close = -1;
-    while (j < text.length) {
-      let n = 0;
-      while (text[j + n] === "`") n++;
-      if (n === run) {
-        close = j + n;
-        break;
-      }
-      j += Math.max(n, 1);
-    }
-    if (close < 0) {
-      out += text.slice(i, i + run);
-      i += run;
-    } else {
-      out += text.slice(i, close).replace(/[^\n]/g, "\r");
-      i = close;
-    }
-  }
-  return out;
-}
-
 function stripCodeBlocks(doc: string): string {
   let result = markdownLines(doc)
     .map((l) => (l.kind === "text" ? l.text : " ".repeat(l.text.length)))

@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Dragging an image moves the image dropped.** The visual editor matches
+  the images it renders to the image references in the Markdown by their
+  order, but it counted references in code blocks, code spans, indented code
+  and HTML blocks, which render no image. A drag after one of them moved the
+  wrong image and could rewrite the code sample. A CRLF document got LF line
+  breaks where the image was moved to. References are now read as the page
+  reads them.
 - **Enter in a code block adds no list marker.** In the visual editor, list
   continuation read the text of a code block from its start, so Enter in a
   code block whose first line was `- a` or `1. x` inserted `- ` or `2. ` into
