@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A backtick or `$` in a bare URL no longer starts a code span.** GFM
+  reads `https://x.org/` followed by a backtick, or `www.x.org/$a$`, as part of a literal
+  autolink, but the lint rules, the Outline's slugs and the sidecar's link and
+  image counts paired that backtick with a later one and took the text
+  between for code, hiding a `[[link]]` after the URL. Literal autolinks
+  (`www.` and `http(s)://`, by remark-gfm's rules for where they start and
+  which trailing punctuation they leave out) now hold no span, in the app and
+  the sidecar, and a URL's `_` is no emphasis in a heading's slug. A line's
+  blockquote marker is no longer read as text before it (`>www.x.org`).
 - **A code span no longer runs across GFM table cells.** remark-gfm reads
   each table cell as its own inline text, so `` | `a | b` | `` shows two
   backticks as text. The lint rules (the Outline's `maskInlineCode`) and the

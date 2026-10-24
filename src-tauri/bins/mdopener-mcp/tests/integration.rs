@@ -8528,6 +8528,24 @@ fn code_spans_do_not_run_across_table_cells() {
     assert_eq!(extract_wikilinks("`a | [[Shown]]\n-|-\n`\n"), ["Shown"]);
 }
 
+/// A GFM literal autolink (`https://…`, `www.…`) holds no code span or
+/// math, as remark-gfm reads it: its backtick paired with a later one, so
+/// the link after the URL was taken for code.
+#[test]
+fn literal_autolinks_hold_no_code_span() {
+    use mdopener_mcp::extract_wikilinks;
+    assert_eq!(
+        extract_wikilinks("see https://x.org/`a [[Link]] b`\n"),
+        ["Link"]
+    );
+    assert_eq!(extract_wikilinks("> www.x.org/`a [[Q]] b`\n"), ["Q"]);
+    assert_eq!(extract_wikilinks(">www.x.org/`a [[Q2]] b`\n"), ["Q2"]);
+    assert_eq!(extract_wikilinks("http://x.org/$a [[M]] b$\n"), ["M"]);
+    // After a letter, or in an open link text, it is no autolink.
+    assert!(extract_wikilinks("xhttp://x.org/`a [[No]] b`\n").is_empty());
+    assert!(extract_wikilinks("[http://x.org/`a [[No]] b`\n").is_empty());
+}
+
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
 /// took the text up to a `]]` lines later as its target and hid the links
 /// in between, and an unclosed `![[` counted as an image. A wikilink or an

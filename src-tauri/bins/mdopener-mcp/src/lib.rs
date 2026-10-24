@@ -8657,6 +8657,14 @@ fn inline_spans(chars: &[char], math: bool) -> Vec<InlineSpan> {
             }
             _ => {}
         }
+        // A GFM literal autolink (`www.x.com/a`b`c`, `https://x/$y$`) holds
+        // none either, out of an open link text, as micromark reads it.
+        if brackets == 0 && matches!(c, 'w' | 'W' | 'h' | 'H') {
+            if let Some(end) = literal_autolink_end(chars, i) {
+                i = end;
+                continue;
+            }
+        }
         if c != '`' && !(math && c == '$') {
             i += 1;
             continue;
@@ -8700,6 +8708,152 @@ fn inline_spans(chars: &[char], math: bool) -> Vec<InlineSpan> {
         i = close + run;
     }
     out
+}
+
+/// Whether `c` is Unicode punctuation or a symbol, as micromark reads it:
+/// ASCII punctuation, or another character that is no letter, digit,
+/// whitespace or control (the std library has no Unicode punctuation class;
+/// `\p{P}|\p{S}` in the app's `outline.ts`).
+fn unicode_punctuation(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || (!c.is_ascii() && !c.is_alphanumeric() && !c.is_whitespace() && !c.is_control())
+}
+
+/// The index past the GFM literal autolink (`www.x.org/a`, `https://x.org`)
+/// that starts at `start`, by the rules of
+/// micromark-extension-gfm-autolink-literal: `www.` after the start, a
+/// space or one of `( * _ [ ] ~`, or `http://` or `https://` after anything
+/// but an ASCII letter, then a domain (no `_` in its last two segments) and
+/// a path up to whitespace or a `<`, without the punctuation that trails it
+/// ([`autolink_trail`]). Email literals hold no `` ` `` or `$`, so they are
+/// not read. The rule of `literalAutolinkEnd` in the app's `outline.ts`.
+fn literal_autolink_end(chars: &[char], start: usize) -> Option<usize> {
+    let at = |i: usize| chars.get(i).copied();
+    let prev = start.checked_sub(1).and_then(at);
+    let mut i = start;
+    match chars[start] {
+        'w' | 'W' => {
+            if prev.is_some_and(|p| !p.is_whitespace() && !"(*_[]~".contains(p)) {
+                return None;
+            }
+            let www = (0..3).all(|k| matches!(at(start + k), Some('w' | 'W')))
+                && at(start + 3) == Some('.');
+            if !www || start + 4 >= chars.len() {
+                return None;
+            }
+        }
+        'h' | 'H' => {
+            if prev.is_some_and(|p| p.is_ascii_alphabetic()) {
+                return None;
+            }
+            let lower: String = chars[start..chars.len().min(start + 8)]
+                .iter()
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let prefix = if lower.starts_with("https://") {
+                8
+            } else if lower.starts_with("http://") {
+                7
+            } else {
+                return None;
+            };
+            i = start + prefix;
+            match at(i) {
+                Some(n) if !n.is_control() && !n.is_whitespace() && !unicode_punctuation(n) => {}
+                _ => return None,
+            }
+        }
+        _ => return None,
+    }
+    // The domain.
+    let (mut seen, mut underscore_last, mut underscore_before) = (false, false, false);
+    loop {
+        match at(i) {
+            Some(c @ ('.' | '_')) => {
+                if autolink_trail(chars, i) {
+                    break;
+                }
+                if c == '_' {
+                    underscore_last = true;
+                } else {
+                    underscore_before = underscore_last;
+                    underscore_last = false;
+                }
+                i += 1;
+            }
+            None => break,
+            Some(c) if c.is_whitespace() || (c != '-' && unicode_punctuation(c)) => break,
+            Some(_) => {
+                seen = true;
+                i += 1;
+            }
+        }
+    }
+    if underscore_last || underscore_before || !seen {
+        return None;
+    }
+    // The path, its parentheses balanced.
+    let (mut open, mut close) = (0usize, 0usize);
+    loop {
+        match at(i) {
+            Some('(') => {
+                open += 1;
+                i += 1;
+            }
+            Some(')') if close < open => {
+                close += 1;
+                i += 1;
+            }
+            Some(c) if "!\"&')*,.:;<?]_~".contains(c) => {
+                if autolink_trail(chars, i) {
+                    return Some(i);
+                }
+                if c == ')' {
+                    close += 1;
+                }
+                i += 1;
+            }
+            None => return Some(i),
+            Some(c) if c.is_whitespace() => return Some(i),
+            Some(_) => i += 1,
+        }
+    }
+}
+
+/// Whether the chars at `i` are punctuation that trails a literal autolink
+/// rather than ends its path: a run of `!"')*,.:;?_~`, `&name;` and `]`
+/// (one followed by the end, a space, `(` or `[` ends it), up to the end,
+/// whitespace or a `<`.
+fn autolink_trail(chars: &[char], i: usize) -> bool {
+    let mut j = i;
+    loop {
+        match chars.get(j).copied() {
+            Some(c) if "!\"')*,.:;?_~".contains(c) => j += 1,
+            Some('&') => {
+                j += 1;
+                if !chars.get(j).is_some_and(|c| c.is_ascii_alphabetic()) {
+                    return false;
+                }
+                while chars.get(j).is_some_and(|c| c.is_ascii_alphabetic()) {
+                    j += 1;
+                }
+                if chars.get(j) != Some(&';') {
+                    return false;
+                }
+                j += 1;
+            }
+            Some(']') => {
+                j += 1;
+                match chars.get(j).copied() {
+                    None | Some('(' | '[') => return true,
+                    Some(c) if c.is_whitespace() => return true,
+                    _ => {}
+                }
+            }
+            None | Some('<') => return true,
+            Some(c) => return c.is_whitespace(),
+        }
+    }
 }
 
 /// `s` without the HTML tags, comments, processing instructions,
@@ -9588,6 +9742,19 @@ struct ProseLine<'a> {
     underline: bool,
 }
 
+/// The line of `l` with the blockquote markers and list item indentation
+/// before its content as spaces: an inline block starts past them (`>www.x`
+/// is a link after the `>`). As it is when its content cannot be found in it
+/// (a tab expanded).
+fn prose_view(l: &ProseLine) -> String {
+    match l.line.strip_suffix(l.content.as_str()) {
+        Some(prefix) if l.contained && !prefix.is_empty() => {
+            format!("{}{}", " ".repeat(prefix.chars().count()), l.content)
+        }
+        _ => l.line.to_string(),
+    }
+}
+
 /// `text` with each code span (and with `math` inline math) read as a `\r`.
 fn masked_spans(text: &str, math: bool) -> Vec<char> {
     let chars: Vec<char> = text.chars().collect();
@@ -9611,7 +9778,7 @@ fn masked_spans(text: &str, math: bool) -> Vec<char> {
 /// the app's `outline.ts`.
 fn prose_text_block(lines: &[ProseLine]) -> Vec<char> {
     let join = |ls: &[ProseLine]| {
-        let joined: Vec<&str> = ls.iter().map(|l| l.line).collect();
+        let joined: Vec<String> = ls.iter().map(prose_view).collect();
         masked_spans(&joined.join("\n"), true)
     };
     let contained = lines.first().is_some_and(|l| l.contained);
@@ -9634,7 +9801,7 @@ fn prose_text_block(lines: &[ProseLine]) -> Vec<char> {
                 continue;
             }
             let mut cells = Vec::new();
-            for cell in split_cells(l.line) {
+            for cell in split_cells(&prose_view(l)) {
                 cells.extend(masked_spans(cell, true));
             }
             parts.push(cells);

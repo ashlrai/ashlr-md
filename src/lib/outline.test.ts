@@ -699,3 +699,29 @@ describe("maskInlineCode reads a GFM table cell by cell", () => {
     expect(masked("> `a | b\n`-|-\n")).toEqual(["> ######", "#-|-", ""]);
   });
 });
+
+describe("GFM literal autolinks hold no code span or math", () => {
+  const masked = (md: string) =>
+    maskInlineCode(markdownLines(md)).map((t) => t.replace(/\r/g, "#"));
+
+  it("reads a backtick or a dollar in a URL as part of it, as remark-gfm does", () => {
+    expect(masked("see https://x.org/`a [[L]] b`\n")[0]).toBe(
+      "see https://x.org/`a [[L]] b`",
+    );
+    expect(masked("http://x.org/$a b$\n")[0]).toBe("http://x.org/$a b$");
+    expect(masked("a www.x.org/`a b`\n")[0]).toBe("a www.x.org/`a b`");
+    // After a blockquote marker, the line's inline text starts past it.
+    expect(masked(">www.x.org/`a b`\n")[0]).toBe(">www.x.org/`a b`");
+  });
+
+  it("is no autolink after a letter or in an open link text", () => {
+    expect(masked("xhttp://x.org/`a b`\n")[0]).toBe("xhttp://x.org/#####");
+    expect(masked("[http://x.org/`a b`\n")[0]).toBe("[http://x.org/#####");
+    // Trailing punctuation is not in the URL.
+    expect(masked("www.x.org. `a`\n")[0]).toBe("www.x.org. ###");
+  });
+
+  it("keeps a URL's underscores out of emphasis in a heading's slug", () => {
+    expect(parseHeadings("# see www.x.org/_a_\n")[0].slug).toBe("see-wwwxorg_a_");
+  });
+});

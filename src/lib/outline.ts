@@ -385,6 +385,20 @@ function inlineNodes(text: string, defs: ReadonlySet<string>): InlineNode[] {
       i++;
       continue;
     }
+    // A GFM literal autolink is a link, out of an open link text: no `_`
+    // or `*` in it is emphasis.
+    if (/[wWhH]/.test(c) && !list.some((n) => n.t === "bracket" && !n.balanced)) {
+      const end = literalAutolinkEnd(text, i);
+      if (end !== null) {
+        list.push({
+          t: "group",
+          kind: "link",
+          children: [{ t: "text", v: text.slice(i, end) }],
+        });
+        i = end;
+        continue;
+      }
+    }
     if (c === "*" || c === "_" || c === "~") {
       let n = 0;
       while (text[i + n] === c) n++;
@@ -609,6 +623,15 @@ export function inlineSpans(text: string, math = true): InlineSpan[] {
         continue;
       }
     }
+    // A GFM literal autolink (`www.x.com/a`b`c`, `https://x/$y$`) holds
+    // none either, out of an open link text, as micromark reads it.
+    if (brackets === 0 && /[wWhH]/.test(c)) {
+      const end = literalAutolinkEnd(text, i);
+      if (end !== null) {
+        i = end;
+        continue;
+      }
+    }
     if (c !== "`" && !(math && c === "$")) {
       i++;
       continue;
@@ -643,6 +666,120 @@ export function inlineSpans(text: string, math = true): InlineSpan[] {
     i = close + run;
   }
   return out;
+}
+
+/** Whether `ch` is whitespace to micromark (a line ending, a space or a tab too). */
+function isSpace(ch: string): boolean {
+  return /\s/u.test(ch);
+}
+
+/** Whether `ch` is Unicode punctuation or a symbol, as micromark reads it. */
+function isPunctuation(ch: string): boolean {
+  return /\p{P}|\p{S}/u.test(ch);
+}
+
+/**
+ * The offset past the GFM literal autolink (`www.x.org/a`, `https://x.org`)
+ * that starts at `start`, or `null`, by the rules of
+ * micromark-extension-gfm-autolink-literal: `www.` after the start, a space
+ * or one of `( * _ [ ] ~`, or `http://` or `https://` after anything but
+ * an ASCII letter, then a domain (no `_` in its last two segments) and a
+ * path up to whitespace or a `<`, without the punctuation that trails it
+ * ({@link autolinkTrail}). Email literals hold no `` ` `` or `$`, so they
+ * are not read. The rule of mdopener-mcp's `literal_autolink_end`.
+ */
+function literalAutolinkEnd(text: string, start: number): number | null {
+  const c = text[start];
+  const prev = text[start - 1];
+  let i = start;
+  if (c === "w" || c === "W") {
+    if (prev !== undefined && !isSpace(prev) && !"(*_[]~".includes(prev)) return null;
+    if (!/^[wW]{3}\./.test(text.slice(start, start + 4)) || start + 4 >= text.length)
+      return null;
+  } else if (c === "h" || c === "H") {
+    if (prev !== undefined && /[A-Za-z]/.test(prev)) return null;
+    const m = /^https?:\/\//i.exec(text.slice(start, start + 8));
+    if (!m) return null;
+    i = start + m[0].length;
+    const next = text[i];
+    if (next === undefined || isControl(next) || isSpace(next) || isPunctuation(next))
+      return null;
+  } else {
+    return null;
+  }
+  // The domain.
+  let seen = false;
+  let underscoreLast = false;
+  let underscoreBefore = false;
+  for (;;) {
+    const ch = text[i];
+    if (ch === "." || ch === "_") {
+      if (autolinkTrail(text, i)) break;
+      if (ch === "_") underscoreLast = true;
+      else {
+        underscoreBefore = underscoreLast;
+        underscoreLast = false;
+      }
+      i++;
+      continue;
+    }
+    if (ch === undefined || isSpace(ch) || (ch !== "-" && isPunctuation(ch))) break;
+    seen = true;
+    i++;
+  }
+  if (underscoreLast || underscoreBefore || !seen) return null;
+  // The path, its parentheses balanced.
+  let open = 0;
+  let close = 0;
+  for (;;) {
+    const ch = text[i];
+    if (ch === "(") {
+      open++;
+      i++;
+      continue;
+    }
+    if (ch === ")" && close < open) {
+      close++;
+      i++;
+      continue;
+    }
+    if (ch !== undefined && `!"&')*,.:;<?]_~`.includes(ch)) {
+      if (autolinkTrail(text, i)) return i;
+      if (ch === ")") close++;
+      i++;
+      continue;
+    }
+    if (ch === undefined || isSpace(ch)) return i;
+    i++;
+  }
+}
+
+/**
+ * Whether the text at `i` is punctuation that trails a literal autolink
+ * rather than ends its path: a run of `!"')*,.:;?_~`, `&name;` and `]`
+ * (one followed by the end, a space, `(` or `[` ends it), up to the end,
+ * whitespace or a `<`.
+ */
+function autolinkTrail(text: string, i: number): boolean {
+  let j = i;
+  for (;;) {
+    const ch = text[j];
+    if (ch !== undefined && `!"')*,.:;?_~`.includes(ch)) {
+      j++;
+    } else if (ch === "&") {
+      j++;
+      if (!/[A-Za-z]/.test(text[j] ?? "")) return false;
+      while (/[A-Za-z]/.test(text[j] ?? "")) j++;
+      if (text[j] !== ";") return false;
+      j++;
+    } else if (ch === "]") {
+      j++;
+      const n = text[j];
+      if (n === undefined || n === "(" || n === "[" || isSpace(n)) return true;
+    } else {
+      return ch === undefined || ch === "<" || isSpace(ch);
+    }
+  }
 }
 
 /** Whether `ch` is an ASCII control character. */
@@ -820,11 +957,14 @@ function inlineLinkEnd(text: string, start: number): number | null {
  */
 export function maskInlineCode(lines: MarkdownLine[]): string[] {
   const out = lines.map((l) => l.text);
+  // The lines with their container markers as spaces: an inline block
+  // starts past them (`> www.x` is a link after the `>`).
+  const view = lines.map(inlineView);
   // Mask the spans of lines [from, to) read as one inline block.
   const mask = (from: number, to: number, math: boolean) => {
     if (from >= to) return;
     const block = out.slice(from, to).join("\n");
-    maskSpans(block, math)
+    maskSpans(block, math, view.slice(from, to).join("\n"))
       .split("\n")
       .forEach((t, k) => {
         out[from + k] = t;
@@ -849,7 +989,11 @@ export function maskInlineCode(lines: MarkdownLine[]): string[] {
         for (let r = k; r < k + rows; r++) {
           if (r === k + 1) continue; // The delimiter row holds no text.
           let cells = "";
-          for (const cell of splitCells(out[r])) cells += maskSpans(cell, true);
+          let at = 0;
+          for (const cell of splitCells(view[r])) {
+            cells += maskSpans(out[r].slice(at, at + cell.length), true, cell);
+            at += cell.length;
+          }
           out[r] = cells;
         }
         from = k + rows;
@@ -864,17 +1008,33 @@ export function maskInlineCode(lines: MarkdownLine[]): string[] {
   return out;
 }
 
-/** `block` with its code spans (and with `math` inline math) masked by `\r`s. */
-function maskSpans(block: string, math: boolean): string {
+/**
+ * `block` with its code spans (and with `math` inline math) masked by
+ * `\r`s, as they are read in `view`, the same text with its container
+ * markers as spaces.
+ */
+function maskSpans(block: string, math: boolean, view = block): string {
   let masked = "";
   let at = 0;
-  for (const span of inlineSpans(block, math)) {
+  for (const span of inlineSpans(view, math)) {
     masked +=
       block.slice(at, span.start) +
       block.slice(span.start, span.end).replace(/[^\n]/g, "\r");
     at = span.end;
   }
   return masked + block.slice(at);
+}
+
+/**
+ * The text of line `l` with the blockquote markers and list item
+ * indentation before its content as spaces, so it keeps its length; as it
+ * is when its content cannot be found in it (a tab expanded).
+ */
+function inlineView(l: MarkdownLine): string {
+  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  const cut = raw.length - l.content.length;
+  if (!l.contained || cut <= 0 || !raw.endsWith(l.content)) return l.text;
+  return " ".repeat(cut) + l.text.slice(cut);
 }
 
 /**
