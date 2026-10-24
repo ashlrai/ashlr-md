@@ -10948,11 +10948,16 @@ fn session_file_written_by_the_app_is_read_and_kept() {
     let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(on_disk["messages"].as_array().unwrap().len(), 2);
     // The write went through a temp file renamed into place; none is left.
+    // Only this session's temp files count (`persist_session` names them
+    // `<session file>.<pid>-<seq>.tmp`): the sessions directory is shared by
+    // the whole test process, so another test's append can have its own
+    // temp file there for a moment, which made this check fail at random.
+    let own_tmp = format!("{}.", path.file_name().unwrap().to_string_lossy());
     let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
+        .filter(|n| n.starts_with(&own_tmp) && n.ends_with(".tmp"))
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
