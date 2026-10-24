@@ -12,6 +12,7 @@ import { scrollToFragment } from "../../lib/docLinks";
 import { splitFragment } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
+import { useDocPath } from "./docPath";
 
 interface WikilinkProps {
   target: string;
@@ -24,17 +25,19 @@ export function Wikilink({ target, alias }: WikilinkProps) {
   const { fragment } = splitFragment(target);
   // Holds the active scroll-retry canceller so we can stop it on unmount.
   const cancelScrollRef = useRef<(() => void) | null>(null);
+  // In an embed, the embedded note's file: its links resolve from there.
+  const docPath = useDocPath();
 
   useEffect(() => {
     let cancelled = false;
-    resolveWikilink(target).then((p) => {
+    resolveWikilink(target, docPath).then((p) => {
       if (!cancelled) setResolved(p);
     });
     return () => {
       cancelled = true;
       cancelScrollRef.current?.();
     };
-  }, [target]);
+  }, [target, docPath]);
 
   const broken = resolved === null;
   const label = alias ?? target;

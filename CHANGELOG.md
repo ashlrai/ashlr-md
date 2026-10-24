@@ -105,6 +105,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An embedded note's links and images resolve from its own file.** In
+  `![[sub/note]]`, the note's `![](img.png)`, `[x](other.md)` and `[[link]]`
+  were resolved from the document holding the embed, so its images were missing
+  and its links pointed into the wrong folder. They now resolve from the
+  embedded file, as they do when it is opened.
 - **`[[wikilinks]]` in the read view are links again.** The HTML sanitizer's
   rule for links allows only GitHub's footnote class, which replaced the
   general class rule, so the `wikilink` class was stripped: `[[note]]` rendered

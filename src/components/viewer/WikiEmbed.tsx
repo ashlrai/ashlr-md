@@ -8,7 +8,9 @@
  *   ![[notes.txt]]       → a plain-text attachment, shown as written
  *
  * Markdown embeds render inline through the same Renderer; a depth context caps
- * recursion so `![[a]]`→`![[b]]`→`![[a]]` cycles can't loop forever. Images are
+ * recursion so `![[a]]`→`![[b]]`→`![[a]]` cycles can't loop forever. An
+ * embedded note's own links, images and embeds resolve from its file
+ * (DocPathContext), and the embed's target from the note holding it. Images are
  * read through Rust into a `data:` URL (no broad `asset://` scope needed) and
  * shown via a React <img> created AFTER sanitize.
  */
@@ -22,6 +24,7 @@ import {
   splitFragment,
 } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
+import { DocPathContext, useDocPath } from "./docPath";
 import { Renderer } from "./Renderer";
 
 /** Current transclusion depth; Renderer-rendered embeds inherit depth + 1. */
@@ -48,8 +51,13 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
   const isImage = isImageTarget(file);
   const isText = isPlainTextTarget(file);
 
-  // For images we hold the resolved path; for markdown, the (maybe-sliced) text.
+  // The note (or the open document) holding this embed.
+  const docPath = useDocPath();
+
+  // For images we hold the data URL; for markdown, the (maybe-sliced) text.
   const [resolved, setResolved] = useState<string | null | undefined>(undefined);
+  // The embedded file's path, which its own relative links resolve from.
+  const [embeddedPath, setEmbeddedPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (!target) return;
@@ -57,7 +65,7 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     let cancelled = false;
     (async () => {
       // Resolve the file part only — the `#fragment` is applied locally below.
-      const path = await resolveWikilink(file);
+      const path = await resolveWikilink(file, docPath);
       if (!path) {
         if (!cancelled) setResolved(null);
         return;
@@ -76,7 +84,10 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
         // A text attachment has no headings or blocks to take a section of.
         const out =
           fragment && !isText ? extractSection(doc.content, fragment) : doc.content;
-        if (!cancelled) setResolved(out);
+        if (!cancelled) {
+          setEmbeddedPath(path);
+          setResolved(out);
+        }
       } catch {
         if (!cancelled) setResolved(null);
       }
@@ -84,7 +95,7 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     return () => {
       cancelled = true;
     };
-  }, [target, file, isImage, isText, fragment, depth]);
+  }, [target, file, isImage, isText, fragment, depth, docPath]);
 
   // A blank target (e.g. the data attribute was stripped) — render nothing.
   if (!target) return null;
@@ -136,7 +147,9 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     <div className="wikiembed">
       <div className="wikiembed__title">{target}</div>
       <EmbedDepthContext.Provider value={depth + 1}>
-        <Renderer content={resolved} />
+        <DocPathContext.Provider value={embeddedPath}>
+          <Renderer content={resolved} />
+        </DocPathContext.Provider>
       </EmbedDepthContext.Provider>
     </div>
   );

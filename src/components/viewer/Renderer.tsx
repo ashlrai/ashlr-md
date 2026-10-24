@@ -44,6 +44,7 @@ import { LinkPreviewPopover } from "../LinkPreviewPopover";
 import { Callout } from "./Callout";
 import { CodeBlock } from "./CodeBlock";
 import { DiffBlock } from "./DiffBlock";
+import { useDocPath } from "./docPath";
 import { FootnoteRef } from "./FootnoteRef";
 import { HeadingAnchor } from "./HeadingAnchor";
 import { MermaidBlock } from "./MermaidBlock";
@@ -70,7 +71,8 @@ function LinkPreviewAnchor({
   children,
   ...rest
 }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: ReactNode }) {
-  const currentPath = useDocumentStore((s) => s.path);
+  // The document holding the link (an embedded note's own file in an embed).
+  const currentPath = useDocPath();
   return (
     <LinkPreviewPopover href={href ?? ""} currentPath={currentPath}>
       {(handlers) => (
@@ -80,7 +82,7 @@ function LinkPreviewAnchor({
           rel="noreferrer noopener"
           {...handlers}
           {...rest}
-          onClick={(e) => followLink(e, href)}
+          onClick={(e) => followLink(e, href, currentPath)}
         >
           {children}
         </a>
@@ -94,10 +96,16 @@ function LinkPreviewAnchor({
  * to the opener plugin, a `#heading` scrolls this document, and a link to a
  * Markdown document opens it in a tab (scrolling to its `#heading`). Any
  * other link is not followed, with a toast saying why. They used to do
- * nothing, or open the app's own origin in the browser.
+ * nothing, or open the app's own origin in the browser. A relative link
+ * resolves from `docPath`, the document holding it (the open document, or
+ * an embedded note's own file).
  */
-export function followLink(e: MouseEvent<HTMLAnchorElement>, href: string | undefined) {
-  const target = linkTarget(href, useDocumentStore.getState().path);
+export function followLink(
+  e: MouseEvent<HTMLAnchorElement>,
+  href: string | undefined,
+  docPath: string | null = useDocumentStore.getState().path,
+) {
+  const target = linkTarget(href, docPath);
   if (target.kind === "external") return;
   e.preventDefault();
   if (target.kind === "blocked") {
@@ -137,7 +145,7 @@ function MarkdownImage({
   alt?: string;
   title?: string;
 }) {
-  const docPath = useDocumentStore((s) => s.path);
+  const docPath = useDocPath();
   const source = useMemo(() => imageSource(src, docPath), [src, docPath]);
   const [local, setLocal] = useState<{ path: string; url: string | null } | null>(null);
   useEffect(() => {
