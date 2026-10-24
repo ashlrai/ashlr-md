@@ -125,10 +125,11 @@ export default function App() {
         const current = useDocumentStore.getState();
         if (current.path !== changedPath) return;
         try {
-          const file = await invoke<{ content: string }>("read_markdown_file", {
-            path: changedPath,
-          });
-          useDocumentStore.getState().handleDiskUpdate(file.content);
+          const file = await invoke<{ content: string; version?: string }>(
+            "read_markdown_file",
+            { path: changedPath },
+          );
+          useDocumentStore.getState().handleDiskUpdate(file.content, file.version ?? null);
         } catch {
           /* file may be mid-write; the next event will settle it */
         }

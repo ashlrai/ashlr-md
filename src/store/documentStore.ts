@@ -22,6 +22,21 @@ interface MarkdownFile {
   file_name: string;
   content: string;
   size: number;
+  /** What the read saw; handed back to `write_markdown_file` as `expected`. */
+  version?: string;
+}
+
+/**
+ * Tags in a `write_markdown_file` error (src-tauri/src/document.rs): the
+ * file changed on disk since it was read, or is gone. Either way nothing
+ * was written.
+ */
+export const SAVE_CONFLICT_TAG = "[save-conflict]";
+export const SAVE_MISSING_TAG = "[save-missing]";
+
+/** The error without its tag, for a toast. */
+function untagged(error: string): string {
+  return error.replace(SAVE_CONFLICT_TAG, "").replace(SAVE_MISSING_TAG, "").trim();
 }
 
 /**
@@ -43,6 +58,14 @@ export interface Tab {
   isDirty: boolean;
   externalChange: boolean;
   pendingDisk: string | null;
+  /**
+   * The `version` of the read `diskContent` came from, sent with a save so
+   * it is refused when the file changed on disk since (null: unknown, the
+   * save is not checked).
+   */
+  diskVersion: string | null;
+  /** The `version` of `pendingDisk`. */
+  pendingVersion: string | null;
   reloadNonce: number;
   /** When true, show a live read-preview pane beside the editor. */
   splitView: boolean;
@@ -69,6 +92,10 @@ interface DocumentState {
   externalChange: boolean;
   /** The on-disk content pending the user's reload/keep decision. */
   pendingDisk: string | null;
+  /** See {@link Tab.diskVersion}. */
+  diskVersion: string | null;
+  /** See {@link Tab.pendingVersion}. */
+  pendingVersion: string | null;
   /** Bumped to force editors to remount with fresh content (e.g. after reload). */
   reloadNonce: number;
   /** When true, render a live read preview beside the editor (per-document). */
@@ -151,7 +178,8 @@ interface DocumentState {
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
   save: () => Promise<void>;
-  handleDiskUpdate: (diskContent: string) => void;
+  /** `version` is the read's (`read_markdown_file`), when known. */
+  handleDiskUpdate: (diskContent: string, version?: string | null) => void;
   acceptExternalChange: () => void;
   dismissExternalChange: () => void;
   close: () => void;
@@ -176,6 +204,8 @@ const EMPTY_TOP = {
   isDirty: false,
   externalChange: false,
   pendingDisk: null,
+  diskVersion: null,
+  pendingVersion: null,
   viewMode: "read" as ViewMode,
   splitView: false,
 };
@@ -198,6 +228,8 @@ function topToTabFields(s: DocumentState): TabFields {
     isDirty: s.isDirty,
     externalChange: s.externalChange,
     pendingDisk: s.pendingDisk,
+    diskVersion: s.diskVersion,
+    pendingVersion: s.pendingVersion,
     reloadNonce: s.reloadNonce,
     splitView: s.splitView,
   };
@@ -215,6 +247,8 @@ function tabFieldsToTop(t: TabFields) {
     isDirty: t.isDirty,
     externalChange: t.externalChange,
     pendingDisk: t.pendingDisk,
+    diskVersion: t.diskVersion,
+    pendingVersion: t.pendingVersion,
     reloadNonce: t.reloadNonce,
     splitView: t.splitView,
   };
@@ -242,7 +276,9 @@ function recheckDisk(get: () => DocumentState, id: string, path: string) {
   invoke<MarkdownFile>("read_markdown_file", { path })
     .then((file) => {
       const cur = get();
-      if (cur.activeId === id && cur.path === path) cur.handleDiskUpdate(file.content);
+      if (cur.activeId === id && cur.path === path) {
+        cur.handleDiskUpdate(file.content, file.version ?? null);
+      }
     })
     .catch(() => {});
 }
@@ -259,6 +295,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   isDirty: false,
   externalChange: false,
   pendingDisk: null,
+  diskVersion: null,
+  pendingVersion: null,
   reloadNonce: 0,
   splitView: false,
 
@@ -292,6 +330,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        diskVersion: file.version ?? null,
+        pendingVersion: null,
         // Bump nonce so editors keying on path+reloadNonce remount fresh.
         reloadNonce: get().reloadNonce + 1,
         splitView: false,
@@ -466,10 +506,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   save: async () => {
-    const { path, content, activeId } = get();
+    const { path, content, activeId, diskVersion } = get();
     if (!path) return;
     try {
-      await invoke("write_markdown_file", { path, content });
+      const written = await invoke<unknown>("write_markdown_file", {
+        path,
+        content,
+        // Refused when the file changed on disk since this text's read.
+        expected: diskVersion ?? undefined,
+      });
+      const version = typeof written === "string" ? written : null;
       set((s) => {
         // What was written is the tab's disk baseline, and it is clean only
         // if nothing was typed since: an edit made while the write was in
@@ -480,8 +526,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         // edits read as saved.
         const saved = {
           diskContent: content,
+          diskVersion: version,
           externalChange: false,
           pendingDisk: null,
+          pendingVersion: null,
         };
         if (s.activeId !== activeId || s.path !== path) {
           return {
@@ -498,29 +546,45 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       });
       toast.success("Saved");
     } catch (e) {
-      set({ error: String(e) });
-      toast.error(`Couldn’t save: ${String(e)}`);
+      const error = String(e);
+      set({ error: untagged(error) });
+      if (error.includes(SAVE_CONFLICT_TAG)) {
+        // Another app changed the file since it was read: nothing was
+        // written. Offer its text (the banner) as a watched change does, so
+        // the user picks; it used to be overwritten without a word.
+        toast.error(
+          "Not saved: the file changed on disk. Reload it, or keep your version and save again.",
+        );
+        recheckDisk(get, activeId ?? "", path);
+        return;
+      }
+      toast.error(`Couldn’t save: ${untagged(error)}`);
     }
   },
 
   // Called when the watcher reports the file changed on disk and we've re-read it.
-  handleDiskUpdate: (disk) => {
+  handleDiskUpdate: (disk, version) => {
     const s = get();
     if (!s.path) return;
+    const diskVersion = version === undefined ? s.diskVersion : version;
     // Our own save (or no real change) — just resync the disk baseline.
     if (disk === s.content) {
       const next = {
         ...s,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
       };
       set({
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
         tabs: syncActiveTab(next),
       });
       return;
@@ -530,17 +594,35 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     // banner offering it is gone. It used to be flagged as a conflict while
     // the user had edits, as if another app had changed the file.
     if (disk === s.diskContent) {
-      if (!s.externalChange && s.pendingDisk == null) return;
-      const next = { ...s, externalChange: false, pendingDisk: null };
-      set({ externalChange: false, pendingDisk: null, tabs: syncActiveTab(next) });
+      if (!s.externalChange && s.pendingDisk == null && diskVersion === s.diskVersion) {
+        return;
+      }
+      const next = {
+        ...s,
+        diskVersion,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
+      };
+      set({
+        diskVersion,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
+        tabs: syncActiveTab(next),
+      });
       return;
     }
     if (s.isDirty) {
-      // Conflict: keep the user's edits, surface a banner.
-      const next = { ...s, externalChange: true, pendingDisk: disk };
+      // Conflict: keep the user's edits, surface a banner. The baseline
+      // version stays the old read's, so a save before the user picks is
+      // refused rather than written over the change.
+      const pendingVersion = version ?? null;
+      const next = { ...s, externalChange: true, pendingDisk: disk, pendingVersion };
       set({
         externalChange: true,
         pendingDisk: disk,
+        pendingVersion,
         tabs: syncActiveTab(next),
       });
     } else {
@@ -549,12 +631,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         ...s,
         content: disk,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         reloadNonce: s.reloadNonce + 1,
       };
       set({
         content: disk,
         diskContent: disk,
+        diskVersion,
         isDirty: false,
         reloadNonce: s.reloadNonce + 1,
         tabs: syncActiveTab(next),
@@ -573,28 +657,51 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       ...s,
       content: s.pendingDisk,
       diskContent: s.pendingDisk,
+      diskVersion: s.pendingVersion,
       isDirty: false,
       externalChange: false,
       pendingDisk: null,
+      pendingVersion: null,
       reloadNonce: s.reloadNonce + 1,
     };
     set({
       content: next.content,
       diskContent: next.diskContent,
+      diskVersion: next.diskVersion,
       isDirty: false,
       externalChange: false,
       pendingDisk: null,
+      pendingVersion: null,
       reloadNonce: next.reloadNonce,
       tabs: syncActiveTab(next),
     });
   },
 
+  // "Keep mine": the user has seen the change on disk and chose their text,
+  // so the next save may replace it. The disk text becomes the baseline
+  // (the edits stay unsaved), and its version is what a save checks.
   dismissExternalChange: () =>
     set((s) => {
-      const next = { ...s, externalChange: false, pendingDisk: null };
-      return {
+      const seen =
+        s.pendingDisk == null
+          ? {}
+          : {
+              diskContent: s.pendingDisk,
+              diskVersion: s.pendingVersion,
+              isDirty: s.content !== s.pendingDisk,
+            };
+      const next = {
+        ...s,
+        ...seen,
         externalChange: false,
         pendingDisk: null,
+        pendingVersion: null,
+      };
+      return {
+        ...seen,
+        externalChange: false,
+        pendingDisk: null,
+        pendingVersion: null,
         tabs: syncActiveTab(next),
       };
     }),

@@ -30,6 +30,8 @@ function reset() {
     isDirty: false,
     externalChange: false,
     pendingDisk: null,
+    diskVersion: null,
+    pendingVersion: null,
     reloadNonce: 0,
     tabs: [],
     activeId: null,
@@ -899,5 +901,83 @@ describe("documentStore — saves and disk changes stay with their tab", () => {
     const s = useDocumentStore.getState();
     expect(s.content).toBe("b mine");
     expect(s.pendingDisk).toBe("b theirs");
+  });
+});
+
+/**
+ * A fake disk with `write_markdown_file`'s check: a file's version is its
+ * text, and a write whose `expected` is not the file's version (or whose file
+ * is gone) is refused with the backend's tag.
+ */
+function versionedDisk(files: Record<string, string>) {
+  const writes: { path: string; content: string; expected?: string }[] = [];
+  invokeMock.mockImplementation(
+    (cmd: string, args?: { path?: string; content?: string; expected?: string }) => {
+      const p = args?.path ?? "";
+      if (cmd === "read_markdown_file") {
+        if (!(p in files)) return Promise.reject("No such file or directory (os error 2)");
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: files[p],
+          size: files[p].length,
+          version: `v:${files[p]}`,
+        });
+      }
+      if (cmd === "write_markdown_file") {
+        writes.push({ path: p, content: args?.content ?? "", expected: args?.expected });
+        if (args?.expected !== undefined) {
+          if (!(p in files)) {
+            return Promise.reject(`Could not save ${p}: it was deleted [save-missing]`);
+          }
+          if (`v:${files[p]}` !== args.expected) {
+            return Promise.reject(`Could not save ${p}: it changed [save-conflict]`);
+          }
+        }
+        files[p] = args?.content ?? "";
+        return Promise.resolve(`v:${files[p]}`);
+      }
+      return Promise.resolve();
+    },
+  );
+  return writes;
+}
+
+describe("documentStore — a save never overwrites a change it has not seen", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    reset();
+  });
+
+  it("sends the read's version, and offers the disk text when the save is refused", async () => {
+    const files: Record<string, string> = { "/a.md": "v0" };
+    const writes = versionedDisk(files);
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    // Another app writes while the tab is open (no watcher event seen yet).
+    files["/a.md"] = "theirs";
+    await useDocumentStore.getState().save();
+    expect(writes[0].expected).toBe("v:v0");
+    expect(files["/a.md"]).toBe("theirs");
+    await vi.waitFor(() => expect(useDocumentStore.getState().externalChange).toBe(true));
+    let s = useDocumentStore.getState();
+    expect(s.pendingDisk).toBe("theirs");
+    expect(s.content).toBe("mine");
+    expect(s.isDirty).toBe(true);
+
+    // "Keep mine": the change was seen, so the next save replaces it.
+    useDocumentStore.getState().dismissExternalChange();
+    await useDocumentStore.getState().save();
+    expect(writes[1].expected).toBe("v:theirs");
+    expect(files["/a.md"]).toBe("mine");
+    s = useDocumentStore.getState();
+    expect(s.isDirty).toBe(false);
+    expect(s.diskVersion).toBe("v:mine");
+
+    // The saved version is the baseline for the save after it.
+    useDocumentStore.getState().setContent("mine 2");
+    await useDocumentStore.getState().save();
+    expect(writes[2].expected).toBe("v:mine");
+    expect(files["/a.md"]).toBe("mine 2");
   });
 });

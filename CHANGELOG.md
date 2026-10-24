@@ -96,6 +96,18 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A save no longer overwrites a change made on disk since the file was
+  read.** The window sent its text and the file was replaced, whatever was
+  there: a change another app (or a sync client) made while the tab was open,
+  before the watcher reported it, was lost. A save now carries the version of
+  the read its text is based on, and when the file on disk no longer matches
+  it nothing is written: the change is offered in the banner ("Keep mine",
+  then save again, replaces it). Touching the file without changing it is not
+  a change. After the rename the folder is synced on Unix, so a crash just
+  after a save cannot bring the old file back, and the owner and group are
+  kept where the process may set them, as the mode already was. Hard links,
+  extended attributes, ACLs and Finder tags are not carried over to the new
+  file (documented at `write_atomic`).
 - **A read-only file is no longer overwritten.** A save (or an export over
   an existing file) wrote a new file and renamed it into place, which needs
   only the folder to be writable, so a note with no write permission
