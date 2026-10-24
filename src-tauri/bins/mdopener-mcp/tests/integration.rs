@@ -7194,6 +7194,78 @@ fn a_path_that_resolves_to_a_non_utf8_name_is_refused_saying_so() {
     assert!(ipc.calls.lock().unwrap().is_empty());
 }
 
+/// The disk vault walk passed each path on lossily, so a Markdown file in a
+/// folder whose name is not UTF-8 (or a symlink to one) named no file and was
+/// dropped without a word: a search said nothing of it. Such files are now
+/// listed in `non_utf8` and named in the search's note, and a `vault` that is
+/// itself such a folder is refused, saying why. (Linux: macOS refuses such
+/// names.)
+#[cfg(target_os = "linux")]
+#[test]
+fn the_disk_vault_walk_reports_markdown_files_with_non_utf8_paths() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::Builder::new().prefix("vault-").tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "the target topic\n").unwrap();
+    let bad = dir.path().join(std::ffi::OsStr::from_bytes(b"bad\xffdir"));
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::write(bad.join("x.md"), "the target topic\n").unwrap();
+    std::fs::write(bad.join("notes.txt"), "the target topic\n").unwrap();
+    std::fs::write(
+        dir.path().join(std::ffi::OsStr::from_bytes(b"caf\xe9.md")),
+        "the target topic\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(bad.join("x.md"), dir.path().join("link.md")).unwrap();
+
+    let scan = mdopener_mcp::disk_vault_scan(dir.path());
+    let canon = std::fs::canonicalize(dir.path()).unwrap();
+    assert_eq!(
+        scan.paths,
+        vec![canon.join("a.md").to_string_lossy().into_owned()]
+    );
+    let lossy = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+    let mut want = vec![
+        lossy(bad.join("x.md")),
+        lossy(dir.path().join(std::ffi::OsStr::from_bytes(b"caf\xe9.md"))),
+        lossy(dir.path().join("link.md")),
+    ];
+    want.sort();
+    assert_eq!(scan.non_utf8, want, "{scan:?}");
+
+    let down = "Could not connect to IPC server at 127.0.0.1:1: refused";
+    let ipc = MockIpc::new()
+        .on_get("/vault", Err(down.into()))
+        .on_get("/search", Err(down.into()));
+    let args =
+        json!({ "query": "target", "semantic": false, "vault": dir.path().to_str().unwrap() });
+    let v = content_text(&tool_search_vault(id(1), &args, &ipc));
+    assert_eq!(v["mode"], "grep-disk", "{v}");
+    assert_eq!(v["results"].as_array().unwrap().len(), 1, "{v}");
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.contains("3 Markdown files are not searched because the path is not valid UTF-8"),
+        "{note}"
+    );
+    assert!(note.contains(&format!("'{}'", want[0])), "{note}");
+    assert!(
+        note.contains("Rename the file or folder to a UTF-8 name"),
+        "{note}"
+    );
+
+    // A vault that is itself such a folder is refused, not searched empty.
+    let args = json!({ "query": "target", "semantic": false, "vault": lossy(bad.clone()) });
+    let err = tool_error_text(&tool_search_vault(id(2), &args, &ipc));
+    assert!(
+        err.contains("does not exist"),
+        "a lossy name names nothing: {err}"
+    );
+    let err = mdopener_mcp::disk_vault_dir(&lossy(dir.path().join("vlink"))).unwrap_err();
+    assert!(err.contains("does not exist"), "{err}");
+    std::os::unix::fs::symlink(&bad, dir.path().join("vlink")).unwrap();
+    let err = mdopener_mcp::disk_vault_dir(&lossy(dir.path().join("vlink"))).unwrap_err();
+    assert!(err.contains("not valid UTF-8"), "{err}");
+}
+
 #[test]
 fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
     let (_dir, env, host, notes, link) = secret_fixture();

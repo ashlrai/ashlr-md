@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a vault search names the Markdown files it cannot read by path.**
+  Searching a `vault` on disk passed each path on lossily, so a note in a
+  folder whose name is not UTF-8 (or a link to one) named no file and was
+  left out without a word. The search's note now says how many such files
+  were not searched, names the first few and says to rename them, and a
+  `vault` that is itself such a folder is refused, saying why.
 - **MCP: a request line has a size limit.** The server read each stdin line
   whole, however long, so a client that sent a huge line (or bytes with no
   newline) grew its memory without bound. A line longer than 64 MiB (room for
