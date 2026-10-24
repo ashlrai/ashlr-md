@@ -262,7 +262,7 @@ export const ruleMaxHeadingDepth: LintRule = {
  * A "bare URL" is a URL that is:
  *   - not inside a markdown link: [text](url)
  *   - not inside an angle-bracket autolink: <url>
- *   - not inside a code span or fenced block
+ *   - not inside a code span, a fenced block or indented code
  */
 export const ruleNoBareUrls: LintRule = {
   id: "no-bare-urls",

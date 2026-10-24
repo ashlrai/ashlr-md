@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Indented code is code to the app's Markdown readers.** The app's line rule
+  (`markdownLines`) marked indented code as text, unlike mdopener-mcp's, so
+  the status bar's word count counted its words, `no-bare-urls` flagged a URL
+  in it, and every other reader of text lines read Markdown in it. It now has
+  its own kind, which those readers skip as they skip fenced code.
 - **An underline after link reference definitions starts a paragraph.** The
   line rule of the Outline, the headings and `export_text` read an `===`, `--`
   or `- ` line right after a paragraph of only definitions (`[a]: /u`) as a

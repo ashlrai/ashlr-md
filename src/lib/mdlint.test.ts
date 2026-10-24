@@ -300,6 +300,12 @@ describe("rule:no-bare-urls", () => {
     expect(violations).toHaveLength(1);
   });
 
+  it("passes a URL in indented code", () => {
+    // Indented code is code, as fenced code is; its URL used to be flagged.
+    const doc = "Run:\n\n    curl https://example.com/x\n";
+    expect(lintDocument(doc, { rules: [ruleNoBareUrls] })).toHaveLength(0);
+  });
+
   it("reports correct range for a bare URL", () => {
     const doc = "Go to https://example.com now.\n";
     const violations = lintDocument(doc, { rules: [ruleNoBareUrls] });

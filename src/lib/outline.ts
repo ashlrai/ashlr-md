@@ -498,10 +498,14 @@ export interface MarkdownLine {
   /**
    * `frontmatter` for a line of a leading YAML front matter block (its
    * `---` lines included), `fence` for a code fence line, `code` for a line
-   * inside fenced code, `html` for a line of an HTML block (raw HTML, which
-   * the page does not read as Markdown), `text` for any other line.
+   * inside fenced code, `indented` for a line of indented code (four
+   * columns past its containers, not going on with a paragraph, as
+   * mdopener-mcp's `markdown_lines::with_indented_code` marks it), `html`
+   * for a line of an HTML block (raw HTML, which the page does not read as
+   * Markdown), `text` for any other line. Indented code used to be `text`,
+   * so a caller that reads Markdown on text lines read it in that code.
    */
-  kind: "frontmatter" | "fence" | "code" | "html" | "text";
+  kind: "frontmatter" | "fence" | "code" | "indented" | "html" | "text";
   /** The line without its `\n` (a `\r` before it is kept). */
   text: string;
   /** 1-based line number within the full document. */
@@ -769,6 +773,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
             }
           } else {
             const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
+            if (code) kind = "indented";
             continuesParagraph = !fresh && !heading && !empty;
             // The first content of an item opened by a bare marker may be
             // on the line after it (`-`, then `  [ ] t`).

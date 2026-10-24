@@ -50,7 +50,7 @@ describe("parseHeadings", () => {
     expect(markdownLines(doc).map((l) => l.kind)).toEqual([
       "text",
       "text",
-      "text",
+      "indented",
       "text",
       "text",
       "text",
@@ -388,7 +388,7 @@ describe("parseHeadings", () => {
       "fence",
       "code",
       "text",
-      "text",
+      "indented",
       "text",
     ]);
     expect(parseHeadings(doc).map((h) => h.text)).not.toContain("comment");
@@ -429,7 +429,7 @@ describe("parseHeadings", () => {
     ]);
     expect(kinds(["- > ```", "  # out"])).toEqual(["f", "t"]);
     // Four spaces past the item's text is indented code, not a fence.
-    expect(kinds(["- a", "", "      ```", "  # h"])).toEqual(["t", "t", "t", "t"]);
+    expect(kinds(["- a", "", "      ```", "  # h"])).toEqual(["t", "t", "i", "t"]);
     // A line less indented than the item's text after a blank line ends it.
     expect(kinds(["- a", "", "b", "", "  ```", "x"])).toEqual([
       "t",
@@ -536,5 +536,26 @@ describe("parseHeadings", () => {
     ]);
     // A `---` line there is a thematic break.
     expect(markdownLines("[a]: /u\n---").some((l) => l.setext)).toBe(false);
+  });
+
+  it("marks indented code as indented", () => {
+    // The rule of mdopener-mcp's `with_indented_code`: four columns past
+    // the line's containers, not going on with a paragraph. It used to be
+    // `text`, so callers reading Markdown on text lines read it in code.
+    const kinds = (doc: string) => markdownLines(doc).map((l) => l.kind);
+    expect(kinds("    # code\n\n    more\nx")).toEqual([
+      "indented",
+      "text",
+      "indented",
+      "text",
+    ]);
+    expect(kinds("para\n    more")).toEqual(["text", "text"]);
+    expect(kinds("- a\n\n      code\n  text")).toEqual([
+      "text",
+      "text",
+      "indented",
+      "text",
+    ]);
+    expect(kinds(">     [[x]]")).toEqual(["indented"]);
   });
 });
