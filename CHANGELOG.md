@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Lint fixes leave code and line breaks alone.** `invalid-link-target` and
+  `missing-alt-text` (both on by default) read the raw document, so a
+  `[x](#)` or `![](a.png)` in a code sample was flagged and its fix rewrote
+  the code. The blank-line fix collapsed every run of line breaks in the
+  document, in code blocks too, and none of a CRLF file's. Trailing spaces
+  before a CRLF were missed, and their fix took a code line's spaces off.
+  The front matter fix added LF lines to a CRLF file. Each rule now reads
+  code, front matter and code spans by the Outline's rule and fixes only
+  what it flags, in the document's line breaks.
 - **Agent edit sections read code and front matter by the page's rule.** The
   section an agent edit lands in (front matter, code or prose, which decides
   the side that wins a conflict) toggled code on every line starting with
