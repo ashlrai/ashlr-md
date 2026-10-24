@@ -185,3 +185,50 @@ describe("countdownLabel", () => {
     expect(countdownLabel(-5)).toBe("Time left to review: 0 seconds");
   });
 });
+
+describe("ReviewPanel focus", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    useReviewStore.setState({ pending: null, draftComment: "" });
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+  });
+
+  it("gives focus back to what had it once the review is decided", async () => {
+    // The panel takes focus when a review arrives, and unmounted with it:
+    // focus fell to the page.
+    const editor = document.createElement("textarea");
+    document.body.appendChild(editor);
+    editor.focus();
+    act(() => root.render(createElement(ReviewPanel)));
+    act(() => {
+      useReviewStore.getState().registerReview({
+        reviewId: "rev-f",
+        path: "/notes/plan.md",
+        content: null,
+        timeoutMs: 60_000,
+        registeredAt: Date.now(),
+      });
+    });
+    const panel = host.querySelector<HTMLElement>(".review-panel");
+    expect(document.activeElement).toBe(panel);
+    const approve = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "Approve",
+    );
+    await act(async () => {
+      approve?.click();
+    });
+    expect(useReviewStore.getState().pending).toBeNull();
+    expect(document.activeElement).toBe(editor);
+  });
+});

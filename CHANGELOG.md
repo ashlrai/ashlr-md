@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Focus comes back after a review.** An agent's review request takes
+  keyboard focus so it is noticed; once approved, sent back, dismissed or
+  timed out, the panel was gone and focus with it. Focus now returns to
+  where you were, the editor for instance.
 - **Reduced motion stops the scroll animations too.** With "Reduce motion"
   set in the system, the app's animations were calmed, but jumping to a
   heading from the outline or a link, to a find match, to a review finding,
