@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The command palette gives focus back when it closes.** It meant to
+  return focus to what had it, but remembered its own search field (already
+  focused by then), so closing it left focus on nothing and a keyboard user
+  had to find their place again; Tab also left the palette for the app
+  behind it. Focus now returns to where it was, Tab stays inside, and the
+  search field is announced as a combobox with its list of commands.
 - **Restoring the last session skips a file it cannot open.** A saved tab
   whose file was there but could not be read (not text, too large) had its
   view mode applied to the tab before it, was counted in "Reopened n
