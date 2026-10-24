@@ -18,6 +18,29 @@ describe("parseHeadings", () => {
     expect(out.map((h) => h.text)).toEqual(["Body"]);
   });
 
+  it("reads front matter delimiters at column 0 only, as remark-frontmatter does", () => {
+    // `  ---` is a thematic break on the page, so the heading after it is
+    // listed; the first line used to be trimmed, which hid it.
+    expect(parseHeadings("  ---\n# Shown\n---\n").map((h) => h.text)).toEqual([
+      "Shown",
+    ]);
+    // An indented closer does not close the block either.
+    expect(parseHeadings("---\n# A\n  ---\n# B\n").map((h) => h.text)).toEqual([
+      "A",
+      "B",
+    ]);
+    // Spaces and tabs may follow a delimiter.
+    expect(parseHeadings("--- \n# fm\n---\t\n# Body\n").map((h) => h.text)).toEqual([
+      "Body",
+    ]);
+    expect(markdownLines("  ---\na\n---\n").map((l) => l.kind)).toEqual([
+      "text",
+      "text",
+      "text",
+      "text",
+    ]);
+  });
+
   it("ignores `#` lines inside fenced code blocks", () => {
     const doc = [
       "# Title",

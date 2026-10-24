@@ -43,6 +43,19 @@ describe("detectReviewDoc — positive cases", () => {
     expect(r?.counts.nit).toBe(1);
   });
 
+  it("reads findings after an indented `---`, which opens no front matter", () => {
+    // The page shows `  ---` as a thematic break, not front matter. The
+    // first line used to be trimmed, so these findings were skipped.
+    const doc = [
+      "  ---",
+      "- **Blocker:** data loss on concurrent save",
+      "- **Major:** unbounded memory growth in cache",
+      "---",
+    ].join("\n");
+    expect(detectReviewDoc(doc)?.total).toBe(2);
+    expect(detectReviewDoc(doc.trimStart())).toBeNull();
+  });
+
   it("detects bracketed list items with em-dash titles", () => {
     const doc = [
       "* [High] — race condition in scheduler",

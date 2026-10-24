@@ -392,6 +392,12 @@ See the dedicated [Human review loop](#human-review-loop) section.
 
 ### Front matter in `export_metadata`
 
+The block opens on a first line of `---` and closes on a later `---` or
+`...` line. Each delimiter starts at column 0 with only spaces or tabs after
+it, as the app's renderer reads front matter, so `  ---` is a thematic break
+and opens no block (the line used to be trimmed, which hid the text up to the
+next `---` from the headings, tasks and `export_text`).
+
 `frontmatter` reads a small subset of YAML, not full YAML:
 
 - **Scalars**: `true` / `false` become booleans, integers and decimals become

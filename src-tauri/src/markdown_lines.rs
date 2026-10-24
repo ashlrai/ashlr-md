@@ -518,14 +518,21 @@ pub fn text_lines(content: &str) -> impl Iterator<Item = &str> {
 }
 
 /// How many lines a leading front matter block takes, its two delimiters
-/// included; 0 when there is none.
+/// included; 0 when there is none. Each delimiter starts at column 0 and
+/// only spaces and tabs may follow it, as remark-frontmatter reads it: the
+/// line was trimmed, so `  ---` opened front matter that the page shows as
+/// a thematic break, and the lines after it were left out of the headings,
+/// tasks and text.
 pub fn front_matter_len(content: &str) -> usize {
+    fn delimiter(line: &str) -> &str {
+        line.trim_end_matches([' ', '\t', '\r'])
+    }
     let mut lines = content.lines();
-    if lines.next().map(str::trim) != Some("---") {
+    if lines.next().map(delimiter) != Some("---") {
         return 0;
     }
     lines
-        .position(|l| matches!(l.trim(), "---" | "..."))
+        .position(|l| matches!(delimiter(l), "---" | "..."))
         .map_or(0, |i| i + 2)
 }
 

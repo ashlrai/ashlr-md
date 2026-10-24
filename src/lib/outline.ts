@@ -14,6 +14,7 @@
  */
 
 import GithubSlugger from "github-slugger";
+import { stripFrontmatter } from "./frontmatter";
 
 export interface HeadingItem {
   /** ATX heading level, 1–6. */
@@ -24,25 +25,6 @@ export interface HeadingItem {
   slug: string;
   /** 1-based source line number of the heading (within the full document). */
   line: number;
-}
-
-/**
- * Strip a leading YAML frontmatter block (`---` … `---`), if present.
- * Returns the body plus the number of lines removed, so reported line numbers
- * stay accurate against the original document.
- */
-function stripFrontmatter(markdown: string): { lines: string[]; offset: number } {
-  const lines = markdown.split("\n");
-  if (lines[0]?.trim() !== "---") return { lines, offset: 0 };
-  for (let i = 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    // Frontmatter ends on a line that is exactly `---` or `...`.
-    if (t === "---" || t === "...") {
-      return { lines: lines.slice(i + 1), offset: i + 1 };
-    }
-  }
-  // No closing fence — treat the whole thing as body (don't swallow content).
-  return { lines, offset: 0 };
 }
 
 /**

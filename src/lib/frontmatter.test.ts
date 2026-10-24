@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinFrontmatter, splitFrontmatter } from "./frontmatter";
+import { joinFrontmatter, splitFrontmatter, stripFrontmatter } from "./frontmatter";
 
 describe("frontmatter", () => {
   it("splits a frontmatter block from the body", () => {
@@ -30,5 +30,17 @@ describe("frontmatter", () => {
 
   it("join with empty frontmatter returns the body unchanged", () => {
     expect(joinFrontmatter("", "x")).toBe("x");
+  });
+
+  it("strips front matter only from delimiters at column 0", () => {
+    expect(stripFrontmatter("---\na: 1\n...\nbody").offset).toBe(3);
+    expect(stripFrontmatter("---\t\r\na: 1\r\n--- \r\nbody")).toEqual({
+      lines: ["body"],
+      offset: 3,
+    });
+    expect(stripFrontmatter("  ---\na: 1\n---\nbody").offset).toBe(0);
+    expect(stripFrontmatter("---\na: 1\n ---\nbody").offset).toBe(0);
+    // Never closed: a thematic break, and nothing is removed.
+    expect(stripFrontmatter("---\na: 1\n").offset).toBe(0);
   });
 });

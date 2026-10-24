@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Front matter opens only on `---` at column 0.** The Outline, the review
+  summary and mdopener-mcp trimmed the first line, so `  ---` opened front matter
+  and hid the lines up to the next `---` (their headings, tasks and text), while
+  the page shows that line as a thematic break and the lines as text. Each
+  delimiter now starts at column 0 with only spaces or tabs after it, as
+  remark-frontmatter reads it, and the Outline and the review summary share one
+  helper instead of two copies. An unclosed leading `---` stays a thematic break,
+  as on the page.
 - **Task checkboxes are read where the page shows them.** `get_user_annotations`
   and the app's `/annotations` read `- [ ]` on raw lines, so a task in a
   blockquote (`> - [ ] t`) or an ordered item (`1. [ ] t`) was missed, and an

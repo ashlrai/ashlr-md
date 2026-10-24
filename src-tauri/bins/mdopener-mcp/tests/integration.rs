@@ -4589,6 +4589,34 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// Front matter opened on a trimmed first line, so `  ---` (a thematic
+/// break on the page, as remark-frontmatter reads only `---` at column 0)
+/// hid the lines up to the next `---`: the title, the headings and the
+/// properties came from the wrong lines. Each delimiter now starts at
+/// column 0, with only spaces and tabs after it.
+#[test]
+fn front_matter_delimiters_start_at_column_0() {
+    use mdopener_mcp::{document_title, extract_frontmatter, strip_markdown};
+    assert_eq!(
+        document_title("  ---\n# Shown\n---\n").as_deref(),
+        Some("Shown")
+    );
+    assert_eq!(
+        document_title("---\n# a\n  ---\n# b\n").as_deref(),
+        Some("a")
+    );
+    assert_eq!(
+        document_title("--- \n# fm\n---\t\n# Body\n").as_deref(),
+        Some("Body")
+    );
+    assert_eq!(extract_frontmatter("  ---\ntitle: x\n---\n"), Value::Null);
+    assert_eq!(
+        extract_frontmatter("---\t\ntitle: x\n--- \n"),
+        json!({ "title": "x" })
+    );
+    assert_eq!(strip_markdown("  ---\nkept\n\n---\n"), "kept");
+}
+
 /// The recent-documents `title` was the first line starting with `# `,
 /// even one inside YAML front matter or a fenced code block, so a front
 /// matter comment or a shell comment named the document. Those lines are
