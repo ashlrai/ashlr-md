@@ -162,4 +162,34 @@ describe("parseHeadings", () => {
     ]);
     expect(atxHeadings(doc).map((h) => h.line)).toEqual([8, 9, 10]);
   });
+  it("reads a fence inside a blockquote as a fence", () => {
+    // A quoted fence used to be text, so its `[[link]]`s were linted and
+    // its lines read as Markdown. A line with fewer `>` markers ends it.
+    const doc = [
+      "> ```sh",
+      "> # comment",
+      ">> - [ ] not a task",
+      "> ```",
+      "> text",
+      "> > ~~~",
+      "> > code",
+      "> after",
+      "> ```",
+      "",
+      "- [ ] task",
+    ].join("\n");
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "code",
+      "fence",
+      "text",
+      "fence",
+      "code",
+      "text",
+      "fence",
+      "text",
+      "text",
+    ]);
+  });
 });

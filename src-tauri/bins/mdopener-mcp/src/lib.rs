@@ -7864,7 +7864,8 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   removed entirely. A leading `---` that is never closed is not
 ///   front-matter and the document is kept.
 /// - Fenced code blocks (``` or ~~~) — the fence lines are stripped but the
-///   code content is preserved as-is. Fences follow [`markdown_lines`]: a
+///   code content is preserved as-is (code in a blockquote loses its `>`
+///   leaders, and its `#`s are kept). Fences follow [`markdown_lines`]: a
 ///   block is closed only by the same character at least as long. Any line
 ///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
 ///   backtick block ended it and the code after it lost its `#`s and `*`s.
@@ -7900,16 +7901,19 @@ pub fn strip_markdown(content: &str) -> String {
         .collect();
 
     let mut in_table = false;
+    // The `>` markers of the latest fence: code in a quoted block loses them.
+    let mut fence_quote = 0;
 
     for (idx, &(kind, line)) in lines.iter().enumerate() {
         match kind {
             // Drop the fence line itself; preserve the code inside.
             LineKind::Fence => {
                 in_table = false;
+                fence_quote = markdown_lines::strip_quote_markers(line, usize::MAX).0;
                 continue;
             }
             LineKind::Code => {
-                out.push_str(line);
+                out.push_str(markdown_lines::strip_quote_markers(line, fence_quote).1);
                 out.push('\n');
                 continue;
             }

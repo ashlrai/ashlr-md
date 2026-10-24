@@ -109,6 +109,37 @@ function codeFence(line: string): { marker: string; rest: string } | null {
   return { marker: m[1], rest: m[2] };
 }
 
+/** Whether fence `f` closes a block opened by `marker`. */
+function closesFence(f: ReturnType<typeof codeFence>, marker: string): boolean {
+  return (
+    f !== null &&
+    f.marker[0] === marker[0] &&
+    f.marker.length >= marker.length &&
+    f.rest.trim() === ""
+  );
+}
+
+/**
+ * `line` without up to `max` leading blockquote markers (at most three
+ * spaces, `>`, then one optional space or tab), and how many it lost. The
+ * rule of mdopener-mcp's `markdown_lines::strip_quote_markers`.
+ */
+function stripQuoteMarkers(
+  line: string,
+  max: number,
+): { markers: number; rest: string } {
+  const marker = /^ {0,3}>[ \t]?/;
+  let rest = line;
+  let markers = 0;
+  while (markers < max) {
+    const m = marker.exec(rest);
+    if (!m) break;
+    rest = rest.slice(m[0].length);
+    markers++;
+  }
+  return { markers, rest };
+}
+
 /** A source line of a Markdown document, from {@link markdownLines}. */
 export interface MarkdownLine {
   /**
@@ -130,7 +161,12 @@ export interface MarkdownLine {
  * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
  * matter block is closed by `---` or `...` (its lines are never fences),
  * and a fence is closed only by the same character at least as long with
- * nothing after it; one left open runs to the end.
+ * nothing after it; one left open runs to the end. A fence inside a
+ * blockquote (`> ` then a fence) is a fence too: the lines after it with at
+ * least as many `>` markers are its code until a closing fence behind
+ * those markers, and a line with fewer (a blank line included) ends the
+ * quote and so the block, as in CommonMark. A quoted fence used to be
+ * text, so a `[[link]]` in quoted code was linted as a link.
  */
 export function markdownLines(markdown: string): MarkdownLine[] {
   const { lines: body, offset } = stripFrontmatter(markdown);
@@ -142,26 +178,46 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     start += all[i].length + 1;
   }
   let fence: string | null = null; // active fence marker, e.g. "```" or "~~~~"
+  // The fence open inside a blockquote, with its number of `>` markers.
+  let quoteFence: { marker: string; depth: number } | null = null;
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
+    const line = offset + i + 1;
+    if (quoteFence) {
+      const q = stripQuoteMarkers(text, quoteFence.depth);
+      if (q.markers === quoteFence.depth) {
+        const f = codeFence(q.rest);
+        let kind: MarkdownLine["kind"] = "code";
+        if (closesFence(f, quoteFence.marker)) {
+          quoteFence = null;
+          kind = "fence";
+        }
+        out.push({ kind, text, line, start });
+        start += text.length + 1;
+        continue;
+      }
+      quoteFence = null;
+    }
     const f = codeFence(text);
     let kind: MarkdownLine["kind"] = "text";
     if (fence) {
       kind = "code";
-      if (
-        f &&
-        f.marker[0] === fence[0] &&
-        f.marker.length >= fence.length &&
-        f.rest.trim() === ""
-      ) {
+      if (closesFence(f, fence)) {
         fence = null;
         kind = "fence";
       }
     } else if (f) {
       fence = f.marker;
       kind = "fence";
+    } else {
+      const q = stripQuoteMarkers(text, Number.POSITIVE_INFINITY);
+      const qf = q.markers > 0 ? codeFence(q.rest) : null;
+      if (qf) {
+        quoteFence = { marker: qf.marker, depth: q.markers };
+        kind = "fence";
+      }
     }
-    out.push({ kind, text, line: offset + i + 1, start });
+    out.push({ kind, text, line, start });
     start += text.length + 1;
   }
   return out;
@@ -224,42 +280,19 @@ function quoteContent(line: string): string | null {
 export function parseHeadings(markdown: string): HeadingItem[] {
   const slugger = new GithubSlugger();
   const out: HeadingItem[] = [];
-  // The fence open inside the current blockquote, e.g. "```".
-  let quoteFence: string | null = null;
+  // Quoted fences are fences ({@link markdownLines}), so quoted code is
+  // skipped here with the rest of the code.
   for (const l of markdownLines(markdown)) {
-    if (l.kind !== "text") {
-      quoteFence = null;
-      continue;
-    }
+    if (l.kind !== "text") continue;
     const h = atxHeading(l.text);
     if (h) {
-      quoteFence = null;
       const text = stripInline(h.text);
       if (text === "") continue; // empty heading -> no anchor rendered
       out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
       continue;
     }
     const quoted = quoteContent(l.text);
-    if (quoted === null) {
-      quoteFence = null;
-      continue;
-    }
-    const f = codeFence(quoted);
-    if (quoteFence) {
-      if (
-        f &&
-        f.marker[0] === quoteFence[0] &&
-        f.marker.length >= quoteFence.length &&
-        f.rest.trim() === ""
-      ) {
-        quoteFence = null;
-      }
-      continue;
-    }
-    if (f) {
-      quoteFence = f.marker;
-      continue;
-    }
+    if (quoted === null) continue;
     const qh = atxHeading(quoted);
     const text = qh ? stripInline(qh.text) : "";
     if (text !== "") slugger.slug(text);

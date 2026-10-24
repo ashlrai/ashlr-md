@@ -34,12 +34,35 @@ pub enum LineKind {
 /// tildes (a backtick fence's info string has no backtick). It is closed by
 /// a fence of the same character at least as long with nothing after it,
 /// and a fence left open runs to the end, as in CommonMark.
+///
+/// A fence inside a blockquote (a `>` line whose quoted text is a fence)
+/// is a fence too: the
+/// lines after it with at least as many `>` markers are its code until a
+/// closing fence behind those markers, and a line with fewer markers (a
+/// blank line included) ends the quote and so the block, as in CommonMark.
+/// A quoted fence used to be text, so a `# comment` or a `[[link]]` in
+/// quoted code was read as Markdown.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
     let front_matter = front_matter_len(content);
     let mut fence: Option<(char, usize)> = None;
+    // The fence open inside a blockquote, with its number of `>` markers.
+    let mut quote_fence: Option<(char, usize, usize)> = None;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
             return (LineKind::FrontMatter, line);
+        }
+        if let Some((c, n, depth)) = quote_fence {
+            let (markers, inner) = strip_quote_markers(line, depth);
+            if markers == depth {
+                return match code_fence(inner) {
+                    Some((rc, rn, rest)) if rc == c && rn >= n && rest.trim().is_empty() => {
+                        quote_fence = None;
+                        (LineKind::Fence, line)
+                    }
+                    _ => (LineKind::Code, line),
+                };
+            }
+            quote_fence = None;
         }
         let kind = match (fence, code_fence(line)) {
             (Some((c, n)), Some((rc, rn, rest)))
@@ -53,10 +76,38 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
                 fence = Some((rc, rn));
                 LineKind::Fence
             }
-            (None, None) => LineKind::Text,
+            (None, None) => {
+                let (markers, inner) = strip_quote_markers(line, usize::MAX);
+                match code_fence(inner) {
+                    Some((rc, rn, _)) if markers > 0 => {
+                        quote_fence = Some((rc, rn, markers));
+                        LineKind::Fence
+                    }
+                    _ => LineKind::Text,
+                }
+            }
         };
         (kind, line)
     })
+}
+
+/// `line` without up to `max` leading blockquote markers (at most three
+/// spaces, `>`, then one optional space or tab), and how many it lost.
+pub fn strip_quote_markers(line: &str, max: usize) -> (usize, &str) {
+    let mut rest = line;
+    let mut markers = 0;
+    while markers < max {
+        let body = rest.trim_start_matches(' ');
+        if rest.len() - body.len() > 3 {
+            break;
+        }
+        let Some(after) = body.strip_prefix('>') else {
+            break;
+        };
+        rest = after.strip_prefix([' ', '\t']).unwrap_or(after);
+        markers += 1;
+    }
+    (markers, rest)
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a

@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Code inside a blockquote is code.** A fence behind `>` markers was
+  read as text, so a `[[link]]` in quoted code was linted as a missing
+  link and `export_text` dropped the `#` of a quoted `# comment`. Quoted
+  fences are now fences in the app and in mdopener-mcp, closed by their
+  fence or by a line with fewer `>` markers.
 - **The Outline jumps to the right heading after a quoted one.** A heading
   inside a blockquote (`> # Plan`) stays out of the Outline panel and
   `export_metadata`'s headings, as in Obsidian's outline, so quoted text
