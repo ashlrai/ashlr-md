@@ -42,6 +42,7 @@ import {
   lineTextBefore,
   markdownSnippetSource,
   rawToCompletion,
+  tableRowKeymap,
   type UserSnippet,
   userSnippetToCompletion,
 } from "./snippets";
@@ -636,5 +637,55 @@ describe("edge cases", () => {
       template: `snippet ${i} $0`,
     }));
     expect(() => buildSnippetExtension(many)).not.toThrow();
+  });
+});
+
+describe("isInsideFencedCode by the page's fence rule", () => {
+  it("reads fences as the page does", () => {
+    // Any later fence of the same character used to close the block, and an
+    // indented or quoted fence opened none.
+    const long = "````\n```\nstill code\n````\nafter";
+    expect(isInsideFencedCode(long, long.indexOf("still"))).toBe(true);
+    expect(isInsideFencedCode(long, long.indexOf("after"))).toBe(false);
+    const info = "```\n```js\ncode\n```\n";
+    expect(isInsideFencedCode(info, info.indexOf("code"))).toBe(true);
+    const quoted = "> ```\n> code\n> ```\n";
+    expect(isInsideFencedCode(quoted, quoted.indexOf("code"))).toBe(true);
+    const indented = "   ~~~\ncode\n   ~~~\n";
+    expect(isInsideFencedCode(indented, indented.indexOf("code"))).toBe(true);
+    const math = "$$\nx | y\n$$\n";
+    expect(isInsideFencedCode(math, math.indexOf("x"))).toBe(true);
+  });
+});
+
+describe("tableRowKeymap in code", () => {
+  it("inserts no row for a `| a |` line in a code block", async () => {
+    const { EditorState } = await import("@codemirror/state");
+    const { EditorView, runScopeHandlers } = await import("@codemirror/view");
+    const press = (doc: string, at: number) => {
+      const view = new EditorView({
+        state: EditorState.create({
+          doc,
+          selection: { anchor: at },
+          extensions: [tableRowKeymap()],
+        }),
+      });
+      const handled = runScopeHandlers(
+        view,
+        new KeyboardEvent("keydown", { key: "|" }),
+        "editor",
+      );
+      const out = view.state.doc.toString();
+      view.destroy();
+      return { handled, out };
+    };
+    const code = "```\n| a | b |\n```\n";
+    expect(press(code, code.indexOf(" |\n```") + 2)).toEqual({
+      handled: false,
+      out: code,
+    });
+    // A table row outside code still gets a new row.
+    const table = "| a | b |";
+    expect(press(table, table.length).handled).toBe(true);
   });
 });

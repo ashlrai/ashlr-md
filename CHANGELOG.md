@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Source editor snippets and table rows read code blocks as the page does.**
+  The source editor took any later fence of the same character as the end of
+  a code block, so a ```` ```` ```` block holding ```` ``` ```` or a
+  ```` ```js ```` line ended it early, and an indented or quoted fence opened
+  none: snippet suggestions showed in that code. Typing `|` at the end of a
+  `| a |` line in a code block inserted a table row there. Both now read
+  fences by the Outline's rule, `$$` math blocks included.
 - **Table edits keep the lines around the table.** An edit from the table menu
   (add or delete a row or column, alignment) took the line break after the
   table and wrote the table back without one, so the next line joined the
