@@ -265,6 +265,25 @@ describe("buildStandaloneHtml", () => {
     expect(html).toContain('charset="utf-8"');
     expect(html).toContain('name="viewport"');
   });
+
+  it("keeps a template's CSS inside the style element and runs no script", () => {
+    const html = buildStandaloneHtml("Inject", {
+      id: "user-x",
+      name: "Evil */ body{display:none} /* </style><b>",
+      css: 'a::after{content:"</style>"}</STYLE><img src=x onerror="alert(1)">',
+    });
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    expect(parsed.querySelectorAll("style")).toHaveLength(1);
+    expect(parsed.querySelector('img[src="x"]')).toBeNull();
+    expect(parsed.head.querySelector("b")).toBeNull();
+    const style = parsed.querySelector("style")?.textContent ?? "";
+    expect(style).toContain('a::after{content:"<\\/style>"}');
+    expect(style).not.toContain("Evil */");
+    const csp = parsed
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')
+      ?.getAttribute("content");
+    expect(csp).toContain("script-src 'none'");
+  });
 });
 
 // ─── exportHtml ───────────────────────────────────────────────────────────────

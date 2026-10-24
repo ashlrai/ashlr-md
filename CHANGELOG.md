@@ -77,6 +77,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **An exported page runs no script.** A template's CSS went into the
+  exported HTML's `<style>` as written, so a `</style>` in it ended the element
+  and the rest parsed as markup, an event handler included. The editor now
+  refuses such CSS, the export escapes a `</style` from a template saved
+  earlier, and exported HTML carries a policy of `script-src 'none'`.
 - **A headless export never writes through a symbolic link.** The `export` MCP
   tool and the app's `/export` checked an `output_path` by its name's extension,
   and an HTML export is written through a link into the file it points to, so

@@ -169,6 +169,27 @@ function captureMarkdownBody(): string {
 }
 
 /**
+ * An exported page runs no script: the body is sanitized already, and this
+ * also stops anything that slips through (a template's CSS, say) when the
+ * file is opened in a browser. Images, styles and fonts stay unrestricted.
+ */
+const EXPORT_CSP_META = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />`;
+
+/**
+ * Text for the inside of a `<style>` element: a `</style` would end the
+ * element early and let the rest parse as markup. `<\/style` reads the same
+ * inside a CSS string and is inert elsewhere.
+ */
+function styleElementText(css: string): string {
+  return css.replace(/<\/(style)/gi, "<\\/$1");
+}
+
+/** Text for the inside of a CSS comment, which a `*\/` would end. */
+function cssCommentText(text: string): string {
+  return escapeHtml(text).replace(/\*\//g, "* /");
+}
+
+/**
  * Build a standalone, offline HTML document that faithfully reproduces the
  * current rendered view including:
  *   • Theme tokens (paper / sepia / midnight)
@@ -197,7 +218,7 @@ export function buildStandaloneHtml(
 
   // Template CSS block — only emitted when a template is active.
   const templateBlock = template?.css
-    ? `\n/* ── Export template: ${escapeHtml(template.name)} ── */\n${template.css}\n`
+    ? `\n/* ── Export template: ${cssCommentText(template.name)} ── */\n${styleElementText(template.css)}\n`
     : "";
 
   return `<!doctype html>
@@ -205,6 +226,7 @@ export function buildStandaloneHtml(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+${EXPORT_CSP_META}
 <title>${escapeHtml(title)}</title>
 <style>
 /* ── Reset ── */
@@ -656,6 +678,7 @@ export function buildExportHtml(profileId: ExportProfileId, content?: string): s
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+${EXPORT_CSP_META}
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <style>
 /* ── Reset ── */

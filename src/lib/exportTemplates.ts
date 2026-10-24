@@ -995,6 +995,7 @@ export function findTemplate(
  *
  * Rules enforced:
  *  - No `<script` or `</script` tags (prevents XSS in exported HTML).
+ *  - No `</style`, which would end the export's style element early.
  *  - No `@import url(http` (keeps exports offline-capable).
  *  - No `javascript:` URI schemes.
  *
@@ -1002,6 +1003,7 @@ export function findTemplate(
  */
 export function validateTemplateCss(css: string): string | null {
   if (/<\/?script/i.test(css)) return "CSS must not contain <script> tags.";
+  if (/<\/style/i.test(css)) return "CSS must not contain </style>.";
   if (/javascript:/i.test(css)) return "CSS must not contain javascript: URIs.";
   if (/@import\s+url\s*\(\s*['"]?https?:/i.test(css)) {
     return "CSS must not import external URLs (keeps exports offline-ready).";
