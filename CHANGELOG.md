@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Copy as rich text waits for images still loading.** A local image or
+  embed shows "Loading…" until Rust has read it, and a rich copy taken then
+  carried its name instead of the image. Both rich copy commands now wait
+  for them as the exports do (at most five seconds).
 - **MCP: `export` without `overwrite` cannot replace a file.** It checked
   for a file at `output_path` and then the app wrote the export, so a file
   put there in between was replaced. The app is now told not to replace

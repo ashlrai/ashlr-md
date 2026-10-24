@@ -30,7 +30,10 @@ vi.mock("./waitForElement", () => ({
   waitForElement: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("./export", () => ({
+vi.mock("./export", async (importOriginal) => ({
+  // The real wait: it watches the DOM, as the exports do.
+  waitForRenderedImages: (await importOriginal<typeof import("./export")>())
+    .waitForRenderedImages,
   buildStandaloneHtml: vi
     .fn()
     .mockReturnValue(
@@ -72,6 +75,7 @@ import {
   buildRichTextHtml,
   buildThemeAwareRichHtml,
   copyAsRichText,
+  copyDocumentAsRichText,
   THEME_PALETTES,
   wrapRichTextBody,
 } from "./copyRichText";
@@ -550,5 +554,47 @@ describe("buildRichTextHtml", () => {
 
   it("returns empty string for empty input", () => {
     expect(buildRichTextHtml("")).toBe("");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Images still loading
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("rich copies wait for images still loading", () => {
+  /** A read view showing an image that is still loading, done after `ms`. */
+  function loadingImage(ms: number) {
+    const body = document.querySelector(".markdown-body") as HTMLElement;
+    body.innerHTML =
+      '<p>Before</p><span class="wikiembed wikiembed--loading" data-name="chart.png">Loading chart.png…</span>';
+    setTimeout(() => {
+      const span = body.querySelector(".wikiembed--loading");
+      const img = document.createElement("img");
+      img.setAttribute("src", "data:image/png;base64,AAAA");
+      img.setAttribute("alt", "chart");
+      span?.replaceWith(img);
+    }, ms);
+  }
+
+  const copiedHtml = async () => {
+    const [items] = clipboardWriteMock.mock.calls[0] as [ClipboardItem[]];
+    const item = items[0] as unknown as { data: Record<string, Blob> };
+    return item.data["text/html"].text();
+  };
+
+  it("copyDocumentAsRichText copies the image, not its name", async () => {
+    loadingImage(30);
+    await copyDocumentAsRichText();
+    const html = await copiedHtml();
+    expect(html).toContain("<img");
+    expect(html).not.toContain("Loading chart.png");
+  });
+
+  it("copyAsRichText copies the image, not its name", async () => {
+    loadingImage(30);
+    await copyAsRichText("auto");
+    const html = await copiedHtml();
+    expect(html).toContain("<img");
+    expect(html).not.toContain("Loading chart.png");
   });
 });
