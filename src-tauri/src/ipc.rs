@@ -2650,7 +2650,10 @@ mod tests {
         assert_eq!(p["overwrite"], false);
         assert_eq!(p["outputPath"], "/tmp/a.html");
         assert_eq!(super::export_payload("pdf", None, None)["overwrite"], true);
-        assert_eq!(super::export_payload("epub", None, Some(true))["overwrite"], true);
+        assert_eq!(
+            super::export_payload("epub", None, Some(true))["overwrite"],
+            true
+        );
     }
 
     #[test]

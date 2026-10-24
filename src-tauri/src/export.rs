@@ -248,11 +248,17 @@ mod tests {
         {
             let target = root.join("profile");
             std::fs::write(&target, "keep").unwrap();
-            for (name, to) in [("link.html", target.clone()), ("dangling.html", root.join("none"))] {
+            for (name, to) in [
+                ("link.html", target.clone()),
+                ("dangling.html", root.join("none")),
+            ] {
                 let link = root.join(name);
                 std::os::unix::fs::symlink(&to, &link).unwrap();
                 assert!(write_new_export_file(&link.to_string_lossy(), b"x").is_err());
-                assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+                assert!(std::fs::symlink_metadata(&link)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink());
             }
             assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
             assert!(!root.join("none").exists());

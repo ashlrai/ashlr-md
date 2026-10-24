@@ -7528,7 +7528,11 @@ fn export_replaces_an_existing_file_only_with_overwrite() {
 fn export_tells_the_app_whether_it_may_replace_a_file() {
     let dir = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(dir.path()).unwrap();
-    for (arg, sent) in [(json!(null), false), (json!(false), false), (json!(true), true)] {
+    for (arg, sent) in [
+        (json!(null), false),
+        (json!(false), false),
+        (json!(true), true),
+    ] {
         let out = base.join(format!("plan-{sent}-{}.html", arg.is_null()));
         let app = exporting_app(true);
         let resp = tool_export_with(
