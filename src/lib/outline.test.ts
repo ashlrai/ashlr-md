@@ -251,9 +251,75 @@ describe("parseHeadings", () => {
     expect(lines.map((l) => [l.contained, l.content])).toEqual([
       [true, "# Q"],
       [true, "x"],
-      [false, ""],
+      // A blank line stays in an open item, as a blank line indented to
+      // its content column does.
+      [true, ""],
       [true, "# Sub"],
     ]);
+  });
+  it("counts a setext heading's slug without listing it", () => {
+    // The renderer gives a setext heading an id, so a later ATX heading
+    // with the same text is `-1` there. The Outline used to give it none.
+    expect(parseHeadings("Title\n=====\n\n# Title\n")).toEqual([
+      { depth: 1, text: "Title", slug: "title-1", line: 4 },
+    ]);
+    // `---` after a paragraph is an underline, in a quote and an item too,
+    // and a heading of several lines joins them (`Two`, `Lines` is
+    // `twolines`, as rehype-slug reads it).
+    const doc = [
+      "Two",
+      "Lines",
+      "---",
+      "",
+      "> Quote",
+      "> ===",
+      "",
+      "- Item",
+      "  ---",
+      "",
+      "# Twolines",
+      "# Quote",
+      "# Item",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => h.slug)).toEqual([
+      "twolines-1",
+      "quote-1",
+      "item-1",
+    ]);
+    // A thematic break after a blank line, or front matter, is no heading.
+    expect(parseHeadings("a\n\n---\n\n# A\n").map((h) => h.slug)).toEqual(["a"]);
+    expect(parseHeadings("---\ntitle: A\n---\n# A\n").map((h) => h.slug)).toEqual([
+      "a",
+    ]);
+  });
+  it("tracks list items inside a blockquote", () => {
+    // Only the items before the first blockquote used to be tracked, so a
+    // quoted item's continuation was read by its indentation in the quote:
+    // `>     # Sub` was indented code (no slug, so a later `# Sub` was
+    // `sub` here and `sub-1` in the page), and a fence in the item was not
+    // ended by a line that leaves it.
+    const kinds = (doc: string) => markdownLines(doc).map((l) => [l.kind, l.content]);
+    expect(kinds("> - a\n>\n>     - [ ] t\n>   b")).toEqual([
+      ["text", "a"],
+      ["text", ""],
+      ["text", "[ ] t"],
+      ["text", "b"],
+    ]);
+    expect(parseHeadings("> - a\n>\n>     # Sub\n\n# Sub")).toEqual([
+      { depth: 1, text: "Sub", slug: "sub-1", line: 5 },
+    ]);
+    // `> ```` leaves the item, so it ends the item's fence and opens one
+    // in the quote, as the renderer reads it.
+    expect(kinds("> - a\n>\n>   ```\n>   # code\n> ```\n> # Quote")).toEqual([
+      ["text", "a"],
+      ["text", ""],
+      ["fence", "```"],
+      ["code", "# code"],
+      ["fence", "```"],
+      ["code", "# Quote"],
+    ]);
+    // An ordered item not at 1 does not interrupt a quoted paragraph.
+    expect(kinds("> a\n> 2) b").map((k) => k[1])).toEqual(["a", "2) b"]);
   });
   it("reads a fence in a list item as a fence", () => {
     // A list-item fence used to be text, so `  # comment` in the item's

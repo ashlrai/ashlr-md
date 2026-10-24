@@ -129,15 +129,19 @@ interface HeadingLine extends AtxHeading {
 /**
  * The ATX headings of `doc` by the rules of outline.ts's atxHeadings (at
  * most three spaces before the `#`s, outside front matter and fenced
- * code), with their offsets, plus the document's lines. The heading rules
- * used to test each line against a column-0 regex, so a `# comment` in a
- * code sample or a front matter block was linted as a heading.
+ * code, and outside list items and blockquotes), with their offsets, plus
+ * the document's lines. The heading rules used to test each line against a
+ * column-0 regex, so a `# comment` in a code sample or a front matter block
+ * was linted as a heading, and a heading on a list item's continuation line
+ * (`- x`, a blank line, then `  # Sub`) was linted as a document heading.
  */
 function docHeadings(doc: string): { lines: MarkdownLine[]; headings: HeadingLine[] } {
   const lines = markdownLines(doc);
   const headings: HeadingLine[] = [];
   lines.forEach((source, index) => {
-    if (source.kind !== "text") return;
+    // A heading in a list item or a blockquote is not a document heading,
+    // as atxHeadings reads it.
+    if (source.kind !== "text" || source.contained) return;
     const h = atxHeading(source.text);
     if (!h) return;
     const hashes = source.start + source.text.indexOf("#");

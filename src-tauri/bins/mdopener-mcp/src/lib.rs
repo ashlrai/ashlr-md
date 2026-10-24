@@ -7907,17 +7907,32 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
-    // Each line with its code when it is fenced code
-    // ([`markdown_lines::line_code`]).
-    let (lines, code): (Vec<(LineKind, &str)>, Vec<_>) =
-        markdown_lines::with_indented_code(content)
-            .zip(markdown_lines::line_code(content))
-            .filter(|((kind, _), _)| *kind != LineKind::FrontMatter)
-            .unzip();
+    // Each line with its code when it is fenced or indented code
+    // ([`markdown_lines::line_code`]), and the text of a text line past the
+    // blockquote markers, list markers and item indentation it sits in,
+    // with whether it opens a list item ([`markdown_lines::line_text`]).
+    type Line<'a> = (
+        (LineKind, &'a str),
+        (
+            Option<std::borrow::Cow<'a, str>>,
+            Option<(std::borrow::Cow<'a, str>, bool)>,
+        ),
+    );
+    let lines: Vec<Line> = markdown_lines::with_indented_code(content)
+        .zip(markdown_lines::line_code(content).zip(markdown_lines::line_text(content)))
+        .filter(|((kind, _), _)| *kind != LineKind::FrontMatter)
+        .collect();
+    // A text line's text as a table row, trimmed.
+    let row_of = |idx: usize| -> Option<&str> {
+        match lines.get(idx) {
+            Some(((LineKind::Text, _), (_, Some((text, _))))) => Some(text.trim()),
+            _ => None,
+        }
+    };
 
     let mut in_table = false;
 
-    for (idx, &(kind, line)) in lines.iter().enumerate() {
+    for (idx, ((kind, line), (code, text))) in lines.iter().enumerate() {
         match kind {
             // Drop the fence line itself; preserve the code inside.
             LineKind::Fence => {
@@ -7925,33 +7940,35 @@ pub fn strip_markdown(content: &str) -> String {
                 continue;
             }
             LineKind::Code => {
-                out.push_str(code[idx].as_deref().unwrap_or(line));
+                out.push_str(code.as_deref().unwrap_or(line));
                 out.push('\n');
                 continue;
             }
             LineKind::IndentedCode => {
                 in_table = false;
-                out.push_str(code[idx].as_deref().unwrap_or(line));
+                out.push_str(code.as_deref().unwrap_or(line));
                 out.push('\n');
                 continue;
             }
             LineKind::FrontMatter | LineKind::Text => {}
         }
-        let trimmed = line.trim();
+        let Some((text, item)) = text else {
+            continue;
+        };
+        let item = *item;
+        let trimmed = text.trim();
 
         // GFM tables: a header row followed by a delimiter row starts one,
         // and it runs until a blank line or a line without a pipe. Rows
         // become tab-separated cells; the delimiter row is dropped. A table
-        // may sit in a blockquote or a list item, so rows are read without
-        // their `>` leaders and list marker.
-        let row = table_row_text(line);
+        // may sit in a blockquote or a list item, so rows are read past
+        // their containers.
+        let row = trimmed;
         if in_table && !row.contains('|') {
             in_table = false;
         }
         if !in_table && row.contains('|') {
-            in_table = lines
-                .get(idx + 1)
-                .is_some_and(|&(_, next)| is_table_delimiter(table_row_text(next)));
+            in_table = row_of(idx + 1).is_some_and(is_table_delimiter);
         }
         if in_table {
             if !is_table_delimiter(row) {
@@ -7962,6 +7979,11 @@ pub fn strip_markdown(content: &str) -> String {
                 out.push_str(&cells.join("\t"));
                 out.push('\n');
             }
+            continue;
+        }
+
+        // A list item with nothing after its marker reads nothing.
+        if item && trimmed.is_empty() {
             continue;
         }
 
@@ -7984,22 +8006,15 @@ pub fn strip_markdown(content: &str) -> String {
             }
         }
 
-        // Strip blockquote leaders, each `>` with one optional space after
-        // it, then ATX heading markers by the rule of the headings, so
-        // `> # Quote` reads `Quote`. The `#`s used to be taken off first,
-        // while the line still started with `>`, so they were kept.
-        let line = {
-            let mut s = line;
-            let mut quoted = false;
-            while let Some(rest) = s.trim_start().strip_prefix('>') {
-                s = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
-                quoted = true;
-            }
-            match markdown_lines::atx_heading(s) {
-                Some((_, text)) => text,
-                None if quoted => s.trim_start_matches(' '),
-                None => s,
-            }
+        // The line's text sits past its blockquote markers, list markers
+        // and item indentation, by the container rule of the headings, so
+        // `> # Quote` and `- # Step` read their heading text by the ATX rule.
+        // Leaders used to be taken off here, quotes before the `#`s and list
+        // markers after them, so `- # Step` kept its `#`, and an item's
+        // continuation line was read by its indentation in the document.
+        let line = match markdown_lines::atx_heading(text) {
+            Some((_, heading)) => heading,
+            None => text.trim_start(),
         };
 
         // A footnote definition `[^1]: text` reads `[1] text`.
@@ -8016,41 +8031,14 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
 
-        // Strip list markers (unordered and ordered).
-        let line = {
-            let s = line.trim_start();
-            // Unordered: `- `, `* `, `+ `
-            let s = if let Some(r) = s
-                .strip_prefix("- ")
-                .or_else(|| s.strip_prefix("* "))
-                .or_else(|| s.strip_prefix("+ "))
-            {
-                r
-            } else {
-                s
-            };
-            // Ordered: `N. ` (1–3 digit number)
-            let s = if s.len() > 2 {
-                let dot_pos = s.find(". ");
-                if let Some(pos) = dot_pos {
-                    if pos <= 3 && s[..pos].chars().all(|c| c.is_ascii_digit()) {
-                        &s[pos + 2..]
-                    } else {
-                        s
-                    }
-                } else {
-                    s
-                }
-            } else {
-                s
-            };
-            // Task-list checkboxes `[ ] ` / `[x] `
-            let s = s
-                .strip_prefix("[ ] ")
-                .or_else(|| s.strip_prefix("[x] "))
-                .or_else(|| s.strip_prefix("[X] "))
-                .unwrap_or(s);
-            s
+        // A task-list checkbox `[ ] ` / `[x] ` opening a list item.
+        let line = if item {
+            line.strip_prefix("[ ] ")
+                .or_else(|| line.strip_prefix("[x] "))
+                .or_else(|| line.strip_prefix("[X] "))
+                .unwrap_or(line)
+        } else {
+            line
         };
 
         // Now process inline Markdown on the remaining text.
@@ -8075,32 +8063,6 @@ pub fn strip_markdown(content: &str) -> String {
         }
     }
     collapsed.trim_end().to_string()
-}
-
-/// A line's text as a table row: without leading `>` blockquote leaders and
-/// one list marker (`- `, `* `, `+ `, `1. `, `1) `), trimmed.
-fn table_row_text(line: &str) -> &str {
-    let mut s = line.trim();
-    while let Some(rest) = s.strip_prefix('>') {
-        s = rest.trim_start();
-    }
-    if let Some(rest) = s
-        .strip_prefix("- ")
-        .or_else(|| s.strip_prefix("* "))
-        .or_else(|| s.strip_prefix("+ "))
-    {
-        return rest.trim_start();
-    }
-    let digits = s.len() - s.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-    if (1..=9).contains(&digits) {
-        if let Some(rest) = s[digits..]
-            .strip_prefix(". ")
-            .or_else(|| s[digits..].strip_prefix(") "))
-        {
-            return rest.trim_start();
-        }
-    }
-    s
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.

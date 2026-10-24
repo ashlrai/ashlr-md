@@ -96,6 +96,34 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Outline jumps land on the right heading after a setext heading.** The
+  page gives a heading underlined with `===` or `---` an id, but the
+  Outline did not count it, so in a document with `Title`, `=====` and
+  later `# Title`, the Outline's entry for `# Title` jumped to the setext
+  heading. Setext headings now take their slug as the page does. They are
+  still not listed, as `export_metadata` lists only `#` headings.
+- **List items inside a blockquote are read across lines.** Only the
+  items before a document's first `>` were tracked, so in `> - a` the
+  item's later lines (`>     # Sub`, `>     **b**`) were read by their
+  indentation in the quote: as indented code, so the Outline gave that
+  heading no slug and a later `# Sub` jumped to the wrong place, and
+  `export_text` kept their Markdown. A fence in such an item also ran past
+  a line that leaves the item, so quoted text after it was read as
+  Markdown. Items in blockquotes are now tracked, in the app and in
+  mdopener-mcp, checked against the renderer on generated documents.
+- **`export_text` reads a list item's heading as a heading.** It took
+  quote leaders, `#`s and list markers off each line itself, so `- # Step`
+  read `# Step`, a heading on an item's continuation line (`1. a`, a blank
+  line, then `    # Sub`) kept its `#`, and `1)` and tab-separated markers
+  stayed. Each line is now read past the blockquote markers, list markers
+  and item indentation it sits in, by the rule the headings and fences
+  follow.
+- **Lint no longer reads a list item's heading as a document heading.**
+  A heading on a list item's continuation line (`- x`, a blank line, then
+  `  # Sub`) was counted by the heading rules, so a second `# ` there was
+  flagged as a duplicate H1, a deep one as too deep, and the heading
+  before it as orphaned. The heading rules now skip headings in list items
+  and blockquotes, as the Outline does.
 - **A failed inline AI edit no longer doubles the selected text.** When
   an inline AI action failed or was cancelled before any output arrived
   (a refused key, an empty account, a network error), both editors put
