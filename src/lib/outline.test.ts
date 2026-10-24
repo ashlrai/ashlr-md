@@ -599,3 +599,57 @@ describe("parseHeadings reads inline math as the page renders it", () => {
     expect(h.map((x) => x.slug)).toEqual(["cost-5-and-10", "one--alone"]);
   });
 });
+
+describe("parseHeadings reads inline text as mdast does (rehype-slug parity)", () => {
+  // Each expected slug is the id the read view's pipeline gives the heading.
+  const slugs = (md: string) => parseHeadings(md).map((h) => h.slug);
+
+  it("keeps whitespace runs and tabs as the page's slug does", () => {
+    expect(slugs("# a  b\n")).toEqual(["a--b"]);
+    expect(slugs("# a\tb\n")).toEqual(["ab"]);
+    // The label still reads with one space.
+    expect(parseHeadings("# a  b\n")[0].text).toBe("a b");
+  });
+
+  it("decodes escapes and character references", () => {
+    expect(slugs("# Fish &amp; Chips\n")).toEqual(["fish--chips"]);
+    expect(slugs("# &#65;&#x42;C\n")).toEqual(["abc"]);
+    expect(slugs("# Caf&eacute;\n")).toEqual(["café"]);
+    expect(slugs("# \\*not em\\*\n")).toEqual(["not-em"]);
+    expect(parseHeadings("# Fish &amp; Chips\n")[0].text).toBe("Fish & Chips");
+  });
+
+  it("drops raw HTML and keeps autolink text", () => {
+    expect(slugs("# <b>Bold</b> <!-- c --> x\n")).toEqual(["bold--x"]);
+    expect(slugs("# see <https://a.b/c>\n")).toEqual(["see-httpsabc"]);
+    expect(parseHeadings("# <b>Bold</b> x\n")[0].text).toBe("Bold x");
+  });
+
+  it("reads emphasis by micromark's delimiter rules", () => {
+    expect(slugs("# snake_case_name\n")).toEqual(["snake_case_name"]);
+    expect(slugs("# a*b*c\n")).toEqual(["abc"]);
+    expect(slugs("# *a **b** c*\n")).toEqual(["a-b-c"]);
+    expect(slugs("# **a*\n")).toEqual(["a"]);
+    expect(slugs("# _a_b\n")).toEqual(["_a_b"]);
+    expect(slugs("# ~a~ ~~~b~~~\n")).toEqual(["a-b"]);
+  });
+
+  it("reads links and images, reference links by the document's definitions", () => {
+    expect(slugs("# ![alt](x.png) b\n")).toEqual(["-b"]);
+    expect(parseHeadings("# ![alt](x.png) b\n")[0].text).toBe("alt b");
+    expect(slugs("# [a] [b]\n\n[A]: /u\n")).toEqual(["a-b"]);
+    expect(slugs("# [x][a] [y][nope]\n\n[a]: /u\n")).toEqual(["x-ynope"]);
+  });
+
+  it("gives every heading a slug, an empty one too", () => {
+    // rehype-slug gives `#` the id "" and the next empty heading "-1".
+    expect(slugs("#\n# !!\n")).toEqual(["-1"]);
+    expect(slugs("# <b></b>\n# ?\n")).toEqual(["-1"]);
+  });
+
+  it("applies the read view's Obsidian syntax to the text", () => {
+    expect(slugs("# ==hi== %%note%% [[Target|alias]] ![[embed]]\n")).toEqual([
+      "hi--alias-",
+    ]);
+  });
+});

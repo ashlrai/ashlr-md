@@ -96,6 +96,17 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Outline links reach headings with HTML, entities, escapes or spacing.**
+  The Outline took a heading's slug from text with rough patterns, so it
+  differed from the page's id for `# a  b` (`a--b` on the page, `a-b` in the
+  Outline), `# Fish &amp; Chips`, `# \*x\*`, `# <b>Bold</b>`, `# snake_case`
+  (`_` inside a word is no emphasis), a tab, an image (no text on the page),
+  a reference link, and the read view's `%%comments%%`, `==highlights==` and
+  `[[wikilinks]]`; clicking such an entry did not scroll. The heading text is
+  now read as remark reads it (micromark's emphasis, strikethrough and link
+  rules, the document's reference definitions, decoded escapes and character
+  references, raw HTML dropped), and every heading, an empty one too, takes
+  a slug as rehype-slug gives one. Fuzzed against the read view's pipeline.
 - **`stream_edit` previews of a CRLF document have no stray `\r`.** Each
   line of the preview diff ended in the `\r` of its CRLF line break, which
   agents and terminals showed as `^M` or a carriage return over the line. A

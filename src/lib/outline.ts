@@ -13,6 +13,7 @@
  * plugin list (`rehypeSlug`, default config) and github-slugger@2.
  */
 
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
 import GithubSlugger from "github-slugger";
 import katex from "katex";
 import { stripFrontmatter } from "./frontmatter";
@@ -68,53 +69,490 @@ function mathText(value: string): string {
 
 /**
  * Reduce inline markdown to its plain rendered text so slugs/labels match the
- * DOM. Mirrors what a reader sees: emphasis/strong/strikethrough markers gone,
- * inline-code backticks gone, links/images reduced to their visible label,
- * and inline math (`$x$`) its TeX source, or with `slug` the text KaTeX
- * renders for it ({@link mathText}), from which the page takes the slug.
- * Code spans and inline math are read first, over the whole text, by
- * {@link inlineSpans}, so the markers in them are kept: `$a*b*c$` used to
- * lose its `*`s and read `$abc$`, and its slug missed the rendered formula.
- * Lines are read one by one otherwise, as before.
+ * DOM: the text of the heading's mdast tree, as remark-parse with remark-gfm
+ * and remark-math reads it ({@link inlineNodes}), after the read view's
+ * Obsidian plugins (`%%comments%%` dropped, `==highlights==` unwrapped,
+ * `[[wikilinks]]` read as their label, `![[embeds]]` dropped).
+ *
+ * With `slug`, the text rehype-slug takes the page's id from: whitespace as
+ * written (`# a  b` is `a--b` on the page; it was collapsed to `a-b` here),
+ * a line break between lines, nothing for an image or raw HTML, and the text
+ * KaTeX renders for inline math ({@link mathText}). Without it, the label
+ * the Outline lists: whitespace collapsed, an image read as its alt text and
+ * math as its TeX source.
+ *
+ * Emphasis, strong and GFM strikethrough are matched by micromark's
+ * delimiter rules (flanking, the rule of three, `_` inside words), links
+ * and images by its bracket rules, with `defs` the document's link
+ * reference definition labels ({@link normalizeLabel}), and backslash
+ * escapes and character references are decoded. Ad hoc patterns used to
+ * read `a*b*c` and `x_y_z` alike, kept every `&amp;` and `\*` as written,
+ * and kept raw HTML tags (`<b>`) in the text, so slugs differed from the
+ * page's. Fuzzed against the read view's pipeline.
  */
-function stripInline(text: string, slug = false): string {
-  const spans = inlineSpans(text);
-  const values: string[] = [];
-  let s = "";
+function stripInline(
+  text: string,
+  slug = false,
+  defs: ReadonlySet<string> = new Set(),
+): string {
+  // A paragraph's lines lose the whitespace around their line breaks
+  // (but in a code span or math, which keep it), and a heading's text the
+  // whitespace at its ends, as micromark reads them.
+  const norm = text.replace(/\r\n?/g, "\n");
+  const lineEnds = (t: string) => t.replace(/[ \t]*\n[ \t]*/g, "\n");
+  let source = "";
   let at = 0;
-  for (const span of spans) {
-    s += `${text.slice(at, span.start)}\uE000${values.length}\uE001`;
-    values.push(
-      span.kind === "code"
-        ? span.value.replace(/\r?\n|\r/g, " ")
-        : slug
-          ? mathText(span.value)
-          : span.value,
-    );
+  for (const span of inlineSpans(norm)) {
+    source += lineEnds(norm.slice(at, span.start)) + norm.slice(span.start, span.end);
     at = span.end;
   }
-  s += text.slice(at);
-  return s
-    .split("\n")
-    .map(stripInlineLine)
-    .join("\n")
-    .replace(/\uE000(\d+)\uE001/g, (_, i: string) => values[Number(i)]);
+  source = (source + lineEnds(norm.slice(at))).replace(/^[ \t]+|[ \t]+$/g, "");
+  const out = flattenInline(inlineNodes(source, defs), slug);
+  return slug ? out : out.replace(/\s+/g, " ").trim();
 }
 
-/** {@link stripInline} for one line, its code spans and math taken out. */
-function stripInlineLine(text: string): string {
-  let s = text;
-  // Images: ![alt](url) -> alt
-  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
-  // Links: [label](url) -> label  and  [label][ref] -> label
-  s = s.replace(/\[([^\]]*)\]\((?:[^)]*)\)/g, "$1");
-  s = s.replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1");
-  // Strong / emphasis / strikethrough markers.
-  s = s.replace(/(\*\*\*|___)(.+?)\1/g, "$2");
-  s = s.replace(/(\*\*|__)(.+?)\1/g, "$2");
-  s = s.replace(/(\*|_)(.+?)\1/g, "$2");
-  s = s.replace(/~~(.+?)~~/g, "$1");
-  return s.replace(/\s+/g, " ").trim();
+/** A run of an mdast text node's characters, or a node read as one piece. */
+type InlineNode =
+  | { t: "text"; v: string }
+  /** A non-text node: what the page's text holds for it, and the label's. */
+  | { t: "atom"; slug: string; label: string }
+  /** An unmatched-yet `*`, `_` or `~` run, with micromark's open and close. */
+  | {
+      t: "delim";
+      ch: string;
+      n: number;
+      open: boolean;
+      close: boolean;
+    }
+  /** `[` or `![`, which a `]` may close into a link or an image. */
+  | { t: "bracket"; image: boolean; inactive: boolean; balanced: boolean; at: number }
+  | { t: "group"; kind: "emphasis" | "link" | "image"; children: InlineNode[] };
+
+/** micromark's character class: 1 whitespace, 2 punctuation, 0 other. */
+function charClass(ch: string | undefined): 0 | 1 | 2 {
+  if (ch === undefined || /\s/u.test(ch)) return 1;
+  return /\p{P}|\p{S}/u.test(ch) ? 2 : 0;
+}
+
+/** The code point of `text` that ends at `i` (exclusive), or undefined. */
+function charBefore(text: string, i: number): string | undefined {
+  if (i <= 0) return undefined;
+  const lo = text.charCodeAt(i - 1);
+  if (lo >= 0xdc00 && lo <= 0xdfff && i >= 2) {
+    const hi = text.charCodeAt(i - 2);
+    if (hi >= 0xd800 && hi <= 0xdbff) return text.slice(i - 2, i);
+  }
+  return text[i - 1];
+}
+
+/** The code point of `text` that starts at `i`, or undefined. */
+function charAt(text: string, i: number): string | undefined {
+  const c = text.codePointAt(i);
+  return c === undefined ? undefined : String.fromCodePoint(c);
+}
+
+/**
+ * A link label as micromark compares them: whitespace runs as one space,
+ * trimmed, case folded.
+ */
+function normalizeLabel(label: string): string {
+  return label
+    .replace(/[\t\n\r ]+/g, " ")
+    .replace(/^ | $/g, "")
+    .toLowerCase()
+    .toUpperCase();
+}
+
+/** The text of a numeric character reference, as micromark decodes it. */
+function numericReference(code: number): string {
+  if (
+    code < 9 ||
+    code === 11 ||
+    (code > 13 && code < 32) ||
+    (code > 126 && code < 160) ||
+    (code > 55295 && code < 57344) ||
+    (code > 64975 && code < 65008) ||
+    (code & 65535) === 65535 ||
+    (code & 65535) === 65534 ||
+    code > 1114111
+  ) {
+    return "�";
+  }
+  return String.fromCodePoint(code);
+}
+
+/**
+ * The offset past the reference label (`[ref]`: 1 to 999 characters, some
+ * not whitespace, no unescaped bracket) that starts at `start`, or null.
+ */
+function referenceLabelEnd(text: string, start: number): number | null {
+  if (text[start] !== "[") return null;
+  let seen = false;
+  let i = start + 1;
+  while (i < text.length && i - start <= 1000) {
+    const c = text[i];
+    if (c === "[") return null;
+    if (c === "]") return seen ? i + 1 : null;
+    if (c === "\\" && /[[\\\]]/.test(text[i + 1] ?? "")) i++;
+    if (!/[\t\n ]/.test(c)) seen = true;
+    i++;
+  }
+  return null;
+}
+
+/**
+ * Pair the `*`, `_` and `~` runs of `nodes` into emphasis and
+ * strikethrough groups by micromark's resolvers, in `order` (`"*"` for
+ * emphasis and strong, `"~"` for strikethrough), and read the runs left
+ * over as text.
+ */
+function resolveDelims(nodes: InlineNode[], order: string[]): InlineNode[] {
+  let list = nodes;
+  for (const kind of order)
+    list = kind === "~" ? resolveTilde(list) : resolveAttention(list);
+  return list.map((n) =>
+    n.t === "delim" && n.n > 0 ? { t: "text", v: n.ch.repeat(n.n) } : n,
+  );
+}
+
+/** The pieces between two pairs, resolved inside as a span is. */
+function inside(nodes: InlineNode[]): InlineNode[] {
+  return resolveDelims(nodes, ["~", "*"]);
+}
+
+/** micromark's `resolveAllAttention` over `nodes`. */
+function resolveAttention(nodes: InlineNode[]): InlineNode[] {
+  const list = [...nodes];
+  let index = 0;
+  while (index < list.length) {
+    const closer = list[index];
+    if (closer.t !== "delim" || closer.ch === "~" || !closer.close || closer.n === 0) {
+      index++;
+      continue;
+    }
+    let matched = false;
+    for (let open = index - 1; open >= 0; open--) {
+      const opener = list[open];
+      if (
+        opener.t !== "delim" ||
+        opener.ch !== closer.ch ||
+        !opener.open ||
+        opener.n === 0
+      )
+        continue;
+      if (
+        (opener.close || closer.open) &&
+        closer.n % 3 !== 0 &&
+        (opener.n + closer.n) % 3 === 0
+      )
+        continue;
+      const use = opener.n > 1 && closer.n > 1 ? 2 : 1;
+      const group: InlineNode = {
+        t: "group",
+        kind: "emphasis",
+        children: inside(list.slice(open + 1, index)),
+      };
+      const before = { ...opener, n: opener.n - use };
+      const after = { ...closer, n: closer.n - use };
+      const next: InlineNode[] = [];
+      if (before.n > 0) next.push(before);
+      next.push(group);
+      if (after.n > 0) next.push(after);
+      list.splice(open, index - open + 1, ...next);
+      // Go on at the closer's markers left over, if any.
+      index = open + next.length - (after.n > 0 ? 1 : 0);
+      matched = true;
+      break;
+    }
+    if (!matched) index++;
+  }
+  return list;
+}
+
+/** micromark-extension-gfm-strikethrough's resolver over `nodes`. */
+function resolveTilde(nodes: InlineNode[]): InlineNode[] {
+  const list = [...nodes];
+  let index = 0;
+  while (index < list.length) {
+    const closer = list[index];
+    if (closer.t !== "delim" || closer.ch !== "~" || !closer.close) {
+      index++;
+      continue;
+    }
+    let matched = false;
+    for (let open = index - 1; open >= 0; open--) {
+      const opener = list[open];
+      if (
+        opener.t !== "delim" ||
+        opener.ch !== "~" ||
+        !opener.open ||
+        opener.n !== closer.n
+      )
+        continue;
+      const group: InlineNode = {
+        t: "group",
+        kind: "emphasis",
+        children: inside(list.slice(open + 1, index)),
+      };
+      list.splice(open, index - open + 1, group);
+      index = open + 1;
+      matched = true;
+      break;
+    }
+    if (!matched) index++;
+  }
+  return list;
+}
+
+/**
+ * The inline nodes of `text` (one block's inline content), as micromark
+ * reads it with GFM and math: code spans and math ({@link inlineSpans}),
+ * autolinks, raw HTML, escapes, character references, links and images
+ * (`defs` holds the defined reference labels) and emphasis, strong and
+ * strikethrough, read by micromark's tokenizers and resolvers.
+ */
+function inlineNodes(text: string, defs: ReadonlySet<string>): InlineNode[] {
+  const spans = new Map(inlineSpans(text).map((s) => [s.start, s]));
+  const list: InlineNode[] = [];
+  // The resolvers in the order their first run was read, as micromark
+  // runs them on the whole text.
+  const order: string[] = [];
+  const text1 = (v: string) => list.push({ t: "text", v });
+  let i = 0;
+  while (i < text.length) {
+    const span = spans.get(i);
+    if (span) {
+      const code = span.value.replace(/\n/g, " ");
+      list.push(
+        span.kind === "code"
+          ? { t: "atom", slug: code, label: code }
+          : { t: "atom", slug: mathText(span.value), label: span.value },
+      );
+      i = span.end;
+      continue;
+    }
+    const c = text[i];
+    if (c === "\\") {
+      const next = text[i + 1];
+      if (next === "\n") {
+        list.push({ t: "atom", slug: "\n", label: "\n" });
+        i += 2;
+      } else if (next !== undefined && /[!-/:-@[-`{-~]/.test(next)) {
+        text1(next);
+        i += 2;
+      } else {
+        text1(c);
+        i++;
+      }
+      continue;
+    }
+    if (c === "&") {
+      const m =
+        /^&(?:#[xX]([0-9a-fA-F]{1,6})|#(\d{1,7})|([A-Za-z][A-Za-z0-9]{0,31}));/.exec(
+          text.slice(i, i + 40),
+        );
+      const value = !m
+        ? false
+        : m[1] !== undefined
+          ? numericReference(Number.parseInt(m[1], 16))
+          : m[2] !== undefined
+            ? numericReference(Number.parseInt(m[2], 10))
+            : decodeNamedCharacterReference(m[3]);
+      if (m && value !== false) {
+        text1(value);
+        i += m[0].length;
+      } else {
+        text1(c);
+        i++;
+      }
+      continue;
+    }
+    if (c === "<") {
+      const auto = autolinkEnd(text, i);
+      if (auto !== null) {
+        const inner = text.slice(i + 1, auto - 1);
+        list.push({ t: "group", kind: "link", children: [{ t: "text", v: inner }] });
+        i = auto;
+        continue;
+      }
+      const html = inlineHtmlEnd(text, i);
+      if (html !== null) {
+        list.push({ t: "atom", slug: "", label: "" });
+        i = html;
+        continue;
+      }
+      text1(c);
+      i++;
+      continue;
+    }
+    if (c === "*" || c === "_" || c === "~") {
+      let n = 0;
+      while (text[i + n] === c) n++;
+      const before = charClass(charBefore(text, i));
+      const afterCh = charAt(text, i + n);
+      const after = charClass(afterCh);
+      if (c === "~") {
+        if (n > 2) {
+          text1(c.repeat(n));
+        } else {
+          if (!order.includes("~")) order.push("~");
+          list.push({
+            t: "delim",
+            ch: c,
+            n,
+            open: !after || (after === 2 && before !== 0),
+            close: !before || (before === 2 && after !== 0),
+          });
+        }
+      } else {
+        if (!order.includes("*")) order.push("*");
+        const prevCh = charBefore(text, i);
+        const marker = (ch: string | undefined) =>
+          ch === "*" || ch === "_" || ch === "~";
+        const open = !after || (after === 2 && before !== 0) || marker(afterCh);
+        const close = !before || (before === 2 && after !== 0) || marker(prevCh);
+        list.push({
+          t: "delim",
+          ch: c,
+          n,
+          open: c === "*" ? open : open && (before !== 0 || !close),
+          close: c === "*" ? close : close && (after !== 0 || !open),
+        });
+      }
+      i += n;
+      continue;
+    }
+    if (c === "[" || (c === "!" && text[i + 1] === "[")) {
+      const image = c === "!";
+      list.push({
+        t: "bracket",
+        image,
+        inactive: false,
+        balanced: false,
+        at: i + (image ? 2 : 1),
+      });
+      i += image ? 2 : 1;
+      continue;
+    }
+    if (c === "]") {
+      let open = -1;
+      for (let k = list.length - 1; k >= 0; k--) {
+        const n = list[k];
+        if (n.t === "bracket" && !n.balanced) {
+          open = k;
+          break;
+        }
+      }
+      const start =
+        open < 0 ? null : (list[open] as Extract<InlineNode, { t: "bracket" }>);
+      let end: number | null = null;
+      if (start && !start.inactive) {
+        const defined = defs.has(normalizeLabel(text.slice(start.at, i)));
+        const after = i + 1;
+        if (text[after] === "(") {
+          end = inlineLinkEnd(text, after) ?? (defined ? after : null);
+        } else if (text[after] === "[") {
+          const full = referenceLabelEnd(text, after);
+          if (
+            full !== null &&
+            defs.has(normalizeLabel(text.slice(after + 1, full - 1)))
+          )
+            end = full;
+          else if (defined && text[after + 1] === "]") end = after + 2;
+        } else if (defined) {
+          end = after;
+        }
+      }
+      if (start === null || end === null) {
+        if (start) start.balanced = true;
+        text1(c);
+        i++;
+        continue;
+      }
+      const children = inside(list.slice(open + 1));
+      list.splice(open, list.length - open, {
+        t: "group",
+        kind: start.image ? "image" : "link",
+        children,
+      });
+      // A link holds no link: the brackets before it no longer open one.
+      if (!start.image)
+        for (const n of list) if (n.t === "bracket" && !n.image) n.inactive = true;
+      i = end;
+      continue;
+    }
+    text1(c);
+    i++;
+  }
+  return resolveDelims(list, order).map((n) =>
+    n.t === "bracket" ? { t: "text", v: n.image ? "![" : "[" } : n,
+  );
+}
+
+/**
+ * The text of `nodes`: the page's (`slug`) or the Outline label's, after
+ * the read view's remark plugins, which rewrite each mdast text node
+ * (comments, then highlights, then wikilinks outside a link's own text).
+ */
+function flattenInline(nodes: InlineNode[], slug: boolean): string {
+  // The text nodes, each with whether it is a link's own text, and the
+  // pieces between them.
+  const parts: ({ text: string; link: boolean } | string)[] = [];
+  const walk = (list: InlineNode[], link: boolean) => {
+    for (const n of list) {
+      if (n.t === "text") {
+        const last = parts[parts.length - 1];
+        if (typeof last === "object" && last.link === link) last.text += n.v;
+        else parts.push({ text: n.v, link });
+      } else if (n.t === "atom") {
+        parts.push(slug ? n.slug : n.label);
+      } else if (n.t === "group") {
+        if (n.kind === "image") {
+          parts.push(slug ? "" : flattenInline(n.children, false));
+        } else {
+          parts.push("");
+          walk(n.children, n.kind === "link");
+          parts.push("");
+        }
+      }
+    }
+  };
+  walk(nodes, false);
+  let out = "";
+  for (const p of parts) {
+    if (typeof p === "string") out += p;
+    else out += textPlugins(p.text, p.link);
+  }
+  return out;
+}
+
+/** One mdast text node through remark-comments, -highlights and -wikilinks. */
+function textPlugins(value: string, inLink: boolean): string {
+  const nodes = value.split(/%%(?:(?!%%)[\s\S])+%%/);
+  const out: string[] = [];
+  for (const node of nodes) {
+    // Highlights make the inner text a node of its own.
+    const pieces: string[] = [];
+    let last = 0;
+    for (const m of node.matchAll(/==(?:(?!==)[\s\S])+?==/g)) {
+      const inner = m[0].slice(2, -2);
+      pieces.push(node.slice(last, m.index), inner.trim() === "" ? m[0] : inner);
+      last = m.index + m[0].length;
+    }
+    pieces.push(node.slice(last));
+    for (const piece of pieces) {
+      out.push(
+        inLink
+          ? piece
+          : piece.replace(
+              /(!)?\[\[([^\]|#\r\n]+)(?:#([^\]|\r\n]+))?(?:\|([^\]\r\n]+))?\]\]/g,
+              (_, bang, target, heading, alias) =>
+                bang ? "" : (alias ?? (heading ? `${target} › ${heading}` : target)),
+            ),
+      );
+    }
+  }
+  return out.join("");
 }
 
 /** A code span or inline math in a block's inline text ({@link inlineSpans}). */
@@ -1334,6 +1772,7 @@ export function parseHeadings(markdown: string): HeadingItem[] {
   // skipped here with the rest of the code. A heading is read inside the
   // containers its line sits in, by the container rule of markdownLines.
   const lines = markdownLines(markdown);
+  const defs = definitionLabels(lines);
   lines.forEach((l, i) => {
     // A heading in a footnote definition is in the page's footnotes, after
     // every other heading, so its slug cannot change theirs.
@@ -1341,21 +1780,65 @@ export function parseHeadings(markdown: string): HeadingItem[] {
     if (l.setext) {
       // A setext heading takes its slug from its lines, joined by line
       // breaks as the renderer's heading text is, but is not listed.
-      const source = lines
-        .slice(l.setext.from, i)
-        .map((p) => p.content)
-        .join("\n");
-      if (stripInline(source).replace(/\n/g, "") !== "")
-        slugger.slug(stripInline(source, true));
+      const source = lines.slice(l.setext.from, i).map(inlineSource).join("\n");
+      slugger.slug(stripInline(source, true, defs));
       return;
     }
-    const h = atxHeading(l.content);
-    const text = h ? stripInline(h.text) : "";
-    if (!h || text === "") return; // empty heading -> no anchor rendered
-    const slug = slugger.slug(stripInline(h.text, true));
-    // In a blockquote or a list item, it takes its slug but is not listed.
-    if (l.contained) return;
+    const h = atxHeading(inlineSource(l));
+    if (!h) return;
+    // Every heading takes a slug, an empty one too (`#`, or `# <b></b>`):
+    // rehype-slug gives it the id "" and the next empty one "-1".
+    const slug = slugger.slug(stripInline(h.text, true, defs));
+    const text = stripInline(h.text, false, defs);
+    // An empty heading is not listed, nor one in a blockquote or a list
+    // item, which takes its slug all the same.
+    if (text === "" || l.contained) return;
     out.push({ depth: h.depth, text, slug, line: l.line });
   });
   return out;
+}
+
+/**
+ * The text of line `l` as its inline content reads it: past its
+ * containers, with its tabs as written where it sits in none (a tab in a
+ * heading is a tab in its text, which the page's slug drops; the line's
+ * `content` has it expanded to spaces, which the slug made `-`s).
+ */
+function inlineSource(l: MarkdownLine): string {
+  if (l.contained) return l.content;
+  return (l.line === 1 ? withoutBom(l.text) : l.text).replace(/\r$/, "");
+}
+
+/**
+ * The labels ({@link normalizeLabel}) of the link reference definitions
+ * of `lines` ({@link markdownLines}): those at the start of each
+ * paragraph, by the rule of {@link definitionsLength}.
+ */
+function definitionLabels(lines: MarkdownLine[]): Set<string> {
+  const defs = new Set<string>();
+  let i = 0;
+  while (i < lines.length) {
+    if (
+      lines[i].kind !== "text" ||
+      lines[i].continues ||
+      lines[i].content.trim() === ""
+    ) {
+      i++;
+      continue;
+    }
+    let j = i + 1;
+    while (j < lines.length && lines[j].kind === "text" && lines[j].continues) j++;
+    const para = lines.slice(i, j).map((l) => l.content);
+    let k = 0;
+    while (k < para.length) {
+      const text = k === 0 ? para[k] : para[k].trimStart();
+      const n = referenceDefinition(text, para.slice(k + 1));
+      if (n === null) break;
+      const label = /^ *\[((?:\\.|[^\\\]])*)\]:/.exec(text)?.[1];
+      if (label !== undefined) defs.add(normalizeLabel(label));
+      k += n;
+    }
+    i = j;
+  }
+  return defs;
 }
