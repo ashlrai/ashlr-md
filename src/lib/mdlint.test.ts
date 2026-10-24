@@ -437,6 +437,23 @@ describe("rule:wikilink-targets-exist", () => {
     expect(open).toHaveLength(1);
   });
 
+  it("skips wikilinks in inline math and reads code spans per paragraph", () => {
+    // The page renders `$[[Gone]]$` as math (remark-math), and a backtick
+    // pairs with none in another paragraph, so `[[Real]]` is a link.
+    const doc = "Math $[[Gone]]$ here.\n\nOpen ` tick\n\n[[Real]] then `.\n";
+    const v = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(v.map((x) => x.message)).toEqual(['Wikilink target not found: "Real"']);
+    // A code span runs over the line breaks of its paragraph.
+    const spanning = lintDocument("a `x\n[[Code]] y` b\n", {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(spanning).toHaveLength(0);
+  });
+
   it("passes when all wikilinks are in knownTargets", () => {
     const doc = "See [[MyNote]] and [[Other Note]].\n";
     const knownTargets = new Set(["MyNote", "Other Note"]);
@@ -955,6 +972,17 @@ describe("lint fixes leave code and line breaks alone", () => {
     const rules = { rules: [ruleInvalidLinkTarget, ruleMissingAltText] };
     expect(lintDocument(doc, rules)).toHaveLength(0);
     expect(lintDocument("See [x](#) and ![](c.png).\n", rules)).toHaveLength(2);
+  });
+
+  it("flags no link or image in inline math, and reads a link's `$` as its URL", () => {
+    // remark-math renders `$...$` as math, so these are no link or image;
+    // they used to be flagged and their fixes rewrote the formula.
+    const rules = { rules: [ruleInvalidLinkTarget, ruleMissingAltText] };
+    expect(lintDocument("Math $[x](#) and ![](a.png)$ here.\n", rules)).toHaveLength(0);
+    // A `$` in a link's destination opens no math, so the link after it
+    // is still read.
+    const v = lintDocument("[a](p?q=$1) costs $2 and [b](#).\n", rules);
+    expect(v.map((x) => x.ruleId)).toEqual(["invalid-link-target"]);
   });
 
   it("reads trailing spaces before a CRLF and keeps them in code", () => {

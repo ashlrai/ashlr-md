@@ -96,6 +96,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Inline math is read as the page renders it.** The read view renders `$x$`
+  and `$$x$$` with remark-math, but the Outline, the lint rules,
+  `export_text` and `export_metadata` read the formula as Markdown. A
+  heading's slug missed the KaTeX text the page takes it from (`# Energy
+  $E=mc^2$` linked to `energy-emc2`, not `energy-emc2emc2emc2`), `$a*b*c$`
+  lost its `*`s, and a `[x](#)`, `![](a.png)` or `[[link]]` in a formula was
+  linted, counted or reordered. Inline math is now read as micromark reads
+  it, by the rule of code spans, and an escaped `$`, a run never closed and
+  a `$` in a link's destination are text. Code spans are read the same way,
+  within one paragraph: a backtick used to pair with one paragraphs later.
 - **Enter on an empty list item in the visual editor leaves a blank line.**
   Enter after a `- ` typed as text replaced the line, from the position before
   its block, with a newline character, so the line kept a literal line break

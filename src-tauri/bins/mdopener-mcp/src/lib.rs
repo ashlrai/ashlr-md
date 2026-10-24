@@ -7905,6 +7905,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   `=` or `-` used to be dropped.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
+///   Inline math (`$…$`, `$$…$$`), which the page renders with remark-math,
+///   keeps its TeX as written, without its `$`s ([`inline_spans`]); it used
+///   to be read as Markdown, so `$a*b*c$` lost its `*`s.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
 /// - Links `[text](url)` and `[text][ref]` → link text only. An inline
 ///   link's `(url "title")` tail is read as CommonMark reads it
@@ -8360,13 +8363,41 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
+    // Code spans and inline math are read first ([`inline_spans`]), and
+    // links, images and wikilinks are read on `masked`, where each of
+    // their characters is a `\r`: `[a `]` b](u)` is one link, `$[x](u)$`
+    // none, and a link's text is taken from `chars`.
+    let spans = inline_spans(&chars, true);
+    let mut masked = chars.clone();
+    for span in &spans {
+        masked[span.start..span.end].fill('\r');
+    }
+    let mut spans = spans.into_iter().peekable();
     let mut i = 0;
 
     while i < n {
+        // Inline code `` `…` `` and inline math `$…$` read their content
+        // as written, one space taken off each side of content that both
+        // begins and ends with one and is not all spaces. A run of
+        // backticks is closed by the next run of exactly as many, and a
+        // run never closed is text, as CommonMark reads them. Any run as
+        // long used to close it, also part of a longer one, and an
+        // unclosed run's backticks after its first could open a span, so
+        // ``` `` a`b ``` read `` `a b ``. Inline math was not read, so
+        // `$a*b*c$` lost its `*`s.
+        // (Spans in a link's text, read with it, are passed.)
+        while spans.next_if(|span| span.start < i).is_some() {}
+        if let Some(span) = spans.next_if(|span| span.start == i) {
+            out.extend(&chars[span.value]);
+            i = span.end;
+            continue;
+        }
+        // The text of `chars` between `from` and `to`.
+        let text_of = |from: usize, to: usize| -> String { chars[from..to].iter().collect() };
         // Obsidian embed ![[…]] → empty (no useful text). It is read before
         // an image, which took `![[a.png]]` as an image with alt `[a.png]`.
         if chars[i] == '!' {
-            if let Some(embed) = parse_wikilink(&chars, i + 1) {
+            if let Some(embed) = parse_wikilink(&masked, i + 1) {
                 i = embed.end;
                 continue;
             }
@@ -8376,8 +8407,9 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
         // (`![*a*](i)` reads `a`, as the page's alt text does). Any other
         // `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
-            if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
-                if let Some(after) = link_end(&chars, &alt, end, refs) {
+            if let Some((_, end)) = parse_bracket_content(&masked, i + 1) {
+                let alt = text_of(i + 2, end - 1);
+                if let Some(after) = link_end(&masked, &alt, end, refs) {
                     out.push_str(&strip_inline_in(&alt, refs, false));
                     i = after;
                     continue;
@@ -8388,15 +8420,19 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
         // the text `[[W]]`, which the page does not read as a wikilink.
         // A link holds no link, so `[a [b](c)](d)` is a `[` and a link.
         let link = (chars[i] == '[')
-            .then(|| parse_bracket_content(&chars, i))
+            .then(|| parse_bracket_content(&masked, i))
             .flatten()
             .filter(|(text, _)| !holds_link(text, refs))
-            .and_then(|(text, end)| Some((text.clone(), link_end(&chars, &text, end, refs)?)));
+            .and_then(|(_, end)| {
+                let text = text_of(i + 1, end - 1);
+                let after = link_end(&masked, &text, end, refs)?;
+                Some((text, after))
+            });
         // Wikilink [[target]] → target, [[target|alias]] → alias and
         // [[target#heading]] → `target › heading`, as the read view shows
         // it. It is read before a `[text]` with no link after it, which took
         // `[[Real]]` as a link with text `[Real]`.
-        if let Some(link) = parse_wikilink(&chars, i).filter(|_| wikilinks && link.is_none()) {
+        if let Some(link) = parse_wikilink(&masked, i).filter(|_| wikilinks && link.is_none()) {
             match (&link.alias, &link.heading) {
                 (Some(alias), _) => out.push_str(alias),
                 (None, Some(heading)) => {
@@ -8435,53 +8471,11 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
                 i = after;
                 continue;
             }
-            if parse_bracket_content(&chars, i).is_some() {
+            if parse_bracket_content(&masked, i).is_some() {
                 out.push('[');
                 i += 1;
                 continue;
             }
-        }
-        // Inline code: `` `…` `` or ` ``…`` ` — strip backticks, keep content.
-        // A run of backticks is closed by the next run of exactly as many,
-        // and a run never closed is text, as CommonMark reads them. Any run
-        // as long used to close it, also part of a longer one, and an
-        // unclosed run's backticks after its first could open a span, so
-        // ``` `` a`b ``` read `` `a b ``.
-        if chars[i] == '`' {
-            let tick_count = chars[i..].iter().take_while(|&&c| c == '`').count();
-            let start = i + tick_count;
-            let mut j = start;
-            let mut close = None;
-            while j < n {
-                let run = chars[j..].iter().take_while(|&&c| c == '`').count();
-                if run == tick_count {
-                    close = Some(j);
-                    break;
-                }
-                j += run.max(1);
-            }
-            match close {
-                Some(end) => {
-                    // One space is taken off each side of code that both
-                    // begins and ends with one and is not all spaces.
-                    let code = &chars[start..end];
-                    let padded = code.len() >= 2
-                        && code[0] == ' '
-                        && code[code.len() - 1] == ' '
-                        && code.iter().any(|&c| c != ' ');
-                    out.extend(if padded {
-                        &code[1..code.len() - 1]
-                    } else {
-                        code
-                    });
-                    i = end + tick_count;
-                }
-                None => {
-                    out.extend(&chars[i..start]);
-                    i = start;
-                }
-            }
-            continue;
         }
         // Autolinks keep their URL or address (`<https://x>`, `<irc:x>`,
         // `<me@x.org>`) and HTML (`<tag …>`, `</tag>`, `<!-- … -->`) is
@@ -8536,6 +8530,106 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
         i += 1;
     }
 
+    out
+}
+
+/// A code span or inline math in a block's inline text, from
+/// [`inline_spans`]: its range in the text's chars and the range of its
+/// content, one space or line break taken off each
+/// side when both sides have one and it is not all spaces.
+struct InlineSpan {
+    start: usize,
+    end: usize,
+    value: std::ops::Range<usize>,
+}
+
+/// The code spans (`` `a` ``) and, with `math`, the inline math (`$x$`,
+/// `$$x$$`) of `chars`, one block's inline content (a paragraph's lines
+/// joined by line breaks, a heading's text or a table cell), as micromark
+/// reads them with remark-math, which the app's read view enables with its
+/// default `singleDollarTextMath`: a run of backticks or dollars that no
+/// backslash escapes opens one, the next run of exactly as many of the same
+/// character closes it, and a run never closed is text. The one that opens
+/// first holds the other's character as content. An autolink or inline
+/// HTML ([`autolink_end`], [`html_end`]) and an inline link's
+/// `(destination "title")` ([`inline_link_end`]) hold none. The rule of
+/// `inlineSpans` in the app's `outline.ts`.
+fn inline_spans(chars: &[char], math: bool) -> Vec<InlineSpan> {
+    let mut out = Vec::new();
+    // Link texts open (`[`) and not yet closed.
+    let mut brackets = 0usize;
+    let mut i = 0;
+    let space = |c: char| matches!(c, ' ' | '\r' | '\n');
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            // A backslash escapes the punctuation after it.
+            '\\' => {
+                i += if chars.get(i + 1).is_some_and(|c| c.is_ascii_punctuation()) {
+                    2
+                } else {
+                    1
+                };
+                continue;
+            }
+            '<' => {
+                i = autolink_end(chars, i)
+                    .or_else(|| html_end(chars, i))
+                    .unwrap_or(i + 1);
+                continue;
+            }
+            '[' => brackets += 1,
+            ']' if brackets > 0 => {
+                brackets -= 1;
+                if let Some(end) = inline_link_end(chars, i + 1) {
+                    i = end;
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        if c != '`' && !(math && c == '$') {
+            i += 1;
+            continue;
+        }
+        let run = chars[i..].iter().take_while(|&&x| x == c).count();
+        // The next run of exactly as many closes it.
+        let mut j = i + run;
+        let mut close = None;
+        while j < chars.len() {
+            if chars[j] != c {
+                j += 1;
+                continue;
+            }
+            let n = chars[j..].iter().take_while(|&&x| x == c).count();
+            if n == run {
+                close = Some(j);
+                break;
+            }
+            j += n;
+        }
+        let Some(close) = close else {
+            i += run;
+            continue;
+        };
+        let mut value = i + run..close;
+        let content = &chars[value.clone()];
+        if content.first().is_some_and(|&c| space(c))
+            && content.last().is_some_and(|&c| space(c))
+            && content.iter().any(|&c| !space(c))
+        {
+            let crlf = |a: usize| chars.get(a) == Some(&'\r') && chars.get(a + 1) == Some(&'\n');
+            value.start += if crlf(value.start) { 2 } else { 1 };
+            let tail = value.end >= 2 && crlf(value.end - 2);
+            value.end -= if tail { 2 } else { 1 };
+        }
+        out.push(InlineSpan {
+            start: i,
+            end: close + run,
+            value,
+        });
+        i = close + run;
+    }
     out
 }
 
@@ -9358,51 +9452,54 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 }
 
 /// The text lines of `content` (and its front matter lines with
-/// `front_matter`), joined by line breaks, with each code span in them
-/// (`` `…` ``) read as a `\r`, which no wikilink holds (`[[a`x`b]]` is
-/// none, as on the page): where [`extract_wikilinks`] and
-/// [`count_embedded_images`] read links and images. Fenced code, indented
-/// code ([`markdown_lines::with_indented_code`]) and HTML blocks are not
-/// text; indented code and code spans used to be read, so a `[[link]]` in
-/// either was counted, although the page shows it as code.
+/// `front_matter`), joined by line breaks, with each code span and inline
+/// math in them ([`inline_spans`]: `` `…` ``, `$…$`) read as a `\r`, which
+/// no wikilink holds (`[[a`x`b]]` is none, as on the page): where
+/// [`extract_wikilinks`] and [`count_embedded_images`] read links and
+/// images. Spans are read over each block's inline content: a paragraph's
+/// lines (a text line and the lines that go on with it) together, and the
+/// front matter, which is no Markdown, for code spans only. Fenced code,
+/// indented code ([`markdown_lines::with_indented_code`]) and HTML blocks
+/// are not text; indented code and code spans used to be read, so a
+/// `[[link]]` in either was counted, although the page shows it as code.
+/// A code span used to be read over all the text lines, so a backtick
+/// could pair with one paragraphs later, and inline math was not read, so
+/// a `$[[x]]$` formula was counted as a link.
 fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
-    let text: Vec<&str> = markdown_lines::with_indented_code(content)
-        .filter(|(kind, _)| {
-            *kind == LineKind::Text || (front_matter && *kind == LineKind::FrontMatter)
-        })
-        .map(|(_, line)| line)
-        .collect();
-    let chars: Vec<char> = text.join("\n").chars().collect();
-    let mut out = Vec::with_capacity(chars.len());
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] != '`' {
-            out.push(chars[i]);
-            i += 1;
+    // The block being read: its lines, and whether it is text (not front
+    // matter). Blocks are joined by line breaks, as their lines are.
+    let mut blocks: Vec<(Vec<&str>, bool)> = Vec::new();
+    let mut open = false;
+    for ((kind, line), start) in
+        markdown_lines::with_indented_code(content).zip(markdown_lines::item_starts(content))
+    {
+        let front = kind == LineKind::FrontMatter;
+        if kind != LineKind::Text && !(front_matter && front) {
+            open = false;
             continue;
         }
-        let run = chars[i..].iter().take_while(|&&c| c == '`').count();
-        // The next run of exactly as many backticks closes the span.
-        let mut j = i + run;
-        let mut close = None;
-        while j < chars.len() {
-            let n = chars[j..].iter().take_while(|&&c| c == '`').count();
-            if n == run {
-                close = Some(j + n);
-                break;
-            }
-            j += n.max(1);
+        // A front matter line goes on with the front matter, and a text
+        // line that goes on with the paragraph before it with that.
+        let joins = |text: bool| (front && !text) || (!front && text && start.continues);
+        match blocks.last_mut() {
+            Some((lines, text)) if open && joins(*text) => lines.push(line),
+            _ => blocks.push((vec![line], !front)),
         }
-        match close {
-            Some(end) => {
-                out.push('\r');
-                i = end;
-            }
-            None => {
-                out.extend(&chars[i..i + run]);
-                i += run;
-            }
+        open = true;
+    }
+    let mut out: Vec<char> = Vec::with_capacity(content.len());
+    for (k, (lines, text)) in blocks.iter().enumerate() {
+        if k > 0 {
+            out.push('\n');
         }
+        let chars: Vec<char> = lines.join("\n").chars().collect();
+        let mut at = 0;
+        for span in inline_spans(&chars, *text) {
+            out.extend(&chars[at..span.start]);
+            out.push('\r');
+            at = span.end;
+        }
+        out.extend(&chars[at..]);
     }
     out
 }

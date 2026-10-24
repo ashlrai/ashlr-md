@@ -577,3 +577,25 @@ describe("parseHeadings", () => {
     ]);
   });
 });
+
+describe("parseHeadings reads inline math as the page renders it", () => {
+  it("takes a math heading's slug from the KaTeX text, as rehype-slug does", () => {
+    // Slugs from the read view (remark-math, rehype-katex, rehype-slug):
+    // the formula's MathML, TeX source and HTML text. `$x*y*z$` used to
+    // lose its `*`s and read `xyz` once.
+    const h = parseHeadings("# Energy $E=mc^2$\n\n# a $x*y*z$ b\n\n# `$a$` code\n");
+    expect(h.map((x) => x.slug)).toEqual([
+      "energy-emc2emc2emc2",
+      "a-xyzxyzxyz-b",
+      "a-code",
+    ]);
+    // The Outline lists a formula by its source.
+    expect(h.map((x) => x.text)).toEqual(["Energy E=mc^2", "a x*y*z b", "$a$ code"]);
+  });
+
+  it("reads `$` that opens no math as text", () => {
+    // An escaped `$` and a run never closed are text.
+    const h = parseHeadings("# Cost \\$5 and \\$10\n\n# One $ alone\n");
+    expect(h.map((x) => x.slug)).toEqual(["cost-5-and-10", "one--alone"]);
+  });
+});

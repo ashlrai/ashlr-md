@@ -14481,3 +14481,32 @@ fn a_math_block_is_read_as_fenced_code() {
     assert_eq!(texts("$$x$$\n# Real\n"), ["Real"]);
     assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
 }
+
+/// The page renders inline math (`$x$`, `$$x$$`) with remark-math, which
+/// micromark reads as it reads a code span: export_text read its TeX as
+/// Markdown, so `$a*b*c$` lost its `*`s, and export_metadata counted a
+/// `[[link]]` or an image in a formula. A `$` that opens no math (escaped,
+/// never closed, or in a link's destination) is text.
+#[test]
+fn inline_math_is_read_as_remark_math_reads_it() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    assert_eq!(
+        strip_markdown("Math $a*b*c$ and $$x_1$$.\n").trim(),
+        "Math a*b*c and x_1."
+    );
+    // The span that opens first holds the other's character.
+    assert_eq!(strip_markdown("`$a` and $`b$\n").trim(), "$a and `b");
+    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost \\$5 now");
+    assert_eq!(strip_markdown("One $ alone *x*\n").trim(), "One $ alone x");
+    assert_eq!(
+        strip_markdown("[a](p?q=$1) costs $2\n").trim(),
+        "a costs $2"
+    );
+    // A link's text holds a span whose `]` is not the link's.
+    assert_eq!(
+        strip_markdown("[a `]` b](u) and $[x](u)$\n").trim(),
+        "a ] b and [x](u)"
+    );
+    assert_eq!(extract_wikilinks("$[[Gone]]$ and [[Real]]\n"), ["Real"]);
+    assert_eq!(count_embedded_images("$![](m.png)$ ![](a.png)\n"), 1);
+}
