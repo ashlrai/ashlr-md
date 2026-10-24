@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited block keeps its character references.** Editing a paragraph
+  in the WYSIWYG view wrote `&nbsp;`, `&copy;`, `&#169;` and the like as the
+  characters they stand for, and `&lt;tag&gt;` as `\<tag>`. Each is now
+  written as the block's source wrote it: one for one while the block holds
+  as many of that character, else the one way the source wrote it.
 - **An edited block keeps trailing-space line breaks.** A hard break written
   as two trailing spaces became a backslash when its paragraph (or list item,
   or quote) was edited in the WYSIWYG view. A block that wrote its breaks

@@ -26,8 +26,9 @@
  * ({@link blockStyle}): a `-` or `+` bullet list keeps its marker, an
  * ordered list its `)` and its numbering (`1.` `1.` `1.` stays so), a
  * setext heading stays setext (with its underline) and `## x ##` keeps its
- * closing `##`, and a block that ends lines with two spaces for a hard break
- * keeps doing so ({@link keepSpellings}).
+ * closing `##`, a block that ends lines with two spaces for a hard break
+ * keeps doing so, and `&nbsp;`, `&copy;` and other character references stay
+ * as they were written ({@link keepSpellings}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -41,6 +42,7 @@ import {
 } from "@milkdown/kit/preset/gfm";
 import { Fragment, type Node as ProseNode } from "@milkdown/kit/prose/model";
 import { type MarkdownNode, SerializerState } from "@milkdown/kit/transformer";
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
 
 /** A source range `[start, end)` in the original body. */
 export interface BlockRange {
@@ -379,26 +381,158 @@ interface SpelledNode {
  * Put back, in `tree` (one block as the serializer will write it), how the
  * block's `source` spelled what the tree no longer says: a hard break
  * written as trailing spaces (the serializer writes a backslash) stays
- * trailing spaces, when the block wrote none as a backslash. Each is put in
- * as raw text (an `html` node, which is written as it is).
+ * trailing spaces, when the block wrote none as a backslash; a character
+ * the block wrote as a reference (`&nbsp;`, `&copy;`, `&#169;`, `&amp;`) is
+ * written as it was again (the editor holds the character, which the
+ * serializer wrote as it is, or escaped): each one as its source did while
+ * the block holds as many, else the one way the source wrote it, if one.
+ * Each is put in as raw text (an `html` node, which is written as it is).
  */
 export function keepSpellings(tree: unknown, source: string): void {
   const spaces = /( {2,})\r?\n/.exec(source);
   const breakText = spaces && !/\\\r?\n/.test(source) ? `${spaces[1]}\n` : null;
-  if (breakText === null) return;
+  const refs = characterReferences(source);
+  if (breakText === null && refs === null) return;
+  // How many of each referenced character the block holds now.
+  const counts = new Map<string, number>();
+  const seen = new Map<string, number>();
+  if (refs) {
+    for (const t of textNodes(tree as SpelledNode)) {
+      for (const m of (t.value ?? "").matchAll(refs.pattern)) {
+        counts.set(m[0], (counts.get(m[0]) ?? 0) + 1);
+      }
+    }
+  }
   const walk = (node: SpelledNode, inLine: boolean) => {
     const kids = node.children;
     if (!kids) return;
     // A heading or a table cell holds one line: its breaks are written as
     // spaces, by the serializer's own rules.
     const line = inLine || node.type === "heading" || node.type === "tableCell";
-    for (let i = 0; i < kids.length; i++) {
-      const kid = kids[i];
-      if (kid.type === "break" && !line) kids[i] = { type: "html", value: breakText };
-      else walk(kid, line);
+    const out: SpelledNode[] = [];
+    for (const kid of kids) {
+      if (kid.type === "break" && !line && breakText !== null) {
+        out.push({ type: "html", value: breakText });
+      } else if (
+        kid.type === "text" &&
+        refs !== null &&
+        typeof kid.value === "string"
+      ) {
+        out.push(...withReferences(kid.value, refs, seen, counts));
+      } else {
+        walk(kid, line);
+        out.push(kid);
+      }
     }
+    node.children = out;
   };
   walk(tree as SpelledNode, false);
+}
+
+/** A character reference's text: `&name;`, `&#169;` or `&#xA9;`. */
+const REFERENCE =
+  /&(?:#[xX]([0-9A-Fa-f]{1,6})|#([0-9]{1,7})|([A-Za-z][A-Za-z0-9]{1,31}));/g;
+
+/** The character a {@link REFERENCE} match stands for, if any. */
+function referenced(m: RegExpMatchArray): string | null {
+  if (m[1] !== undefined || m[2] !== undefined) {
+    const code = m[1] !== undefined ? Number.parseInt(m[1], 16) : Number(m[2]);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : null;
+  }
+  return decodeNamedCharacterReference(m[3]) || null;
+}
+
+/** How a block wrote each character it wrote at least once as a reference. */
+interface References {
+  /** Matches any of those characters. */
+  pattern: RegExp;
+  /** Each one's spellings, in source order (the character itself when written as it is). */
+  spellings: Map<string, string[]>;
+}
+
+/**
+ * The characters `source` wrote as a reference at least once, each with
+ * every spelling of it in order. Null when there are none.
+ */
+function characterReferences(source: string): References | null {
+  const chars = new Set<string>();
+  for (const m of source.matchAll(REFERENCE)) {
+    const char = referenced(m);
+    if (char) chars.add(char);
+  }
+  if (chars.size === 0) return null;
+  const keys = [...chars].sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(
+    keys.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "gu",
+  );
+  // Every reference and every bare occurrence, in order.
+  const spellings = new Map<string, string[]>(keys.map((k) => [k, []]));
+  const both = new RegExp(`${REFERENCE.source}|${pattern.source}`, "gu");
+  for (const m of source.matchAll(both)) {
+    const char = m[0].startsWith("&") ? (referenced(m) ?? m[0]) : m[0];
+    spellings.get(char)?.push(m[0]);
+  }
+  return { pattern, spellings };
+}
+
+/**
+ * How to write the `nth` (from 0, of `count` in the block now) `char`: as
+ * the source wrote that one, when the block holds as many as it did; as
+ * the one way the source wrote it, when it used one; else as itself.
+ */
+function spellingOf(
+  refs: References,
+  char: string,
+  nth: number,
+  count: number,
+): string {
+  const ways = refs.spellings.get(char) ?? [];
+  if (ways.length === count) return ways[nth];
+  return ways.length > 0 && ways.every((w) => w === ways[0]) ? ways[0] : char;
+}
+
+/** The text nodes of `tree`, in order. */
+function textNodes(tree: SpelledNode, out: SpelledNode[] = []): SpelledNode[] {
+  for (const kid of tree.children ?? []) {
+    if (kid.type === "text") out.push(kid);
+    else textNodes(kid, out);
+  }
+  return out;
+}
+
+/**
+ * `value` as text nodes, with each character written as a reference as
+ * that reference (an `html` node). `seen` counts each character so far in
+ * the block, `counts` in all of it.
+ */
+function withReferences(
+  value: string,
+  refs: References,
+  seen: Map<string, number>,
+  counts: Map<string, number>,
+): SpelledNode[] {
+  const out: SpelledNode[] = [];
+  let at = 0;
+  let text = "";
+  for (const m of value.matchAll(refs.pattern)) {
+    const index = m.index ?? 0;
+    const nth = seen.get(m[0]) ?? 0;
+    seen.set(m[0], nth + 1);
+    const way = spellingOf(refs, m[0], nth, counts.get(m[0]) ?? 0);
+    text += value.slice(at, index);
+    at = index + m[0].length;
+    if (way === m[0]) {
+      text += m[0];
+      continue;
+    }
+    if (text) out.push({ type: "text", value: text });
+    text = "";
+    out.push({ type: "html", value: way });
+  }
+  text += value.slice(at);
+  if (text) out.push({ type: "text", value: text });
+  return out;
 }
 
 /** The editor's remark processor: callable for a copy, as unified's are. */

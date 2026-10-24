@@ -409,6 +409,46 @@ describe("sourceRanges / spliceEdited", () => {
     }
   });
 
+  it("writes characters as the references the block wrote them as", () => {
+    const para = (value: string) => ({
+      type: "root",
+      children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+    });
+    const spelled = (value: string, source: string) => {
+      const t = para(value);
+      keepSpellings(t, source);
+      return t.children[0].children;
+    };
+    expect(spelled("a\u00a0b X", "a&nbsp;b")).toEqual([
+      { type: "text", value: "a" },
+      { type: "html", value: "&nbsp;" },
+      { type: "text", value: "b X" },
+    ]);
+    // One of each spelling, in order, while the count is the same.
+    expect(spelled("© ©", "&copy; &#169;")).toEqual([
+      { type: "html", value: "&copy;" },
+      { type: "text", value: " " },
+      { type: "html", value: "&#169;" },
+    ]);
+    expect(spelled("& &", "& &amp;")).toEqual([
+      { type: "text", value: "& " },
+      { type: "html", value: "&amp;" },
+    ]);
+    // A count that changed, with two ways: as itself.
+    expect(spelled("& & &", "& &amp;")).toEqual([{ type: "text", value: "& & &" }]);
+    // One way: that one, for every occurrence.
+    expect(spelled("<x> <", "&lt;x&gt;")).toEqual([
+      { type: "html", value: "&lt;" },
+      { type: "text", value: "x" },
+      { type: "html", value: "&gt;" },
+      { type: "text", value: " " },
+      { type: "html", value: "&lt;" },
+    ]);
+    expect(spelled("plain", "&bogus; plain")).toEqual([
+      { type: "text", value: "plain" },
+    ]);
+  });
+
   it("reads Milkdown's string spread as remark's boolean", () => {
     expect(listSpread("true")).toBe(true);
     expect(listSpread(true)).toBe(true);
