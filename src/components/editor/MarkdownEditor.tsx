@@ -2,6 +2,7 @@ import { Crepe } from "@milkdown/crepe";
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import type { EditorView as ProseView } from "@milkdown/kit/prose/view";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
@@ -18,6 +19,7 @@ import {
   NoProviderError,
   runInlineTransform,
 } from "../../ai/inline";
+import { editorImageUrl } from "../../lib/docLinks";
 import {
   buildLinkMarkdown,
   buildTableMarkdown,
@@ -357,7 +359,20 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     fmRef.current = frontmatter;
     lastBodyRef.current = body;
 
-    const crepe = new Crepe({ root, defaultValue: body });
+    const crepe = new Crepe({
+      root,
+      defaultValue: body,
+      featureConfigs: {
+        // Images load as in the read view (relative to the document,
+        // through Rust); the src written back is the one in the Markdown.
+        [Crepe.Feature.ImageBlock]: {
+          proxyDomURL: (url: string) =>
+            editorImageUrl(url, useDocumentStore.getState().path, (path) =>
+              invoke<string>("read_image_data_url", { path }),
+            ),
+        },
+      },
+    });
     // A CRLF file keeps its line breaks (Crepe writes LF).
     const crlf = usesCrlf(initialContent);
     crepe.on((api) => {

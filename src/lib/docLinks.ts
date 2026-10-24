@@ -208,6 +208,31 @@ export function imageSource(
 }
 
 /**
+ * The URL an editor `<img>` shows for an image whose `src` is as written,
+ * by the read view's rule ({@link imageSource}, MarkdownImage): a web image
+ * as written, a local one read through Rust (`read_image_data_url`) as a
+ * `data:` URL, and nothing (an empty string) for one that is refused or
+ * missing. A `data:` or `blob:` image the editor holds already is kept. The
+ * editor used the path as the src, which loads from the app's own origin,
+ * so a relative image never showed while editing.
+ */
+export async function editorImageUrl(
+  src: string,
+  docPath: string | null,
+  read: (path: string) => Promise<string>,
+): Promise<string> {
+  if (/^(data:image\/|blob:)/i.test(src.trim())) return src;
+  const source = imageSource(src, docPath);
+  if (source.kind === "remote") return source.src;
+  if (source.kind === "blocked") return "";
+  try {
+    return await read(source.path);
+  } catch {
+    return "";
+  }
+}
+
+/**
  * The element of the rendered document a `#fragment` names: its id as
  * written, as rehype-sanitize prefixes ids written in raw HTML or footnotes
  * (`user-content-`), or the slug a heading with that text gets

@@ -105,6 +105,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Relative images show in the WYSIWYG editor.** The editor used an image's
+  path as written as its source, which loads from the app's own address, so a
+  pasted `![](assets/x.png)` showed broken while editing. Images now load as in
+  the read view: relative to the document, read from disk. The Markdown keeps
+  the path as written.
 - **Wikilinks to a heading or a block scroll there.** `[[note#^abc]]` opened
   the note at its top: a block's `^abc` id had no anchor (and showed as text on
   the block). Block ids now anchor their paragraph, list item, or the table or
