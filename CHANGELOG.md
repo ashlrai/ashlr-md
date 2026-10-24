@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The editor splits off the front matter the Outline skips.** The WYSIWYG
+  editor hid front matter by its own pattern, so a closer with text after it
+  (`---abc`) ended the block and left `abc` in the body, while a delimiter with
+  trailing spaces, a `...` closer and an empty block (`---` then `---`) were not
+  split off and showed as text in the editor. It now uses the one rule of the
+  Outline and mdopener-mcp, and so does the word count, which shares it.
 - **Outline: no lint warning in the container scan.** `containers` in
   `outline.ts` declared `interrupt` with `let` and kept a commented-out
   assignment to it, so biome warned that it could be `const`. It is `const`

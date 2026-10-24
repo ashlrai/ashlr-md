@@ -7,8 +7,6 @@
  * The raw source editor, by contrast, edits the full content losslessly.
  */
 
-const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)([\s\S]*)$/;
-
 export interface SplitDocument {
   /** The frontmatter block including its closing fence and trailing newline, or "". */
   frontmatter: string;
@@ -16,12 +14,21 @@ export interface SplitDocument {
   body: string;
 }
 
+/**
+ * Split `raw` into its leading front matter block (its closing delimiter
+ * and the newline after it included) and the body, by the rule of
+ * {@link stripFrontmatter}: the editor hides exactly the block the Outline
+ * and mdopener-mcp skip. It used to have its own pattern, so a closer such
+ * as `---abc` ended the block (leaving `abc` in the body), while `--- ` with
+ * a trailing space, a `...` closer and an empty block (`---` then `---`)
+ * did not.
+ */
 export function splitFrontmatter(raw: string): SplitDocument {
-  const match = raw.match(FRONTMATTER_RE);
-  if (match) {
-    return { frontmatter: match[1], body: match[2] };
-  }
-  return { frontmatter: "", body: raw };
+  const { lines, offset } = stripFrontmatter(raw);
+  if (offset === 0) return { frontmatter: "", body: raw };
+  const all = raw.split("\n");
+  const frontmatter = all.slice(0, offset).join("\n") + (lines.length > 0 ? "\n" : "");
+  return { frontmatter, body: lines.join("\n") };
 }
 
 /** Re-attach frontmatter to an edited body. */
