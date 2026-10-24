@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`stream_edit` previews of a CRLF document have no stray `\r`.** Each
+  line of the preview diff ended in the `\r` of its CRLF line break, which
+  agents and terminals showed as `^M` or a carriage return over the line. A
+  diff line is now its line without the line break; the edit itself still
+  writes CRLF.
 - **A lone CR is a line break in search, diffs and edit previews.** A file
   with old Mac line breaks (`\r` alone) was one line to the search panel,
   the MCP `search_vault` grep and its snippets, `diff_documents` and the

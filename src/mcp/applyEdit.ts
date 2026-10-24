@@ -247,8 +247,10 @@ export function buildUnifiedDiff(
   contextLines = 3,
   label = "document",
 ): string {
-  // A lone `\r` ends a line too ({@link offsetToLine}).
-  const breaks = /\n|\r(?!\n)/;
+  // `\r\n`, a lone `\r` and `\n` each end a line ({@link offsetToLine}),
+  // and a diff line is its line without the break: a CRLF document's lines
+  // used to end in `\r`.
+  const breaks = /\r\n|\r|\n/;
   const lines = content.split(breaks);
   const afterContent =
     content.slice(0, matchOffset) + replace + content.slice(matchOffset + find.length);

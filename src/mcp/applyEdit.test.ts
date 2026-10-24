@@ -88,12 +88,15 @@ describe("applyUniqueEdit — exact, unique find/replace contract", () => {
   });
 
   it("previews an LF find in a CRLF document", () => {
-    const r = computeStreamEditDiff("a\r\nb\r\nc\r\n", "b\nc", "B\nC", 0);
+    // The diff's lines are the document's lines without their breaks: each
+    // used to end in the `\r` of its CRLF break.
+    const r = computeStreamEditDiff("a\r\nb\r\nc\r\nd\r\n", "b\nc", "B\nC", 1);
     expect(r.ok).toBe(true);
     expect(r.matchCount).toBe(1);
     expect(r.diff).toBe(
-      "--- a/document\n+++ b/document\n@@ -2,2 +2,2 @@\n-b\r\n-c\r\n+B\r\n+C\r\n",
+      "--- a/document\n+++ b/document\n@@ -1,4 +1,4 @@\n a\n-b\n-c\n+B\n+C\n d\n",
     );
+    expect(r.diff).not.toContain("\r");
   });
 
   it("errors when find is not unique and reports the count", () => {
