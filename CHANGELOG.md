@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A new table row has as many cells as its row.** Typing `|` at the end of
+  a table row in the source editor split the row on every `|`, so a cell
+  holding an escaped `\|` gave the new row one cell more. Cells are now read
+  as GFM reads them.
 - **`export_text` reads inline Markdown per paragraph.** It read a line at a
   time, so a code span, inline math or a link over two lines of a paragraph
   kept its backticks or brackets, and the `*` and `_` in that code were taken

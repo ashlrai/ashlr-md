@@ -33,6 +33,7 @@ import {
 import { type Extension, StateEffect } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
 import { markdownLines } from "./outline";
+import { splitRow } from "./tableEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -410,10 +411,10 @@ export function tableRowKeymap(): Extension {
         const line =
           lineEnd === -1 ? doc.slice(lineStart) : doc.slice(lineStart, lineEnd);
 
-        // Build a new row with the same number of cells
-        const cells = line
-          .split("|")
-          .filter((_, i, arr) => i > 0 && i < arr.length - 1);
+        // Build a new row with as many cells, read as GFM reads them
+        // (splitRow): an escaped pipe (`\\|`) is cell text. Every `|` used
+        // to split a cell, so the new row had one more for each.
+        const cells = splitRow(line);
         const newRow = "\n| " + cells.map(() => " ").join(" | ") + " |";
 
         view.dispatch({

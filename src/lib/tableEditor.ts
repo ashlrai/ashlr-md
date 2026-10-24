@@ -95,7 +95,7 @@ function renderSeparator(alignments: ColAlignment[]): string {
  * Split a pipe-delimited row into trimmed cell strings. An escaped pipe
  * (`\\|`) is cell text, as GFM reads it; it used to split the cell.
  */
-function splitRow(line: string): string[] {
+export function splitRow(line: string): string[] {
   // Strip optional leading/trailing `|`, then split on `|`.
   const trimmed = line.trim();
   const inner = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
