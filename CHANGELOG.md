@@ -128,6 +128,17 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Editing in the WYSIWYG view no longer rewrites the whole file.** One
+  typed character wrote every block back the way the editor spells it:
+  setext headings became `#` headings, `-` and `+` bullets became `*` and
+  tight lists loose, reference links became inline and their definitions
+  were dropped, indented code and `~~~` fences became backtick fences (an
+  info string lost its `title="..."`), tables were re-padded, entities were
+  decoded, trailing-space line breaks became backslashes, the blank line
+  after the front matter went away and a final newline was added. Now only
+  the blocks you edit are written; every other block, and the text between
+  them, is kept byte for byte. In an edited block a tight bullet list stays
+  tight and an empty table cell stays empty (it was written `<br />`).
 - **Exports name the document's language.** Every exported page said
   `<html lang="en">`, so a screen reader read a French document with English
   rules. The front matter's `lang` (`lang: fr-CA`) now names it, in HTML
