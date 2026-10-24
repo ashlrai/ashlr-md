@@ -23,7 +23,9 @@ import { type DocKind, detectDocKind } from "../../lib/agent-detect";
 import {
   anchorElement,
   imageSource,
+  type LinkTarget,
   linkTarget,
+  resolveLinkTarget,
   scrollToFragment,
 } from "../../lib/docLinks";
 import type { OtOperation } from "../../lib/ot";
@@ -94,7 +96,9 @@ function LinkPreviewAnchor({
 /**
  * Follow a read-view link ({@link linkTarget}): a web or mail link is left
  * to the opener plugin, a `#heading` scrolls this document, and a link to a
- * Markdown document opens it in a tab (scrolling to its `#heading`). Any
+ * Markdown document, or a bare note name found as a wikilink is
+ * ({@link resolveLinkTarget}), opens it in a tab (scrolling to its
+ * `#heading`). Any
  * other link is not followed, with a toast saying why. They used to do
  * nothing, or open the app's own origin in the browser. A relative link
  * resolves from `docPath`, the document holding it (the open document, or
@@ -120,6 +124,22 @@ export function followLink(
     });
     return;
   }
+  if (target.kind === "note") {
+    // A bare note name, looked up as a wikilink is: the rule the hover
+    // preview resolves by, so the click opens what it showed.
+    void resolveLinkTarget(href, docPath).then(openLinkTarget);
+    return;
+  }
+  openLinkTarget(target);
+}
+
+/** Open the document a resolved link names, or say why it is not followed. */
+function openLinkTarget(target: LinkTarget) {
+  if (target.kind === "blocked") {
+    toast.info(target.reason);
+    return;
+  }
+  if (target.kind !== "document") return;
   const { path, fragment } = target;
   void useDocumentStore
     .getState()

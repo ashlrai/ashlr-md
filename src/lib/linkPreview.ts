@@ -4,7 +4,8 @@
  *
  * Three kinds of link are handled:
  *
- *   1. Internal .md / vault wikilinks  — read the file via IPC and return
+ *   1. Internal .md links and bare note names, resolved as a click
+ *      resolves them (docLinks.ts) — read the file via IPC and return
  *      the first heading + paragraph (or first 15 lines), so the popover
  *      renders a meaningful snippet without loading the full document.
  *
@@ -20,9 +21,9 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { resolveLinkTarget } from "./docLinks";
 import { atxHeadings, markdownLines } from "./outline";
 import { splitFragment } from "./transclude";
-import { resolveWikilink } from "./wikilink";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,15 +132,6 @@ export function domainOf(href: string): string {
   }
 }
 
-/** `s` percent-decoded, or as written when it is not valid encoding. */
-function decodeLinkPath(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -147,12 +139,16 @@ function decodeLinkPath(s: string): string {
 /**
  * Resolve `href` to a preview result.
  *
- * For internal links, `currentPath` is the path of the document currently
- * open in the editor — it is forwarded to `resolveWikilink` so relative
- * targets resolve correctly. Pass `null` when no document is open.
+ * Internal links resolve by the rule a click follows
+ * ({@link resolveLinkTarget}, docLinks.ts) from `currentPath`, the document
+ * holding the link: a path with a Markdown extension is that file relative
+ * to the document, a bare name is a note found as a wikilink is. The preview
+ * used to look every link up as a wikilink (vault-wide, from the open
+ * document) while a click opened the relative path, so the two could name
+ * different files, and a bare `[x](Note)` previewed a note a click refused.
  *
- * Returns `null` when the link kind is "none" or a broken internal link
- * cannot be found.
+ * Returns `null` when the link kind is "none", when a click would not open
+ * it, or when a broken internal link cannot be found.
  */
 export async function resolveLinkPreview(
   href: string,
@@ -171,8 +167,8 @@ export async function resolveLinkPreview(
     };
   }
 
-  // Internal: resolve the file, then read it.
-  // Strip any #fragment so we resolve the file itself.
+  // Internal: resolve the file, then read it. The #fragment names a place
+  // in the file, so it is not part of the cache key.
   const { file } = splitFragment(href);
 
   // Cache key: include currentPath so the same href from different docs resolves
@@ -185,19 +181,12 @@ export async function resolveLinkPreview(
     }
   }
 
-  // Resolve absolute path via the same wikilink resolver used by Wikilink.tsx.
-  // We temporarily stub the document store path so resolveWikilink uses the
-  // correct base directory. resolveWikilink reads `documentStore.getState().path`
-  // internally; in the preview flow we rely on the store already holding the
-  // current path, which is the normal runtime state.
-  // A Markdown link's destination is percent-encoded (`My%20Note.md`), as
-  // a click on it decodes it (docLinks.ts); it was resolved as written and
-  // so never found.
-  const resolvedPath = await resolveWikilink(decodeLinkPath(file));
-  if (!resolvedPath) {
+  const target = await resolveLinkTarget(href, currentPath);
+  if (target.kind !== "document") {
     cache.set(cacheKey, { value: null, at: Date.now() });
     return null;
   }
+  const resolvedPath = target.path;
 
   try {
     const doc = await invoke<{ content: string }>("read_markdown_file", {

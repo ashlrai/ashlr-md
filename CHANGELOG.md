@@ -105,6 +105,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A link's hover preview and a click open the same file.** The preview looked
+  every link up as a wikilink (anywhere in the vault) while a click opened the
+  path relative to the document, so the two could name different files, and a
+  bare `[x](Note)` with no extension previewed a note that a click refused with
+  a toast. Both now resolve by one rule: a path with a Markdown extension is that
+  file relative to the document, and a bare name is found as a wikilink is (this
+  folder first, then the vault). A link a click would not follow shows no preview.
 - **An embedded note's links and images resolve from its own file.** In
   `![[sub/note]]`, the note's `![](img.png)`, `[x](other.md)` and `[[link]]`
   were resolved from the document holding the embed, so its images were missing

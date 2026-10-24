@@ -14,6 +14,7 @@ import { Renderer } from "../components/viewer/Renderer";
 import { useDocumentStore } from "../store/documentStore";
 import { useToastStore } from "../store/toastStore";
 import { imageSource, linkTarget, resolveFromDocument } from "./docLinks";
+import { invalidateWikilinkCache } from "./wikilink";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,6 +51,23 @@ describe("linkTarget", () => {
     // `..` never climbs past the root.
     expect(linkTarget("../../../../x.md", doc)).toMatchObject({ path: "/x.md" });
     expect(linkTarget("/abs/x.md", doc)).toMatchObject({ path: "/abs/x.md" });
+  });
+
+  it("reads a bare name with no extension as a note to look up", () => {
+    expect(linkTarget("Plan", doc)).toEqual({
+      kind: "note",
+      name: "Plan",
+      fragment: null,
+    });
+    expect(linkTarget("sub/My%20Plan#Goals", doc)).toEqual({
+      kind: "note",
+      name: "sub/My Plan",
+      fragment: "Goals",
+    });
+    // Unsaved, a folder, or hidden: not looked up.
+    expect(linkTarget("Plan", null).kind).toBe("blocked");
+    expect(linkTarget("sub/", doc).kind).toBe("blocked");
+    expect(linkTarget(".env", doc).kind).toBe("blocked");
   });
 
   it("refuses other schemes, other files and hidden folders", () => {
@@ -186,6 +204,38 @@ describe("the read view follows links and shows local images", () => {
         .toasts.map((t) => t.message)
         .join(),
     ).toMatch(/does not open irc/);
+  });
+
+  it("opens a bare [x](Note) as a wikilink resolves it, and says when there is none", async () => {
+    invalidateWikilinkCache();
+    invokeMock.mockImplementation((cmd: string, args?: { target?: string }) => {
+      if (cmd === "resolve_wikilink") {
+        return Promise.resolve(args?.target === "Plan" ? "/v/notes/Plan.md" : null);
+      }
+      return Promise.resolve(null);
+    });
+    await render("[Plan](Plan#Goals) [Gone](Gone)\n");
+    expect(click("Plan")).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(invokeMock).toHaveBeenCalledWith("resolve_wikilink", {
+      baseDir: "/v",
+      target: "Plan",
+      vaultRoot: null,
+    });
+    expect(openPath).toHaveBeenCalledWith("/v/notes/Plan.md");
+    expect(click("Gone")).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(openPath).toHaveBeenCalledTimes(1);
+    expect(
+      useToastStore
+        .getState()
+        .toasts.map((t) => t.message)
+        .join(),
+    ).toMatch(/No note named “Gone”/);
   });
 
   it("shows a relative image through Rust, and says when one is missing", async () => {

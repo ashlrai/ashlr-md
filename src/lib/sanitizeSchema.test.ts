@@ -63,7 +63,9 @@ describe("SANITIZE_SCHEMA", () => {
   });
 
   it("keeps footnote back-references' class, and no other class on a link", async () => {
-    const out = await render('Text[^1]\n\n[^1]: Note.\n\n<a class="evil x" href="https://x.org">x</a>');
+    const out = await render(
+      'Text[^1]\n\n[^1]: Note.\n\n<a class="evil x" href="https://x.org">x</a>',
+    );
     expect(out).toContain('class="data-footnote-backref"');
     expect(out).not.toContain("evil");
   });

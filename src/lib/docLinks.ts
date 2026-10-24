@@ -12,10 +12,16 @@
  *
  * Links to local files open only Markdown documents, through no hidden
  * folder or file the link itself names (`../.ssh/x.md`): a link's text can
- * say anything, and a document opened in a tab is what agents read.
+ * say anything, and a document opened in a tab is what agents read. A path
+ * with a Markdown extension is the file it names, relative to the document;
+ * a bare name with no extension (`[x](Note)`, `[x](notes/Plan)`) is a note
+ * found as a wikilink is ({@link resolveLinkTarget}: this folder first,
+ * then the vault). A click and the hover preview resolve a link by this one
+ * rule, so the preview shows the file a click opens.
  */
 
 import GithubSlugger from "github-slugger";
+import { resolveWikilink } from "./wikilink";
 
 /** Extensions of documents a link may open in a tab. */
 const MARKDOWN_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
@@ -33,6 +39,11 @@ export type LinkTarget =
   | { kind: "anchor"; id: string }
   /** A Markdown document to open, and the heading to scroll to. */
   | { kind: "document"; path: string; fragment: string | null }
+  /**
+   * A note named with no extension, to look up as a wikilink is
+   * ({@link resolveLinkTarget} turns it into a document or blocked).
+   */
+  | { kind: "note"; name: string; fragment: string | null }
   /** Not followed, and why. */
   | { kind: "blocked"; reason: string };
 
@@ -112,7 +123,8 @@ export function linkTarget(
   const { path, fragment } = splitHref(h);
   const rel = decode(path);
   if (rel === "") return { kind: "anchor", id: fragment ?? "" };
-  if (!MARKDOWN_EXT.test(rel)) {
+  const bare = isBareName(rel);
+  if (!MARKDOWN_EXT.test(rel) && !bare) {
     return { kind: "blocked", reason: "Only Markdown documents open from links." };
   }
   if (namesHidden(rel)) {
@@ -121,10 +133,45 @@ export function linkTarget(
       reason: "Links into hidden folders or files are not opened.",
     };
   }
+  if (bare) {
+    if (!docPath)
+      return { kind: "blocked", reason: "Save the document to follow its links." };
+    return { kind: "note", name: rel, fragment };
+  }
   const abs = resolveFromDocument(docPath, rel);
   if (!abs)
     return { kind: "blocked", reason: "Save the document to follow its links." };
   return { kind: "document", path: abs, fragment };
+}
+
+/**
+ * Whether a link path names a note with no extension (`Note`,
+ * `notes/Plan`): its last segment has no `.` past its first character.
+ * A path ending in a separator names a folder, not a note.
+ */
+function isBareName(rel: string): boolean {
+  const last = rel.split(/[\\/]/).pop() ?? "";
+  return last !== "" && last.lastIndexOf(".") <= 0;
+}
+
+/**
+ * {@link linkTarget}, with a bare note name looked up as a wikilink is
+ * (`resolve_wikilink`: this folder, the vault root, then by name anywhere
+ * in the vault, inside the vault only). Both a click and the hover preview
+ * resolve links here, so they name the same file. A bare `[x](Note)` used
+ * to be refused with a toast while its preview showed the note.
+ */
+export async function resolveLinkTarget(
+  href: string | undefined,
+  docPath: string | null,
+): Promise<LinkTarget> {
+  const target = linkTarget(href, docPath);
+  if (target.kind !== "note") return target;
+  const path = await resolveWikilink(target.name, docPath);
+  if (!path) {
+    return { kind: "blocked", reason: `No note named “${target.name}” was found.` };
+  }
+  return { kind: "document", path, fragment: target.fragment };
 }
 
 export type ImageSource =

@@ -346,8 +346,8 @@ describe("resolveLinkPreview — internal .md links", () => {
     });
   });
 
-  it("returns null when resolveWikilink returns null (broken link)", async () => {
-    resolveWikilinkMock.mockResolvedValueOnce(null);
+  it("returns null when the linked file is missing (broken link)", async () => {
+    invokeMock.mockRejectedValueOnce("Could not read /vault/nonexistent.md");
 
     const result = await resolveLinkPreview("nonexistent.md", "/vault/current.md");
     expect(result).toBeNull();
@@ -361,22 +361,43 @@ describe("resolveLinkPreview — internal .md links", () => {
     expect(result).toBeNull();
   });
 
-  it("strips #fragment before resolving, passes file part to wikilink", async () => {
-    resolveWikilinkMock.mockResolvedValueOnce("/vault/note.md");
+  it("strips #fragment before resolving, and reads the file a click opens", async () => {
     invokeMock.mockResolvedValueOnce({ content: "# Note\n\nBody." });
 
     await resolveLinkPreview("note.md#heading", "/vault/current.md");
 
-    expect(resolveWikilinkMock).toHaveBeenCalledWith("note.md");
+    // A path with a Markdown extension is that file, relative to the
+    // document, as a click opens it: not looked up vault-wide.
+    expect(resolveWikilinkMock).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith("read_markdown_file", {
+      path: "/vault/note.md",
+    });
   });
 
   it("percent-decodes a Markdown link's path before resolving it", async () => {
-    resolveWikilinkMock.mockResolvedValueOnce("/vault/My Note.md");
     invokeMock.mockResolvedValueOnce({ content: "# My Note" });
 
     await resolveLinkPreview("My%20Note.md#Part%202", "/vault/current.md");
 
-    expect(resolveWikilinkMock).toHaveBeenCalledWith("My Note.md");
+    expect(invokeMock).toHaveBeenCalledWith("read_markdown_file", {
+      path: "/vault/My Note.md",
+    });
+  });
+
+  it("resolves a .md link relative to the document holding it", async () => {
+    invokeMock.mockResolvedValueOnce({ content: "# Deep" });
+
+    const result = await resolveLinkPreview("../b/deep.md", "/vault/a/current.md");
+
+    expect(result!.resolvedPath).toBe("/vault/b/deep.md");
+  });
+
+  it("previews nothing a click would refuse", async () => {
+    expect(
+      await resolveLinkPreview("../.ssh/notes.md", "/vault/current.md"),
+    ).toBeNull();
+    expect(await resolveLinkPreview("config.json", "/vault/current.md")).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it("returns snippet extracted from file content", async () => {
@@ -484,8 +505,8 @@ describe("resolveLinkPreview — caching", () => {
   it("null (broken) results are cached briefly", async () => {
     resolveWikilinkMock.mockResolvedValue(null);
 
-    const r1 = await resolveLinkPreview("missing.md", "/vault/current.md");
-    const r2 = await resolveLinkPreview("missing.md", "/vault/current.md");
+    const r1 = await resolveLinkPreview("missing", "/vault/current.md");
+    const r2 = await resolveLinkPreview("missing", "/vault/current.md");
 
     expect(r1).toBeNull();
     expect(r2).toBeNull();
@@ -559,14 +580,13 @@ describe("resolveLinkPreview — malformed and edge-case links", () => {
     expect(result!.snippet).toBe("");
   });
 
-  it("handles a currentPath of null (no document open)", async () => {
-    resolveWikilinkMock.mockResolvedValueOnce("/vault/note.md");
-    invokeMock.mockResolvedValueOnce({ content: "# Note\n\nBody." });
-
-    // Should not throw even when currentPath is null.
+  it("previews no relative link when no document is saved (currentPath null)", async () => {
+    // A click says to save the document first; the preview used to show a
+    // file looked up from the open document's path instead.
     const result = await resolveLinkPreview("note.md", null);
-    expect(result).not.toBeNull();
-    expect(result!.kind).toBe("internal");
+    expect(result).toBeNull();
+    expect(await resolveLinkPreview("note", null)).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it("handles IPC returning unexpected shape without throwing", async () => {
