@@ -2,7 +2,8 @@
  * Switching tabs in the read view went to the top of the document every
  * time, so the place in a long document was lost on each switch. A tab
  * switched back to now returns to where it was read; a newly opened
- * document still starts at the top.
+ * document still starts at the top. A change on disk to the document shown
+ * (an agent writing it) went to the top too; it now keeps the place.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -100,5 +101,42 @@ describe("the read view's place in each tab", () => {
     await scrollTo(400);
     await open("c.md");
     expect(main().scrollTop).toBe(0);
+  });
+  const changeOnDisk = (name: string, text: string) =>
+    act(async () => {
+      const s = useDocumentStore.getState();
+      expect(s.path).toBe(`/n/${name}`);
+      s.handleDiskUpdate(text, `v-${text.length}`);
+    });
+
+  it("keeps the place when the document shown changes on disk", async () => {
+    await open("a.md");
+    await scrollTo(400);
+    const nonce = useDocumentStore.getState().reloadNonce;
+    await changeOnDisk("a.md", `# a.md\n\n${"Another paragraph.\n\n".repeat(60)}`);
+    expect(useDocumentStore.getState().reloadNonce).toBe(nonce + 1);
+    expect(main().scrollTop).toBe(400);
+    await changeOnDisk("a.md", `# a.md\n\n${"A third paragraph.\n\n".repeat(60)}`);
+    expect(main().scrollTop).toBe(400);
+  });
+
+  it("does not take focus from a field when the document changes on disk", async () => {
+    await open("a.md");
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    try {
+      field.focus();
+      await changeOnDisk("a.md", "# a.md\n\nChanged.\n");
+      expect(document.activeElement).toBe(field);
+    } finally {
+      field.remove();
+    }
+  });
+
+  it("gives focus back to the document after a reload when it was lost", async () => {
+    await open("a.md");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await changeOnDisk("a.md", "# a.md\n\nChanged.\n");
+    expect(document.activeElement).toBe(main());
   });
 });

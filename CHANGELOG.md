@@ -219,6 +219,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A document changed on disk keeps your place in the read view.** Each
+  change another app or an agent wrote to a clean document scrolled the read
+  view to the top, so a reader following an agent's writes lost their place.
+  A reload of the document shown now keeps the scroll position, and it no
+  longer takes focus from a field that has it (the find bar, the AI
+  sidebar); a different document still opens at the top.
 - **A note deleted, renamed or moved in the watched folder leaves the Activity
   list.** The folder watcher sent only creates and changes, so a note deleted
   elsewhere stayed listed (and failed when opened), and wikilinks to it kept
