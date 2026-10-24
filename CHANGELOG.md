@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen: a path that resolves to a non-UTF-8 name is refused.** `mdopen
+  notes.md`, where `notes.md` links into a folder whose name is not UTF-8,
+  handed the app the lossy spelling of the target, a path that names no
+  file. mdopen now stops with exit 1 and says the resolved path is not
+  UTF-8; the `--hook` mode opens nothing for such a file.
 - **MCP: a path that resolves to a non-UTF-8 name is refused, saying so.**
   A `notes.md` link into a folder whose name is not UTF-8 was resolved to
   the lossy spelling of its target, a file that does not exist, so

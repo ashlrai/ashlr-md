@@ -360,6 +360,16 @@ fn version_line() -> String {
 /// the only files the app opens.
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
     let p = std::fs::canonicalize(target).map_err(|e| missing_or_unresolved(target, &e))?;
+    // A link into a folder whose name is not UTF-8: the app was handed the
+    // lossy spelling of the target, a path that names no file.
+    if p.to_str().is_none() {
+        return Err(format!(
+            "{target:?} resolves to {}, which is not valid UTF-8, so it cannot be opened: \
+             Ashlr MD opens paths that are valid UTF-8. Rename the file or folder and run \
+             mdopen again.",
+            p.display()
+        ));
+    }
     if p.is_dir() {
         return Err(format!(
             "{target:?} is a directory, not a file; pass a Markdown file in it"
@@ -755,7 +765,8 @@ fn hook_target(input: &str) -> Option<PathBuf> {
     // `.notes.md`, or a `notes.md` linking to a dotfile or a non-Markdown
     // file, used to be handed to the app, which refuses it.
     let abs = std::fs::canonicalize(&p).ok()?;
-    (abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
+    // Not UTF-8 once resolved: the app would get a lossy path naming no file.
+    (abs.to_str().is_some() && abs.is_file() && is_markdown_document_name(&abs)).then_some(abs)
 }
 
 /// Whether a payload's `tool_response` says the tool failed: an object with
@@ -818,10 +829,10 @@ EXIT STATUS:
     1  bad usage (including --edit with --read or an empty path), a missing
        or unresolvable path, a directory, not a file or not a Markdown
        document (.md, .markdown, .mdown, .mkd, .mdx; no dotfiles), an
-       argument that is not valid UTF-8, `-` with empty stdin or more than
-       16 MiB of it, or the app is not running and the launcher failed or is
-       missing (no desktop session); a message on stderr says which. A `-`
-       temp file is removed in that case. Also 1, without trying the URL
+       argument (or the path it resolves to) that is not valid UTF-8, `-`
+       with empty stdin or more than 16 MiB of it, or the app is not running
+       and the launcher failed or is missing (no desktop session); a message
+       on stderr says which. A `-` temp file is removed in that case. Also 1, without trying the URL
        scheme, when the running app refused the file (its reason on stderr)
        or was reached but failed: it answered with a server error, the
        connection broke, or it did not answer within 6s (the app may still
@@ -1209,6 +1220,25 @@ mod tests {
         // A name that is itself not a document does not claim a link.
         let err = resolve_file(s.file("notes.txt").to_str().unwrap()).unwrap_err();
         assert!(!err.contains("links to"), "{err}");
+    }
+
+    /// A link into a folder whose name is not UTF-8 was resolved and handed
+    /// to the app by the lossy spelling of its target (`bad\u{FFFD}dir/x.md`),
+    /// a path that names no file. It is refused, saying why, and the hook
+    /// opens nothing. (Linux: macOS refuses such names.)
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_path_that_resolves_to_a_non_utf8_name_is_refused() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let s = Scratch::new("non-utf8");
+        let bad = s.0.join(std::ffi::OsStr::from_bytes(b"bad\xffdir"));
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(bad.join("x.md"), "# x").unwrap();
+        let link = s.0.join("link.md");
+        std::os::unix::fs::symlink(bad.join("x.md"), &link).unwrap();
+        let err = resolve_file(link.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("which is not valid UTF-8"), "{err}");
+        assert_eq!(hook_target(&payload(&s.0, "link.md")), None);
     }
 
     #[test]
