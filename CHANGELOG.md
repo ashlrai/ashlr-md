@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited callout stays a callout.** Typing in a GitHub callout
+  (`> [!NOTE]`, `> [!WARNING] Title`) in the WYSIWYG editor saved its marker
+  as `> \[!NOTE]`, so it showed as a plain quote from then on. The marker is
+  kept as written.
 - **An edited table keeps its layout.** Typing one character in a table cell
   in the WYSIWYG editor re-padded every column of the table to its widest
   cell. Rows whose cells did not change are now kept as written, a changed

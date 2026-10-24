@@ -753,6 +753,37 @@ export function keepTableLayout(written: string, source: string): string {
   return out.join("\n") + end;
 }
 
+/**
+ * Keep a GitHub callout marker (`> [!NOTE]`, `> [!WARNING] Title`) that
+ * starts a blockquote in `tree` unescaped, when `source` wrote it so: the
+ * serializer escaped its `[`, so an edited callout was saved as
+ * `> \[!NOTE]` and showed as a plain quote. The marker is put in as raw
+ * text (an `html` node).
+ */
+export function keepCalloutMarkers(tree: unknown, source: string): void {
+  const walk = (node: SpelledNode) => {
+    for (const kid of node.children ?? []) walk(kid);
+    if (node.type !== "blockquote") return;
+    const para = node.children?.[0];
+    const first = para?.type === "paragraph" ? para.children?.[0] : undefined;
+    if (!para?.children || first?.type !== "text" || typeof first.value !== "string") {
+      return;
+    }
+    const m = /^\[![A-Za-z]+\]/.exec(first.value);
+    if (!m) return;
+    const at = source.indexOf(m[0]);
+    if (at === -1 || source[at - 1] === "\\") return;
+    const rest = first.value.slice(m[0].length);
+    para.children.splice(
+      0,
+      1,
+      { type: "html", value: m[0] },
+      ...(rest ? [{ type: "text", value: rest }] : []),
+    );
+  };
+  walk(tree as SpelledNode);
+}
+
 /** The parts of an mdast node {@link keepSpellings} reads and writes. */
 interface SpelledNode {
   type: string;
@@ -978,7 +1009,11 @@ function styledSerializer(
     state.run(doc);
     const tree: MarkdownNode = state.build();
     const r = range(source);
-    if (r) keepSpellings(tree, original.slice(r.start, r.end));
+    if (r) {
+      const text = original.slice(r.start, r.end);
+      keepSpellings(tree, text);
+      keepCalloutMarkers(tree, text);
+    }
     return restyled(processor.stringify(tree), original, source);
   };
 }
