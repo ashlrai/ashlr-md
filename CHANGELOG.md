@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Export failures say why, once.** An export from the command palette that
+  failed with an error (not a plain message) toasted only "Export failed",
+  without the reason, and a failed write was toasted twice, by the export and
+  again by the palette (or by the MCP export, as "MCP export failed"). The
+  reason is now always shown, and a failed write is toasted once.
 - **Exports from the command palette are named after the document.** "Export
   as HTML/PDF/Word/EPUB" in the palette passed the file name with its
   extension, so the save dialog offered `notes.md.html` and a document

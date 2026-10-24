@@ -385,7 +385,7 @@ describe("exportHtml", () => {
         ? Promise.reject("Could not save /home/user/my-doc.html: it is a symbolic link")
         : Promise.resolve(undefined),
     );
-    await expect(exportHtml("My Doc")).rejects.toMatch("symbolic link");
+    await expect(exportHtml("My Doc")).rejects.toThrow("symbolic link");
     expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
       false,
     );

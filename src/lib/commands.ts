@@ -22,6 +22,7 @@ import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { copyAsRichText, copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
+import { exportErrorText, ShownExportError } from "./exportErrors";
 import { exportTitle } from "./exportName";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
@@ -43,7 +44,10 @@ async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
   try {
     await fn(exportTitle(doc.fileName));
   } catch (e) {
-    toast.error(typeof e === "string" ? e : "Export failed");
+    // A failed write was toasted by the export already; anything else
+    // says why (an Error's reason was dropped: "Export failed").
+    if (e instanceof ShownExportError) return;
+    toast.error(`Export failed: ${exportErrorText(e)}`);
   }
 }
 

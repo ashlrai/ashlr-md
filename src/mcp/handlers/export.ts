@@ -13,7 +13,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "../../lib/export";
-import { READ_VIEW_REQUIRED } from "../../lib/exportErrors";
+import {
+  exportErrorText,
+  READ_VIEW_REQUIRED,
+  ShownExportError,
+} from "../../lib/exportErrors";
 import { exportTitle } from "../../lib/exportName";
 import { useDocumentStore } from "../../store/documentStore";
 import { toast } from "../../store/toastStore";
@@ -67,9 +71,10 @@ export function handleExportPayload(): Promise<UnlistenFn> {
         }
         await replyToExport(editId, null);
       } catch (err) {
-        const errStr =
-          typeof err === "string" ? err : ((err as Error)?.message ?? String(err));
-        toast.error(`MCP export failed: ${errStr}`);
+        const errStr = exportErrorText(err);
+        // A failed write was toasted by the export already.
+        if (!(err instanceof ShownExportError))
+          toast.error(`MCP export failed: ${errStr}`);
         await replyToExport(
           editId,
           errStr === READ_VIEW_REQUIRED

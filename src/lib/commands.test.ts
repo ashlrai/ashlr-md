@@ -165,6 +165,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../store/toastStore";
 import { copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
+import { ShownExportError } from "./exportErrors";
 import { pickAndOpen } from "./openFile";
 
 const invokeMock = vi.mocked(invoke);
@@ -975,6 +976,23 @@ describe("Command execution — delegates fire correctly", () => {
     } finally {
       docState.fileName = "test.md";
     }
+  });
+
+  it("says why an export failed, once", async () => {
+    // An Error's reason was dropped ("Export failed"), and a failed write,
+    // which the export toasts itself, was toasted a second time.
+    docState.path = "/tmp/test.md";
+    const run = () =>
+      getCommands()
+        .find((c) => c.id === "file.export.html")!
+        .run();
+    exportHtmlMock.mockRejectedValueOnce(new Error("html-to-docx exploded"));
+    await run();
+    expect(toastErrorMock).toHaveBeenCalledWith("Export failed: html-to-docx exploded");
+    toastErrorMock.mockClear();
+    exportHtmlMock.mockRejectedValueOnce(new ShownExportError("disk full"));
+    await run();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
   it("file.export.html.run() does nothing when no doc is open", async () => {

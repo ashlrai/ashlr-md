@@ -25,7 +25,7 @@ import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
 import themesCss from "../styles/themes.css?raw";
-import { READ_VIEW_REQUIRED } from "./exportErrors";
+import { READ_VIEW_REQUIRED, ShownExportError } from "./exportErrors";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
 import { findProfile, findTemplate } from "./exportTemplates";
 import { frontmatterText } from "./frontmatter";
@@ -436,7 +436,7 @@ export async function exportHtml(
     await writeExportBytes(path, new TextEncoder().encode(html), opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
 }
@@ -507,7 +507,7 @@ export async function exportDocx(
     await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
 }
@@ -864,7 +864,7 @@ export async function exportEpub(
     await writeExportBytes(path, bytes, opts);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
 }
@@ -1064,7 +1064,7 @@ export async function exportWithProfile(
     await writeExportBytes(path, new TextEncoder().encode(content));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
-    throw e;
+    throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
 }
