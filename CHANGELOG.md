@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` keeps an `===` line the page shows as text.** Every line of
+  only `=` or `-` was dropped as a setext heading underline, so an `===` line
+  after link reference definitions, one with no paragraph before it and a lazy
+  one after a list item (`- a`, then `===`) were lost, although the page shows
+  them. Underlines are now read by the container rule of the lines and, after
+  definitions, as micromark reads them, also when a `---` line underlines the
+  paragraph an `===` line starts there.
 - **HTML blocks and footnote definitions are read as the page reads them.** The
   line scanner behind the Outline, task checkboxes, `export_text`,
   `export_metadata` and document titles read the lines of an HTML block (a

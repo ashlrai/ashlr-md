@@ -8654,9 +8654,8 @@ fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
         ("[a]: /u \"t\" x", "[a]: /u \"t\" x"),
         ("[a]:\n/u x", "[a]:\n/u x"),
         // `===` after definitions is a paragraph, not an underline, and
-        // the line after it goes on with that paragraph (the `===` line
-        // itself is still dropped, as an underline is).
-        ("[a]: /u\n===\n[b]: /v", "[b]: /v"),
+        // the line after it goes on with that paragraph.
+        ("[a]: /u\n===\n[b]: /v", "===\n[b]: /v"),
         // Autolinks keep their URL or address; HTML reads nothing; any
         // other `<` is text.
         (
@@ -8742,6 +8741,30 @@ fn footnote_definitions_are_containers() {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");
     }
     assert!(extract_headings("[^n]: x\n\n    # Sub").is_empty());
+}
+
+/// export_text dropped every line of only `=` or `-` as a setext heading
+/// underline, although an `===` line after link reference definitions,
+/// or with no paragraph before it, or a lazy one after a list item, is
+/// text on the page. Underlines are now read by the container rule of
+/// the lines and, after definitions, as micromark reads them.
+#[test]
+fn export_text_keeps_an_equals_line_the_page_shows_as_text() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        ("x\n\n[a]: /u\n===", "x\n\n==="),
+        ("x\n\n[a]: /u\n===\n===", "x\n\n==="),
+        ("x\n\n[a]: /u\n--\ny", "x\n\n--\ny"),
+        ("x\n\n===", "x\n\n==="),
+        ("- a\n===", "a\n==="),
+        ("> a\n===", "a\n==="),
+        // Underlines are still dropped.
+        ("Title\n===\n\nSub\n---", "Title\n\nSub"),
+        ("> q\n> ===", "q"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
 }
 
 /// A link's text and an image's alt text kept their inline markup:

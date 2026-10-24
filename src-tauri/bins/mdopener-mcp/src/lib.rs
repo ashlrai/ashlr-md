@@ -7896,7 +7896,13 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
 ///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
 ///   `# comment` indented four spaces lost its `#`.
-/// - Setext heading underlines (`===` / `---` only lines) are removed.
+/// - Setext heading underlines (`===` / `---` only lines after a
+///   paragraph) are removed, by the container rule of the lines
+///   ([`markdown_lines::item_starts`]) and, after link reference
+///   definitions, as micromark reads them ([`reference_definitions`]). An
+///   `===` line with no paragraph before it, after definitions or lazily
+///   after a list item is text on the page and is kept; every line of only
+///   `=` or `-` used to be dropped.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
@@ -7940,13 +7946,16 @@ pub fn strip_markdown(content: &str) -> String {
         ),
     );
     let tasks = task_list::task_marks(content);
-    let (refs, definitions) = reference_definitions(content);
-    // The label of the footnote definition each line opens, past the
-    // front matter the lines below leave out.
-    let footnotes: Vec<Option<String>> = markdown_lines::item_starts(content)
-        .skip(markdown_lines::front_matter_len(content))
-        .map(|s| s.footnote)
-        .collect();
+    let (refs, definitions, underlines) = reference_definitions(content);
+    // The label of the footnote definition each line opens, and whether
+    // it is a setext heading underline, past the front matter the lines
+    // below leave out.
+    let (footnotes, underlines): (Vec<Option<String>>, Vec<bool>) =
+        markdown_lines::item_starts(content)
+            .zip(underlines)
+            .skip(markdown_lines::front_matter_len(content))
+            .map(|(s, under)| (s.footnote, under.unwrap_or(s.underline)))
+            .unzip();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -8038,10 +8047,11 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
 
-        // Setext heading underlines (lines that are only `=` or `-`).
-        if !trimmed.is_empty()
-            && (trimmed.chars().all(|c| c == '=') || trimmed.chars().all(|c| c == '-'))
-        {
+        // A setext heading underline, by the container rule of the lines
+        // and after definitions as micromark reads it: an `===` line after
+        // a definition, or with no paragraph before it, is text on the
+        // page. Every line of only `=` or `-` used to be dropped.
+        if underlines[idx] {
             continue;
         }
 
@@ -8271,13 +8281,24 @@ fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
 /// blockquote markers and list markers, that does not go on with a
 /// paragraph (a definition cannot interrupt one), or that follows another
 /// definition. The links of [`strip_markdown`] are read against the
-/// labels, and it drops the lines, which the page does not show.
-fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, Vec<bool>) {
+/// labels, and it drops the lines, which the page does not show. Last,
+/// whether each line is a setext heading underline, where definitions
+/// make it read otherwise than [`markdown_lines::item_starts`] does: an
+/// `===` line after them starts a paragraph (no underline), and the
+/// paragraph's own underline is one.
+type Definitions = (
+    std::collections::HashSet<String>,
+    Vec<bool>,
+    Vec<Option<bool>>,
+);
+
+fn reference_definitions(content: &str) -> Definitions {
     let texts: Vec<Option<String>> = markdown_lines::line_text(content)
         .map(|t| t.map(|(text, _)| text.into_owned()))
         .collect();
     let mut labels = std::collections::HashSet::new();
     let mut lines = vec![false; texts.len()];
+    let mut underlines = vec![None; texts.len()];
     let mut after_definition = false;
     // Whether the line is in a paragraph markdown_lines does not see.
     let mut paragraph = false;
@@ -8307,7 +8328,8 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
                 || start.text.is_some()
                 || start.footnote.is_some()
                 || markdown_lines::atx_heading(text).is_some()
-                || is_thematic_break(text)
+                // A `---` line is that paragraph's underline, not a break.
+                || (is_thematic_break(text) && !text.trim_end().ends_with("---"))
                 || i.checked_sub(1)
                     .is_some_and(|j| quote_depth(raws[i]) > quote_depth(raws[j])))
         {
@@ -8325,14 +8347,22 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
                 || !(mark.chars().all(|c| c == '=') || mark.chars().all(|c| c == '-'));
             after_definition = false;
             heading_end = !paragraph;
+            underlines[i] = Some(heading_end);
             continue;
         }
-        if after_definition && start.underline && !text.trim().starts_with("---") {
-            paragraph = true;
-            after_definition = false;
-            continue;
+        // Whether the line before ended that paragraph as a heading, which
+        // markdown_lines reads as a paragraph's first line.
+        let after_heading = std::mem::take(&mut heading_end);
+        if (after_definition || after_heading) && start.underline {
+            // A `---` line is a thematic break there.
+            underlines[i] = Some(false);
+            if !text.trim().starts_with("---") {
+                paragraph = true;
+                after_definition = false;
+                continue;
+            }
         }
-        let fresh = !start.continues || std::mem::take(&mut heading_end);
+        let fresh = !start.continues || after_heading;
         let found = (fresh || after_definition)
             .then(|| {
                 // The lines that go on with its paragraph.
@@ -8353,7 +8383,7 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
             lines[i..covered].fill(true);
         }
     }
-    (labels, lines)
+    (labels, lines, underlines)
 }
 
 /// Whether `text` (a line past its containers) is a thematic break: at
