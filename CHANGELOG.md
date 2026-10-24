@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A byte order mark no longer hides a document's first line.** A file
+  saved with a UTF-8 BOM (Notepad saves one) kept it before its first line,
+  so a `# Title` there was missing from the Outline, front matter after it
+  was read as Markdown by the Outline, the lint rules, the task checkboxes and
+  the visual editor, and a visual edit saved the file without its BOM (the
+  editor drops it). The mark is now read as no text, and the visual editor
+  keeps it.
 - **Agent edits match line breaks either way.** `edit_document`,
   `stream_edit` and `stream_edit_apply` needed `find` to match a CRLF
   document's `\r\n`s exactly, so an agent's LF `find` was "not found" there

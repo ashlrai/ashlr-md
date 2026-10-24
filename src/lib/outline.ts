@@ -973,6 +973,11 @@ export interface MarkdownLine {
   footnote?: true;
 }
 
+/** `line` without a leading UTF-8 byte order mark. */
+function withoutBom(line: string): string {
+  return line.startsWith("\uFEFF") ? line.slice(1) : line;
+}
+
 /**
  * The lines of `markdown`, each marked front matter, fence, fenced code or
  * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
@@ -1009,7 +1014,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   const out: MarkdownLine[] = [];
   let start = 0;
   for (let i = 0; i < offset; i++) {
-    const content = all[i].endsWith("\r") ? all[i].slice(0, -1) : all[i];
+    const bare = all[i].endsWith("\r") ? all[i].slice(0, -1) : all[i];
+    const content = i === 0 ? withoutBom(bare) : bare;
     out.push({
       kind: "frontmatter",
       text: all[i],
@@ -1049,7 +1055,10 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
-    const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
+    // A byte order mark before the first line is not its text (micromark
+    // drops it), so `\uFEFF# Title` is a heading.
+    const unmarked = line === 1 ? withoutBom(text) : text;
+    const raw = unmarked.endsWith("\r") ? unmarked.slice(0, -1) : unmarked;
     const expanded = expandTabs(raw);
     let kind: MarkdownLine["kind"] = "text";
     // A line of an open HTML block: one that stays in its containers and,
@@ -1241,7 +1250,8 @@ export function listItem(
   l: MarkdownLine | undefined,
 ): { ordered: boolean; text: string } | null {
   if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
-  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  const text = l.line === 1 ? withoutBom(l.text) : l.text;
+  const raw = text.endsWith("\r") ? text.slice(0, -1) : text;
   const expanded = expandTabs(raw);
   const prefix = expanded.slice(0, expanded.length - l.content.length);
   // The marker right before the text; a line after a bare marker (`-`,

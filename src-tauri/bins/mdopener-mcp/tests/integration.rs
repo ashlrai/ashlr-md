@@ -14526,3 +14526,20 @@ fn export_text_reads_inline_markdown_per_paragraph() {
     assert_eq!(strip_markdown("a `b\n\nc` d\n"), "a `b\n\nc` d");
     assert_eq!(strip_markdown("# a `b\nc` d\n"), "a `b\nc` d");
 }
+
+/// A UTF-8 byte order mark before the first line is no text of it, as
+/// micromark reads it: the line rule read `\u{FEFF}# Top` as text and the
+/// front matter after a mark as Markdown, wherever a caller did not take
+/// the mark off first (the task checkboxes of `get_user_annotations`).
+#[test]
+fn a_byte_order_mark_is_no_text_of_the_first_line() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(texts("\u{FEFF}# Top\n"), ["Top"]);
+    assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
+}
