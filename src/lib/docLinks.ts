@@ -146,13 +146,31 @@ export function linkTarget(
 }
 
 /**
+ * Extensions that make a link's last segment a file name rather than a
+ * note's: the kinds a wikilink resolves to (`resolve_wikilink`'s
+ * MD_EXTENSIONS, LINKABLE_EXTENSIONS and TEXT_EXTENSIONS in
+ * src-tauri/src/document.rs).
+ */
+const FILE_EXT = new Set([
+  ...["md", "markdown", "mdown", "mkd", "mdx"],
+  ...["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif", "canvas", "pdf"],
+  ...["txt", "text", "csv", "tsv"],
+]);
+
+/**
  * Whether a link path names a note with no extension (`Note`,
- * `notes/Plan`): its last segment has no `.` past its first character.
- * A path ending in a separator names a folder, not a note.
+ * `notes/Plan`): its last segment has no `.` past its first character, or
+ * what follows its last `.` is no extension a link resolves to, as a
+ * note's name may hold a dot (`v1.2 plan`, `2024.01.05`), the rule
+ * wikilinks follow. Any dot used to make it a file name, so
+ * `[x](v1.2%20plan)` was refused. A path ending in a separator names a
+ * folder, not a note.
  */
 function isBareName(rel: string): boolean {
   const last = rel.split(/[\\/]/).pop() ?? "";
-  return last !== "" && last.lastIndexOf(".") <= 0;
+  if (last === "") return false;
+  const dot = last.lastIndexOf(".");
+  return dot <= 0 || !FILE_EXT.has(last.slice(dot + 1).toLowerCase());
 }
 
 /**

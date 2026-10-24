@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A Markdown link to a note with a dot in its name opens it.**
+  `[x](v1.2%20plan)` or `[x](2024.01.05)` was taken to name a file with the
+  extension `2 plan` or `05`, so it was refused as not a Markdown document.
+  As for wikilinks, only an extension a link may resolve to (a note, image,
+  canvas, PDF or text file) now makes the name a file name; the rest is
+  looked up as a note.
 - **Find in the read view finds text in inline code.** Find skipped every
   `code` element, so an identifier written as `` `parseConfig()` `` could not
   be found. Inline code is searched now; code blocks are still skipped. A match
