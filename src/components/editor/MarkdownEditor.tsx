@@ -64,6 +64,37 @@ import "../../styles/editor.css";
  * text is restored and a small inline message is shown.
  */
 
+/** What {@link showBodyInEditor} works on: the mounted editor's parts. */
+interface MountedEditor {
+  view: ProseView | null;
+  editor: Editor | undefined;
+  keeper: SourceKeeping | null;
+}
+
+/**
+ * Make the editor's tree show `body` (a change made to the Markdown
+ * outside it): the `tableIndex`th table is replaced, or the whole
+ * document, and the source keeper takes `body` as the text the tree
+ * stands for, so it is saved as written.
+ */
+function showBodyInEditor(
+  { view, editor, keeper }: MountedEditor,
+  body: string,
+  tableIndex: number | null,
+) {
+  if (!view || !editor) return;
+  try {
+    editor.action((ctx) => {
+      const parsed = ctx.get(parserCtx)(body);
+      const tr = syncTableTransaction(view.state, parsed, tableIndex);
+      if (tr) view.dispatch(tr);
+    });
+    keeper?.rebase(body);
+  } catch {
+    // The store still gets the edit; the editor shows it on its next mount.
+  }
+}
+
 const INLINE_ACTIONS: { id: ActionId; label: string; icon: string }[] = [
   { id: "rewrite", label: "Rewrite", icon: "✨" },
   { id: "fix-grammar", label: "Fix grammar", icon: "✓" },
@@ -362,34 +393,20 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
       const body = lastBodyRef.current;
       const newBody = applyTableEdit(body, cursorOffset, edit);
       if (newBody === body) return;
-      showBodyInEditor(newBody, tableIndexOfOffset(body, cursorOffset));
+      showBodyInEditor(
+        {
+          view: proseRef.current,
+          editor: getRef.current?.(),
+          keeper: keeperRef.current,
+        },
+        newBody,
+        tableIndexOfOffset(body, cursorOffset),
+      );
       lastBodyRef.current = newBody;
       setContentRef.current(joinFrontmatter(fmRef.current, newBody));
     },
     [],
   );
-
-  /**
-   * Make the editor's tree show `body` (a change made to the Markdown
-   * outside it): the `tableIndex`th table is replaced, or the whole
-   * document, and the source keeper takes `body` as the text the tree
-   * stands for, so it is saved as written.
-   */
-  function showBodyInEditor(body: string, tableIndex: number | null) {
-    const view = proseRef.current;
-    const editor = getRef.current?.();
-    if (!view || !editor) return;
-    try {
-      editor.action((ctx) => {
-        const parsed = ctx.get(parserCtx)(body);
-        const tr = syncTableTransaction(view.state, parsed, tableIndex);
-        if (tr) view.dispatch(tr);
-      });
-      keeperRef.current?.rebase(body);
-    } catch {
-      // The store still gets the edit; the editor shows it on its next mount.
-    }
-  }
 
   const { loading, get } = useEditor((root) => {
     const { frontmatter, body } = splitFrontmatter(initialContent);
@@ -720,7 +737,11 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         if (newBody !== body) {
           // The editor shows the new order too: given to the store only,
           // it was undone by the next keystroke, as a table menu edit was.
-          showBodyInEditor(newBody, null);
+          showBodyInEditor(
+            { view, editor: getRef.current?.(), keeper: keeperRef.current },
+            newBody,
+            null,
+          );
           lastBodyRef.current = newBody;
           setContentRef.current(joinFrontmatter(frontmatter, newBody));
         }
