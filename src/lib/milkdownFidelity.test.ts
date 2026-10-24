@@ -35,6 +35,7 @@ import {
   usesCrlf,
 } from "./frontmatter";
 import {
+  alignBlocks,
   type BlockRange,
   blockStyle,
   dropEmptyLineBreaks,
@@ -359,6 +360,85 @@ describe("sourceRanges / spliceEdited", () => {
         serializeRange: () => "never",
       }),
     ).toBe(original);
+  });
+
+  it("lines blocks up by kind when the counts differ", () => {
+    // remark: paragraph, html, paragraph; the editor: paragraph, table, html
+    // block, paragraph (a node of its own in between).
+    expect(
+      alignBlocks(
+        ["paragraph", "html", "paragraph"],
+        ["paragraph", "table", "paragraph", "paragraph"],
+      ),
+    ).toEqual([0, -1, 1, 2]);
+    expect(alignBlocks(["list", "code"], ["bullet_list", "code_block"])).toEqual([
+      0, 1,
+    ]);
+    expect(
+      alignBlocks(["heading", "orphan", "paragraph"], ["heading", "paragraph"]),
+    ).toEqual([0, 2]);
+    const tree = md([
+      ["heading", 0, 3],
+      ["thing", 5, 9],
+      ["paragraph", 11, 14],
+    ]);
+    // It used to be null: the whole file was then written by the serializer.
+    expect(
+      sourceRanges(tree, 5, ["heading", "table", "table", "table", "paragraph"]),
+    ).toMatchObject({
+      blocks: [{ start: 0, end: 3 }, null, null, null, { start: 11, end: 14 }],
+      orphans: [{ start: 5, end: 9 }],
+    });
+    expect(sourceRanges(tree, 5)).toBeNull();
+    // One node more, but not the editor's last paragraph: matched by kind,
+    // not taken as one to one plus that paragraph.
+    expect(
+      sourceRanges(tree, 4, ["heading", "table", "thing", "paragraph"]),
+    ).toMatchObject({
+      blocks: [
+        { start: 0, end: 3 },
+        null,
+        { start: 5, end: 9 },
+        { start: 11, end: 14 },
+      ],
+    });
+  });
+
+  it("rewrites only the region around a node with no block of its own", () => {
+    // Blocks A, (B: no range), C, D, E; the edit is in D.
+    const original = "AAA\n\nbbb\n\nCCC\n\nDDD\n\nEEE\n";
+    const blocks = [
+      { start: 0, end: 3 },
+      null,
+      { start: 10, end: 13 },
+      { start: 15, end: 18 },
+      { start: 20, end: 23 },
+    ];
+    const run = (current: string[]) => {
+      const calls: [number, number][] = [];
+      const out = spliceEdited({
+        original,
+        map: { blocks, definitions: [], orphans: [{ start: 5, end: 8 }] },
+        initial: pm(["A", "B", "C", "D", "E"]),
+        current: pm(current),
+        serializeRange: (from, to) => {
+          calls.push([from, to]);
+          return current.slice(from, to).join("\n\n");
+        },
+      });
+      return { out, calls };
+    };
+    // Away from it: only D is written.
+    expect(run(["A", "B", "C", "D2", "E"])).toEqual({
+      out: "AAA\n\nbbb\n\nCCC\n\nD2\n\nEEE\n",
+      calls: [[3, 4]],
+    });
+    // Next to it: the region from A's end to D's start is written, with B,
+    // and A, D and E are kept as they were.
+    expect(run(["A", "B", "C2", "D", "E"])).toEqual({
+      out: "AAA\n\nB\n\nC2\n\nDDD\n\nEEE\n",
+      calls: [[1, 3]],
+    });
   });
 
   it("reads a block's style from its source", () => {

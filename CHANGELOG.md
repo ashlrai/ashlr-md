@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A block the editor cannot map no longer rewrites the whole file.** When
+  the WYSIWYG editor's blocks did not line up one to one with the file's, any
+  edit wrote the whole document the serializer's way. The blocks are now
+  matched by kind, and only the region around a block that has no match is
+  written anew, out to the nearest matched blocks; the rest is kept byte for
+  byte. A one-to-one map whose kinds do not agree is matched the same way,
+  instead of being taken as is (which shifted every block after an extra one).
 - **An inline `<br>` is kept.** The WYSIWYG editor dropped every `<br>` when
   it read a document (Milkdown's plugin for the `<br />` it writes for an
   empty paragraph took them all), so `a<br>b` showed as `ab` and was saved

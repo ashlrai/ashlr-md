@@ -17,9 +17,12 @@
  * change, the leading and trailing top-level nodes that are unchanged keep
  * their original text, byte for byte, with the original text between them;
  * only the changed run of blocks is written by the serializer. A link
- * reference definition in the replaced range is kept. When the source cannot
- * be mapped (block counts differ), the serializer's whole output is used, as
- * before.
+ * reference definition in the replaced range is kept. When the blocks do
+ * not line up one to one, they are lined up by kind ({@link sourceRanges}):
+ * a node with no block of its own cannot bound the kept text, so a run that
+ * reaches one is widened to the nearest nodes that have one, and only that
+ * region is written by the serializer. The serializer's whole output is
+ * used only when nothing can be mapped.
  *
  * A block that is edited (one top-level block for one, as typing does) is
  * written in the style its source used where the serializer has a choice
@@ -88,14 +91,87 @@ function range(n: MdNode): BlockRange | null {
 }
 
 /**
+ * The ProseMirror node types a top-level remark node of each type becomes:
+ * Crepe makes a paragraph holding only an image an `image-block`, wraps
+ * block HTML in a paragraph, and shows display math as a code block.
+ */
+const BECOMES: Record<string, readonly string[]> = {
+  paragraph: ["paragraph", "image-block"],
+  heading: ["heading"],
+  list: ["bullet_list", "ordered_list"],
+  code: ["code_block"],
+  math: ["code_block", "math_block", "math_display"],
+  blockquote: ["blockquote"],
+  thematicBreak: ["hr"],
+  html: ["paragraph", "html"],
+  table: ["table"],
+  footnoteDefinition: ["footnote_definition"],
+};
+
+/** Whether a remark node of type `md` can be the ProseMirror node of type `pm`. */
+function canBecome(md: string, pm: string): boolean {
+  return (BECOMES[md] ?? [md]).includes(pm);
+}
+
+/** Past this many remark x ProseMirror blocks, blocks that do not line up are not matched. */
+const MAX_ALIGN_CELLS = 4_000_000;
+
+/**
+ * Match `md` (remark block types) to `pm` (ProseMirror node types), in
+ * order, as many as can be (a longest common subsequence under
+ * {@link canBecome}): `out[j]` is the remark block of node `j`, or -1.
+ * Null when the documents are too large to match.
+ */
+export function alignBlocks(
+  md: readonly string[],
+  pm: readonly string[],
+): number[] | null {
+  const n = md.length;
+  const m = pm.length;
+  if ((n + 1) * (m + 1) > MAX_ALIGN_CELLS) return null;
+  const w = m + 1;
+  const best = new Int32Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      best[i * w + j] = canBecome(md[i], pm[j])
+        ? best[(i + 1) * w + j + 1] + 1
+        : Math.max(best[(i + 1) * w + j], best[i * w + j + 1]);
+    }
+  }
+  const out = new Array<number>(m).fill(-1);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (canBecome(md[i], pm[j]) && best[i * w + j] === best[(i + 1) * w + j + 1] + 1) {
+      out[j] = i;
+      i++;
+      j++;
+    } else if (best[(i + 1) * w + j] >= best[i * w + j + 1]) {
+      i++;
+    } else {
+      j++;
+    }
+  }
+  return out;
+}
+
+/**
  * The source map of `tree` (the original body parsed by the editor's remark)
  * for a ProseMirror doc of `pmCount` top-level nodes: the range of each node,
  * and the link reference definitions (which Milkdown folds into the links
- * and drops as blocks). Null when the blocks do not line up one to one; a
- * last empty paragraph the editor adds after a final non-paragraph block is
- * mapped to the end of the last block.
+ * and drops as blocks). A last empty paragraph the editor adds after a final
+ * non-paragraph block is mapped to the end of the last block. When the
+ * blocks do not line up one to one and `pmTypes` (the nodes' type names)
+ * is given, they are matched by kind ({@link alignBlocks}): a node with no
+ * block gets no range, and a block with no node is an orphan (its text is
+ * dropped only with a region around it that is rewritten). Null when
+ * nothing can be mapped.
  */
-export function sourceRanges(tree: MdNode, pmCount: number): SourceMap | null {
+export function sourceRanges(
+  tree: MdNode,
+  pmCount: number,
+  pmTypes?: readonly string[],
+): SourceMap | null {
   const blocks: BlockRange[] = [];
   const nodes: MdNode[] = [];
   const definitions: BlockRange[] = [];
@@ -109,22 +185,53 @@ export function sourceRanges(tree: MdNode, pmCount: number): SourceMap | null {
     }
   }
   if (blocks.length === 0) return null;
-  if (blocks.length === pmCount) return { blocks, definitions, nodes };
-  if (blocks.length + 1 === pmCount) {
-    const end = blocks[blocks.length - 1].end;
-    return { blocks: [...blocks, { start: end, end }], definitions, nodes };
+  const start = blocks[0].start;
+  const end = blocks[blocks.length - 1].end;
+  const types = pmTypes && pmTypes.length === pmCount ? pmTypes : null;
+  // One to one, in order (each block the kind of node it is, when known).
+  const lined = (count: number) =>
+    !types || nodes.every((x, i) => i >= count || canBecome(x.type, types[i]));
+  if (blocks.length === pmCount && lined(pmCount)) {
+    return { blocks, definitions, nodes, start, end };
   }
-  return null;
+  if (
+    blocks.length + 1 === pmCount &&
+    lined(blocks.length) &&
+    (!types || types[pmCount - 1] === "paragraph")
+  ) {
+    return { blocks: [...blocks, { start: end, end }], definitions, nodes, start, end };
+  }
+  if (!types) return null;
+  const pmTypesChecked = types;
+  const matched = alignBlocks(
+    nodes.map((x) => x.type),
+    pmTypesChecked,
+  );
+  if (!matched || matched.every((i) => i === -1)) return null;
+  const used = new Set(matched);
+  return {
+    blocks: matched.map((i) => (i === -1 ? null : blocks[i])),
+    nodes: matched.map((i) => (i === -1 ? null : nodes[i])),
+    definitions,
+    orphans: blocks.filter((_, i) => !used.has(i)),
+    start,
+    end,
+  };
 }
 
 /** {@link sourceRanges}: where each top-level node's Markdown is. */
 export interface SourceMap {
-  /** Each top-level node's source range. */
-  blocks: BlockRange[];
+  /** Each top-level node's source range (null: it has no block of its own). */
+  blocks: (BlockRange | null)[];
   /** The link reference definitions'. */
   definitions: BlockRange[];
   /** The remark node each range is (none for one the editor added). */
-  nodes?: MdNode[];
+  nodes?: (MdNode | null)[];
+  /** Blocks no node stands for. */
+  orphans?: BlockRange[];
+  /** Where the first block starts and the last one ends (any, mapped or not). */
+  start?: number;
+  end?: number;
 }
 
 /**
@@ -225,53 +332,69 @@ export function spliceEdited(input: SpliceInput): string {
   ) {
     m++;
   }
+  // A kept node with no block of its own cannot say where the kept text
+  // ends: the run takes it in, out to the nearest node that has one, and
+  // only that region is written anew (it used to be the whole file).
+  while (k > 0 && !blocks[k - 1]) k--;
+  while (m > 0 && !blocks[n - m]) m--;
   // The original text kept before and after the changed run: everything
   // up to the end of the last kept leading block (or up to the first block,
   // front matter's blank line included), and from the first kept trailing
   // block (or from the end of the last block: a missing final newline, a
   // definition at the end).
-  const head =
-    k === 0 ? original.slice(0, blocks[0].start) : original.slice(0, blocks[k - 1].end);
-  const tail =
-    m === 0 ? original.slice(blocks[n - 1].end) : original.slice(blocks[n - m].start);
+  const headEnd =
+    k === 0 ? (blocks[0]?.start ?? map.start ?? 0) : (blocks[k - 1] as BlockRange).end;
+  const tailStart =
+    m === 0
+      ? (blocks[n - 1]?.end ?? map.end ?? original.length)
+      : (blocks[n - m] as BlockRange).start;
+  const head = original.slice(0, headEnd);
+  const tail = original.slice(tailStart);
   // Original blocks replaced: [k, n - m). Their outer gaps are kept as they
-  // were (with any definitions in them); definitions between two replaced
-  // blocks are kept after the rewritten run.
+  // were (with any definitions in them) where they still separate; every
+  // other definition in the replaced region is kept after the rewritten run.
   const replacedFrom = k;
   const replacedTo = n - m;
-  const kept =
-    replacedTo - replacedFrom >= 2
-      ? map.definitions
-          .filter(
-            (d) =>
-              d.start >= blocks[replacedFrom].end &&
-              d.end <= blocks[replacedTo - 1].start,
-          )
-          .map((d) => original.slice(d.start, d.end))
-      : [];
-  const middle =
-    pairedRun(input, k, replacedTo, c - m) ??
-    input.serializeRange(k, c - m).replace(/\n+$/, "");
+  const firstReplaced = replacedTo > replacedFrom ? blocks[replacedFrom] : null;
+  const lastReplaced = replacedTo > replacedFrom ? blocks[replacedTo - 1] : null;
+  let before = "";
+  let coveredStart = headEnd;
+  if (k > 0) {
+    // With blocks only inserted, the one original gap goes before the run.
+    const next = replacedTo > replacedFrom ? firstReplaced : k < n ? blocks[k] : null;
+    const gap = next ? keptGap(map, original, headEnd, next.start) : null;
+    before = gap ?? "\n\n";
+    if (gap !== null && next) coveredStart = next.start;
+  }
+  let after = "";
+  let coveredEnd = tailStart;
+  if (m > 0) {
+    const gap = lastReplaced
+      ? keptGap(map, original, lastReplaced.end, tailStart)
+      : null;
+    after = gap ?? "\n\n";
+    if (gap !== null && lastReplaced) coveredEnd = lastReplaced.end;
+  }
+  if (coveredStart > coveredEnd) coveredEnd = coveredStart;
+  const paired = pairedRun(input, k, replacedTo, c - m);
+  // A paired run keeps the definitions between its blocks itself.
+  const inner =
+    paired !== null && firstReplaced && lastReplaced
+      ? { start: firstReplaced.start, end: lastReplaced.end }
+      : null;
+  const kept = map.definitions
+    .filter(
+      (d) =>
+        d.start >= coveredStart &&
+        d.end <= coveredEnd &&
+        !(inner && d.start >= inner.start && d.end <= inner.end),
+    )
+    .map((d) => original.slice(d.start, d.end));
+  const middle = paired ?? input.serializeRange(k, c - m).replace(/\n+$/, "");
   const parts = [middle, ...kept].filter((p) => p !== "");
-  // The gap before the run (after the kept head) and after it (before the
-  // kept tail), as in the original where there was one there.
-  const before =
-    k === 0
-      ? ""
-      : separating(k < n ? original.slice(blocks[k - 1].end, blocks[k].start) : "");
-  // With blocks only inserted, the one original gap went before the run.
-  const after =
-    m === 0
-      ? ""
-      : separating(
-          replacedTo > replacedFrom
-            ? original.slice(blocks[replacedTo - 1].end, blocks[replacedTo].start)
-            : "",
-        );
   if (parts.length === 0) {
     // Blocks deleted, nothing written in their place.
-    if (k === 0) return head + tail;
-    if (m === 0) return head + tail;
+    if (k === 0 || m === 0) return head + tail;
     return head + before + tail;
   }
   return head + before + parts.join("\n\n") + after + tail;
@@ -289,7 +412,7 @@ function addedTrailingParagraph(initial: PmNode, current: PmNode): boolean {
  * The changed run `[k, to)` of `initial`, edited in place into `[k, cto)` of
  * `current` with as many blocks: each block written in its own style
  * (`serializeBlock`), with the original text between them. Null when the
- * run's length changed, or a block writes as nothing.
+ * run's length changed, a block has no source range, or writes as nothing.
  */
 function pairedRun(
   input: SpliceInput,
@@ -301,22 +424,51 @@ function pairedRun(
   if (!serializeBlock || to - k !== cto - k || to <= k) return null;
   let out = "";
   for (let i = k; i < to; i++) {
+    const here = map.blocks[i];
+    if (!here) return null;
     const text = serializeBlock(i).replace(/\n+$/, "");
     if (text === "") return null;
-    if (i > k)
-      out += separating(original.slice(map.blocks[i - 1].end, map.blocks[i].start));
+    if (i > k) {
+      const prev = map.blocks[i - 1] as BlockRange;
+      const gap = keptGap(map, original, prev.end, here.start);
+      if (gap !== null) out += gap;
+      else {
+        // Not kept as it was: a blank line, with the definitions in it.
+        const defs = map.definitions
+          .filter((d) => d.start >= prev.end && d.end <= here.start)
+          .map((d) => original.slice(d.start, d.end));
+        out += defs.length ? `\n\n${defs.join("\n\n")}\n\n` : "\n\n";
+      }
+    }
     out += text;
   }
   return out;
 }
 
 /**
- * `gap` (original text between two blocks) when it still separates the
- * blocks either side, whatever they now are: it holds a blank line and ends
- * with a line break. Otherwise a blank line.
+ * The original text `[from, to)` between two blocks, when it can be kept
+ * as it is ({@link separating}) and holds no orphan block (one no node
+ * stands for: it may be part of a node being rewritten). Else null.
  */
-function separating(gap: string): string {
-  return /\n[ \t]*\r?\n/.test(gap) && /\n$/.test(gap) ? gap : "\n\n";
+function keptGap(
+  map: SourceMap,
+  original: string,
+  from: number,
+  to: number,
+): string | null {
+  if (to < from) return null;
+  if ((map.orphans ?? []).some((o) => o.start < to && o.end > from)) return null;
+  const gap = original.slice(from, to);
+  return separates(gap) ? gap : null;
+}
+
+/**
+ * Whether `gap` (original text between two blocks) still separates the
+ * blocks either side, whatever they now are: it holds a blank line and ends
+ * with a line break.
+ */
+function separates(gap: string): boolean {
+  return /\n[ \t]*\r?\n/.test(gap) && /\n$/.test(gap);
 }
 
 // ── Editor wiring ─────────────────────────────────────────────────────────────
@@ -333,7 +485,11 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
   try {
     initial = ctx.get(editorViewCtx).state.doc;
     const tree = ctx.get(remarkCtx).parse(original) as unknown as MdNode;
-    map = sourceRanges(tree, initial.childCount);
+    const types: string[] = [];
+    initial.forEach((node) => {
+      types.push(node.type.name);
+    });
+    map = sourceRanges(tree, initial.childCount, types);
   } catch {
     return (written) => written;
   }
