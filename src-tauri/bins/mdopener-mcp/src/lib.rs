@@ -8461,6 +8461,23 @@ fn strip_inline_in(s: &str, refs: &std::collections::HashSet<String>, wikilinks:
             i = span.end;
             continue;
         }
+        // A backslash escape is the punctuation it escapes, which is no
+        // markup (`\*a\*` reads `*a*`), and a backslash before a line break
+        // is a hard break, as CommonMark reads them; the backslash was kept.
+        if chars[i] == '\\' {
+            match chars.get(i + 1) {
+                Some(&c) if c.is_ascii_punctuation() => {
+                    out.push(c);
+                    i += 2;
+                }
+                Some('\n') => i += 1,
+                _ => {
+                    out.push('\\');
+                    i += 1;
+                }
+            }
+            continue;
+        }
         // The text of `chars` between `from` and `to`.
         let text_of = |from: usize, to: usize| -> String { chars[from..to].iter().collect() };
         // Obsidian embed ![[…]] → empty (no useful text). It is read before
@@ -9003,7 +9020,9 @@ fn html_end(chars: &[char], start: usize) -> Option<usize> {
 }
 
 // Helper: parse `[…]` bracket content starting at `start` (which must be `[`).
-// Returns `(inner_text, index_after_closing_bracket)` or `None`.
+// Returns `(inner_text, index_after_closing_bracket)` or `None`. A bracket a
+// backslash escapes (`[a\]b]`) neither opens nor closes one, as CommonMark
+// reads a link text.
 fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)> {
     if chars.get(start) != Some(&'[') {
         return None;
@@ -9013,6 +9032,11 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
     let mut inner = String::new();
     while i < chars.len() {
         match chars[i] {
+            '\\' if chars.get(i + 1).is_some_and(char::is_ascii_punctuation) => {
+                inner.push('\\');
+                inner.push(chars[i + 1]);
+                i += 1;
+            }
             '[' => {
                 depth += 1;
                 if depth > 1 {

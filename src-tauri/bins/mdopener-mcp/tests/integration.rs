@@ -14569,6 +14569,29 @@ fn a_math_block_is_read_as_fenced_code() {
     assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
 }
 
+/// A backslash escape is the character it escapes, as CommonMark reads it:
+/// the page shows `*`, not `\*`, and an escaped marker is no markup. The
+/// plain text kept the backslash. A backslash before anything else, or at
+/// the end of a line (a hard line break), is no escape there.
+#[test]
+fn strip_markdown_unescapes_backslash_escapes() {
+    assert_eq!(
+        strip_markdown("\\*not em\\* and \\_x\\_ and \\# and a\\\\b\n").trim(),
+        "*not em* and _x_ and # and a\\b"
+    );
+    assert_eq!(
+        strip_markdown("\\[not a link\\](u) and \\<b> and \\`code\\`\n").trim(),
+        "[not a link](u) and <b> and `code`"
+    );
+    // In a link's text too, and an escaped `]` does not end it.
+    assert_eq!(strip_markdown("[a\\]b](u)\n").trim(), "a]b");
+    // No escape: before a letter, or as a hard line break.
+    assert_eq!(strip_markdown("C:\\dir\n").trim(), "C:\\dir");
+    assert_eq!(strip_markdown("one\\\ntwo\n").trim(), "one\ntwo");
+    // A code span keeps its backslashes.
+    assert_eq!(strip_markdown("`a\\*b`\n").trim(), "a\\*b");
+}
+
 /// The page renders inline math (`$x$`, `$$x$$`) with remark-math, which
 /// micromark reads as it reads a code span: export_text read its TeX as
 /// Markdown, so `$a*b*c$` lost its `*`s, and export_metadata counted a
@@ -14583,7 +14606,7 @@ fn inline_math_is_read_as_remark_math_reads_it() {
     );
     // The span that opens first holds the other's character.
     assert_eq!(strip_markdown("`$a` and $`b$\n").trim(), "$a and `b");
-    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost \\$5 now");
+    assert_eq!(strip_markdown("Cost \\$5 *now*\n").trim(), "Cost $5 now");
     assert_eq!(strip_markdown("One $ alone *x*\n").trim(), "One $ alone x");
     assert_eq!(
         strip_markdown("[a](p?q=$1) costs $2\n").trim(),

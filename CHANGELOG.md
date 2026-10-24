@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Plain text drops backslash escapes.** `strip_markdown` (the sidecar's
+  plain-text export and its word counts) kept the backslash of an escape, so
+  `\*not bold\*` read `\*not bold\*` and `Cost \$5` read `Cost \$5`, where
+  the page shows `*not bold*` and `Cost $5`. An escape is now the character
+  it escapes and no markup, a backslash before a line break (a hard break)
+  is dropped, and an escaped `]` no longer ends a link's text.
 - **A backtick or `$` in a bare URL no longer starts a code span.** GFM
   reads `https://x.org/` followed by a backtick, or `www.x.org/$a$`, as part of a literal
   autolink, but the lint rules, the Outline's slugs and the sidecar's link and
