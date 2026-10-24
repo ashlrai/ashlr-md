@@ -8336,8 +8336,9 @@ fn a_heading_inside_a_blockquote_is_not_listed() {
 /// `# comment` indented four spaces lost its `#` and the rest of the
 /// indented code was read as Markdown. A heading now follows the ATX rule
 /// of the headings, and indented code that opens after a blank line or a
-/// heading is kept as code without its indent. After a list item an
-/// indented line is the item's continuation and is still read as text.
+/// heading is kept as code without its indent. In a list item an indented
+/// line is the item's continuation unless it is four columns past the
+/// item's text, which is code in the item: all of it used to be text.
 #[test]
 fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     let cases = [
@@ -8357,6 +8358,22 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
         ("1. step\n    *more*\n", "step\nmore"),
         // The list ends at a paragraph at column 0 after a blank line.
         ("- item\n\nPara\n\n    *code*\n", "item\n\nPara\n\n*code*"),
+        // Four columns past an item's text is code in the item, and it
+        // loses the item's indentation; less is the item's continuation.
+        ("- item\n\n      # *code*\n", "item\n\n# *code*"),
+        (
+            "1. step\n\n       **x**\n   *more*\n",
+            "step\n\n**x**\nmore",
+        ),
+        ("- a\n  - b\n\n        `x`\n", "a\nb\n\n`x`"),
+        ("-     *code*\n", "*code*"),
+        // In a blockquote, past its `>`, and a tab past the four columns
+        // is kept.
+        (">     *code*\n", "*code*"),
+        // An indented line in a quoted paragraph continues it.
+        ("> a\n>     *b*\n", "a\nb"),
+        ("- a\n\n  \t  \tx\n", "a\n\n\tx"),
+        ("- a\n\n  \t\tx\n", "a\n\n  x"),
         // Headings by the ATX rule.
         ("   ### Three ###\n", "Three"),
         ("#\tTabbed\n", "Tabbed"),
@@ -8380,7 +8397,7 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["text"], "Notes\n\n# keep");
     let docs = include_str!("../../../../docs/AGENTS.md");
-    assert!(docs.contains("indented code is kept as code without its indent"));
+    assert!(docs.contains("is kept as code without them and its indent"));
 }
 
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`

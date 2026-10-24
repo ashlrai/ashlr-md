@@ -101,6 +101,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **`export_text` keeps indented code in a list item as code.** A line
+  indented four columns past a list item's text (`- a`, a blank line, then
+  six spaces and `# step`) or past a blockquote's `>` is indented code, as
+  the preview renders it, but after a list item every indented line was
+  read as text until the list ended, so agents read such code without its
+  `#`s and `*`s. It is now kept as code without the item's indentation,
+  and a line indented less is still the item's text.
 - **`export_text` strips a list item's indentation from its code.** Code
   from a fence in a list item kept the item's indentation in the plain
   text agents read, while code in a blockquote lost its `>` markers. Both

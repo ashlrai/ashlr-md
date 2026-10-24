@@ -257,6 +257,17 @@ function continues(line: string, list: Container[]): string | null {
   return rest;
 }
 
+/** Whether container list `list` starts with the containers `prefix`. */
+function startsWith(list: Container[], prefix: Container[]): boolean {
+  return (
+    prefix.length <= list.length &&
+    prefix.every((c, i) => {
+      const d = list[i];
+      return c.quote ? d.quote : !d.quote && d.width === c.width;
+    })
+  );
+}
+
 /** The widths of the list items that open `list`, before any blockquote. */
 function leadingItems(list: Container[]): number[] {
   const out: number[] = [];
@@ -338,6 +349,8 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   // How many open items hold the paragraph the line before is in (-1 for
   // one in a blockquote), or null after any other line.
   let paragraph: number | null = null;
+  // The containers of the paragraph's last line that was not lazy.
+  let paraList: Container[] = [];
   // The same for indented code, which a blank line does not end.
   let indented: number | null = null;
   // Whether the innermost open item has only its marker so far.
@@ -406,9 +419,15 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           bare = opened && empty && !last.quote;
           const level = c.list.some((x) => x.quote) ? -1 : items.length;
           // Four spaces past the containers is indented code, not text.
-          const code: boolean =
-            (opened || paragraph === null) && !empty && spacesBefore(c.rest) >= 4;
+          // A paragraph goes on unless the line opens a list item, or a
+          // blockquote the paragraph is not in.
+          const fresh: boolean =
+            paragraph === null ||
+            c.list.slice(c.matched).some((x) => !x.quote) ||
+            (opened && !startsWith(paraList, c.list));
+          const code: boolean = fresh && !empty && spacesBefore(c.rest) >= 4;
           paragraph = heading || empty || code ? null : level;
+          paraList = c.list;
           // Only indented code that closed no container, as the renderer
           // reads it.
           indented = code && !closed ? level : null;

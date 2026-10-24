@@ -7869,17 +7869,17 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Fenced code blocks (``` or ~~~): the fence lines are stripped but the
 ///   code content is preserved, its `#`s kept. Code in a blockquote loses
 ///   its `>` leaders and code in a list item its item's indentation, as
-///   CommonMark reads them ([`markdown_lines::fenced_code`]); list-item code
+///   CommonMark reads them ([`markdown_lines::line_code`]); list-item code
 ///   used to keep its indentation. Fences follow [`markdown_lines`]: a
 ///   block is closed only by the same character at least as long. Any line
 ///   starting with ``` or ~~~ used to flip "in code", so a `~~~` line in a
 ///   backtick block ended it and the code after it lost its `#`s and `*`s.
-/// - Indented code (a line indented four columns or more that opens a block
-///   after a blank line or a heading) is kept as code without its indent, by
-///   [`markdown_lines::with_indented_code`]. After a list item an indented
-///   line is read as the item's continuation, not as code, until the list
-///   ends: telling the two apart needs the item's content column, so some
-///   code in a list item is read as text but text is never read as code.
+/// - Indented code (a line indented four columns or more past its
+///   containers that does not continue a paragraph) is kept as code without
+///   its containers and indent, by [`markdown_lines::with_indented_code`]:
+///   in a list item, four columns past the item's content column. After a
+///   list item an indented line used to be read as text until the list
+///   ended, so code in an item lost its `#`s and `*`s.
 /// - ATX headings ([`markdown_lines::atx_heading`]: at most three spaces,
 ///   1 to 6 `#`s, then a space, a tab or the end of the line) lose their
 ///   `#`s and closing `#`s. The whole line used to be trimmed first, so a
@@ -7902,10 +7902,10 @@ pub fn strip_markdown(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
     // Remove YAML front-matter at the very start (only when it is closed).
     // Each line with its code when it is fenced code
-    // ([`markdown_lines::fenced_code`]).
+    // ([`markdown_lines::line_code`]).
     let (lines, code): (Vec<(LineKind, &str)>, Vec<_>) =
         markdown_lines::with_indented_code(content)
-            .zip(markdown_lines::fenced_code(content))
+            .zip(markdown_lines::line_code(content))
             .filter(|((kind, _), _)| *kind != LineKind::FrontMatter)
             .unzip();
 
@@ -7925,7 +7925,7 @@ pub fn strip_markdown(content: &str) -> String {
             }
             LineKind::IndentedCode => {
                 in_table = false;
-                out.push_str(markdown_lines::without_code_indent(line));
+                out.push_str(code[idx].as_deref().unwrap_or(line));
                 out.push('\n');
                 continue;
             }
