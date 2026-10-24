@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Closing the window asks about unsaved edits.** Closing the window (its
+  close button, Alt+F4, Close Window) with unsaved edits in any tab dropped
+  them without a word. It now asks: Save All, Close Without Saving, or
+  Cancel. A failed or cancelled save keeps the window open. The close is
+  held in Rust, not by a page listener, so it cannot leave a window that
+  will not close: a window that does not answer within 1.5 seconds, or
+  whose prompt fails, closes as before.
 - **Focus comes back after a review.** An agent's review request takes
   keyboard focus so it is noticed; once approved, sent back, dismissed or
   timed out, the panel was gone and focus with it. Focus now returns to

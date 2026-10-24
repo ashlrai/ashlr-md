@@ -7,6 +7,7 @@ mod ai;
 mod base_urls;
 mod redact;
 mod cli_install;
+mod close_guard;
 mod deep_link;
 mod default_handler;
 mod doc_read;
@@ -104,6 +105,10 @@ pub fn run() {
         .manage(afm::AfmState::default())
         .manage(activity::ActivityWatcher::default())
         .manage(embed::EmbedState::default())
+        .manage(close_guard::CloseGuard::default())
+        // Unsaved edits hold a close until the window asks the user; a window
+        // that does not answer in time closes anyway (see close_guard).
+        .on_window_event(close_guard::on_window_event)
         .invoke_handler(tauri::generate_handler![
             document::read_markdown_file,
             document::write_markdown_file,
@@ -160,6 +165,9 @@ pub fn run() {
             activity::unwatch_directory,
             activity::list_markdown_files,
             activity::scan_markdown_files,
+            close_guard::close_guard_set_unsaved,
+            close_guard::close_guard_ack,
+            close_guard::close_guard_resolve,
         ])
         .setup(|app| {
             file_handler::buffer_cli_args(app.handle());

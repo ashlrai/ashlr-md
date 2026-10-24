@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useState } from "react";
 import { detectProvider } from "./ai/registry";
 import { Shell } from "./components/layout/Shell";
+import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
@@ -108,6 +109,21 @@ export default function App() {
     })();
     return () => unlisten?.();
   }, [openPath]);
+
+  // Ask before closing the window with unsaved edits (Rust holds the close;
+  // see src/lib/closeGuard.ts).
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let gone = false;
+    void installCloseGuard().then((s) => {
+      if (gone) s();
+      else stop = s;
+    });
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, []);
 
   // Global keyboard shortcuts, driven by the command registry (see
   // src/lib/globalKeys.ts).
