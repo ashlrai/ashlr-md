@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports with math carry only the fonts they use.** An HTML or PDF export
+  with math put all 20 KaTeX fonts in the page (about 300 KB), most of them
+  for symbols the page never shows. It now puts in the faces the read view
+  set the math in (a plain formula needs KaTeX's Main and Math faces); the
+  others stay links the browser follows only if it needs them. When the
+  faces cannot be measured, every font is put in, as before.
 - **Email export keeps an element's own style.** The email export added its
   inline style as a second `style` attribute to an element that had one (a
   highlighted code block, raw HTML with a style), and a second `class` to a

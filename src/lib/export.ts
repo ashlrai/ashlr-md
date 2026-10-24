@@ -164,13 +164,75 @@ export async function loadKatexFonts(): Promise<void> {
  * of every HTML and PDF export was set in fallback fonts, with misdrawn
  * roots, brackets and large operators. A font face none of whose files is
  * in `fonts` is left as it was.
+ *
+ * With `used` (from {@link usedKatexFaces}), only the faces the page's math
+ * is set in are put in the page, where all 20 were (about 300 KB, most of it
+ * for faces a page never uses); the others are left as they were, links the
+ * browser follows only for a face it needs. A family set in a weight or style
+ * it has no face for (the browser then picks the nearest) gets all its faces.
  */
 export function katexCssForExport(
   css: string,
   fonts: ReadonlyMap<string, string> | null = katexFonts,
+  used: ReadonlySet<string> | null = null,
 ): string {
   if (!fonts || fonts.size === 0) return css;
-  return css.replace(/src:([^;}]*)/g, (whole, list: string) => {
+  const faces = [...css.matchAll(/@font-face\s*\{[^}]*\}/g)].map((m) => fontFace(m[0]));
+  const needed = (face: KatexFace): boolean => {
+    if (!used || !face.family) return true;
+    if (used.has(faceKey(face))) return true;
+    // A used weight or style of this family that no face of it has.
+    return [...used].some((key) => {
+      const [family] = key.split("|");
+      return (
+        family === face.family &&
+        !faces.some((f) => f.family === family && faceKey(f) === key)
+      );
+    });
+  };
+  return css.replace(/@font-face\s*\{[^}]*\}/g, (block) =>
+    needed(fontFace(block)) ? embedFontFace(block, fonts) : block,
+  );
+}
+
+/** An `@font-face` rule's family, weight (400 or 700) and style. */
+interface KatexFace {
+  family: string;
+  weight: 400 | 700;
+  italic: boolean;
+}
+
+function fontFace(block: string): KatexFace {
+  const prop = (name: string) =>
+    new RegExp(`${name}\\s*:\\s*([^;}]*)`).exec(block)?.[1].trim() ?? "";
+  return {
+    family: firstFontFamily(prop("font-family")),
+    weight: boldWeight(prop("font-weight")) ? 700 : 400,
+    italic: /italic|oblique/.test(prop("font-style")),
+  };
+}
+
+/** A face as {@link usedKatexFaces} names it: `KaTeX_Main|700|italic`. */
+function faceKey(face: KatexFace): string {
+  return `${face.family}|${face.weight}|${face.italic ? "italic" : "normal"}`;
+}
+
+/** The first family of a `font-family` value, unquoted. */
+function firstFontFamily(value: string): string {
+  return (value.split(",")[0] ?? "").trim().replace(/^(["'])(.*)\1$/, "$2");
+}
+
+/** Whether a `font-weight` is set with a bold face (600 and up, as CSS matching picks 700). */
+function boldWeight(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (v === "bold" || v === "bolder") return true;
+  const n = Number.parseFloat(v);
+  return Number.isFinite(n) && n >= 600;
+}
+
+/** One `@font-face` rule with its WOFF2 files from `fonts` as `data:` URLs. */
+function embedFontFace(block: string, fonts: ReadonlyMap<string, string>): string {
+  return block.replace(/src:([^;}]*)/g, (whole, list: string) => {
     const kept = list
       .split(",")
       .map((entry) => {
@@ -181,6 +243,39 @@ export function katexCssForExport(
       .filter((x): x is string => x !== null);
     return kept.length > 0 ? `src:${kept.join(",")}` : whole;
   });
+}
+
+/**
+ * The KaTeX faces the read view's math is set in, as the browser styled it
+ * (each text's element's computed family, weight and style), named as
+ * {@link faceKey} does. Null when there is no math or none of it measured in
+ * a KaTeX family (its stylesheet not applied), so every face is kept.
+ */
+export function usedKatexFaces(root: ParentNode = document): Set<string> | null {
+  const used = new Set<string>();
+  const seen = new Set<Element>();
+  for (const math of root.querySelectorAll(".markdown-body .katex")) {
+    const walker = (math.ownerDocument ?? document).createTreeWalker(
+      math,
+      NodeFilter.SHOW_TEXT,
+    );
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      const el = t.parentElement;
+      if (!el || seen.has(el) || !t.nodeValue?.trim()) continue;
+      seen.add(el);
+      const style = getComputedStyle(el);
+      const family = firstFontFamily(style.fontFamily);
+      if (!family.startsWith("KaTeX_")) continue;
+      used.add(
+        faceKey({
+          family,
+          weight: boldWeight(style.fontWeight) ? 700 : 400,
+          italic: /italic|oblique/.test(style.fontStyle),
+        }),
+      );
+    }
+  }
+  return used.size > 0 ? used : null;
 }
 
 /** Load KaTeX's fonts when the read view shows math. */
@@ -367,7 +462,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCssForExport(katexCss)}
+${katexCssForExport(katexCss, katexFonts, usedKatexFaces())}
 
 /* ── Page shell ── */
 body{
@@ -1035,7 +1130,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCssForExport(katexCss)}
+${katexCssForExport(katexCss, katexFonts, content === undefined ? usedKatexFaces() : null)}
 
 /* ── Export profile: ${escapeHtml(profile.name)} ── */
 ${profile.css}
