@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The visual editor keeps a CRLF file's line breaks.** It writes Markdown
+  with LF, so a CRLF file edited there was saved with CRLF front matter and an
+  LF body, and every line of the body showed as changed. The body now keeps
+  the file's CRLF line breaks.
 - **Diff hunks apply to CRLF documents.** An agent's diff hunk is matched by
   its lines joined with LF, so Apply on a hunk in a CRLF document always said
   the patch was not found. Its lines now take the document's line breaks.

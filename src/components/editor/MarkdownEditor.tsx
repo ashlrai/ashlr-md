@@ -25,7 +25,12 @@ import {
   detectListContext,
   isUrl,
 } from "../../lib/editorShortcuts";
-import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
+import {
+  inLineBreaks,
+  joinFrontmatter,
+  splitFrontmatter,
+  usesCrlf,
+} from "../../lib/frontmatter";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
@@ -352,8 +357,11 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     lastBodyRef.current = body;
 
     const crepe = new Crepe({ root, defaultValue: body });
+    // A CRLF file keeps its line breaks (Crepe writes LF).
+    const crlf = usesCrlf(initialContent);
     crepe.on((api) => {
-      api.markdownUpdated((_ctx, markdown) => {
+      api.markdownUpdated((_ctx, written) => {
+        const markdown = inLineBreaks(written, crlf);
         // Ignore no-op echoes; only propagate real content changes.
         if (markdown === lastBodyRef.current) return;
         lastBodyRef.current = markdown;

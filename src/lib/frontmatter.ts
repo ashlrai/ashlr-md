@@ -31,6 +31,20 @@ export function splitFrontmatter(raw: string): SplitDocument {
   return { frontmatter, body: lines.join("\n") };
 }
 
+/** Whether `text` breaks its lines with CRLF: it has `\r\n` and no lone `\n`. */
+export function usesCrlf(text: string): boolean {
+  return text.includes("\r\n") && !/(^|[^\r])\n/.test(text);
+}
+
+/**
+ * `body`, the visual editor's Markdown (which it writes with LF), in CRLF
+ * when `crlf`: a CRLF file edited there used to be saved with an LF body
+ * after its CRLF front matter, so every line of it changed.
+ */
+export function inLineBreaks(body: string, crlf: boolean): string {
+  return crlf ? body.replace(/\r?\n/g, "\r\n") : body;
+}
+
 /** Re-attach frontmatter to an edited body. */
 export function joinFrontmatter(frontmatter: string, body: string): string {
   return frontmatter ? frontmatter + body : body;
