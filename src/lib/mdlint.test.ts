@@ -415,6 +415,26 @@ describe("rule:max-heading-depth", () => {
 // ─── 3f. Rule: wikilink-targets-exist ────────────────────────────────────────
 
 describe("rule:wikilink-targets-exist", () => {
+  it("skips wikilinks in code spans and indented code", () => {
+    // The page shows them as code, and export_metadata leaves them out;
+    // they used to be reported.
+    const doc =
+      "Use `[[Missing]]` or ``a [[Gone]] ` b``.\n\n    [[Code]]\n\nSee [[Real]].\n";
+    const v = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(v.map((x) => x.message)).toEqual(['Wikilink target not found: "Real"']);
+    expect(doc.slice(v[0].range!.from.offset, v[0].range!.to.offset)).toBe("[[Real]]");
+    expect(v[0].range!.from.line).toBe(5);
+    // An unclosed backtick is text, so the link after it is one.
+    const open = lintDocument("a ` [[Open]]\n", {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(open).toHaveLength(1);
+  });
+
   it("passes when all wikilinks are in knownTargets", () => {
     const doc = "See [[MyNote]] and [[Other Note]].\n";
     const knownTargets = new Set(["MyNote", "Other Note"]);

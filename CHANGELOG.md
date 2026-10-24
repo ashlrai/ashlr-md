@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The broken-wikilink lint skips code spans.** `wikilink-targets-exist`
+  reported a `[[link]]` in a code span (`` `[[x]]` ``) or in indented code,
+  which the page shows as code and `export_metadata` leaves out. It now reads
+  links where `export_metadata` does.
 - **Indented code is code to the app's Markdown readers.** The app's line rule
   (`markdownLines`) marked indented code as text, unlike mdopener-mcp's, so
   the status bar's word count counted its words, `no-bare-urls` flagged a URL

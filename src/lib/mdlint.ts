@@ -313,25 +313,38 @@ export const ruleWikilinkTargetsExist: LintRule = {
     // One line, as Obsidian reads a link: an alias or heading used to run
     // across newlines to a `]]` lines later.
     const WIKI_RE = /\[\[([^\]|#\r\n]+?)(?:[|#][^\]\r\n]*?)?\]\]/g;
-    // Fenced code is skipped, as export_metadata skips it: a `[[x]]` in a
-    // code sample used to be reported. A front matter property such as
-    // `related: "[[Plan]]"` is a link, as Obsidian and export_metadata read
-    // it, and a front matter line never opens a fence.
-    for (const l of markdownLines(doc)) {
-      if (l.kind !== "text" && l.kind !== "frontmatter") continue;
-      for (const m of l.text.matchAll(WIKI_RE)) {
-        const target = m[1].trim();
-        if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
-        const from = l.start + m.index;
-        const to = from + m[0].length;
-        violations.push({
-          ruleId: "wikilink-targets-exist",
-          message: `Wikilink target not found: "${target}"`,
-          severity: "error",
-          range: range(doc, from, to),
-          fix: null, // can't auto-create the missing file
-        });
-      }
+    // Fenced and indented code and code spans are skipped, as
+    // export_metadata skips them: a `[[x]]` in a code sample used to be
+    // reported, and one in indented code or a code span still was. A front
+    // matter property such as `related: "[[Plan]]"` is a link, as Obsidian
+    // and export_metadata read it, and a front matter line never opens a
+    // fence.
+    const lines = markdownLines(doc).filter(
+      (l) => l.kind === "text" || l.kind === "frontmatter",
+    );
+    const text = maskCodeSpans(lines.map((l) => l.text).join("\n"));
+    // Where each line starts in `text`.
+    const starts: number[] = [];
+    let at = 0;
+    for (const l of lines) {
+      starts.push(at);
+      at += l.text.length + 1;
+    }
+    for (const m of text.matchAll(WIKI_RE)) {
+      const target = m[1].trim();
+      if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
+      // The pattern holds no line break, so the link is on one line.
+      let i = starts.length - 1;
+      while (starts[i] > m.index) i--;
+      const from = lines[i].start + m.index - starts[i];
+      const to = from + m[0].length;
+      violations.push({
+        ruleId: "wikilink-targets-exist",
+        message: `Wikilink target not found: "${target}"`,
+        severity: "error",
+        range: range(doc, from, to),
+        fix: null, // can't auto-create the missing file
+      });
     }
     return violations;
   },
@@ -701,6 +714,47 @@ export function applyFix(doc: string, violation: LintViolation): string {
  * ``` to the next ```, so a `~~~` block was linted and a ```` block
  * holding ``` ended early.
  */
+/**
+ * `text` with each code span in it (`` `x` ``, ` `` a`b `` `) masked by
+ * `\r`s, line breaks kept, so it keeps its length: a run of backticks is
+ * closed by the next run of exactly as many, and one never closed is
+ * text. The rule of mdopener-mcp's `prose_chars`, where `export_metadata`
+ * reads wikilinks.
+ */
+function maskCodeSpans(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "`") {
+      out += text[i];
+      i++;
+      continue;
+    }
+    let run = 0;
+    while (text[i + run] === "`") run++;
+    // The next run of exactly as many backticks closes the span.
+    let j = i + run;
+    let close = -1;
+    while (j < text.length) {
+      let n = 0;
+      while (text[j + n] === "`") n++;
+      if (n === run) {
+        close = j + n;
+        break;
+      }
+      j += Math.max(n, 1);
+    }
+    if (close < 0) {
+      out += text.slice(i, i + run);
+      i += run;
+    } else {
+      out += text.slice(i, close).replace(/[^\n]/g, "\r");
+      i = close;
+    }
+  }
+  return out;
+}
+
 function stripCodeBlocks(doc: string): string {
   let result = markdownLines(doc)
     .map((l) => (l.kind === "text" ? l.text : " ".repeat(l.text.length)))
