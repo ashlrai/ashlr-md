@@ -140,6 +140,44 @@ function stripQuoteMarkers(
   return { markers, rest };
 }
 
+/**
+ * The fence that opens a list item, and the item's content column, when
+ * `line` is one or more list markers (at most three spaces, `-`, `*`, `+`
+ * or 1 to 9 digits and `.` or `)`, then one to four spaces) followed by a
+ * code fence: `- ` then three backticks, or `1. - ~~~`. The rule of
+ * mdopener-mcp's `markdown_lines::list_fence`.
+ */
+function listFence(line: string): { marker: string; column: number } | null {
+  const marker = /^ {0,3}(?:[-*+]|\d{1,9}[.)])( {1,4})(?! )/;
+  let rest = line;
+  let column = 0;
+  let m = marker.exec(rest);
+  if (!m) return null;
+  while (m) {
+    column += m[0].length;
+    rest = rest.slice(m[0].length);
+    m = marker.exec(rest);
+  }
+  const f = /^(`{3,}|~{3,})(.*)$/.exec(rest);
+  if (!f || (f[1][0] === "`" && f[2].includes("`"))) return null;
+  return { marker: f[1], column };
+}
+
+/**
+ * How many columns of spaces and tabs `line` starts with (a tab reaches
+ * the next multiple of four), and the rest of the line.
+ */
+function leadingIndent(line: string): { columns: number; rest: string } {
+  let columns = 0;
+  let i = 0;
+  for (; i < line.length; i++) {
+    if (line[i] === " ") columns++;
+    else if (line[i] === "\t") columns += 4 - (columns % 4);
+    else break;
+  }
+  return { columns, rest: line.slice(i) };
+}
+
 /** A source line of a Markdown document, from {@link markdownLines}. */
 export interface MarkdownLine {
   /**
@@ -167,6 +205,13 @@ export interface MarkdownLine {
  * those markers, and a line with fewer (a blank line included) ends the
  * quote and so the block, as in CommonMark. A quoted fence used to be
  * text, so a `[[link]]` in quoted code was linted as a link.
+ *
+ * A fence that opens a list item (`- ` then a fence) is a fence too: the
+ * lines after it indented at least to the item's content column (blank
+ * lines included) are its code until a closing fence at that column (up
+ * to three more spaces), and a less indented line ends the item and so
+ * the block. A list-item fence used to be text, so a `  # comment` in an
+ * item's code was listed in the Outline and `  - [ ] x` read as a task.
  */
 export function markdownLines(markdown: string): MarkdownLine[] {
   const { lines: body, offset } = stripFrontmatter(markdown);
@@ -180,9 +225,28 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   let fence: string | null = null; // active fence marker, e.g. "```" or "~~~~"
   // The fence open inside a blockquote, with its number of `>` markers.
   let quoteFence: { marker: string; depth: number } | null = null;
+  // The fence open in a list item, with the item's content column.
+  let itemFence: { marker: string; column: number } | null = null;
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
+    if (itemFence) {
+      const ind = leadingIndent(text);
+      if (ind.rest.trim() === "" || ind.columns >= itemFence.column) {
+        let kind: MarkdownLine["kind"] = "code";
+        if (
+          ind.columns - itemFence.column <= 3 &&
+          closesFence(codeFence(ind.rest), itemFence.marker)
+        ) {
+          itemFence = null;
+          kind = "fence";
+        }
+        out.push({ kind, text, line, start });
+        start += text.length + 1;
+        continue;
+      }
+      itemFence = null;
+    }
     if (quoteFence) {
       const q = stripQuoteMarkers(text, quoteFence.depth);
       if (q.markers === quoteFence.depth) {
@@ -212,8 +276,12 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     } else {
       const q = stripQuoteMarkers(text, Number.POSITIVE_INFINITY);
       const qf = q.markers > 0 ? codeFence(q.rest) : null;
+      const lf = qf ? null : listFence(text);
       if (qf) {
         quoteFence = { marker: qf.marker, depth: q.markers };
+        kind = "fence";
+      } else if (lf) {
+        itemFence = lf;
         kind = "fence";
       }
     }

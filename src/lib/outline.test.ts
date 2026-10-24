@@ -192,6 +192,37 @@ describe("parseHeadings", () => {
       "text",
     ]);
   });
+  it("reads a fence in a list item as a fence", () => {
+    // A list-item fence used to be text, so `  # comment` in the item's
+    // code was listed in the Outline. A less indented line ends it.
+    const doc = [
+      "- ```sh",
+      "  # comment",
+      "",
+      "  - [ ] not a task",
+      "  ```",
+      "  # after",
+      "1. - ~~~",
+      "     code",
+      "  # out",
+      "-     ```",
+      "# Real",
+    ].join("\n");
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "code",
+      "code",
+      "fence",
+      "text",
+      "fence",
+      "code",
+      "text",
+      "text",
+      "text",
+    ]);
+    expect(parseHeadings(doc).map((h) => h.text)).not.toContain("comment");
+  });
   it("leaves a list-item heading out but counts its slug as the renderer does", () => {
     // rehype-slug gives `- # Step` (a heading in a list item) the id `step`,
     // so the real `# Step` below it is `step-1` in the page.

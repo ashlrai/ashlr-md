@@ -8040,6 +8040,35 @@ fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
     ));
 }
 
+/// A fence that opens a list item (`- ` then a fence) was text, so a
+/// `[[link]]` or a `# comment` in an item's code was read as Markdown. It
+/// is now a fence; its block ends at its closing fence at the item's
+/// content column or at a less indented line, as in CommonMark.
+#[test]
+fn a_fence_in_a_list_item_is_a_fence() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    let cases: [(&str, &[&str]); 5] = [
+        (
+            "- ```\n  [[InCode]]\n\n  [[InCode]]\n  ```\n[[Real]]\n",
+            &["Real"],
+        ),
+        (
+            "1. ~~~\n   [[InCode]]\n   ```\n   ~~~\n   [[Real]]\n",
+            &["Real"],
+        ),
+        ("- ```\n  [[InCode]]\n[[Real]]\n", &["Real"]),
+        ("1. - ```\n     [[InCode]]\n  [[Real]]\n", &["Real"]),
+        ("-     ```\n[[Real]]\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    assert!(
+        strip_markdown("- ```sh\n  # comment\n  ```\n").contains("# comment"),
+        "the `#` of item code is kept"
+    );
+}
+
 /// A fence inside a blockquote was text, so a `[[link]]` in quoted code
 /// was a link and export_text read a quoted `# comment` as a heading. A
 /// quoted fence is now a fence; its block ends at its closing fence or at a

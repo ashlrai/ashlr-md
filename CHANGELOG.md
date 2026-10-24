@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Code inside a list item is code.** A fence that opens a list item
+  (`- ` then a fence) was read as text, so a `# comment` in the item's
+  code was listed in the Outline and `- [ ] x` in it read as a task. It
+  is now a fence in the app and in mdopener-mcp, closed by its fence or by
+  a line indented less than the item's text.
 - **The inline AI's retry comment matches what it does.** The source
   editor said a failed rewrite got "one automatic retry with exponential
   back-off", but the Retry button runs it once after a 500 ms pause and
