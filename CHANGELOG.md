@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Save As onto a file open in another tab leaves one tab.** Both tabs
+  stayed open for the same file, and the other one showed the text the save
+  had just replaced, so its next save wrote that back. The other tab now
+  closes once the save is done; when it has unsaved changes of its own (or
+  holds the only copy of a file gone from disk), Save As asks before
+  replacing it, and nothing is written if you say no.
 - **An export waits for images still loading.** A local image is read from
   disk after the page renders and shows "Loading name…" until then, so an
   export (or a copy as rich text) taken meanwhile held that text instead

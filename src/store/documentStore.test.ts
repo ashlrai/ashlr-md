@@ -1195,6 +1195,79 @@ describe("documentStore — one file opened by two paths is one tab", () => {
     expect(s.path).toBe("/vault/link/b.md");
   });
 
+  /** A disk of `files`, each its own canonical path, saves written into it. */
+  function disk(files: Record<string, string>) {
+    invokeMock.mockImplementation(
+      (cmd: string, args?: { path?: string; content?: string }) => {
+        const p = args?.path ?? "";
+        if (cmd === "read_markdown_file") {
+          if (!(p in files))
+            return Promise.reject("No such file or directory (os error 2)");
+          return Promise.resolve({
+            path: p,
+            file_name: p.split("/").pop(),
+            content: files[p],
+            size: files[p].length,
+            version: `v-${files[p]}`,
+            canonical_path: p,
+          });
+        }
+        if (cmd === "write_markdown_file") {
+          files[p] = args?.content ?? "";
+          return Promise.resolve(`v-${files[p]}`);
+        }
+        return Promise.resolve();
+      },
+    );
+  }
+
+  it("Save As onto a file open in another tab leaves one tab for it", async () => {
+    // It used to leave both tabs, with the same key: the other one showed
+    // the text this save replaced, and its next save wrote it back.
+    const files: Record<string, string> = { "/v/a.md": "A", "/v/b.md": "B" };
+    disk(files);
+    await useDocumentStore.getState().openPath("/v/b.md");
+    await useDocumentStore.getState().openPath("/v/a.md");
+    useDocumentStore.getState().setContent("A2");
+    pickMock.mockResolvedValueOnce("/v/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    const s = useDocumentStore.getState();
+    expect(files["/v/b.md"]).toBe("A2");
+    expect(s.tabs).toHaveLength(1);
+    expect(s.tabs[0].key).toBe("/v/b.md");
+    expect(s.path).toBe("/v/b.md");
+    expect(s.content).toBe("A2");
+    expect(askMock).not.toHaveBeenCalled();
+  });
+
+  it("asks before replacing a file whose tab has unsaved changes", async () => {
+    const files: Record<string, string> = { "/v/a.md": "A", "/v/b.md": "B" };
+    disk(files);
+    askMock.mockReset();
+    await useDocumentStore.getState().openPath("/v/b.md");
+    useDocumentStore.getState().setContent("B edited");
+    await useDocumentStore.getState().openPath("/v/a.md");
+
+    // No: nothing is written and both tabs stay, the other one's edits too.
+    askMock.mockResolvedValueOnce(false);
+    pickMock.mockResolvedValueOnce("/v/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBe("cancelled");
+    expect(String(askMock.mock.calls[0][0])).toMatch(/b\.md.*unsaved changes/);
+    expect(files["/v/b.md"]).toBe("B");
+    let s = useDocumentStore.getState();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.tabs.find((t) => t.path === "/v/b.md")?.content).toBe("B edited");
+
+    // Yes: written, and the other tab is closed.
+    askMock.mockResolvedValueOnce(true);
+    pickMock.mockResolvedValueOnce("/v/b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    s = useDocumentStore.getState();
+    expect(files["/v/b.md"]).toBe("A");
+    expect(s.tabs).toHaveLength(1);
+    expect(s.path).toBe("/v/b.md");
+  });
+
   it("switches to the tab of a file opened through a symbolic link", async () => {
     sameFile(() => "/real/notes.md");
     await useDocumentStore.getState().openPath("/vault/notes.md");
