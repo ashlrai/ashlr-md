@@ -328,6 +328,9 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
     pre.appendChild(code);
     node.replaceWith(pre);
   }
+  // A block's source line is for the app's own search jumps.
+  for (const node of clone.querySelectorAll("[data-source-line]"))
+    node.removeAttribute("data-source-line");
   return clone;
 }
 

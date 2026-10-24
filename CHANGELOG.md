@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A search hit opens its file at the hit's line.** Clicking a match in the
+  file search ("Line 7") opened the file at its top. Read view now scrolls to
+  the block holding that line, and Source view puts the cursor on it. Edit
+  view still opens at the top.
 - **A big cross-file search no longer freezes the window.** `search_files` was
   a sync command, which Tauri runs on the main thread, so typing, scrolling and
   the spinner stopped until a search over a large folder finished. It now runs

@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FileSearchResult, searchFiles } from "../../lib/crossSearch";
 import { isDismissEscape } from "../../lib/keymap";
+import { revealLine } from "../../lib/revealLine";
 import { useReturnFocus } from "../../lib/useReturnFocus";
 import { useActivityStore } from "../../store/activityStore";
 import { useDocumentStore } from "../../store/documentStore";
@@ -134,7 +135,10 @@ export function SearchPanel() {
                 type="button"
                 className="search-match"
                 onClick={() => {
-                  openPath(file.path);
+                  // Open the file at the line the hit names, not at its top.
+                  void openPath(file.path).then((err) => {
+                    if (err === null) revealLine(m.lineNo);
+                  });
                   close();
                 }}
                 title={`Line ${m.lineNo}`}

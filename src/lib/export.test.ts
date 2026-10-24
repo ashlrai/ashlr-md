@@ -164,6 +164,12 @@ describe("cloneWithoutInjectedChrome", () => {
     expect(cleaned.querySelectorAll(".review-card")).toHaveLength(0);
     expect(cleaned.querySelector("p")?.textContent).toBe("keep");
   });
+
+  it("drops the read view's block source lines", () => {
+    const el = document.createElement("div");
+    el.innerHTML = '<h1 data-source-line="1">T</h1><p data-source-line="3">b</p>';
+    expect(cloneWithoutInjectedChrome(el).innerHTML).toBe("<h1>T</h1><p>b</p>");
+  });
 });
 
 // ─── buildStandaloneHtml — structure ─────────────────────────────────────────
