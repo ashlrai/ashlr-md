@@ -9,7 +9,7 @@
  * the embed still shows something useful.
  */
 
-import { atxHeadings } from "./outline";
+import { atxHeadings, markdownLines } from "./outline";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -29,15 +29,21 @@ export function splitFragment(target: string): {
 export function extractSection(content: string, fragment: string): string {
   const lines = content.split("\n");
 
-  // Block reference: a line ending with ` ^id`.
+  // Block reference: a text line ending with ` ^id`, by the line rule of
+  // the Outline (markdownLines). A `^id` in front matter or in fenced or
+  // indented code is not one, as Obsidian reads it; it used to be found
+  // on any line, and the block then ran back over the fence above it.
   if (fragment.startsWith("^")) {
     const id = fragment.slice(1);
     const blockRe = new RegExp(`\\s\\^${escapeRegExp(id)}\\s*$`);
-    const idx = lines.findIndex((l) => blockRe.test(l));
+    const kinds = markdownLines(content);
+    const text = (i: number) => kinds[i]?.kind === "text";
+    const idx = lines.findIndex((l, i) => text(i) && blockRe.test(l));
     if (idx < 0) return content;
-    // Walk back to the start of the block (previous blank line).
+    // Walk back to the start of the block: a blank line or a line that is
+    // not text (a fence, code, front matter or HTML) ends it.
     let start = idx;
-    while (start > 0 && lines[start - 1].trim() !== "") start--;
+    while (start > 0 && text(start - 1) && lines[start - 1].trim() !== "") start--;
     return lines
       .slice(start, idx + 1)
       .join("\n")

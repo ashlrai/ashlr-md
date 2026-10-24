@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Block embeds find a `^id` only in text.** A partial embed
+  (`![[note#^id]]`) took the first line ending with ` ^id`, also in front
+  matter or in fenced or indented code, and its block then ran back over the
+  fence above it. It now reads lines by the Outline's rule, and a block ends
+  at a line that is not text.
 - **The broken-wikilink lint skips code spans.** `wikilink-targets-exist`
   reported a `[[link]]` in a code span (`` `[[x]]` ``) or in indented code,
   which the page shows as code and `export_metadata` leaves out. It now reads
