@@ -272,11 +272,14 @@ export function ActivityDrawer() {
                   >
                     <span className="activity-item__icon">
                       {isNew ? (
-                        <span
-                          className="activity-item__dot"
-                          aria-label="new"
-                          title="New since you last looked"
-                        />
+                        <>
+                          <span
+                            className="activity-item__dot"
+                            aria-hidden="true"
+                            title="New since you last looked"
+                          />
+                          <span className="visually-hidden">New: </span>
+                        </>
                       ) : (
                         <DocIcon />
                       )}

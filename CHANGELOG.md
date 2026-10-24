@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The tab bar answers the arrow keys.** It is announced as a set of tabs,
+  but every tab was its own Tab stop and the arrow keys did nothing. Now
+  only the active tab is a Tab stop, and Left, Right, Home and End move to
+  and open the previous, next, first and last document. A tab's unsaved
+  dot, and an agent-activity file's "new" dot, are now read by screen
+  readers (their labels sat on plain spans, which are not read).
 - **Closing a side panel gives focus back.** File search, the outline and
   agent activity stay in the page while closed, unreachable, so closing one
   from its close button or with Escape left keyboard focus on nothing. Focus

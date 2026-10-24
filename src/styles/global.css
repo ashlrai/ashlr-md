@@ -75,6 +75,20 @@ select:focus-visible {
   }
 }
 
+/* Text for screen readers only (a state a dot or icon shows). An
+   aria-label on a plain span is not read, so a state needs real text. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Custom scrollbars — unobtrusive, theme-aware. */
 ::-webkit-scrollbar {
   width: 11px;
