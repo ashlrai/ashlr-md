@@ -42,7 +42,9 @@
 
 use std::io::{self, BufRead, IsTerminal as _, Write};
 
-use mdopener_mcp::{dispatch, invalid_envelope, IpcClient, RealIpcClient, Request, Response};
+use mdopener_mcp::{
+    dispatch, invalid_envelope, IpcClient, RealIpcClient, Request, Response, MAX_DOCUMENT_BYTES,
+};
 use serde_json::Value;
 
 const HELP: &str = "mdopener-mcp: MCP server for Ashlr MD (stdio JSON-RPC 2.0)
@@ -113,6 +115,12 @@ fn print_stdout(text: &str) -> i32 {
     }
 }
 
+/// Largest JSON-RPC message (one stdin line) the server reads: room for a
+/// 16 MiB document ([`MAX_DOCUMENT_BYTES`]) JSON-escaped several times over,
+/// as `replace_document` or `set_content` may carry. A longer line used to be
+/// read whole into memory, however long it grew.
+const MAX_REQUEST_LINE_BYTES: usize = 4 * MAX_DOCUMENT_BYTES as usize;
+
 /// Answer each newline-delimited JSON-RPC message read from `input` on
 /// `output`, until `input` ends or cannot be read.
 ///
@@ -120,22 +128,38 @@ fn print_stdout(text: &str) -> i32 {
 /// session goes on. It used to be read with `BufRead::lines`, whose
 /// `InvalidData` error ended the loop, so one stray byte from a client shut
 /// the server down without a word and every later request went unanswered.
-fn serve(mut input: impl BufRead, mut output: impl Write, ipc: &dyn IpcClient) {
+fn serve(input: impl BufRead, output: impl Write, ipc: &dyn IpcClient) {
+    serve_bounded(input, output, ipc, MAX_REQUEST_LINE_BYTES);
+}
+
+/// [`serve`] with the line limit as a parameter. A line longer than `limit`
+/// bytes is skipped to its end without being kept (memory stays bounded) and
+/// answered with a `-32600` error; the session goes on.
+fn serve_bounded(
+    mut input: impl BufRead,
+    mut output: impl Write,
+    ipc: &dyn IpcClient,
+    limit: usize,
+) {
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        match input.read_until(b'\n', &mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        let reply = match std::str::from_utf8(&buf) {
-            Ok(line) if line.trim().is_empty() => continue,
-            Ok(line) => handle_line(line, ipc),
-            Err(e) => Some(to_line(&Response::err(
+        let reply = match read_line_bounded(&mut input, &mut buf, limit) {
+            Ok(Line::End) | Err(_) => break,
+            Ok(Line::TooLong) => Some(to_line(&Response::err(
                 Value::Null,
-                -32700,
-                format!("Parse error: the message is not valid UTF-8 ({e})"),
+                -32600,
+                format!("Invalid Request: the message is longer than {limit} bytes"),
             ))),
+            Ok(Line::Read) => match std::str::from_utf8(&buf) {
+                Ok(line) if line.trim().is_empty() => continue,
+                Ok(line) => handle_line(line, ipc),
+                Err(e) => Some(to_line(&Response::err(
+                    Value::Null,
+                    -32700,
+                    format!("Parse error: the message is not valid UTF-8 ({e})"),
+                ))),
+            },
         };
         // Notifications (and batches made only of notifications) get no reply.
         if let Some(mut out) = reply {
@@ -144,6 +168,64 @@ fn serve(mut input: impl BufRead, mut output: impl Write, ipc: &dyn IpcClient) {
             let _ = output.flush();
         }
     }
+}
+
+/// What [`read_line_bounded`] found.
+#[derive(Debug, PartialEq)]
+enum Line {
+    /// A line (with its newline, unless it was the last) is in the buffer.
+    Read,
+    /// The line ran past the limit; it was read to its end and dropped.
+    TooLong,
+    /// The input ended before any byte.
+    End,
+}
+
+/// `read_until(b'\n')` that keeps at most `limit` bytes of a line (its
+/// newline not counted). Past that the rest of the line is read and thrown
+/// away, so a client that never sends a newline cannot grow the buffer.
+fn read_line_bounded(
+    input: &mut impl BufRead,
+    buf: &mut Vec<u8>,
+    limit: usize,
+) -> io::Result<Line> {
+    let mut too_long = false;
+    let mut any = false;
+    loop {
+        let chunk = match input.fill_buf() {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if chunk.is_empty() {
+            break;
+        }
+        any = true;
+        let (take, done) = match chunk.iter().position(|&b| b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (chunk.len(), false),
+        };
+        if !too_long {
+            let content = if done { take - 1 } else { take };
+            if buf.len() + content > limit {
+                too_long = true;
+                buf.clear();
+            } else {
+                buf.extend_from_slice(&chunk[..take]);
+            }
+        }
+        input.consume(take);
+        if done {
+            break;
+        }
+    }
+    Ok(if too_long {
+        Line::TooLong
+    } else if any {
+        Line::Read
+    } else {
+        Line::End
+    })
 }
 
 /// What to tell a human on stderr before serving: a one-line warning naming
@@ -234,7 +316,7 @@ fn to_line(response: &Response) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{serve, startup_notes, AGENTS_GUIDE, HELP};
+    use super::{serve, serve_bounded, startup_notes, AGENTS_GUIDE, HELP};
     use mdopener_mcp::IpcClient;
     use serde_json::Value;
 
@@ -276,6 +358,44 @@ mod tests {
         // trailing newline: the last line of a closed stdin).
         assert_eq!(got[2]["id"], 3);
         assert_eq!(got[2]["result"], serde_json::json!({}));
+    }
+
+    /// A request line had no size limit: a client that sent a huge line (or
+    /// one without a newline) grew the buffer without bound. A line past the
+    /// limit is now dropped and answered with a JSON-RPC error on stdout, and
+    /// the requests around it are still answered.
+    #[test]
+    fn an_oversized_line_gets_an_invalid_request_error_and_the_session_goes_on() {
+        let ping = |id: u32| format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"ping\"}}\n");
+        let limit = ping(1).len() + 8;
+        let mut input = ping(1).into_bytes();
+        input.extend_from_slice(&[b' '; 70_000]);
+        input.extend_from_slice(ping(2).as_bytes());
+        input.extend_from_slice(ping(3).as_bytes());
+        // A last oversized line with no newline (a closed stdin).
+        input.extend_from_slice(&[b'x'; 70_000]);
+        let mut out = Vec::new();
+        serve_bounded(&input[..], &mut out, &NoApp, limit);
+        let text = String::from_utf8(out).unwrap();
+        let got: Vec<Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(got.len(), 4, "{text}");
+        assert_eq!(got[0]["id"], 1);
+        assert_eq!(got[1]["id"], Value::Null);
+        assert_eq!(got[1]["error"]["code"], -32600);
+        let msg = got[1]["error"]["message"].as_str().unwrap();
+        assert!(msg.contains(&format!("longer than {limit} bytes")), "{msg}");
+        assert_eq!(got[2]["id"], 3);
+        assert_eq!(got[2]["result"], serde_json::json!({}));
+        assert_eq!(got[3]["error"]["code"], -32600);
+        // A line exactly at the limit (newline not counted) is still served.
+        let exact = ping(4);
+        let mut out = Vec::new();
+        serve_bounded(exact.as_bytes(), &mut out, &NoApp, exact.len() - 1);
+        let reply: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(reply["id"], 4, "{reply}");
     }
 
     #[test]

@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a request line has a size limit.** The server read each stdin line
+  whole, however long, so a client that sent a huge line (or bytes with no
+  newline) grew its memory without bound. A line longer than 64 MiB (room for
+  a 16 MiB document escaped several times over) is now read to its end
+  without being kept and answered with a JSON-RPC `-32600` error on stdout;
+  the requests after it are still served.
 - **mdopen and the MCP server: a launcher that cannot start says so.** An
   `xdg-open` (or `gio`, `open`) on the PATH that could not be started, not
   being executable for one, was reported as having "exited with status
