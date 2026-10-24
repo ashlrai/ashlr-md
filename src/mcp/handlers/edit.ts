@@ -26,19 +26,18 @@ import type {
 
 /**
  * Save the open document for an edit that asked for `save: true`. Returns
- * `null` when it reached disk, or the reason it did not. `save()` reports a
- * failed write only through a toast and `error`, so its success is read
- * back from `diskContent`. Every caller has already refused a state with no
- * file (see `openDocumentPath`), so there is always a file to write: the
- * reason this used to give for a document with no file was never reached.
+ * `null` when it reached disk, or the reason it did not. The tab is the one
+ * the edit was applied to (active when this is called, right after the
+ * edit), named by id: the outcome used to be read back from the active
+ * document's `diskContent`, so a tab switch while the file was written
+ * reported a save that succeeded as failed. Every caller has already
+ * refused a state with no file (see `openDocumentPath`). An agent's save
+ * never asks the user anything (a file deleted since it was opened is
+ * refused, not recreated).
  */
 async function saveForAgent(): Promise<string | null> {
   const doc = useDocumentStore.getState();
-  const target = doc.content;
-  await doc.save();
-  const after = useDocumentStore.getState();
-  if (after.diskContent === target) return null;
-  return after.error ?? "the write failed";
+  return doc.save({ agent: true, tabId: doc.activeId ?? undefined });
 }
 
 function notSaved(reason: string, what = "Edit applied to"): string {

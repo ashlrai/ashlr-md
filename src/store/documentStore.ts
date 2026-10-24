@@ -209,7 +209,7 @@ interface DocumentState {
   setViewMode: (mode: ViewMode) => void;
   toggleSplitView: () => void;
   /**
-   * Save the active document. Resolves to `null` once it is on disk, or to
+   * Save the active document (or `opts.tabId`'s). Resolves to `null` once it is on disk, or to
    * why it is not (also set as `error` and toasted). A file deleted or moved
    * since it was read is written again only after the user confirms;
    * `agent` saves never ask, and are refused instead.
@@ -242,6 +242,11 @@ interface DocumentState {
 export interface SaveOptions {
   /** A save an agent asked for: never shows a dialog. */
   agent?: boolean;
+  /**
+   * The tab to save (default: the active one). A save is of the document
+   * it was asked for, whichever tab is active by the time it is written.
+   */
+  tabId?: string;
 }
 
 /** Why an agent save of a deleted or moved file is refused. */
@@ -359,8 +364,21 @@ type SetState = (partial: Partial<DocumentState>) => void;
  * Flag the active tab's file (`path`) as gone: the window used to show
  * nothing, and the next save silently wrote the file again.
  */
-function markMissing(get: () => DocumentState, set: SetState, path: string) {
+function markMissing(
+  get: () => DocumentState,
+  set: SetState,
+  path: string,
+  id?: string | null,
+) {
   const s = get();
+  if (id != null && id !== s.activeId) {
+    set({
+      tabs: s.tabs.map((t) =>
+        t.id === id && t.path === path ? { ...t, missing: true } : t,
+      ),
+    });
+    return;
+  }
   if (s.path !== path || s.missing) return;
   const next = { ...s, missing: true };
   set({ missing: true, tabs: syncActiveTab(next) });
@@ -625,7 +643,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }),
 
   save: async (opts) => {
-    const { path, content, activeId, diskVersion, missing, fileName } = get();
+    // The document to save: the tab named (an agent's edit names the tab
+    // it changed, which may no longer be active), else the active one.
+    const st = get();
+    const id = opts?.tabId ?? st.activeId;
+    const tab = id === st.activeId ? null : st.tabs.find((t) => t.id === id);
+    if (id !== st.activeId && !tab) return "the document is no longer open";
+    const { path, content, diskVersion, missing, fileName } = tab ?? st;
     if (!path) return "no document is open";
     let recreate = false;
     if (missing) {
@@ -659,10 +683,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           pendingVersion: null,
           missing: false,
         };
-        if (s.activeId !== activeId || s.path !== path) {
+        if (s.activeId !== id || s.path !== path) {
           return {
             tabs: s.tabs.map((t) =>
-              t.id === activeId && t.path === path
+              t.id === id && t.path === path
                 ? { ...t, ...saved, isDirty: t.content !== content }
                 : t,
             ),
@@ -683,14 +707,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         toast.error(
           "Not saved: the file changed on disk. Reload it, or keep your version and save again.",
         );
-        recheckDisk(get, set, activeId ?? "", path);
+        recheckDisk(get, set, id ?? "", path);
         return untagged(error);
       }
       if (error.includes(SAVE_MISSING_TAG)) {
         // Gone, and the watcher has not said so yet: show it, and ask.
-        markMissing(get, set, path);
+        markMissing(get, set, path, id);
         const now = get();
-        if (opts?.agent || now.activeId !== activeId || !now.missing) {
+        if (opts?.agent || now.activeId !== id || !now.missing) {
           return MISSING_FILE_REASON;
         }
         return now.save(opts);

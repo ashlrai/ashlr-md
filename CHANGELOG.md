@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An agent's save is reported as saved when the user switches tabs during
+  it.** `save: true` on an edit read its outcome back from the active tab, so
+  switching tabs while the file was written told the agent the save failed
+  (and a retry applied the edit again). The save now names the edited tab and
+  reports its own result.
 - **One file opened by two paths is one tab.** Tabs were matched by the path
   as given, so a note opened through a symbolic link, with `..`, in the other
   Unicode form or in other case opened in a second tab, and each tab's save
