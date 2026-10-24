@@ -536,7 +536,6 @@ function OtChangeBadge({ op }: { op: OtOperation }) {
       data-first-line={s.firstLine}
       data-last-line={s.lastLine}
       title={`${op.agentId}: +${s.insertedChars} / -${s.deletedChars} chars (lines ${s.firstLine + 1} to ${s.lastLine + 1})`}
-      aria-label={`Remote edit by ${op.agentId}`}
     >
       <span className="ot-change-badge-agent">{label}</span>
       {s.insertedChars > 0 && (
@@ -558,11 +557,7 @@ function OtChangeBadge({ op }: { op: OtOperation }) {
 function OtChangeBadgeLayer({ ops }: { ops: OtOperation[] }) {
   if (ops.length === 0) return null;
   return (
-    <div
-      className="ot-change-badge-layer"
-      aria-live="polite"
-      aria-label="Incoming remote edits"
-    >
+    <div className="ot-change-badge-layer" aria-live="polite">
       {ops.map((op) => (
         <OtChangeBadge key={op.id} op={op} />
       ))}

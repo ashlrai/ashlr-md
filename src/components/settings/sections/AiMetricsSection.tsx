@@ -155,7 +155,7 @@ function LatencyBar({ entry, maxMs }: { entry: ProviderMetricEntry; maxMs: numbe
   return (
     <div
       className="ai-metrics-bar-row"
-      aria-label={`${entry.providerId} avg latency ${fmtMs(avg)}`}
+      title={`${entry.providerId} avg latency ${fmtMs(avg)}`}
     >
       <span className="ai-metrics-bar-label">{entry.providerId}</span>
       <div className="ai-metrics-bar-track">

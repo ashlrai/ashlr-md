@@ -1184,7 +1184,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                 ✨
               </span>
               {phase.label}…
-              <span className="inline-ai-tokens" aria-label="token counts">
+              <span className="inline-ai-tokens" title="input and output token counts">
                 {phase.inputTokens}↓→{phase.outputTokens}
               </span>
               <button

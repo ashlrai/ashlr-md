@@ -725,7 +725,7 @@ export function AISidebar() {
           used to repeat its label, so an empty document's greyed-out buttons
           gave no reason. They show only once a provider is set up. */}
       {!isNoop && provider && (
-        <div className="ai-quick-actions" aria-label="Quick actions">
+        <section className="ai-quick-actions" aria-label="Quick actions">
           {DOC_ACTIONS.map((a) => (
             <button
               key={a.id}
@@ -738,7 +738,7 @@ export function AISidebar() {
               {a.icon} {a.label}
             </button>
           ))}
-        </div>
+        </section>
       )}
 
       {/* The document is cut to MAX_CONTEXT_CHARS before it is sent, which

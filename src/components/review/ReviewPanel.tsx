@@ -89,9 +89,9 @@ export function ReviewPanel() {
           to say "review of inline content" without showing the text, and the
           human approved what they never saw (or the unrelated open doc). */}
       {!pending.path && pending.content !== null && (
-        <pre className="review-panel__content" aria-label="Content to review">
-          {pending.content || "(empty)"}
-        </pre>
+        <section aria-label="Content to review">
+          <pre className="review-panel__content">{pending.content || "(empty)"}</pre>
+        </section>
       )}
 
       <textarea
