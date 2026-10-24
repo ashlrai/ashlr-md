@@ -1343,7 +1343,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stripped while code is kept as written, its `#`s and `*`s included: fenced and \
                 indented code lose only the blockquote markers and list item indentation they sit \
                 in and the fence's or the four columns' indentation. Strikethrough keeps its \
-                text, table rows become tab-separated cells, and footnotes read [1]. Returns \
+                text, table rows become tab-separated cells, and footnotes read [1]. A link \
+                reads its text and an image its alt text, without their inline marks; a `[text]` \
+                with no `(url)` keeps its brackets unless the document defines its label, a link \
+                reference definition (`[text]: /url`) reads nothing, as on the page, and an \
+                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
                 path of the document (with `path` omitted, the open document's file). \

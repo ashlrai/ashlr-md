@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The `export_text` tool description says what links read.** It said links,
+  images and HTML tags are stripped, and nothing about what stays: a link's text,
+  an image's alt text, the brackets of a `[text]` whose label is not defined and
+  an autolink's URL, or that a link reference definition reads nothing. It now
+  says so.
 - **`export_text` strips markup inside link and image text.** A link's text and
   an image's alt text were copied as written, so `[**a**](u)` read `**a**` and
   ``[`code`](u)`` kept its backticks, where the page shows `a` and `code`. They

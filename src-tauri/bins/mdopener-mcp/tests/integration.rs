@@ -8700,6 +8700,33 @@ fn export_text_strips_markup_inside_link_and_image_text() {
     assert!(docs.contains("without their inline marks (`[**a**](u)` reads `a`"));
 }
 
+/// The export_text description said links, images and HTML tags are
+/// stripped and nothing about what is kept: that a link reads its text, a
+/// `[text]` with no definition keeps its brackets, a definition reads
+/// nothing and an autolink keeps its URL. Each claim is pinned to the
+/// behaviour it describes.
+#[test]
+fn export_text_description_says_what_links_read() {
+    let def = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "export_text")
+        .unwrap();
+    for claim in [
+        "A link reads its text and an image its alt text, without their inline marks",
+        "a `[text]` with no `(url)` keeps its brackets unless the document defines its label",
+        "a link reference definition (`[text]: /url`) reads nothing",
+        "an autolink (`<https://x>`, `<me@x.org>`) reads its URL or address",
+    ] {
+        assert!(def.description.contains(claim), "missing: {claim}");
+    }
+    assert_eq!(strip_markdown("[**a**](u) ![*b*](i)"), "a b");
+    assert_eq!(strip_markdown("[sic] [r]\n\n[r]: /url"), "[sic] r");
+    assert_eq!(
+        strip_markdown("<https://x> <me@x.org>"),
+        "https://x me@x.org"
+    );
+}
+
 /// After a bare item's end, indented code that opens a blockquote
 /// (`-`, a blank line, then `>     code`) was taken to close a container,
 /// so it did not hold the next line's markers: `> 2) ```` opened an item
