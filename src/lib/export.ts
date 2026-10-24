@@ -412,13 +412,15 @@ function escapeHtml(s: string): string {
  * the headless path does) and an Obsidian config folder. It used to go
  * through `write_markdown_file`, which saves a linked document into the
  * file the link points to, so an export over a `report.html` linked to
- * `~/.bashrc` replaced the shell profile.
+ * `~/.bashrc` replaced the shell profile. Like the DOCX, EPUB and profile
+ * exports, it resolves true once the file is written and false when the
+ * save dialog was cancelled (the Export dialog said "exported" for both).
  */
 export async function exportHtml(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
   // throws if not in read view
   const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
@@ -430,7 +432,7 @@ export async function exportHtml(
       defaultPath: `${sanitizeFileName(title)}.html`,
       filters: [{ name: "HTML", extensions: ["html"] }],
     }));
-  if (!path) return; // user cancelled — no toast
+  if (!path) return false; // user cancelled — no toast
 
   try {
     await writeExportBytes(path, new TextEncoder().encode(html), opts);
@@ -439,6 +441,7 @@ export async function exportHtml(
     throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 /**
@@ -456,7 +459,7 @@ export async function exportDocx(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
@@ -480,7 +483,7 @@ export async function exportDocx(
       defaultPath: `${sanitizeFileName(title)}.docx`,
       filters: [{ name: "Word Document", extensions: ["docx"] }],
     }));
-  if (!path) return; // user cancelled — no toast
+  if (!path) return false; // user cancelled — no toast
 
   const meta = exportMetadata(title);
   const result = await HTMLtoDOCX(bodyHtml, null, {
@@ -510,6 +513,7 @@ export async function exportDocx(
     throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 /**
@@ -795,7 +799,7 @@ export async function exportEpub(
   title: string,
   outputPath?: string,
   opts: WriteOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
@@ -826,7 +830,7 @@ export async function exportEpub(
       defaultPath: `${sanitizeFileName(title)}.epub`,
       filters: [{ name: "EPUB eBook", extensions: ["epub"] }],
     }));
-  if (!path) return; // user cancelled — no toast
+  if (!path) return false; // user cancelled — no toast
 
   const theme = currentTheme();
   const css = buildEpubThemeCss(theme);
@@ -867,6 +871,7 @@ export async function exportEpub(
     throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 // ─── buildExportHtml ─────────────────────────────────────────────────────────
@@ -1038,7 +1043,7 @@ function inlineEmailStyles(html: string): string {
 export async function exportWithProfile(
   profileId: ExportProfileId,
   title: string,
-): Promise<void> {
+): Promise<boolean> {
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
   await waitForRenderedImages();
@@ -1058,7 +1063,7 @@ export async function exportWithProfile(
     defaultPath: `${sanitizeFileName(title)}.${ext}`,
     filters: [{ name: filterName, extensions: [ext] }],
   });
-  if (!path) return; // user cancelled — no toast
+  if (!path) return false; // user cancelled — no toast
 
   try {
     await writeExportBytes(path, new TextEncoder().encode(content));
@@ -1067,6 +1072,7 @@ export async function exportWithProfile(
     throw new ShownExportError(errMsg(e));
   }
   toast.success(`Exported to ${baseName(path)}`);
+  return true;
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────

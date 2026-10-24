@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A cancelled export is not reported as done.** Cancelling the save dialog
+  of an HTML, Word, EPUB, Notion, Slack or email export left the Export
+  dialog saying "HTML exported." and closing it, though nothing was written.
+  It now stays open with no status.
 - **Export failures say why, once.** An export from the command palette that
   failed with an error (not a plain message) toasted only "Export failed",
   without the reason, and a failed write was toasted twice, by the export and

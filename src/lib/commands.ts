@@ -34,7 +34,7 @@ import { waitForElement } from "./waitForElement";
  * if needed, wait for it to render, then export — and surface any failure as a
  * toast (the palette commands call this directly, with no dialog to show errors).
  */
-async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
+async function runExport(fn: (name: string) => Promise<unknown>): Promise<void> {
   const doc = useDocumentStore.getState();
   if (!doc.path) return;
   if (doc.viewMode !== "read") {

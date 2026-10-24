@@ -238,10 +238,10 @@ beforeEach(() => {
   toastSuccessMock.mockReset();
   copyRichTextMock.mockReset().mockResolvedValue(undefined);
   pickAndOpenMock.mockReset().mockResolvedValue(undefined);
-  exportHtmlMock.mockReset().mockResolvedValue(undefined);
+  exportHtmlMock.mockReset().mockResolvedValue(true);
   exportPdfMock.mockReset().mockResolvedValue(undefined);
-  exportDocxMock.mockReset().mockResolvedValue(undefined);
-  exportEpubMock.mockReset().mockResolvedValue(undefined);
+  exportDocxMock.mockReset().mockResolvedValue(true);
+  exportEpubMock.mockReset().mockResolvedValue(true);
   settingsState.epubEnabled = true;
 });
 
