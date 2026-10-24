@@ -47,7 +47,8 @@ pub enum LineKind {
 /// quote) are its code until a closing fence in them, and a line that
 /// leaves one ends the block. Open list items are tracked across text
 /// lines, a less indented line ending them unless it continues a
-/// paragraph. A quoted fence, a list-item fence and then these used to be
+/// paragraph, inside blockquotes too (`> - a`, then `>   b`), where only
+/// the items before the first blockquote used to be. A quoted fence, a list-item fence and then these used to be
 /// text, so a `# comment` or a `[[link]]` in their code was read as
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
@@ -118,15 +119,17 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     // The open fence (its character, its length and how far it is
     // indented), with the containers its code lines stay in.
     let mut fence: Option<(char, usize, usize, Vec<Container>)> = None;
-    // The widths of the open list items, outermost first.
-    let mut items: Vec<usize> = Vec::new();
-    // How many open items hold the paragraph the line before is in (-1 for
-    // one in a blockquote), or None after any other line.
-    let mut paragraph: Option<isize> = None;
+    // The open blockquotes and list items, outermost first: the containers
+    // of the last line that was not blank or lazy, less those a blank line
+    // or a closing line ended.
+    let mut open: Vec<Container> = Vec::new();
+    // How many containers hold the paragraph the line before is in, or
+    // None after any other line.
+    let mut paragraph: Option<usize> = None;
     // The containers of the paragraph's last line that was not lazy.
     let mut para_list: Vec<Container> = Vec::new();
     // The same for indented code, which a blank line does not end.
-    let mut indented: Option<isize> = None;
+    let mut indented: Option<usize> = None;
     // Whether the innermost open item has only its marker so far.
     let mut bare = false;
     // Whether the line before was in a blockquote or ended a bare item:
@@ -146,7 +149,6 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
         }
         let expanded = expand_tabs(line);
         let mut ends_bare = false;
-        let quoted;
         let contained;
         let mut kind = LineKind::Text;
         let mut code = None;
@@ -157,7 +159,6 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             .as_ref()
             .and_then(|(_, _, _, list)| continues(&expanded, list));
         if let (Some((c, n, indent, list)), Some(inside)) = (&fence, inside) {
-            quoted = list.contains(&Container::Quote);
             contained = !list.is_empty();
             kind = match code_fence(inside) {
                 Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
@@ -177,8 +178,7 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             }
         } else {
             fence = None;
-            let (list, matched, rest) = containers(&expanded, &items, paragraph.or(indented));
-            quoted = list.contains(&Container::Quote);
+            let (list, matched, rest) = containers(&expanded, &open, paragraph.or(indented));
             contained = !list.is_empty();
             let empty = rest.trim().is_empty();
             let opened = list.len() > matched;
@@ -191,16 +191,19 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             if let Some((c, n, _)) = code_fence(rest) {
                 text = None;
                 item = false;
-                items = leading_items(&list);
+                open = list.clone();
                 fence = Some((c, n, spaces_before(rest), list));
                 kind = LineKind::Fence;
                 paragraph = None;
                 indented = None;
                 bare = false;
             } else if empty && !opened {
-                // A blank line. An item that starts with one ends at a second.
-                if bare {
-                    items.pop();
+                // A blank line ends the blockquotes it has no `>` for, and an
+                // item that starts with one ends at a second.
+                let ends = bare && matched == open.len();
+                open = list;
+                if ends {
+                    open.pop();
                 }
                 ends_bare = bare;
                 paragraph = None;
@@ -209,27 +212,27 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 let heading = atx_heading(rest).is_some();
                 // A paragraph goes on in a line that leaves an item without
                 // opening one, or a blockquote (lazy continuation).
-                let lazy = paragraph.is_some()
-                    && !heading
-                    && !opened
-                    && (matched < items.len() || paragraph == Some(-1));
-                if paragraph == Some(matched as isize) && !opened && setext_underline(rest) {
+                let lazy = paragraph.is_some() && !heading && !opened && matched < open.len();
+                if paragraph == Some(matched) && !opened && setext_underline(rest) {
                     // A setext underline ends the paragraph as a heading.
-                    items.truncate(matched);
+                    open.truncate(matched);
                     paragraph = None;
                     indented = None;
                     bare = false;
                 } else if thematic_break(rest) {
-                    // A thematic break ends the items it is not indented into.
-                    items = leading_items(&list);
+                    // A thematic break ends the containers it is not in.
+                    open = list;
                     paragraph = None;
                     indented = None;
                     bare = false;
                 } else if !lazy {
-                    let closed = matched < items.len() || closer;
-                    items = leading_items(&list);
+                    // Indented code that closed a container without opening
+                    // one, or after a bare item's end, does not hold the
+                    // next line's markers.
+                    let closed = (matched < open.len() && !opened) || closer;
+                    open = list.clone();
                     bare = opened && empty && list.last() != Some(&Container::Quote);
-                    let level = if quoted { -1 } else { items.len() as isize };
+                    let level = list.len();
                     // Four spaces past the containers is indented code, not text.
                     // A paragraph goes on unless the line opens a list
                     // item, or a blockquote the paragraph is not in.
@@ -249,7 +252,7 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 }
             }
         }
-        closer = ends_bare || quoted;
+        closer = ends_bare;
         Scanned {
             kind,
             line,
@@ -368,36 +371,44 @@ fn setext_underline(line: &str) -> bool {
 }
 
 /// The containers `line` (tabs expanded) sits in, how many of the open
-/// list items `items` (their widths, outermost first) it continues by its
-/// indentation, and the rest of the line: first those items, then the
-/// blockquote markers and list markers it opens (`> `, `- `, `1. - `,
-/// `- > `). When the line would otherwise continue a paragraph held by
-/// `held` of the items (or indented code, which the renderer treats
-/// alike), a list marker that opens no text (`-` alone) or an ordered one
-/// that does not start at 1 is text, as in CommonMark, until a blockquote
-/// opens. A thematic break (`- - -`) opens no item. The app's `outline.ts`
+/// containers `open` (outermost first) it continues, and the rest of the
+/// line: first those it continues, each blockquote by its `>` and each
+/// list item by its content indentation (a blank line stays in an item),
+/// then the blockquote markers and list markers it opens (`> `, `- `,
+/// `1. - `, `- > `). An item in a blockquote (`> - a`, then `>   b`) holds
+/// the lines indented into it, as an item outside one does; only the items
+/// before the first blockquote used to be tracked. When the line would
+/// otherwise continue a paragraph held by `held` containers (or indented
+/// code, which the renderer treats alike), a list marker that opens no
+/// text (`-` alone) or an ordered one that does not start at 1 is text,
+/// also past a blockquote or an item the line opens, as the renderer reads
+/// it. A thematic break (`- - -`) opens no item. The app's `outline.ts`
 /// reads containers by the same rule.
 fn containers<'a>(
     line: &'a str,
-    items: &[usize],
-    held: Option<isize>,
+    open: &[Container],
+    held: Option<usize>,
 ) -> (Vec<Container>, usize, &'a str) {
     let mut list = Vec::new();
     let mut rest = line;
-    for &width in items {
-        if spaces_before(rest) < width {
-            break;
+    for c in open {
+        match *c {
+            Container::Quote => match quote_marker(rest) {
+                Some(after) => rest = after,
+                None => break,
+            },
+            Container::Item(_) if rest.trim().is_empty() => rest = "",
+            Container::Item(width) if spaces_before(rest) >= width => rest = &rest[width..],
+            Container::Item(_) => break,
         }
-        rest = &rest[width..];
-        list.push(Container::Item(width));
+        list.push(*c);
     }
     let matched = list.len();
-    let mut interrupt = held == Some(matched as isize);
+    let interrupt = held == Some(matched);
     loop {
         if let Some(after) = quote_marker(rest) {
             list.push(Container::Quote);
             rest = after;
-            interrupt = false;
             continue;
         }
         if thematic_break(rest) {
@@ -429,16 +440,6 @@ fn continues<'a>(line: &'a str, list: &[Container]) -> Option<&'a str> {
         }
     }
     Some(rest)
-}
-
-/// The widths of the list items that open `list`, before any blockquote.
-fn leading_items(list: &[Container]) -> Vec<usize> {
-    list.iter()
-        .map_while(|c| match c {
-            Container::Item(width) => Some(*width),
-            Container::Quote => None,
-        })
-        .collect()
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a

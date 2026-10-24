@@ -8522,6 +8522,22 @@ fn export_text_reads_lines_past_their_containers() {
     }
 }
 
+/// markdown_lines tracked list items only up to the first blockquote, so
+/// a quoted item's continuation was read by its indentation in the quote:
+/// `>     **b**` after `> - a` was indented code, and a `> ```` line
+/// leaving the item closed the item's fence, so the quoted `[[Link]]` in
+/// the code it opens was a link. Items in a blockquote are now tracked.
+#[test]
+fn list_items_inside_a_blockquote_are_tracked() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    assert_eq!(strip_markdown("> - a\n>\n>     **b**\n"), "a\n\nb");
+    assert_eq!(strip_markdown("> - a\n>\n>     # Sub\n"), "a\n\nSub");
+    assert_eq!(strip_markdown("> - a\n>\n>       *x*\n"), "a\n\n*x*");
+    let doc = "> - a\n>\n>   ```\n>   x\n> ```\n> [[Link]]\n";
+    assert!(extract_wikilinks(doc).is_empty());
+    assert_eq!(strip_markdown(doc), "a\n\nx\n[[Link]]");
+}
+
 /// `export_metadata` took everything between `[[` and `]]` (before a `|`)
 /// as a link's target, so `[[Plan#Goals]]` listed `Plan#Goals`, a note that
 /// does not exist, and `[[a]b]]` listed `a]b`, which the app does not link.

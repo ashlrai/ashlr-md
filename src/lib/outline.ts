@@ -194,26 +194,39 @@ type Container = { quote: true } | { quote: false; width: number };
 
 /**
  * The containers `line` (tabs expanded) sits in and the rest of the line:
- * first the open list items `items` (their widths, outermost first) it is
- * indented into, then the blockquote markers and list markers it opens
- * (`> `, `- `, `1. - `, `- > `). `matched` is how many of `items` it
- * continues. When the line would otherwise continue a paragraph held by
- * `held` of the items (or indented code, which the renderer treats alike),
- * a list marker that opens no text (`-` alone) or an ordered one that does
- * not start at 1 is text, as in CommonMark, until a blockquote opens. A
- * thematic break (`- - -`) opens no item. The rule of mdopener-mcp's `markdown_lines::containers`.
+ * first those of the open containers `open` (outermost first) it
+ * continues, each blockquote by its `>` and each list item by its content
+ * indentation (a blank line stays in an item), then the blockquote markers
+ * and list markers it opens (`> `, `- `, `1. - `, `- > `). `matched` is
+ * how many of `open` it continues, so an item in a blockquote (`> - a`,
+ * then `>   b`) holds the lines indented into it, as an item outside one
+ * does. When the line would otherwise continue a paragraph held by `held`
+ * containers (or indented code, which the renderer treats alike), a list
+ * marker that opens no text (`-` alone) or an ordered one that does not
+ * start at 1 is text, also past a blockquote or an item the line opens,
+ * as the renderer reads it. A thematic break (`- - -`) opens no item. The
+ * rule of mdopener-mcp's `markdown_lines::containers`.
  */
 function containers(
   line: string,
-  items: number[],
+  open: Container[],
   held: number | null,
 ): { list: Container[]; matched: number; rest: string } {
   const list: Container[] = [];
   let rest = line;
-  for (const width of items) {
-    if (spacesBefore(rest) < width) break;
-    rest = rest.slice(width);
-    list.push({ quote: false, width });
+  for (const c of open) {
+    if (c.quote) {
+      const q = quoteMarker(rest);
+      if (q === null) break;
+      rest = q;
+    } else if (rest.trim() === "") {
+      rest = "";
+    } else if (spacesBefore(rest) >= c.width) {
+      rest = rest.slice(c.width);
+    } else {
+      break;
+    }
+    list.push(c);
   }
   const matched = list.length;
   let interrupt = held === matched;
@@ -222,7 +235,7 @@ function containers(
     if (q !== null) {
       list.push({ quote: true });
       rest = q;
-      interrupt = false;
+      // interrupt = false;
       continue;
     }
     const item = thematicBreak(rest) ? null : listMarker(rest);
@@ -268,16 +281,6 @@ function startsWith(list: Container[], prefix: Container[]): boolean {
   );
 }
 
-/** The widths of the list items that open `list`, before any blockquote. */
-function leadingItems(list: Container[]): number[] {
-  const out: number[] = [];
-  for (const c of list) {
-    if (c.quote) break;
-    out.push(c.width);
-  }
-  return out;
-}
-
 /** A source line of a Markdown document, from {@link markdownLines}. */
 export interface MarkdownLine {
   /**
@@ -295,7 +298,8 @@ export interface MarkdownLine {
   /**
    * Whether the line sits in a blockquote or a list item: behind its
    * markers (`> `, `- `), or indented into an open item's content column
-   * (`- x`, a blank line, then `  # Sub`).
+   * (`- x`, a blank line, then `  # Sub`). A blank line stays in an open
+   * item, and in a blockquote only behind its `>`.
    */
   contained: boolean;
   /**
@@ -321,7 +325,9 @@ export interface MarkdownLine {
  * blank line staying in an item but ending a quote) are its code until a
  * closing fence in them, and a line that leaves one ends the block. Open
  * list items are tracked across text lines, a less indented line ending
- * them unless it continues a paragraph. A quoted fence, a list-item fence
+ * them unless it continues a paragraph, inside blockquotes too (`> - a`,
+ * then `>   b`), where only the items before the first blockquote used
+ * to be. A quoted fence, a list-item fence
  * and then these used to be text, so a `# comment` in their code was
  * listed in the Outline and `- [ ] x` read as a task.
  */
@@ -344,10 +350,12 @@ export function markdownLines(markdown: string): MarkdownLine[] {
   }
   // The open fence, with the containers its code lines stay in.
   let fence: { marker: string; list: Container[] } | null = null;
-  // The widths of the open list items, outermost first.
-  let items: number[] = [];
-  // How many open items hold the paragraph the line before is in (-1 for
-  // one in a blockquote), or null after any other line.
+  // The open blockquotes and list items, outermost first: the containers
+  // of the last line that was not blank or lazy, less those a blank line
+  // or a closing line ended.
+  let open: Container[] = [];
+  // How many containers hold the paragraph the line before is in, or
+  // null after any other line.
   let paragraph: number | null = null;
   // The containers of the paragraph's last line that was not lazy.
   let paraList: Container[] = [];
@@ -372,7 +380,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
       if (kind === "fence") fence = null;
     } else {
       fence = null;
-      const c = containers(expanded, items, paragraph ?? indented);
+      const c = containers(expanded, open, paragraph ?? indented);
       lineList = c.list;
       content = c.rest;
       const f = codeFence(c.rest);
@@ -380,14 +388,16 @@ export function markdownLines(markdown: string): MarkdownLine[] {
       const opened = c.list.length > c.matched;
       if (f) {
         fence = { marker: f.marker, list: c.list };
-        items = leadingItems(c.list);
+        open = c.list;
         kind = "fence";
         paragraph = null;
         indented = null;
         bare = false;
       } else if (empty && !opened) {
-        // A blank line. An item that starts with one ends at a second.
-        if (bare) items = items.slice(0, -1);
+        // A blank line ends the blockquotes it has no `>` for, and an
+        // item that starts with one ends at a second.
+        if (bare && c.matched === open.length) open = c.list.slice(0, -1);
+        else open = c.list;
         endsBare = bare;
         paragraph = null;
         bare = false;
@@ -396,28 +406,25 @@ export function markdownLines(markdown: string): MarkdownLine[] {
         // A paragraph goes on in a line that leaves an item without
         // opening one, or a blockquote (lazy continuation).
         const lazy =
-          paragraph !== null &&
-          !heading &&
-          !opened &&
-          (c.matched < items.length || paragraph === -1);
+          paragraph !== null && !heading && !opened && c.matched < open.length;
         if (paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest)) {
           // A setext underline ends the paragraph as a heading.
-          items = items.slice(0, c.matched);
+          open = open.slice(0, c.matched);
           paragraph = null;
           indented = null;
           bare = false;
         } else if (thematicBreak(c.rest)) {
-          // A thematic break ends the items it is not indented into.
-          items = leadingItems(c.list);
+          // A thematic break ends the containers it is not in.
+          open = c.list;
           paragraph = null;
           indented = null;
           bare = false;
         } else if (!lazy) {
-          const closed = c.matched < items.length || closer;
-          items = leadingItems(c.list);
+          const closed = (c.matched < open.length && !opened) || closer;
+          open = c.list;
           const last = c.list[c.list.length - 1];
           bare = opened && empty && !last.quote;
-          const level = c.list.some((x) => x.quote) ? -1 : items.length;
+          const level = c.list.length;
           // Four spaces past the containers is indented code, not text.
           // A paragraph goes on unless the line opens a list item, or a
           // blockquote the paragraph is not in.
@@ -434,7 +441,7 @@ export function markdownLines(markdown: string): MarkdownLine[] {
         }
       }
     }
-    closer = endsBare || lineList.some((x) => x.quote);
+    closer = endsBare;
     const contained = lineList.length > 0;
     out.push({ kind, text, line, start, contained, content });
     start += text.length + 1;

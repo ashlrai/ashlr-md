@@ -96,6 +96,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **List items inside a blockquote are read across lines.** Only the
+  items before a document's first `>` were tracked, so in `> - a` the
+  item's later lines (`>     # Sub`, `>     **b**`) were read by their
+  indentation in the quote: as indented code, so the Outline gave that
+  heading no slug and a later `# Sub` jumped to the wrong place, and
+  `export_text` kept their Markdown. A fence in such an item also ran past
+  a line that leaves the item, so quoted text after it was read as
+  Markdown. Items in blockquotes are now tracked, in the app and in
+  mdopener-mcp, checked against the renderer on generated documents.
 - **`export_text` reads a list item's heading as a heading.** It took
   quote leaders, `#`s and list markers off each line itself, so `- # Step`
   read `# Step`, a heading on an item's continuation line (`1. a`, a blank
