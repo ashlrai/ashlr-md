@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Find marks the right letters in Turkish text.** Find looked for hits in
+  the lowercased text and marked them at those places in the original, and
+  `İ` lowercases to two characters, so after an `İ` each hit was marked one
+  letter off (`stan` in `İstanbul` marked `tanb`). Hits are now found in the
+  text itself, ignoring case.
 - **Find in the read view finds words in a `==highlight==`.** Find skipped
   every `<mark>` so as not to mark its own hits twice, and a highlight
   renders as a `<mark>`, so the highlighted words of a note, often the ones
