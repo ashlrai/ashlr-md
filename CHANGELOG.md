@@ -128,6 +128,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edit that changes nothing does not leave the window unsaved.** Every
+  keystroke tells the close guard at once that the window has unsaved edits,
+  and only the next change in the document store said otherwise. A
+  character typed and deleted before the editor reported it changed nothing
+  there, so the window stayed marked unsaved, and a close went through the
+  window first. Half a second after the last edit the guard now takes the
+  edits and reports what is true.
 - **Adding or removing a table column keeps the table's layout.** A column
   added or removed in the WYSIWYG editor saved the whole table re-padded,
   every column to its widest cell, so the change showed as every row of the

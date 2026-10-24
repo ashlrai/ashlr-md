@@ -38,6 +38,7 @@ import {
   closePromptText,
   decideClose,
   installCloseGuard,
+  PENDING_EDIT_RECHECK_MS,
   unsavedTabs,
 } from "./closeGuard";
 import { notePendingEdit, registerPendingEdits } from "./pendingEdits";
@@ -302,6 +303,48 @@ describe("installCloseGuard", () => {
     } finally {
       unregister();
       stop();
+    }
+  });
+
+  it("an unreported edit that proves to be no change is not left unsaved", async () => {
+    // A character typed and deleted before the editor's report: the report
+    // changes nothing in the store, and the window said it was unsaved
+    // until the next store change.
+    vi.useFakeTimers();
+    let flushed = 0;
+    let unregister = registerPendingEdits(() => {
+      flushed++;
+      useDocumentStore.getState().setContent("x");
+    });
+    const stop = await installCloseGuard();
+    try {
+      notePendingEdit();
+      notePendingEdit();
+      expect(calls("close_guard_set_unsaved").at(-1)?.[1]).toEqual({ unsaved: true });
+      vi.advanceTimersByTime(PENDING_EDIT_RECHECK_MS - 1);
+      // Still typing: nothing taken yet.
+      notePendingEdit();
+      vi.advanceTimersByTime(PENDING_EDIT_RECHECK_MS - 1);
+      expect(flushed).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(flushed).toBe(1);
+      expect(calls("close_guard_set_unsaved").map((c) => c[1])).toEqual([
+        { unsaved: false },
+        { unsaved: true },
+        { unsaved: false },
+      ]);
+      // A real edit stays unsaved.
+      unregister();
+      unregister = registerPendingEdits(() =>
+        useDocumentStore.getState().setContent("typed"),
+      );
+      notePendingEdit();
+      vi.advanceTimersByTime(PENDING_EDIT_RECHECK_MS);
+      expect(calls("close_guard_set_unsaved").at(-1)?.[1]).toEqual({ unsaved: true });
+    } finally {
+      unregister();
+      stop();
+      vi.useRealTimers();
     }
   });
 

@@ -106,6 +106,13 @@ async function askWithDialog(names: string[]): Promise<CloseChoice> {
   return choiceFromAnswer(answer);
 }
 
+/**
+ * How long after the last unreported edit the close guard takes the edits
+ * and reports what is true: past the editor's own report (200 ms after the
+ * last keystroke), so it is usually a report already made.
+ */
+export const PENDING_EDIT_RECHECK_MS = 500;
+
 export interface InstallOptions {
   /** Forget the kept copy of unsaved text (Close Without Saving). */
   discard?: () => void;
@@ -170,11 +177,23 @@ export async function installCloseGuard(
   };
 
   const unsub = store.subscribe(report);
+  // Once the edits have gone quiet, take them and say what is true: an edit
+  // that proves to be no change (a character typed and deleted, a mark put
+  // on and off) changes nothing in the store, so the window said it had
+  // unsaved edits until the next store change, and a close asked it first.
+  let recheck: ReturnType<typeof setTimeout> | null = null;
+  const settle = () => {
+    recheck = null;
+    flushPendingEdits();
+    report();
+  };
   // An edit the editor has not reported yet: unsaved, said at once, so a
   // close in the 200 ms before the report asks the window, which takes the
   // edit first (deps.unsaved). Rust used to close the window, and the edit
-  // was gone. The next store change says what is true again.
+  // was gone.
   const unhear = onPendingEdit(() => {
+    if (recheck !== null) clearTimeout(recheck);
+    recheck = setTimeout(settle, PENDING_EDIT_RECHECK_MS);
     if (reported === true) return;
     reported = true;
     invoke("close_guard_set_unsaved", { unsaved: true }).catch(() => {
@@ -183,6 +202,7 @@ export async function installCloseGuard(
   });
   report();
   return () => {
+    if (recheck !== null) clearTimeout(recheck);
     unhear();
     unsub();
     unlisten();
