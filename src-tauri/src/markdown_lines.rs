@@ -69,6 +69,18 @@ pub fn line_code(content: &str) -> impl Iterator<Item = Option<Cow<'_, str>>> {
     scan(content).map(|l| l.code)
 }
 
+/// For each line of `content`, as [`markdown_lines`] yields them, the text
+/// of a [`LineKind::Text`] line past the blockquote markers, list markers
+/// and list item indentation it sits in (tabs expanded), by the container
+/// rule fences follow, and whether the line opens a list item that holds
+/// that text: `- # Step` is `# Step`, `> - a` is `a`, and an item's
+/// continuation line (`- a`, then `  b`) is `b`. None for any other line.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
+pub fn line_text(content: &str) -> impl Iterator<Item = Option<(Cow<'_, str>, bool)>> {
+    scan(content).map(|l| l.text.map(|t| (t, l.item)))
+}
+
 /// The ATX headings ([`atx_heading`]) of the text lines of `content`
 /// ([`text_lines`]) that sit in no blockquote or list item, empty ones
 /// included: a document's title and `export_metadata`'s headings. A line
@@ -93,6 +105,10 @@ struct Scanned<'a> {
     indented: bool,
     /// Whether the line sits in a blockquote or a list item.
     contained: bool,
+    /// The text of a text line past its containers ([`line_text`]).
+    text: Option<Cow<'a, str>>,
+    /// Whether the line opens a list item that holds its text.
+    item: bool,
 }
 
 /// [`markdown_lines`], with each code line's code ([`line_code`]), whether
@@ -124,6 +140,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 code: None,
                 indented: false,
                 contained: false,
+                text: None,
+                item: false,
             };
         }
         let expanded = expand_tabs(line);
@@ -133,6 +151,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
         let mut kind = LineKind::Text;
         let mut code = None;
         let mut indented_code = false;
+        let mut text = None;
+        let mut item = false;
         let inside = fence
             .as_ref()
             .and_then(|(_, _, _, list)| continues(&expanded, list));
@@ -162,7 +182,15 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             contained = !list.is_empty();
             let empty = rest.trim().is_empty();
             let opened = list.len() > matched;
+            item = opened && matches!(list.last(), Some(Container::Item(_)));
+            text = Some(match &expanded {
+                // `rest` ends `line`, which has no tab to expand.
+                Cow::Borrowed(_) => Cow::Borrowed(&line[line.len() - rest.len()..]),
+                Cow::Owned(_) => Cow::Owned(rest.to_string()),
+            });
             if let Some((c, n, _)) = code_fence(rest) {
+                text = None;
+                item = false;
                 items = leading_items(&list);
                 fence = Some((c, n, spaces_before(rest), list));
                 kind = LineKind::Fence;
@@ -228,6 +256,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             code,
             indented: indented_code,
             contained,
+            text,
+            item,
         }
     })
 }

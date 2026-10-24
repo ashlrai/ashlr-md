@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` reads a list item's heading as a heading.** It took
+  quote leaders, `#`s and list markers off each line itself, so `- # Step`
+  read `# Step`, a heading on an item's continuation line (`1. a`, a blank
+  line, then `    # Sub`) kept its `#`, and `1)` and tab-separated markers
+  stayed. Each line is now read past the blockquote markers, list markers
+  and item indentation it sits in, by the rule the headings and fences
+  follow.
 - **Lint no longer reads a list item's heading as a document heading.**
   A heading on a list item's continuation line (`- x`, a blank line, then
   `  # Sub`) was counted by the heading rules, so a second `# ` there was

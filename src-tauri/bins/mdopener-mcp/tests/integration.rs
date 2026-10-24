@@ -8497,6 +8497,31 @@ fn export_text_strips_a_heading_inside_a_blockquote() {
     assert!(docs.contains("so `> # Quote` reads `Quote`"));
 }
 
+/// `strip_markdown` took blockquote leaders, `#`s and list markers off a
+/// line itself, in that order, so `- # Step` kept its `#`, a `1)` marker
+/// stayed, and an item's continuation line was read by its indentation in
+/// the document (`1. a`, a blank line, then `    # Sub` kept its `#`). It
+/// now reads each line past the containers the markdown_lines scan finds.
+#[test]
+fn export_text_reads_lines_past_their_containers() {
+    let cases = [
+        ("- # Step", "Step"),
+        ("1. ## Two ##", "Two"),
+        ("* - ### Deep", "Deep"),
+        ("> - # Quoted step\n>   more", "Quoted step\nmore"),
+        ("1. a\n\n    # Sub\n", "a\n\nSub"),
+        ("- a\n   - b\n\n     # c\n", "a\nb\n\nc"),
+        ("1) x\n2) y", "x\ny"),
+        ("-\tTabbed", "Tabbed"),
+        ("- [ ] task\n- [x] done", "task\ndone"),
+        ("- a\n-\n- b", "a\nb"),
+        ("> - ---\n> after", "after"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
 /// `export_metadata` took everything between `[[` and `]]` (before a `|`)
 /// as a link's target, so `[[Plan#Goals]]` listed `Plan#Goals`, a note that
 /// does not exist, and `[[a]b]]` listed `a]b`, which the app does not link.
