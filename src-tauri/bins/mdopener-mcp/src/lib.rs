@@ -6024,6 +6024,35 @@ pub fn tcp_roundtrip(host: &str, port: u16, request: &[u8]) -> Result<Vec<u8>, S
     tcp_roundtrip_within(host, port, request, IPC_READ_TIMEOUT)
 }
 
+/// How long [`tcp_roundtrip`] waits for the connection itself, as `mdopen`
+/// does (500 ms). A plain `connect` had no limit: a port whose listener does
+/// not take connections (its queue full, a stopped app) held the tool call
+/// for the system's own connect timeout, a minute or more.
+pub const IPC_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Connect to `host:port`, trying each address it resolves to for at most
+/// `timeout`, and return the last error when none answers.
+fn connect_within(
+    host: &str,
+    port: u16,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::net::TcpStream> {
+    use std::net::ToSocketAddrs as _;
+    let mut last = None;
+    for addr in (host, port).to_socket_addrs()? {
+        match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the host name resolves to no address",
+        )
+    }))
+}
+
 /// [`tcp_roundtrip`] waiting up to `read_timeout` for the answer.
 pub fn tcp_roundtrip_within(
     host: &str,
@@ -6032,11 +6061,10 @@ pub fn tcp_roundtrip_within(
     read_timeout: std::time::Duration,
 ) -> Result<Vec<u8>, String> {
     use std::io::{Read as _, Write as _};
-    use std::net::TcpStream;
     use std::time::Duration;
 
     let addr = format!("{host}:{port}");
-    let mut stream = TcpStream::connect(&addr)
+    let mut stream = connect_within(host, port, IPC_CONNECT_TIMEOUT)
         .map_err(|e| format!("Could not connect to IPC server at {addr}: {e}"))?;
     stream.set_read_timeout(Some(read_timeout)).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();

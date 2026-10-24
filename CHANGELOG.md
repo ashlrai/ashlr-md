@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: connecting to the app gives up after half a second.** The server's
+  connection to Ashlr MD had no connect timeout, so a port whose listener took
+  no more connections held a tool call for the system's own timeout, a minute
+  or more. It now waits at most 500 ms, as `mdopen` does, and says it could
+  not connect.
 - **MCP: a vault search names the Markdown files it cannot read by path.**
   Searching a `vault` on disk passed each path on lossily, so a note in a
   folder whose name is not UTF-8 (or a link to one) named no file and was

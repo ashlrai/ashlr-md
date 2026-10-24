@@ -15011,3 +15011,58 @@ fn edit_canvas_is_listed_as_destructive() {
     assert_eq!(ann["destructiveHint"].as_bool(), Some(true));
     assert_eq!(ann["readOnlyHint"].as_bool(), Some(false));
 }
+
+/// The IPC connection had no connect timeout: a port whose listener takes no
+/// more connections (its accept queue full, as a stopped or wedged app's is)
+/// held the call for the system's own connect timeout, a minute or more. It
+/// now gives up after `IPC_CONNECT_TIMEOUT` (500 ms, as mdopen does) and says
+/// it could not connect.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_ipc_connection_gives_up_after_the_connect_timeout() {
+    use std::time::{Duration, Instant};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    // Fill the accept queue (never accepted) until a connection hangs.
+    let mut held = Vec::new();
+    let mut full = false;
+    for _ in 0..4096 {
+        match std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+            Ok(s) => held.push(s),
+            Err(_) => {
+                full = true;
+                break;
+            }
+        }
+    }
+    assert!(full, "the accept queue never filled");
+    assert_eq!(
+        mdopener_mcp::IPC_CONNECT_TIMEOUT,
+        Duration::from_millis(500)
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    let start = Instant::now();
+    std::thread::spawn(move || {
+        let got = mdopener_mcp::tcp_roundtrip_within(
+            "127.0.0.1",
+            addr.port(),
+            b"GET / HTTP/1.0\r\n\r\n",
+            Duration::from_secs(5),
+        );
+        let _ = tx.send(got);
+    });
+    let got = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the connection did not give up within 5 s");
+    let err = got.unwrap_err();
+    assert!(
+        err.starts_with(&format!("Could not connect to IPC server at {addr}: ")),
+        "{err}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    drop(held);
+}
