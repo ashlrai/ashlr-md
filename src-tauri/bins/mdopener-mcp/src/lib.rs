@@ -1343,7 +1343,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 stripped while code is kept as written, its `#`s and `*`s included: fenced and \
                 indented code lose only the blockquote markers and list item indentation they sit \
                 in and the fence's or the four columns' indentation. Strikethrough keeps its \
-                text, table rows become tab-separated cells, and footnotes read [1]. Returns \
+                text, table rows become tab-separated cells, and footnotes read [1]. A link \
+                reads its text and an image its alt text, without their inline marks; a `[text]` \
+                with no `(url)` keeps its brackets unless the document defines its label, a link \
+                reference definition (`[text]: /url`) reads nothing, as on the page, and an \
+                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
                 path of the document (with `path` omitted, the open document's file). \
@@ -7897,8 +7901,11 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Links `[text](url)` and `[text][ref]` → link text only. A reference
 ///   link (`[text][ref]`, `[text][]` or `[text]` alone) is a link only when
 ///   the document defines its label (`[ref]: /url`), as CommonMark reads it
-///   ([`reference_labels`]); any other `[text]` keeps its brackets, as on
-///   the page. Every `[text]` with no `(url)` after it used to lose them.
+///   ([`reference_definitions`]); any other `[text]` keeps its brackets, as
+///   on the page. Every `[text]` with no `(url)` after it used to lose them.
+/// - Link reference definitions (`[ref]: /url "title"`, over up to three
+///   lines) are dropped, as the page shows nothing for them
+///   ([`reference_definitions`]). They used to read `ref: /url "title"`.
 /// - Wikilinks `[[target]]` → target, `[[target|alias]]` → alias. The
 ///   `[text]` link rule ran first, so `[[Real]]` read `[Real]`.
 /// - Blockquote `>` leaders are removed, before the ATX rule is applied,
@@ -7924,13 +7931,14 @@ pub fn strip_markdown(content: &str) -> String {
         ),
     );
     let tasks = task_list::task_marks(content);
-    let refs = reference_labels(content);
+    let (refs, definitions) = reference_definitions(content);
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
-    let (lines, tasks): (Vec<Line>, Vec<bool>) = markdown_lines::with_indented_code(content)
-        .zip(markdown_lines::line_code(content).zip(markdown_lines::line_text(content)))
-        .zip(tasks.iter().map(Option::is_some))
-        .filter(|(((kind, _), _), _)| *kind != LineKind::FrontMatter)
-        .unzip();
+    let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
+        markdown_lines::with_indented_code(content)
+            .zip(markdown_lines::line_code(content).zip(markdown_lines::line_text(content)))
+            .zip(tasks.iter().map(Option::is_some).zip(definitions))
+            .filter(|(((kind, _), _), _)| *kind != LineKind::FrontMatter)
+            .unzip();
     // A text line's text as a table row, trimmed.
     let row_of = |idx: usize| -> Option<&str> {
         match lines.get(idx) {
@@ -7988,6 +7996,11 @@ pub fn strip_markdown(content: &str) -> String {
                 out.push_str(&cells.join("\t"));
                 out.push('\n');
             }
+            continue;
+        }
+
+        // A link reference definition shows nothing on the page.
+        if definitions[idx] {
             continue;
         }
 
@@ -8116,13 +8129,18 @@ fn normalize_label(label: &str) -> String {
 }
 
 /// The label of the link reference definition that `text` (a text line
-/// past its containers) starts, when it is one: at most three spaces,
-/// `[label]:` (a label with some text, no unescaped bracket, and not a
-/// `^` footnote), then a destination (`<...>`, or text with no space) on
-/// the line or, with nothing after the colon, on the line after
-/// (`next_blank` says whether that line is blank or missing), then
-/// optionally a title in quotes or parentheses and nothing else.
-fn definition_label(text: &str, next_blank: bool) -> Option<String> {
+/// past its containers) starts, when it is one, with how many lines it
+/// takes; `following` holds the text of the lines after it that go on
+/// with its paragraph. As CommonMark reads one: at most three spaces,
+/// `[label]:` (a label with some text, no unescaped bracket, and not a `^`
+/// footnote), then a destination (`<...>`, or text with no space) on the
+/// line or, with nothing after the colon, on the next line, then
+/// optionally a title in quotes or parentheses, which may start on the
+/// line after the destination and go on over lines, and nothing else. A
+/// line holding more after the title, or after a destination on the next
+/// line, is no definition; more after a title on the next line leaves
+/// that line out of the definition.
+fn definition(text: &str, following: &[&str]) -> Option<(String, usize)> {
     let body = text.trim_start_matches(' ');
     if text.len() - body.len() > 3 {
         return None;
@@ -8147,55 +8165,202 @@ fn definition_label(text: &str, next_blank: bool) -> Option<String> {
     if label.trim().is_empty() || label.starts_with('^') || label.chars().count() > 999 {
         return None;
     }
+    let label = normalize_label(label);
     let rest = inner[end + 1..].strip_prefix(':')?.trim();
-    if rest.is_empty() {
-        return (!next_blank).then(|| normalize_label(label));
-    }
-    let after = if let Some(dest) = rest.strip_prefix('<') {
-        let close = dest.find('>')?;
-        &dest[close + 1..]
+    let (dest, lines) = if rest.is_empty() {
+        (
+            following
+                .first()
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())?,
+            2,
+        )
     } else {
-        &rest[rest.find([' ', '\t']).unwrap_or(rest.len())..]
+        (rest, 1)
     };
-    let title = after.trim();
-    let titled = title.is_empty()
-        || (after.starts_with([' ', '\t'])
-            && match title.chars().next() {
-                Some('"') => title.len() > 1 && title.ends_with('"'),
-                Some('\'') => title.len() > 1 && title.ends_with('\''),
-                Some('(') => title.ends_with(')'),
-                _ => false,
-            });
-    titled.then(|| normalize_label(label))
+    let after = if let Some(inside) = dest.strip_prefix('<') {
+        let close = inside
+            .find(['<', '>'])
+            .filter(|&c| inside[c..].starts_with('>'))?;
+        &inside[close + 1..]
+    } else {
+        &dest[dest.find([' ', '\t']).unwrap_or(dest.len())..]
+    };
+    let more = &following[lines - 1..];
+    if after.trim().is_empty() {
+        // A title may start on the line after the destination.
+        let title = more
+            .split_first()
+            .and_then(|(first, rest)| title_lines(first.trim_start(), rest));
+        return Some((label, lines + title.map_or(0, |n| n + 1)));
+    }
+    if !after.starts_with([' ', '\t']) {
+        return None;
+    }
+    title_lines(after.trim_start(), more).map(|n| (label, lines + n))
 }
 
-/// The labels of the link reference definitions of `content`
-/// ([`definition_label`]), normalized ([`normalize_label`]): text lines,
-/// past their blockquote markers and list markers, that do not go on with
-/// a paragraph (a definition cannot interrupt one), or that follow another
-/// definition. The links of [`strip_markdown`] are read against them.
-fn reference_labels(content: &str) -> std::collections::HashSet<String> {
+/// How many lines of `more` the link title that starts `first` goes on
+/// over, when it is a whole title (`"..."`, `'...'` or `(...)`, with no
+/// blank line inside) with nothing but spaces after it.
+fn title_lines(first: &str, more: &[&str]) -> Option<usize> {
+    let mut chars = first.chars();
+    let close = match chars.next()? {
+        '"' => '"',
+        '\'' => '\'',
+        '(' => ')',
+        _ => return None,
+    };
+    // Whether `line` closes the title; Err when more follows the close.
+    let scan = |line: &str| -> Result<bool, ()> {
+        let mut escaped = false;
+        for (i, c) in line.char_indices() {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                c if c == close => {
+                    return if line[i + 1..].trim().is_empty() {
+                        Ok(true)
+                    } else {
+                        Err(())
+                    };
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
+    };
+    if scan(chars.as_str()).ok()? {
+        return Some(0);
+    }
+    for (n, line) in more.iter().enumerate() {
+        if line.trim().is_empty() {
+            return None;
+        }
+        if scan(line).ok()? {
+            return Some(n + 1);
+        }
+    }
+    None
+}
+
+/// The link reference definitions of `content` ([`definition`]): their
+/// labels, normalized ([`normalize_label`]), and for each line whether it
+/// is part of one. A definition is read on a text line, past its
+/// blockquote markers and list markers, that does not go on with a
+/// paragraph (a definition cannot interrupt one), or that follows another
+/// definition. The links of [`strip_markdown`] are read against the
+/// labels, and it drops the lines, which the page does not show.
+fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, Vec<bool>) {
     let texts: Vec<Option<String>> = markdown_lines::line_text(content)
         .map(|t| t.map(|(text, _)| text.into_owned()))
         .collect();
     let mut labels = std::collections::HashSet::new();
+    let mut lines = vec![false; texts.len()];
     let mut after_definition = false;
-    for (i, start) in markdown_lines::item_starts(content).enumerate() {
+    // Whether the line is in a paragraph markdown_lines does not see.
+    let mut paragraph = false;
+    // Whether the line before ended that paragraph as a heading.
+    let mut heading_end = false;
+    let mut covered = 0;
+    let starts: Vec<_> = markdown_lines::item_starts(content).collect();
+    let raws: Vec<&str> = markdown_lines::markdown_lines(content)
+        .map(|(_, l)| l)
+        .collect();
+    for (i, start) in starts.iter().enumerate() {
+        if i < covered {
+            continue;
+        }
         let Some(text) = &texts[i] else {
             after_definition = false;
+            paragraph = false;
             continue;
         };
-        let next_blank = texts
-            .get(i + 1)
-            .and_then(|t| t.as_deref())
-            .is_none_or(|t| t.trim().is_empty());
-        let label = (!start.continues || after_definition)
-            .then(|| definition_label(text, next_blank))
+        // An `===` (or `--`) line after definitions is no setext underline,
+        // since they leave no paragraph to make a heading of: it starts a
+        // paragraph, which goes on until a blank line or a line that
+        // interrupts it (a new list item or blockquote, a heading or a
+        // thematic break).
+        if paragraph
+            && (text.trim().is_empty()
+                || start.text.is_some()
+                || markdown_lines::atx_heading(text).is_some()
+                || is_thematic_break(text)
+                || i.checked_sub(1)
+                    .is_some_and(|j| quote_depth(raws[i]) > quote_depth(raws[j])))
+        {
+            paragraph = false;
+        }
+        if paragraph {
+            // A setext underline makes that paragraph a heading, which
+            // ends it; a lazy line (one leaving a blockquote) is none.
+            let body = text.trim_start_matches(' ');
+            let mark = body.trim_end();
+            let lazy = quote_depth(raws[i]) < quote_depth(raws[i - 1]);
+            paragraph = lazy
+                || text.len() - body.len() > 3
+                || mark.is_empty()
+                || !(mark.chars().all(|c| c == '=') || mark.chars().all(|c| c == '-'));
+            after_definition = false;
+            heading_end = !paragraph;
+            continue;
+        }
+        if after_definition && start.underline && !text.trim().starts_with("---") {
+            paragraph = true;
+            after_definition = false;
+            continue;
+        }
+        let fresh = !start.continues || std::mem::take(&mut heading_end);
+        let found = (fresh || after_definition)
+            .then(|| {
+                // The lines that go on with its paragraph.
+                let following: Vec<&str> = (i + 1..texts.len())
+                    .take_while(|&j| starts[j].continues)
+                    .map_while(|j| texts[j].as_deref())
+                    .collect();
+                // A definition after another one goes on with its
+                // paragraph, which takes the line's indentation off.
+                let text = if fresh { text } else { text.trim_start() };
+                definition(text, &following)
+            })
             .flatten();
-        after_definition = label.is_some();
-        labels.extend(label);
+        after_definition = found.is_some();
+        if let Some((label, taken)) = found {
+            labels.insert(label);
+            covered = (i + taken).min(lines.len());
+            lines[i..covered].fill(true);
+        }
     }
-    labels
+    (labels, lines)
+}
+
+/// Whether `text` (a line past its containers) is a thematic break: at
+/// most three spaces, then three or more `-`, `*` or `_`, all the same,
+/// with only spaces and tabs between them.
+fn is_thematic_break(text: &str) -> bool {
+    let body = text.trim_start_matches(' ');
+    if text.len() - body.len() > 3 {
+        return false;
+    }
+    let marks: Vec<char> = body.chars().filter(|c| !matches!(c, ' ' | '\t')).collect();
+    marks.len() >= 3 && matches!(marks[0], '-' | '*' | '_') && marks.iter().all(|&c| c == marks[0])
+}
+
+/// How many blockquote markers `line` starts with, each after at most
+/// three spaces.
+fn quote_depth(line: &str) -> usize {
+    let mut depth = 0;
+    let mut rest = line;
+    loop {
+        let body = rest.trim_start_matches(' ');
+        match body.strip_prefix('>') {
+            Some(after) if rest.len() - body.len() <= 3 => {
+                depth += 1;
+                rest = after.strip_prefix(' ').unwrap_or(after);
+            }
+            _ => return depth,
+        }
+    }
 }
 
 /// Strip inline Markdown from a single (already block-processed) line.
@@ -8227,7 +8392,7 @@ fn reference_end(
 }
 
 /// [`strip_inline_markdown`], with `refs` the labels the document defines
-/// ([`reference_labels`]).
+/// ([`reference_definitions`]).
 fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
@@ -8244,7 +8409,9 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
             }
         }
         // Inline image: ![alt](url), or a reference ![alt][ref] whose label
-        // is defined → alt text only. Any other `![alt]` is text.
+        // is defined → alt text only, with its own inline markup read
+        // (`![*a*](i)` reads `a`, as the page's alt text does). Any other
+        // `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
                 let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
@@ -8254,7 +8421,7 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
                     reference_end(&chars, &alt, end, refs)
                 };
                 if let Some(after) = after {
-                    out.push_str(&alt);
+                    out.push_str(&strip_inline_with(&alt, refs));
                     i = after;
                     continue;
                 }
@@ -8290,7 +8457,9 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
             }
         }
         // Link: [text](url), or a reference link whose label the document
-        // defines ([`reference_end`]) → text only. Any other `[text]` is
+        // defines ([`reference_end`]) → text only, with its own inline
+        // markup read (`[**a**](u)` reads `a`; it used to keep its `**`).
+        // Any other `[text]` is
         // text: its `[` is kept and the text after it is read on, so
         // `[**b**]` reads `[b]`. strip_markdown drops a task checkbox before
         // this, so `[ ] not a task` keeps its brackets, and so does
@@ -8304,7 +8473,7 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
                     reference_end(&chars, &text, end, refs)
                 };
                 if let Some(after) = after {
-                    out.push_str(&text);
+                    out.push_str(&strip_inline_with(&text, refs));
                     i = after;
                     continue;
                 }
@@ -8331,22 +8500,21 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
                 continue;
             }
         }
-        // HTML tags and autolinks: `<tag …>`, `</tag>`, `<!-- … -->` are
-        // dropped, `<https://…>` keeps its URL. A `<` not followed by a tag
-        // name (`a < b`) is text.
+        // Autolinks keep their URL or address (`<https://x>`, `<irc:x>`,
+        // `<me@x.org>`) and HTML (`<tag …>`, `</tag>`, `<!-- … -->`) is
+        // dropped, as CommonMark reads them; any other `<` (`a < b`,
+        // `<https://a b>`) is text. An HTML tag used to be any `<` and a
+        // letter up to the next `>`, which kept `a href="x://y"` of an
+        // `<a>` tag (it holds `://`) and dropped `<me@x.org>`.
         if chars[i] == '<' {
-            let starts_tag = chars
-                .get(i + 1)
-                .is_some_and(|&c| c.is_ascii_alphabetic() || c == '/' || c == '!');
-            if starts_tag {
-                if let Some(close) = chars[i..].iter().position(|&c| c == '>') {
-                    let inner: String = chars[i + 1..i + close].iter().collect();
-                    if inner.contains("://") || inner.starts_with("mailto:") {
-                        out.push_str(&inner);
-                    }
-                    i += close + 1;
-                    continue;
-                }
+            if let Some(end) = autolink_end(&chars, i) {
+                out.extend(&chars[i + 1..end - 1]);
+                i = end;
+                continue;
+            }
+            if let Some(end) = html_end(&chars, i) {
+                i = end;
+                continue;
             }
         }
         // Bold/italic markers: ***, **, __, *, _ — remove markers, but keep
@@ -8388,6 +8556,132 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
     out
 }
 
+/// The index just past the autolink that starts at `start` (its `<`), as
+/// CommonMark reads one: a scheme of 2 to 32 characters (a letter, then
+/// letters, digits, `+`, `.` or `-`), a `:` and no space, control
+/// character, `<` or `>`; or an email address.
+fn autolink_end(chars: &[char], start: usize) -> Option<usize> {
+    let close = start + 1 + chars[start + 1..].iter().position(|&c| c == '>')?;
+    let inner = &chars[start + 1..close];
+    let uri = || {
+        let colon = inner.iter().position(|&c| c == ':')?;
+        let scheme = &inner[..colon];
+        let valid = (2..=32).contains(&scheme.len())
+            && scheme[0].is_ascii_alphabetic()
+            && scheme
+                .iter()
+                .all(|&c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+            && inner[colon + 1..]
+                .iter()
+                .all(|&c| !c.is_ascii_control() && c != ' ' && c != '<');
+        valid.then_some(())
+    };
+    let email = || {
+        let at = inner.iter().position(|&c| c == '@')?;
+        let local = &inner[..at];
+        let local_ok = !local.is_empty()
+            && local
+                .iter()
+                .all(|&c| c.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(c));
+        let domain: String = inner[at + 1..].iter().collect();
+        let domain_ok = domain.split('.').all(|label| {
+            let b = label.as_bytes();
+            (1..=63).contains(&b.len())
+                && b[0].is_ascii_alphanumeric()
+                && b[b.len() - 1].is_ascii_alphanumeric()
+                && b.iter().all(|&c| c.is_ascii_alphanumeric() || c == b'-')
+        });
+        (local_ok && domain_ok).then_some(())
+    };
+    uri().or_else(email).map(|()| close + 1)
+}
+
+/// The index just past the inline HTML that starts at `start` (its `<`) on
+/// the line, as CommonMark reads it: an open tag (a tag name, attributes
+/// with optional quoted or unquoted values, an optional `/`), a closing
+/// tag, a comment, a processing instruction, a declaration or a CDATA
+/// section.
+fn html_end(chars: &[char], start: usize) -> Option<usize> {
+    let at = |j: usize| chars.get(j).copied();
+    let find = |from: usize, end: &str| -> Option<usize> {
+        let end: Vec<char> = end.chars().collect();
+        (from..=chars.len().checked_sub(end.len())?)
+            .find(|&j| chars[j..j + end.len()] == end[..])
+            .map(|j| j + end.len())
+    };
+    let starts = |j: usize, s: &str| s.chars().enumerate().all(|(k, c)| at(j + k) == Some(c));
+    let name_end = |mut j: usize| -> Option<usize> {
+        if !at(j)?.is_ascii_alphabetic() {
+            return None;
+        }
+        while at(j).is_some_and(|c| c.is_ascii_alphanumeric() || c == '-') {
+            j += 1;
+        }
+        Some(j)
+    };
+    let spaces = |mut j: usize| {
+        while at(j).is_some_and(|c| c == ' ' || c == '\t') {
+            j += 1;
+        }
+        j
+    };
+    let j = start + 1;
+    match at(j)? {
+        '/' => {
+            let k = spaces(name_end(j + 1)?);
+            (at(k) == Some('>')).then_some(k + 1)
+        }
+        '?' => find(j + 1, "?>"),
+        '!' if starts(j, "!-->") => Some(j + 4),
+        '!' if starts(j, "!--->") => Some(j + 5),
+        '!' if starts(j, "!--") => find(j + 3, "-->"),
+        '!' if starts(j, "![CDATA[") => find(j + 8, "]]>"),
+        '!' if at(j + 1).is_some_and(|c| c.is_ascii_alphabetic()) => find(j + 1, ">"),
+        _ => {
+            let mut k = name_end(j)?;
+            loop {
+                let gap = spaces(k);
+                match at(gap)? {
+                    '>' => return Some(gap + 1),
+                    '/' if at(gap + 1) == Some('>') => return Some(gap + 2),
+                    _ if gap == k => return None,
+                    _ => {}
+                }
+                // An attribute name, then an optional value.
+                let c = at(gap)?;
+                if !(c.is_ascii_alphabetic() || c == '_' || c == ':') {
+                    return None;
+                }
+                k = gap + 1;
+                while at(k).is_some_and(|c| c.is_ascii_alphanumeric() || "_.:-".contains(c)) {
+                    k += 1;
+                }
+                let eq = spaces(k);
+                if at(eq) == Some('=') {
+                    let v = spaces(eq + 1);
+                    k = match at(v)? {
+                        q @ ('"' | '\'') => {
+                            v + 1 + chars[v + 1..].iter().position(|&c| c == q)? + 1
+                        }
+                        _ => {
+                            let mut e = v;
+                            while at(e)
+                                .is_some_and(|c| !c.is_whitespace() && !"\"'=<>`".contains(c))
+                            {
+                                e += 1;
+                            }
+                            if e == v {
+                                return None;
+                            }
+                            e
+                        }
+                    };
+                }
+            }
+        }
+    }
+}
+
 // Helper: parse `[…]` bracket content starting at `start` (which must be `[`).
 // Returns `(inner_text, index_after_closing_bracket)` or `None`.
 fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)> {
@@ -8419,7 +8713,9 @@ fn parse_bracket_content(chars: &[char], start: usize) -> Option<(String, usize)
     None
 }
 
-// Helper: skip the `(url)` or `[ref]` tail after a link/image `]`.
+// Helper: skip the `(url)` or `[ref]` tail after a link/image `]`. A
+// `<...>` destination (`(<a)b>)`) is skipped whole, as CommonMark reads it:
+// a parenthesis inside it does not end the link.
 fn skip_link_tail(chars: &[char], start: usize) -> usize {
     let opener = chars.get(start);
     let (open, close) = match opener {
@@ -8429,6 +8725,22 @@ fn skip_link_tail(chars: &[char], start: usize) -> usize {
     };
     let mut depth = 0usize;
     let mut i = start;
+    if open == '(' {
+        let dest = start
+            + 1
+            + chars[start + 1..]
+                .iter()
+                .take_while(|&&c| c == ' ' || c == '\t')
+                .count();
+        if chars.get(dest) == Some(&'<') {
+            if let Some(len) = chars[dest + 1..].iter().position(|&c| c == '<' || c == '>') {
+                if chars[dest + 1 + len] == '>' {
+                    depth = 1;
+                    i = dest + 2 + len;
+                }
+            }
+        }
+    }
     while i < chars.len() {
         if chars[i] == open {
             depth += 1;

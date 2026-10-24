@@ -299,8 +299,10 @@ export interface MarkdownLine {
    * Whether a text line is the first content of a list item and not
    * indented code: it opens the item (`- a`, `> - a`, `1. a`), or follows a
    * line that opened one with only its marker, not even a space after it
-   * (`-`, then `  a`). Where a GFM task checkbox can be ({@link taskMarks}).
-   * The rule of mdopener-mcp's `markdown_lines::item_starts`.
+   * (`-`, then `  a`), in that item or in a list item it is in (`- -`,
+   * then `  a`), as remark-gfm reads it. Where a GFM task checkbox can be
+   * ({@link taskMarks}). The rule of mdopener-mcp's
+   * `markdown_lines::item_starts`.
    */
   first: boolean;
   /**
@@ -438,12 +440,17 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           // `>     code`) does.
           const closed = (c.matched < open.length || closer) && !opened;
           // Only a marker with nothing after it, not even a space, has its
-          // first content on the next line, at its content column.
+          // first content on the next line, at its content column. The
+          // renderer reads that line's paragraph as first content also
+          // when the line leaves the bare item for an item it is in
+          // (`- -`, then `  [ ] t`), but not for a blockquote.
+          const lastLeft = c.list[c.list.length - 1];
           const afterBare =
             bare &&
             tight &&
             !opened &&
-            c.matched === open.length &&
+            lastLeft !== undefined &&
+            !lastLeft.quote &&
             spacesBefore(c.rest) === 0;
           open = c.list;
           const last = c.list[c.list.length - 1];

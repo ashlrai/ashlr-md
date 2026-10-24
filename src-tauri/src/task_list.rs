@@ -148,4 +148,17 @@ mod tests {
         assert!(tasks("-\n    [ ] t\n").is_empty());
         assert!(tasks("-\n\n  [ ] t\n").is_empty());
     }
+
+    /// The line after a nested bare item that leaves it for an item it is
+    /// in holds that item's first content too, as remark-gfm reads it; one
+    /// that leaves it for a blockquote does not.
+    #[test]
+    fn a_nested_bare_item_passes_the_next_line_to_its_parent() {
+        assert_eq!(tasks("10. 1.\t-\n\t \t[x] t\n"), vec![t(2, true, "t")]);
+        assert_eq!(tasks("- -\n  [ ] t\n"), vec![t(2, false, "t")]);
+        assert_eq!(tasks("> * -\n>   [ ] t\n"), vec![t(2, false, "t")]);
+        assert!(tasks("> -\n> [ ] t\n").is_empty());
+        assert!(tasks("- > -\n  > [ ] t\n").is_empty());
+        assert!(tasks("- -\n   [ ] t\n").is_empty());
+    }
 }

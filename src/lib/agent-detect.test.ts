@@ -549,3 +549,50 @@ describe("detectDocKind reads headings as the outline does", () => {
     expect(detectDocKind(doc).stepCount).toBe(3);
   });
 });
+
+describe("detectDocKind: tasks by the page's task rule", () => {
+  // Tasks were matched on raw lines, so the badge and the status bar counted
+  // `- [ ]` in indented code and missed quoted tasks and `1)` items.
+  it("counts quoted tasks, `1)` items and a checkbox on a bare item's next line", () => {
+    const doc = ["> - [x] quoted", "1) [ ] paren", "-", "  [x] next line", ""].join(
+      "\n",
+    );
+    const info = detectDocKind(doc);
+    expect(info.taskTotal).toBe(3);
+    expect(info.taskDone).toBe(2);
+  });
+
+  it("does not count indented code or a checkbox with nothing after it", () => {
+    const doc = [
+      "# Plan",
+      "",
+      "    - [ ] code",
+      "",
+      "- [ ]",
+      "",
+      "- [x] real",
+      "",
+    ].join("\n");
+    const info = detectDocKind(doc);
+    expect(info.taskTotal).toBe(1);
+    expect(info.taskDone).toBe(1);
+  });
+
+  it("collects acceptance criteria the page shows as tasks", () => {
+    const doc = [
+      "---",
+      "kind: spec",
+      "---",
+      "## Acceptance Criteria",
+      "    - [ ] indented code",
+      "",
+      "> - [ ] quoted criterion",
+      "1) [x] paren criterion",
+      "",
+    ].join("\n");
+    expect(detectDocKind(doc).acceptanceCriteria).toEqual([
+      "quoted criterion",
+      "paren criterion",
+    ]);
+  });
+});

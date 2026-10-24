@@ -615,3 +615,14 @@ kubectl rollout undo deployment/app
     expect(classify(doc)).toBe("RUNBOOK");
   });
 });
+
+describe("classify: checklist density by the page's task rule", () => {
+  // The density counted raw `- [ ]` lines, so quoted tasks and `1)` items
+  // were not a PLAN signal.
+  it("reads quoted tasks and `1)` items as a checklist", () => {
+    const doc = ["> - [ ] one", "> - [ ] two", "1) [ ] three", "2) [x] four", ""].join(
+      "\n",
+    );
+    expect(classify(doc)).toBe("PLAN");
+  });
+});

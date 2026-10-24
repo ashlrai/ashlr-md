@@ -96,6 +96,42 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The `export_text` tool description says what links read.** It said links,
+  images and HTML tags are stripped, and nothing about what stays: a link's text,
+  an image's alt text, the brackets of a `[text]` whose label is not defined and
+  an autolink's URL, or that a link reference definition reads nothing. It now
+  says so.
+- **`export_text` strips markup inside link and image text.** A link's text and
+  an image's alt text were copied as written, so `[**a**](u)` read `**a**` and
+  ``[`code`](u)`` kept its backticks, where the page shows `a` and `code`. They
+  now lose their inline marks, as the rest of the line does.
+- **`export_text` drops link reference definitions and reads autolinks as
+  CommonMark does.** A definition line (`[ref]: /url "title"`) read
+  `ref: /url "title"`, although the page shows nothing for it. Definitions are
+  now dropped, the same ones reference links are read against, also when the
+  destination or the title sits on the next line or the title goes on over
+  lines. Any `<` followed by a letter was read as an HTML tag up to the next
+  `>`, so `<me@x.org>` read nothing and `<a href="x://y">` read
+  `a href="x://y"`. Autolinks (a 2 to 32 character scheme, or an email
+  address) now keep their URL or address, inline HTML reads nothing, and any
+  other `<` is text. A `)` inside a `<...>` link destination
+  (`[t](<a)b>)`) no longer ends the link. Checked against the renderer's
+  definitions on generated documents.
+- **A checkbox after a nested empty item is a task.** In `10. 1.<tab>-`, then a
+  line holding `[x] t` in the `1.` item (or `- -`, then `  [ ] t`), the page
+  shows a checkbox, since remark-gfm reads the line after a marker with nothing
+  after it as first content also when the line leaves that item for an item it
+  is in. `get_user_annotations`, the `/annotations` endpoint, the checkbox
+  toggle and the task counts read it as text. They now read it as a task, and
+  still read text where the line leaves the item for a blockquote. Checked
+  against the renderer on generated documents.
+- **Task counts follow the page's task rule.** The doc-kind badge, the status
+  bar's task count, the classifier's checklist signal, a spec's acceptance
+  criteria and a runbook's prerequisites matched `- [ ]` on raw lines, so a
+  quoted task (`> - [ ] t`), a `1)` item and a checkbox on a bare item's next
+  line were missed or read as plain text, while `    - [ ] t` (indented code)
+  and `- [ ]` alone counted. They now read tasks by `taskMarks`, the rule the
+  checkbox toggle uses, so they agree with the checkboxes on the page.
 - **`export_text` keeps brackets that are not reference links.** Any `[text]`
   with no `(url)` after it lost its brackets, so `[sic]`, `[TODO]` or `[1]` in
   prose read `sic`, `TODO` and `1`, where the page shows the brackets. A

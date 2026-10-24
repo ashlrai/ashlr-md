@@ -18,6 +18,8 @@
  *   - `**Step N:**` bold leads
  */
 
+import { taskMarks } from "../tasklist";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -101,7 +103,6 @@ const VERIFICATION_TITLES = new Set([
 // ---------------------------------------------------------------------------
 
 const HEADING_RE = /^(#{1,6})\s+(.+)/;
-const TASK_ITEM_RE = /^[ \t]*(?:[-*+])\s+\[([ xX])\]\s+(.+)/;
 const ORDERED_ITEM_RE = /^[ \t]*(\d+)[.)]\s+(.+)/;
 const BOLD_STEP_RE = /^\*\*[Ss]tep\s+(\d+)[:.]\*\*\s*(.*)/;
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})(\w*)/;
@@ -162,6 +163,8 @@ function extractCommands(body: string): string[] {
  */
 export function parseRunbook(content: string): ParsedRunbook {
   const lines = content.split("\n");
+  // The page's task checkboxes, one entry per line.
+  const marks = taskMarks(content);
 
   let title = "";
   const prerequisites: Prerequisite[] = [];
@@ -191,11 +194,11 @@ export function parseRunbook(content: string): ParsedRunbook {
       for (let idx = 0; idx < sectionLines.length; idx++) {
         const sl = sectionLines[idx];
         // Checked/unchecked task items: `- [x] text` / `- [ ] text`
-        const taskMatch = TASK_ITEM_RE.exec(sl);
-        if (taskMatch) {
+        const mark = marks[sectionStartLine + idx - 1];
+        if (mark) {
           prerequisites.push({
-            text: taskMatch[2].trim(),
-            done: taskMatch[1].trim().toLowerCase() === "x",
+            text: mark.text,
+            done: mark.checked,
             line: sectionStartLine + idx,
           });
           continue;

@@ -77,6 +77,18 @@ describe("toggleTaskAtLine follows the renderer's task rule", () => {
     expect(toggleTaskAtLine("-\n    [ ] t", 2)).toBe("-\n    [ ] t");
   });
 
+  it("toggles the checkbox after a nested bare item in its parent item", () => {
+    // remark-gfm reads the line after a nested bare item that leaves it for
+    // an item it is in as that item's first content.
+    expect(toggled("10. 1.\t-\n\t \t[x] t", 2)).toBe("\t \t[ ] t");
+    expect(toggled("- -\n  [ ] t", 2)).toBe("  [x] t");
+    expect(toggled("> * -\n>   [ ] t", 2)).toBe(">   [x] t");
+    // Not when it leaves the item for a blockquote, or is indented past it.
+    expect(toggleTaskAtLine("> -\n> [ ] t", 2)).toBe("> -\n> [ ] t");
+    expect(toggleTaskAtLine("- > -\n  > [ ] t", 2)).toBe("- > -\n  > [ ] t");
+    expect(toggleTaskAtLine("- -\n   [ ] t", 2)).toBe("- -\n   [ ] t");
+  });
+
   it("keeps tabs and changes only the character inside the brackets", () => {
     expect(toggled("-\t[ ] tabbed", 1)).toBe("-\t[x] tabbed");
     expect(toggled("- [ ]\ttab after", 1)).toBe("- [x]\ttab after");
