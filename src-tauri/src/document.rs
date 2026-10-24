@@ -208,13 +208,21 @@ fn link_target(path: &Path) -> std::io::Result<std::path::PathBuf> {
 /// path themselves ([`apply_file_patch`]), so a link put in its place since
 /// cannot send the write elsewhere.
 fn write_document(path: &str, content: String) -> Result<(), String> {
-    // Never write inside an Obsidian config folder — that dir is Obsidian's and
-    // a stray write there can corrupt vault settings/plugins.
+    refuse_protected_write(path)?;
+    write_atomic(Path::new(path), content.as_bytes())
+        .map_err(|e| format!("Could not save {path}: {e}"))
+}
+
+/// The folders no app write may land in, checked before every save and
+/// export: an Obsidian config folder (`.obsidian/`, also through a symlinked
+/// folder) is Obsidian's, and a stray write there can corrupt the vault's
+/// settings or plugins. Exports (`write_file_bytes`) used to skip it, so a
+/// DOCX or EPUB saved as `.obsidian/app.json` replaced the vault's settings.
+pub(crate) fn refuse_protected_write(path: &str) -> Result<(), String> {
     if path_targets_obsidian_dir(path) {
         return Err("Refusing to write inside an Obsidian .obsidian/ config folder.".into());
     }
-    write_atomic(Path::new(path), content.as_bytes())
-        .map_err(|e| format!("Could not save {path}: {e}"))
+    Ok(())
 }
 
 /// Write `bytes` to `path` atomically: into a new sibling temp file, then
@@ -1191,7 +1199,7 @@ mod tests {
 
         let out = root.join("out.docx");
         std::os::unix::fs::symlink(&outside, root.join("out.docx.mdopener.tmp")).unwrap();
-        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        crate::export::write_export_file(&s(&out), b"PK").unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), b"PK");
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me");
 
@@ -1225,7 +1233,7 @@ mod tests {
         let out = root.join("private.docx");
         std::fs::write(&out, "old").unwrap();
         std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o640)).unwrap();
-        crate::export::write_file_bytes(s(&out), b"PK".to_vec()).unwrap();
+        crate::export::write_export_file(&s(&out), b"PK").unwrap();
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640, "{mode:o}");
     }
@@ -1305,7 +1313,7 @@ mod tests {
         let err = write_markdown_file(s(&doc), "new".into(), None).unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
-        let err = crate::export::write_file_bytes(s(&doc), b"PK".to_vec()).unwrap_err();
+        let err = crate::export::write_export_file(&s(&doc), b"PK").unwrap_err();
         assert!(err.contains("read-only"), "{err}");
         assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
         // No temp file is left.

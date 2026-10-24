@@ -773,6 +773,42 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       return String(e);
     }
     if (!dest) return "cancelled";
+    // The file may be open in another tab already: it used to stay open
+    // beside this one under the same key, showing the text this save
+    // replaced, and its next save wrote that back over this one. That tab
+    // is closed once the save is done; with unsaved changes of its own
+    // (or as the only copy of a file gone from disk), the user is asked
+    // first, as the dialog only asked about the file on disk.
+    const destPath = dest;
+    const fileKeyOf = async () => {
+      try {
+        return fileKey(
+          await invoke<MarkdownFile>("read_markdown_file", { path: destPath }),
+        );
+      } catch {
+        // Not there yet (or unreadable): the path as given will do.
+        return destPath;
+      }
+    };
+    const others = (key: string) =>
+      get().tabs.filter(
+        (t) => t.id !== activeId && (t.key === key || t.path === destPath),
+      );
+    const open = others(await fileKeyOf());
+    const unsaved = open.find((t) => t.isDirty || t.missing);
+    if (unsaved) {
+      let replace = false;
+      try {
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        replace = await ask(
+          `"${unsaved.fileName}" is open in another tab with unsaved changes. Replace it with this document? Its changes will be lost.`,
+          { title: "Replace open document", kind: "warning" },
+        );
+      } catch {
+        // No dialog: keep the other tab's changes.
+      }
+      if (!replace) return "cancelled";
+    }
     try {
       // The dialog asked before replacing an existing file, so no check.
       const written = await invoke<unknown>("write_markdown_file", {
@@ -810,14 +846,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // so opening the new file by another path (a symbolic link to its
       // folder, other case where case is ignored) opened it in a second
       // tab, whose saves overwrote this one's.
-      let key = dest;
-      try {
-        key = fileKey(await invoke<MarkdownFile>("read_markdown_file", { path: dest }));
-      } catch {
-        // Unreadable just after the write: the path as given will do.
-      }
+      const key = await fileKeyOf();
+      // The other tabs on this file held the text just replaced: closed,
+      // so one tab holds it (unless the user switched to one meanwhile).
+      const stale = new Set([...open, ...others(key)].map((t) => t.id));
       set((s) => ({
-        tabs: s.tabs.map((t) => (t.id === activeId ? { ...t, key } : t)),
+        tabs: s.tabs
+          .filter((t) => !stale.has(t.id) || t.id === s.activeId)
+          .map((t) => (t.id === activeId ? { ...t, key } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {

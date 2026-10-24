@@ -6,6 +6,8 @@
  * helpers to navigate and clear. Pure DOM — no React, no editor model.
  */
 
+import { smoothScrollBehavior } from "./motion";
+
 const HIT = "find-hit";
 const ACTIVE = "find-hit--active";
 const SKIP_SELECTOR = "pre, code, .katex, .katex-display, .mermaid-block, mark";
@@ -84,5 +86,5 @@ export function setActive(index: number): void {
   marks.forEach((m, i) => {
     m.classList.toggle(ACTIVE, i === index);
   });
-  marks[index]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  marks[index]?.scrollIntoView({ block: "center", behavior: smoothScrollBehavior() });
 }

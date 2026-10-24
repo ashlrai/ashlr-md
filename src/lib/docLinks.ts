@@ -21,6 +21,7 @@
  */
 
 import GithubSlugger from "github-slugger";
+import { smoothScrollBehavior } from "./motion";
 import { resolveWikilink } from "./wikilink";
 
 /** Extensions of documents a link may open in a tab. */
@@ -284,7 +285,7 @@ export function scrollToFragment(fragment: string): () => void {
   const tick = () => {
     const el = anchorElement(fragment);
     if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
       return;
     }
     if (tries++ < 12) timer = setTimeout(tick, 60);

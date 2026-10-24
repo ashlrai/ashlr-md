@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 // Vite ?raw imports — each resolves to the full CSS text at build time.
 import katexCss from "katex/dist/katex.min.css?raw";
+import { useDocumentStore } from "../store/documentStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
 import markdownCss from "../styles/markdown.css?raw";
@@ -27,6 +28,8 @@ import themesCss from "../styles/themes.css?raw";
 import { READ_VIEW_REQUIRED } from "./exportErrors";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
 import { findProfile, findTemplate } from "./exportTemplates";
+import { frontmatterText } from "./frontmatter";
+import { slackMrkdwn } from "./slackText";
 
 // ─── EPUB theme CSS ──────────────────────────────────────────────────────────
 
@@ -152,7 +155,45 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
     ".review-card, .remote-images-banner, .remote-image-load",
   ))
     node.remove();
+  // An image or embed still loading (see waitForRenderedImages) is its name,
+  // not the app's "Loading x…" placeholder.
+  for (const node of clone.querySelectorAll(".wikiembed--loading"))
+    node.replaceWith(
+      node.ownerDocument.createTextNode(node.getAttribute("data-name") ?? ""),
+    );
   return clone;
+}
+
+/** How long an export waits for the read view's images and embeds to load. */
+export const EXPORT_IMAGE_WAIT_MS = 5000;
+
+/**
+ * Resolves once the read view shows no image or embed still loading (a
+ * local image is read through Rust, so it shows "Loading x…" first), or
+ * after `timeoutMs`, whichever comes first. An export taken while one was
+ * loading used to contain the placeholder text instead of the image.
+ */
+export function waitForRenderedImages(timeoutMs = EXPORT_IMAGE_WAIT_MS): Promise<void> {
+  const loading = () =>
+    document.querySelector(".markdown-body .wikiembed--loading") !== null;
+  if (!loading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      if (!loading()) done();
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    const timer = setTimeout(done, timeoutMs);
+  });
 }
 
 /**
@@ -161,11 +202,16 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
  * absent — this happens when the user is in Edit or Source view.
  */
 function captureMarkdownBody(): string {
+  return captureMarkdownElement().outerHTML;
+}
+
+/** {@link captureMarkdownBody} as an element (a detached copy). */
+function captureMarkdownElement(): Element {
   const el = document.querySelector(".markdown-body");
   if (!el) {
     throw READ_VIEW_REQUIRED;
   }
-  return cloneWithoutInjectedChrome(el).outerHTML;
+  return cloneWithoutInjectedChrome(el);
 }
 
 /**
@@ -296,6 +342,24 @@ export function buildStandaloneHtmlWithActiveTemplate(title: string): string {
   return buildStandaloneHtml(title, template);
 }
 
+/**
+ * The title and author an export names: the open document's front matter
+ * `title` and `author` (a list of authors joined with ", "), else
+ * `fallbackTitle` (its file name) and no author. An EPUB used to say
+ * `author: ""` and every export was titled by its file name, whatever the
+ * front matter said. The suggested file name stays the file's.
+ */
+export function exportMetadata(fallbackTitle: string): {
+  title: string;
+  author: string;
+} {
+  const content = useDocumentStore.getState().content ?? "";
+  return {
+    title: frontmatterText(content, "title") ?? fallbackTitle,
+    author: frontmatterText(content, "author") ?? "",
+  };
+}
+
 /** Minimal HTML-entity escaping for the document title. */
 function escapeHtml(s: string): string {
   return s
@@ -308,12 +372,17 @@ function escapeHtml(s: string): string {
 // ─── export functions ────────────────────────────────────────────────────────
 
 /**
- * Export as a self-contained HTML file.
- * Uses `write_markdown_file` (text) since HTML is UTF-8 text — no new
- * Rust command needed for this format.
+ * Export as a self-contained HTML file, written as UTF-8 through
+ * `write_file_bytes` like every export, which refuses a symbolic link (as
+ * the headless path does) and an Obsidian config folder. It used to go
+ * through `write_markdown_file`, which saves a linked document into the
+ * file the link points to, so an export over a `report.html` linked to
+ * `~/.bashrc` replaced the shell profile.
  */
 export async function exportHtml(title: string, outputPath?: string): Promise<void> {
-  const html = buildStandaloneHtmlWithActiveTemplate(title); // throws if not in read view
+  await waitForRenderedImages();
+  // throws if not in read view
+  const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(title).title);
 
   // An agent-supplied destination (MCP `export` with `output_path`) skips the dialog.
   const path =
@@ -325,7 +394,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
   if (!path) return; // user cancelled — no toast
 
   try {
-    await invoke("write_markdown_file", { path, content: html });
+    await writeExportBytes(path, new TextEncoder().encode(html));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -345,6 +414,7 @@ export async function exportHtml(title: string, outputPath?: string): Promise<vo
  * `write_file_bytes` command for an atomic save.
  */
 export async function exportDocx(title: string, outputPath?: string): Promise<void> {
+  await waitForRenderedImages();
   const bodyHtml = captureMarkdownBody(); // throws if not in read view
 
   // Dynamic import so the rest of the app loads even if html-to-docx is absent.
@@ -369,8 +439,10 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
     }));
   if (!path) return; // user cancelled — no toast
 
+  const meta = exportMetadata(title);
   const result = await HTMLtoDOCX(bodyHtml, null, {
-    title,
+    title: meta.title,
+    ...(meta.author ? { creator: meta.author } : {}),
     // Margins in twips (1 inch = 1440 twips).
     margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
     // Embed a minimal set of font hints so Word renders reasonably.
@@ -387,7 +459,7 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await invoke("write_file_bytes", { path, data: Array.from(bytes) });
+    await writeExportBytes(path, bytes);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -411,7 +483,9 @@ export async function exportDocx(title: string, outputPath?: string): Promise<vo
  * destination selection (including "Save as PDF").
  */
 export async function exportPdf(_title: string): Promise<void> {
-  const html = buildStandaloneHtmlWithActiveTemplate(_title); // throws if not in read view
+  await waitForRenderedImages();
+  // throws if not in read view
+  const html = buildStandaloneHtmlWithActiveTemplate(exportMetadata(_title).title);
 
   return new Promise<void>((resolve, reject) => {
     const iframe = document.createElement("iframe");
@@ -673,6 +747,7 @@ async function withEpubImages<T>(
  * The import is dynamic so the rest of the app loads even if it is absent.
  */
 export async function exportEpub(title: string, outputPath?: string): Promise<void> {
+  await waitForRenderedImages();
   // captureMarkdownBody() returns outerHTML of .markdown-body; for EPUB
   // chapter splitting we need only the inner content so headings are top-level
   // children of the parse container.
@@ -706,14 +781,15 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
 
   const theme = currentTheme();
   const css = buildEpubThemeCss(theme);
-  const chapters = buildEpubChapters(bodyHtml, title);
+  const meta = exportMetadata(title);
+  const chapters = buildEpubChapters(bodyHtml, meta.title);
 
   const result = await withEpubImages(images, () =>
     epubGen(
       {
-        title,
-        // Author from document store if available, otherwise blank.
-        author: "",
+        title: meta.title,
+        // The front matter's `author`, else none.
+        author: meta.author,
         // Use the theme-aware chapter CSS as the stylesheet.
         css,
         // EPUB 3 for widest modern reader support.
@@ -734,7 +810,7 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   }
 
   try {
-    await invoke("write_file_bytes", { path, data: Array.from(bytes) });
+    await writeExportBytes(path, bytes);
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -759,9 +835,14 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
  * @param content    Optional raw HTML body fragment to render.  When omitted
  *                   the live `.markdown-body` DOM element is captured (throws
  *                   if not in Read view).
+ * @param title      The document's `<title>`, when given.
  * @returns          A complete, standalone HTML document string.
  */
-export function buildExportHtml(profileId: ExportProfileId, content?: string): string {
+export function buildExportHtml(
+  profileId: ExportProfileId,
+  content?: string,
+  title?: string,
+): string {
   const profile = findProfile(profileId);
   if (!profile) {
     throw `Unknown export profile: "${profileId}"`;
@@ -786,7 +867,7 @@ export function buildExportHtml(profileId: ExportProfileId, content?: string): s
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 ${EXPORT_CSP_META}
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-<style>
+${title === undefined ? "" : `<title>${escapeHtml(title)}</title>\n`}<style>
 /* ── Reset ── */
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -896,7 +977,8 @@ function inlineEmailStyles(html: string): string {
  * Export a document using a named format profile.
  *
  * Triggers a native save dialog with the profile's recommended extension
- * (`.html` for Notion/Email, `.txt` for Slack).
+ * (`.html` for Notion/Email, `.txt` for Slack). The Slack file is Slack
+ * mrkdwn text ({@link slackMrkdwn}); every other profile is an HTML page.
  *
  * @param profileId  The profile to use — one of `"notion-html"`, `"slack-html"`,
  *                   `"email-html"`.
@@ -908,8 +990,15 @@ export async function exportWithProfile(
 ): Promise<void> {
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
+  await waitForRenderedImages();
 
-  const html = buildExportHtml(profileId); // throws if not in Read view
+  // A text profile (Slack) is the text it promises, not a page: the Slack
+  // .txt used to hold a whole HTML document, which pasted as markup.
+  // Either throws if not in Read view.
+  const content =
+    profile.extension === "txt"
+      ? slackMrkdwn(captureMarkdownElement())
+      : buildExportHtml(profileId, undefined, exportMetadata(title).title);
 
   const ext = profile.extension;
   const filterName = ext === "txt" ? "Text / Markdown" : "HTML Document";
@@ -921,7 +1010,7 @@ export async function exportWithProfile(
   if (!path) return; // user cancelled — no toast
 
   try {
-    await invoke("write_markdown_file", { path, content: html });
+    await writeExportBytes(path, new TextEncoder().encode(content));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;
@@ -930,6 +1019,19 @@ export async function exportWithProfile(
 }
 
 // ─── util ────────────────────────────────────────────────────────────────────
+
+/**
+ * Write `bytes` to `path` through `write_file_bytes` (src-tauri/src/export.rs):
+ * the bytes are the request's raw body and the path a percent-encoded
+ * header. They used to cross the IPC as a JSON array of numbers
+ * (`Array.from(bytes)`), about 3.6 bytes of JSON per byte, built and parsed
+ * on both sides: a 32 MiB EPUB sent 114 MiB of JSON.
+ */
+export async function writeExportBytes(path: string, bytes: Uint8Array): Promise<void> {
+  await invoke("write_file_bytes", bytes, {
+    headers: { "x-export-path": encodeURIComponent(path) },
+  });
+}
 
 /** Normalise an unknown error into a user-readable string. */
 function errMsg(e: unknown): string {

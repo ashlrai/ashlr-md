@@ -815,9 +815,10 @@ pub fn store_get_context(session_id: &str, n: usize) -> Result<Vec<ConversationM
 /// `list_ai_actions` discovery tool — no other wiring needed.
 ///
 /// Order is the `tools/list` order, which clients show and agents read top
-/// down: the destructive tools (`ToolTier::Destructive`, which replace the
-/// whole document) come last, after every read-only and targeted tool, so an
-/// agent meets `edit_document` before `replace_document` and `set_content`.
+/// down: the destructive tools (`ToolTier::Destructive`: `export`, which can
+/// replace a file, and the two that replace the whole document) come last,
+/// after every read-only and targeted tool, so an agent meets
+/// `edit_document` before `replace_document` and `set_content`.
 pub fn tool_registry() -> Vec<ToolDef> {
     vec![
         ToolDef {
@@ -886,34 +887,6 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "openWorldHint": false
             })),
             tier: ToolTier::ReadOnly,
-        },
-        ToolDef {
-            name: "export",
-            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view (from Edit or Source view the export is refused, saying to call open_file with its path and mode 'read' first). Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme. Returns { ok, format, path, bytes } once the file is written (`path` absolute, `bytes` its size), or { ok, format, dialog: true } when the dialog was opened. A file not written within 30 s is an error, and so is a second headless export sent while one is being written (retry once it finishes).",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "enum": EXPORT_FORMATS,
-                        "description": "Export format."
-                    },
-                    "output_path": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub): absolute, `~/...` for the home directory, or relative to this server's working directory. The directory must exist."
-                    }
-                },
-                "required": ["format"]
-            }),
-            annotations: Some(json!({
-                "title": "Export Document",
-                "readOnlyHint": false,
-                "destructiveHint": false,
-                "idempotentHint": false,
-                "openWorldHint": false
-            })),
-            tier: ToolTier::Modifier,
         },
         ToolDef {
             name: "request_review",
@@ -1418,6 +1391,41 @@ pub fn tool_registry() -> Vec<ToolDef> {
             tier: ToolTier::ReadOnly,
         },
         ToolDef {
+            name: "export",
+            description: "Export the currently open document (an error when none is open). With `output_path` (html, docx or epub) the app writes that file without a dialog and the call returns once it exists, with its size, or with the app's error as soon as the export fails; the document must be shown in Read view (from Edit or Source view the export is refused, saying to call open_file with its path and mode 'read' first). Without `output_path` the app opens its export dialog and the call returns at once. pdf always goes through the system print dialog, so it takes no `output_path`. Exports use the app's current theme. Returns { ok, format, path, bytes } once the file is written (`path` absolute, `bytes` its size), or { ok, format, dialog: true } when the dialog was opened. A file not written within 30 s is an error, and so is a second headless export sent while one is being written (retry once it finishes). A file already at `output_path` is replaced only with `overwrite: true`: without it the call is refused (isError) and nothing is written.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": EXPORT_FORMATS,
+                        "description": "Export format."
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub): absolute, `~/...` for the home directory, or relative to this server's working directory. The directory must exist."
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "Replace a file that is already at `output_path`. Defaults to false: an existing file is refused, not overwritten."
+                    }
+                },
+                "required": ["format"]
+            }),
+            // With `overwrite: true` it replaces an existing file, so it is
+            // listed as destructive (it used to say `destructiveHint: false`
+            // and overwrote whatever was at `output_path`, unasked).
+            annotations: Some(json!({
+                "title": "Export Document",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+            })),
+            tier: ToolTier::Destructive,
+        },
+        ToolDef {
             name: "replace_document",
             description: "Replace the ENTIRE content of the currently open document (the same operation as set_content). Use edit_document for targeted changes; use this only when rewriting the whole document. A CRLF document keeps CRLF line breaks (a `content` with no \\r takes them) and its byte order mark. Returns { ok: true } once the window has applied the content (and written it to disk, with `save: true`). Refused (isError, nothing applied) when no document is open (\"No document is open in Ashlr MD; open one first (open_file).\"; the app opens only files, so every document it shows has one), or when two edits are already waiting on the app (retry in a moment); with `save: true`, a failed save is an error saying the content was replaced but not saved. A window that does not answer within 4 s is an error too, but it may still apply the content: call get_current_content to see whether it did before retrying.",
             input_schema: json!({
@@ -1471,7 +1479,6 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "open_file",
     "get_current_content",
     "list_recent",
-    "export",
     "request_review",
     "get_user_annotations",
     "edit_document",
@@ -1486,6 +1493,7 @@ pub const ALL_TOOL_NAMES: &[&str] = &[
     "stream_edit_apply",
     "export_text",
     "export_metadata",
+    "export",
     "replace_document",
     "set_content",
 ];
@@ -2440,6 +2448,21 @@ pub fn tool_export_with(
             Err(e) => return Response::err(id, -32602, e),
         },
     };
+    // An existing file is replaced only when the agent says so: the export
+    // used to overwrite whatever was at `output_path`, unasked.
+    if let Some(out) = output_path.as_deref() {
+        let overwrite = args["overwrite"].as_bool().unwrap_or(false);
+        if !overwrite && std::fs::symlink_metadata(out).is_ok() {
+            return tool_error(
+                id,
+                format!(
+                    "`output_path` '{}' already exists; nothing was written. Pass `overwrite: true` \
+                     to replace it, or choose another path.",
+                    out.display()
+                ),
+            );
+        }
+    }
     let before = output_path.as_deref().and_then(file_fingerprint);
 
     let body = json!({

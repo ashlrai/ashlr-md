@@ -128,6 +128,95 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Focus comes back after a review.** An agent's review request takes
+  keyboard focus so it is noticed; once approved, sent back, dismissed or
+  timed out, the panel was gone and focus with it. Focus now returns to
+  where you were, the editor for instance.
+- **Reduced motion stops the scroll animations too.** With "Reduce motion"
+  set in the system, the app's animations were calmed, but jumping to a
+  heading from the outline or a link, to a find match, to a review finding,
+  and the AI chat's scroll to the newest message still animated: a smooth
+  scroll asked for in code is not changed by the stylesheet. They now jump.
+- **The tab bar answers the arrow keys.** It is announced as a set of tabs,
+  but every tab was its own Tab stop and the arrow keys did nothing. Now
+  only the active tab is a Tab stop, and Left, Right, Home and End move to
+  and open the previous, next, first and last document. A tab's unsaved
+  dot, and an agent-activity file's "new" dot, are now read by screen
+  readers (their labels sat on plain spans, which are not read).
+- **Closing a side panel gives focus back.** File search, the outline and
+  agent activity stay in the page while closed, unreachable, so closing one
+  from its close button or with Escape left keyboard focus on nothing. Focus
+  now returns to where it was when the panel opened. The file search field
+  also has a label for screen readers (it had only a placeholder).
+- **The command palette gives focus back when it closes.** It meant to
+  return focus to what had it, but remembered its own search field (already
+  focused by then), so closing it left focus on nothing and a keyboard user
+  had to find their place again; Tab also left the palette for the app
+  behind it. Focus now returns to where it was, Tab stays inside, and the
+  search field is announced as a combobox with its list of commands.
+- **Restoring the last session skips a file it cannot open.** A saved tab
+  whose file was there but could not be read (not text, too large) had its
+  view mode applied to the tab before it, was counted in "Reopened n
+  documents", and left its error in place of the restored document. It is
+  now skipped. A damaged saved session (not a list, entries without a path,
+  a path saved twice, an unknown view mode) is read safely instead of
+  stopping the restore.
+- **A damaged settings file no longer breaks the app.** Settings were
+  loaded as stored, whatever their type, so a hand edit, a damaged file or
+  a newer version that changed a value put a `null` linter config (the
+  linter threw on every document), a text font size or an unknown theme
+  into the app. Each setting is now checked when loaded: a value of the
+  wrong type keeps its default, a setting missing from the file (such as
+  "Load remote images") takes its default, malformed templates and snippets
+  are dropped, and keys from a newer version are kept for it.
+- **Save As onto a file open in another tab leaves one tab.** Both tabs
+  stayed open for the same file, and the other one showed the text the save
+  had just replaced, so its next save wrote that back. The other tab now
+  closes once the save is done; when it has unsaved changes of its own (or
+  holds the only copy of a file gone from disk), Save As asks before
+  replacing it, and nothing is written if you say no.
+- **An export waits for images still loading.** A local image is read from
+  disk after the page renders and shows "Loading name…" until then, so an
+  export (or a copy as rich text) taken meanwhile held that text instead
+  of the image. Exports now wait up to 5 s for the read view's images and
+  embeds, and one still loading after that is exported as its name, never
+  as the placeholder.
+- **The Slack export is Slack text.** The Slack profile saved a whole HTML
+  page (styles and markup) into its `.txt`, which pasted into Slack as
+  code. It now writes Slack's own formatting: `*bold*`, `_italic_`,
+  `~strike~`, `` `code` ``, fenced code blocks, `> quotes`, `<url|text>`
+  links, bullet and numbered lists, headings as bold lines and tables as
+  rows, with images as their alt text.
+- **Exports carry the front matter's title and author.** An EPUB was titled
+  by its file name with an empty author, and the HTML, PDF, DOCX and
+  profile exports were titled by the file name too. The front matter's
+  `title` and `author` (a list of authors joined with commas) now name the
+  book, the page's `<title>` and the DOCX properties; the suggested file
+  name is still the file's.
+- **MCP `export` no longer overwrites a file unasked.** With `output_path`
+  it replaced whatever file was there while it was listed with
+  `destructiveHint: false`. An existing file is now refused unless the call
+  passes the new `overwrite: true` (default `false`, as `save` defaults to
+  `false` on the edit tools), and the tool is listed as destructive, after
+  the read-only and targeted tools.
+- **An export never writes through a symbolic link.** An HTML (or Notion,
+  Slack or email) export chosen in the dialog was saved like a document,
+  into the file a link points to, so exporting over a `report.html` linked
+  to `~/.bashrc` replaced the shell profile; a DOCX or EPUB replaced the
+  link with a file. Every export is now written by one command that refuses
+  a symbolic link, as the agent's headless export already did, and the
+  error says to export to the file it points to or to another name.
+- **Large DOCX and EPUB exports are written without a JSON detour.** Their
+  bytes crossed to the app as a JSON array of numbers, about 3.6 bytes of
+  JSON for each byte of the file: a 32 MiB EPUB became 114 MiB of JSON, and
+  building and parsing it took about 2.4 s (1.3 s and 1 s; 8 MiB: 0.6 s).
+  The bytes are now the request's raw body (about 25 ms for 32 MiB), with
+  the path in a percent-encoded header.
+- **Exports never write into an Obsidian config folder.** A Markdown save
+  refused `.obsidian/`, but a DOCX or EPUB export (`write_file_bytes`) did
+  not, so an export saved as `.obsidian/app.json` replaced the vault's
+  settings. Both now share one guard, which also follows a folder that
+  links to `.obsidian`.
 - **EPUB export works with images.** The EPUB library fetches every image,
   and the app's content policy refuses a `data:` URL (how a local image is
   shown) and the web alike, so a document with any image failed to export;

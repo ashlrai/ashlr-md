@@ -10,7 +10,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/outline.css";
 import { formatShortcut } from "../lib/keymap";
+import { smoothScrollBehavior } from "../lib/motion";
 import { type HeadingItem, parseHeadings } from "../lib/outline";
+import { useReturnFocus } from "../lib/useReturnFocus";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
 
@@ -33,7 +35,7 @@ function CloseIcon() {
 /** Smoothly scroll a rendered heading into view by its slug id. */
 function scrollToSlug(slug: string) {
   const el = document.getElementById(slug);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  el?.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
 }
 
 export function Outline() {
@@ -49,6 +51,9 @@ export function Outline() {
 
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  // Closed, the panel is inert: give focus back to what had it.
+  useReturnFocus(open, panelRef);
 
   // Scrollspy (read view only): mark the heading nearest the top of the
   // viewport as active using an IntersectionObserver over the rendered headings.
@@ -142,6 +147,7 @@ export function Outline() {
 
   return (
     <aside
+      ref={panelRef}
       className={`outline-panel${open ? " outline-panel--open" : ""}`}
       aria-label="Document outline"
       // When the dock is slid off-screen it stays in the DOM; `inert` removes it

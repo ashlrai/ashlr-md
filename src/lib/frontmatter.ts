@@ -90,3 +90,59 @@ export function stripFrontmatter(markdown: string): {
   }
   return { lines, offset: 0 };
 }
+
+/** A quoted YAML scalar's text, or a plain one's without its `#` comment. */
+function scalarText(raw: string): string {
+  const v = raw.trim();
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    return v.slice(1, -1).replace(/\\(["\\])/g, "$1");
+  }
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) {
+    return v.slice(1, -1).replace(/''/g, "'");
+  }
+  return v.replace(/(^|[ \t])#.*$/, "").trim();
+}
+
+/**
+ * The text of the top-level `key` in `markdown`'s front matter (the block
+ * {@link stripFrontmatter} finds), or null when there is none or it is
+ * empty. A plain or quoted scalar is its text; a list, flow (`[a, b]`) or
+ * block (`- a` lines under the key), is its items joined with ", ", as an
+ * `author` list reads in a book's metadata. A nested mapping or a block
+ * scalar (`|`, `>`) is null. Exports name the document by its `title` and
+ * `author` this way.
+ */
+export function frontmatterText(markdown: string, key: string): string | null {
+  const { offset } = stripFrontmatter(markdown);
+  if (offset === 0) return null;
+  const block = markdown
+    .split("\n")
+    .slice(1, offset - 1)
+    .map((l) => l.replace(/\r$/, ""));
+  for (let i = 0; i < block.length; i++) {
+    const m = /^([^\s:#][^:]*?)[ \t]*:(?:[ \t]+(.*))?$/.exec(block[i]);
+    if (!m || scalarText(m[1]) !== key) continue;
+    const value = (m[2] ?? "").trim();
+    if (value === "" || value.startsWith("#")) {
+      const items: string[] = [];
+      for (let j = i + 1; j < block.length; j++) {
+        const item = /^[ \t]*-(?:[ \t]+(.*))?$/.exec(block[j]);
+        if (!item) break;
+        const text = scalarText(item[1] ?? "");
+        if (text) items.push(text);
+      }
+      return items.length > 0 ? items.join(", ") : null;
+    }
+    if (value.startsWith("[")) {
+      const inner = value.replace(/^\[/, "").replace(/\][ \t]*(#.*)?$/, "");
+      const items = inner
+        .split(",")
+        .map(scalarText)
+        .filter((t) => t !== "");
+      return items.length > 0 ? items.join(", ") : null;
+    }
+    if (/^[|>]/.test(value)) return null;
+    return scalarText(value) || null;
+  }
+  return null;
+}

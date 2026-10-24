@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FileSearchResult, searchFiles } from "../../lib/crossSearch";
 import { isDismissEscape } from "../../lib/keymap";
+import { useReturnFocus } from "../../lib/useReturnFocus";
 import { useActivityStore } from "../../store/activityStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useRecentStore } from "../../store/recentStore";
@@ -27,6 +28,7 @@ export function SearchPanel() {
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   // Deduped candidate paths: recents + watched-folder files.
   const paths = useMemo(() => {
@@ -36,6 +38,9 @@ export function SearchPanel() {
     return Array.from(set);
   }, [recents, activityFiles]);
 
+  // Give focus back to what had it when the panel closes (useReturnFocus),
+  // and focus the query on open.
+  useReturnFocus(open, panelRef);
   useEffect(() => {
     if (open) {
       inputRef.current?.focus();
@@ -65,6 +70,7 @@ export function SearchPanel() {
 
   return (
     <aside
+      ref={panelRef}
       className={`search-panel${open ? " search-panel--open" : ""}`}
       aria-label="Search files"
       // Off-screen-but-in-DOM when closed: `inert` keeps its controls out of the
@@ -89,6 +95,7 @@ export function SearchPanel() {
           className="search-panel__input"
           type="text"
           placeholder="Search recent & watched files"
+          aria-label="Search recent and watched files"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {

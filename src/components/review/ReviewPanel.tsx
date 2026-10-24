@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { isDismissEscape } from "../../lib/keymap";
+import { useReturnFocus } from "../../lib/useReturnFocus";
 import { useReviewStore } from "../../store/reviewStore";
 import "../../styles/review.css";
 
@@ -34,6 +35,9 @@ export function ReviewPanel() {
   // Move focus to the panel when a review appears (keyed on reviewId so a new
   // review while one is showing re-focuses) so keyboard/AT users are taken to it.
   const reviewId = pending?.reviewId;
+  // Once decided (or timed out), the panel is gone: focus goes back to what
+  // had it before the review took it, instead of falling to the page.
+  useReturnFocus(reviewId !== undefined, panelRef);
   useEffect(() => {
     if (reviewId) panelRef.current?.focus();
   }, [reviewId]);

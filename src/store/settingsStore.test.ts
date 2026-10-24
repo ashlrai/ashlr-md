@@ -207,3 +207,68 @@ describe("settingsStore — autoEmbedIndex", () => {
     expect(out.autoEmbedIndex).toBe(false);
   });
 });
+
+// ─── Loading the persisted settings ───────────────────────────────────────────
+
+describe("settingsStore — loading a damaged, partial or newer settings file", () => {
+  const load = async (raw: string) => {
+    useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+    localStorage.setItem("mdopener-settings", raw);
+    await useSettingsStore.persist.rehydrate();
+    return useSettingsStore.getState();
+  };
+
+  it("keeps the defaults for values of the wrong type", async () => {
+    // The default merge took them as they were: a null linterConfig threw
+    // in the linter settings, a string font size reached the CSS.
+    const s = await load(
+      JSON.stringify({
+        state: {
+          theme: "neon",
+          fontSize: "huge",
+          contentWidth: 5000,
+          loadRemoteImages: null,
+          linterConfig: null,
+          userTemplates: { id: "x" },
+          customSnippets: [{ label: "ok", template: "t" }, { label: 3 }],
+          disabledProfileIds: ["slack-html", "gone", 7],
+          setTheme: "not a function",
+        },
+        version: 8,
+      }),
+    );
+    expect(s.theme).toBe("paper");
+    expect(s.fontSize).toBe(17);
+    expect(s.contentWidth).toBe(960);
+    expect(s.loadRemoteImages).toBe(true);
+    expect(s.linterConfig).toEqual({ disabledRules: [] });
+    expect(s.userTemplates).toEqual([]);
+    expect(s.customSnippets).toEqual([{ label: "ok", template: "t" }]);
+    expect(s.disabledProfileIds).toEqual(["slack-html"]);
+    expect(typeof s.setTheme).toBe("function");
+    s.toggleLinterRule("MD001");
+    expect(useSettingsStore.getState().linterConfig.disabledRules).toEqual(["MD001"]);
+  });
+
+  it("gives a setting missing from the file its default, and keeps a newer version's keys", async () => {
+    const s = await load(
+      JSON.stringify({
+        state: { theme: "sepia", fromTheFuture: { a: 1 } },
+        version: 9,
+      }),
+    );
+    expect(s.theme).toBe("sepia");
+    expect(s.loadRemoteImages).toBe(true);
+    expect(s.epubEnabled).toBe(true);
+    s.setFontSize(20);
+    const stored = getStoredState<Record<string, unknown>>("mdopener-settings");
+    expect(stored?.state.fromTheFuture).toEqual({ a: 1 });
+    expect(stored?.state.fontSize).toBe(20);
+  });
+
+  it("starts from the defaults when the file is not JSON", async () => {
+    const s = await load("{not json");
+    expect(s.theme).toBe("paper");
+    expect(s.loadRemoteImages).toBe(true);
+  });
+});

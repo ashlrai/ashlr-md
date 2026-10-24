@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMMAND_GROUPS, type Command, getCommands } from "../lib/commands";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../lib/keymap";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import { useDocumentStore } from "../store/documentStore";
 import { useRecentStore } from "../store/recentStore";
 import { useUiStore } from "../store/uiStore";
@@ -103,7 +104,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Subscribe so the list re-derives if recents change while open.
   const recents = useRecentStore((s) => s.recents);
@@ -162,11 +163,15 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     setActive(0);
   }, [query]);
 
-  // Focus the input on mount; remember + restore prior focus on unmount.
+  // Keep Tab inside the palette and give focus back to what had it on
+  // close. The palette used to remember `document.activeElement` in an
+  // effect, after the input's `autoFocus` had already taken focus, so it
+  // "restored" focus to its own removed input and focus fell to the page;
+  // and Tab left the modal for the app behind it. The trap remembers the
+  // trigger before the input is focused below.
+  useFocusTrap(panelRef);
   useEffect(() => {
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
-    return () => restoreFocusRef.current?.focus?.();
   }, []);
 
   // Scroll the active row into view as it moves.
@@ -219,6 +224,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
+        ref={panelRef}
       >
         <div className="cmdk-input-row">
           <SearchIcon />
@@ -233,13 +239,24 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
+            // A combobox owning the listbox below, so a screen reader
+            // announces the row aria-activedescendant names as it moves.
+            role="combobox"
+            aria-label="Search commands"
+            aria-expanded={rows.length > 0}
+            aria-controls="cmdk-listbox"
+            aria-autocomplete="list"
             aria-activedescendant={rows[active] ? `cmdk-row-${active}` : undefined}
-            // biome-ignore lint/a11y/noAutofocus: command palette is intentionally focus-grabbing
-            autoFocus
           />
         </div>
 
-        <div className="cmdk-list" ref={listRef} role="listbox">
+        <div
+          className="cmdk-list"
+          ref={listRef}
+          role="listbox"
+          id="cmdk-listbox"
+          aria-label="Commands"
+        >
           {rows.length === 0 ? (
             <div className="cmdk-empty">No matching commands</div>
           ) : (

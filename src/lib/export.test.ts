@@ -60,7 +60,21 @@ import {
   exportDocx,
   exportHtml,
   exportPdf,
+  waitForRenderedImages,
 } from "./export";
+
+/**
+ * The last export written through `write_file_bytes`: its path (the
+ * percent-encoded header) and its bytes as UTF-8 text.
+ */
+function writtenExport(): { path: string; text: string } | undefined {
+  const call = invokeMock.mock.calls.filter((c) => c[0] === "write_file_bytes").at(-1);
+  if (!call) return undefined;
+  return {
+    path: decodeURIComponent(call[2].headers["x-export-path"]),
+    text: new TextDecoder().decode(call[1]),
+  };
+}
 
 // ─── DOM fixture helpers ──────────────────────────────────────────────────────
 
@@ -300,12 +314,82 @@ describe("exportHtml", () => {
   });
   afterEach(() => teardownDom());
 
-  it("calls write_markdown_file with the built HTML and chosen path", async () => {
+  it("writes the built HTML as UTF-8 through write_file_bytes at the chosen path", async () => {
     await exportHtml("My Doc");
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/home/user/my-doc.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
+  });
+
+  it("titles the page by the front matter's title", async () => {
+    mockDocGetState.mockReturnValueOnce({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
+    });
+    await exportHtml("my-doc");
+    expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
+    expect(writtenExport()?.path).toBe("/home/user/my-doc.html");
+  });
+
+  it("waits for an image still loading, and exports the image", async () => {
+    // A local image is read through Rust and shows "Loading x…" until then;
+    // an export taken meanwhile used to contain that text.
+    document
+      .querySelector(".markdown-body")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<p><span class="wikiembed wikiembed--loading" data-name="chart.png">Loading chart.png…</span></p>',
+      );
+    setTimeout(() => {
+      document.querySelector(".wikiembed--loading")?.replaceWith(
+        Object.assign(document.createElement("img"), {
+          src: "data:image/png;base64,QUJD",
+          alt: "chart.png",
+        }),
+      );
+    }, 20);
+    await exportHtml("My Doc");
+    const text = writtenExport()?.text ?? "";
+    expect(text).toContain('src="data:image/png;base64,QUJD"');
+    expect(text).not.toContain("Loading chart.png");
+  });
+
+  it("gives up on a loading image after a bound, exporting its name", async () => {
+    document
+      .querySelector(".markdown-body")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<p><span class="wikiembed wikiembed--loading" data-name="slow.png">Loading slow.png…</span></p>',
+      );
+    const started = Date.now();
+    await waitForRenderedImages(30);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(25);
+    const clone = cloneWithoutInjectedChrome(
+      document.querySelector(".markdown-body") as Element,
+    );
+    expect(clone.textContent).toContain("slow.png");
+    expect(clone.textContent).not.toContain("Loading");
+    expect(clone.querySelector(".wikiembed--loading")).toBeNull();
+  });
+
+  it("never writes through write_markdown_file, which follows a symbolic link", async () => {
+    // write_file_bytes refuses a link (src-tauri/src/export.rs); the save
+    // command writes into the file a link points to.
+    invokeMock.mockImplementation((cmd: string) =>
+      cmd === "write_file_bytes"
+        ? Promise.reject("Could not save /home/user/my-doc.html: it is a symbolic link")
+        : Promise.resolve(undefined),
+    );
+    await expect(exportHtml("My Doc")).rejects.toMatch("symbolic link");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      false,
+    );
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("symbolic link"),
+    );
   });
 
   it("shows a success toast with the base filename", async () => {
@@ -318,9 +402,9 @@ describe("exportHtml", () => {
   it("writes to an agent-supplied outputPath without opening the dialog", async () => {
     await exportHtml("My Doc", "/out/agent.html");
     expect(saveMock).not.toHaveBeenCalled();
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/out/agent.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
   });
 
@@ -392,7 +476,7 @@ describe("exportHtml", () => {
 
   it("the written content is self-contained (no external links)", async () => {
     await exportHtml("Offline");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).not.toMatch(/<link[^>]+href="https?:/);
     expect(written).not.toMatch(/<script[^>]+src="https?:/);
   });
@@ -460,9 +544,13 @@ describe("exportDocx", () => {
     const { exportDocx: exportDocxFresh } = await import("./export");
     await exportDocxFresh("My Doc");
 
-    expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", {
-      path: "/home/user/my-doc.docx",
-      data: expect.any(Array),
+    // The bytes are the raw request body, the path a header: they used to
+    // be a JSON array of numbers, 3.6 bytes of JSON per byte.
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    expect(call?.[1]).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(call?.[1])).toBe("DOCX bytes");
+    expect(call?.[2]).toEqual({
+      headers: { "x-export-path": encodeURIComponent("/home/user/my-doc.docx") },
     });
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       expect.stringContaining("my-doc.docx"),
@@ -480,7 +568,20 @@ describe("exportDocx", () => {
 
     const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
     expect(call).toBeDefined();
-    expect(call![1].data).toBeInstanceOf(Array);
+    expect(call![1]).toBeInstanceOf(Uint8Array);
+  });
+
+  it("sends any file name as an ASCII header the backend decodes", async () => {
+    vi.doMock("html-to-docx", () => ({
+      default: vi.fn().mockResolvedValue(new Blob(["x"])),
+    }));
+    saveMock.mockResolvedValue("/home/user/Résumé 📝.docx");
+    const { exportDocx: exportDocxFresh } = await import("./export");
+    await exportDocxFresh("Résumé");
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    const header = call?.[2].headers["x-export-path"] as string;
+    expect(header).toMatch(/^[\x21-\x7e]+$/);
+    expect(decodeURIComponent(header)).toBe("/home/user/Résumé 📝.docx");
   });
 
   it("shows an error toast and re-throws when write_file_bytes fails", async () => {
@@ -1396,9 +1497,9 @@ describe("exportWithProfile", () => {
         ]),
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
+    expect(writtenExport()).toEqual({
       path: "/out/doc.html",
-      content: expect.stringContaining("<!doctype html>"),
+      text: expect.stringContaining("<!doctype html>"),
     });
   });
 
@@ -1413,10 +1514,14 @@ describe("exportWithProfile", () => {
         ]),
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith("write_markdown_file", {
-      path: "/out/doc.txt",
-      content: expect.stringContaining("<!doctype html>"),
-    });
+    // Slack mrkdwn text, which the .txt promises: it used to be a whole
+    // HTML document.
+    const written = writtenExport();
+    expect(written?.path).toBe("/out/doc.txt");
+    expect(written?.text).not.toMatch(/<!doctype|<html|<style|<p>/i);
+    expect(written?.text).toContain("*Document Title*");
+    expect(written?.text).toContain("*bold*");
+    expect(written?.text).toContain("<https://example.com|a link>");
   });
 
   it("saves email-html as .html with correct filter", async () => {
@@ -1463,24 +1568,39 @@ describe("exportWithProfile", () => {
     );
   });
 
+  it("titles a profile export by the front matter's title, else the file's", async () => {
+    saveMock.mockResolvedValue("/out/doc.html");
+    mockDocGetState.mockReturnValueOnce({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
+    });
+    await exportWithProfile("notion-html", "my-doc");
+    expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
+    await exportWithProfile("email-html", "my-doc");
+    expect(writtenExport()?.text).toContain("<title>my-doc</title>");
+  });
+
   it("written content contains profile-specific CSS marker for notion-html", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     await exportWithProfile("notion-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).toContain("notion-html export profile");
   });
 
-  it("written content contains profile-specific CSS marker for slack-html", async () => {
+  it("written content for slack-html is text, without the profile's CSS", async () => {
     saveMock.mockResolvedValue("/out/doc.txt");
     await exportWithProfile("slack-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
-    expect(written).toContain("slack-html export profile");
+    const written = writtenExport()?.text as string;
+    expect(written).not.toContain("slack-html export profile");
+    expect(written).toContain("• List item one");
   });
 
   it("written content contains profile-specific CSS marker for email-html", async () => {
     saveMock.mockResolvedValue("/out/doc.html");
     await exportWithProfile("email-html", "Check");
-    const written = invokeMock.mock.calls[0][1].content as string;
+    const written = writtenExport()?.text as string;
     expect(written).toContain("email-html export profile");
   });
 
@@ -1791,7 +1911,11 @@ describe("exportEpub", () => {
       expect(page).not.toContain("data:");
       expect(blocked).not.toHaveBeenCalled();
       expect(globalThis.fetch).toBe(blocked);
-      expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", expect.anything());
+      expect(invokeMock).toHaveBeenCalledWith(
+        "write_file_bytes",
+        expect.any(Uint8Array),
+        expect.anything(),
+      );
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -1828,9 +1952,11 @@ describe("exportEpub", () => {
     const { exportEpub: fresh } = await import("./export");
     await fresh("My Book");
 
-    expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", {
-      path: "/out/my-doc.epub",
-      data: expect.any(Array),
+    const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
+    expect(call?.[1]).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(call?.[1])).toBe("EPUB content");
+    expect(call?.[2]).toEqual({
+      headers: { "x-export-path": encodeURIComponent("/out/my-doc.epub") },
     });
     expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
       expect.stringContaining("my-doc.epub"),
@@ -1846,7 +1972,7 @@ describe("exportEpub", () => {
 
     const call = invokeMock.mock.calls.find((c) => c[0] === "write_file_bytes");
     expect(call).toBeDefined();
-    expect(call![1].data).toBeInstanceOf(Array);
+    expect(call![1]).toBeInstanceOf(Uint8Array);
   });
 
   it("requests a .epub file filter in the save dialog", async () => {
@@ -1910,6 +2036,39 @@ describe("exportEpub", () => {
     expect(options.css).toBeTruthy();
     expect(Array.isArray(chapters)).toBe(true);
     expect(chapters.length).toBeGreaterThan(0);
+  });
+
+  it("names the book by the front matter's title and author", async () => {
+    // It used to be the file name and `author: ""`.
+    document.body.innerHTML = "";
+    setupEpubDom();
+    const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
+    vi.doMock("epub-gen-memory", () => ({ default: epubFn }));
+    mockDocGetState.mockReturnValue({
+      path: "/vault/my-doc.md",
+      fileName: "my-doc.md",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
+    });
+    try {
+      const { exportEpub: fresh } = await import("./export");
+      await fresh("my-doc");
+      expect(epubFn.mock.calls[0][0]).toMatchObject({
+        title: "Field Notes",
+        author: "Ada Lovelace, Grace Hopper",
+      });
+      // The suggested file name stays the file's.
+      expect(saveMock).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultPath: "my-doc.epub" }),
+      );
+    } finally {
+      mockDocGetState.mockReset();
+      mockDocGetState.mockImplementation(() => ({
+        path: "/vault/my-doc.md",
+        fileName: "my-doc.md",
+        content: "# Hello\n\nWorld.",
+      }));
+    }
   });
 
   it("generates chapters from H1 headings via buildEpubChapters", async () => {

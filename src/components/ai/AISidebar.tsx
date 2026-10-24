@@ -21,6 +21,7 @@ import type { AIProvider } from "../../ai/types";
 import type { DocType } from "../../lib/docClassifier";
 import { formatShortcut, isActionEnter } from "../../lib/keymap";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
+import { smoothScrollBehavior } from "../../lib/motion";
 import { recordAbort, recordFailure, recordSuccess } from "../../lib/telemetry";
 import type { ChatMessage } from "../../store/aiStore";
 import { useAIStore } from "../../store/aiStore";
@@ -413,7 +414,7 @@ export function AISidebar() {
 
   // Scroll to bottom when messages change.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: smoothScrollBehavior() });
   }, [messages]);
 
   // Focus input when sidebar opens; restore focus to the trigger (the AI toggle
