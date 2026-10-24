@@ -14654,6 +14654,37 @@ fn a_byte_order_mark_is_no_text_of_the_first_line() {
     assert_eq!(texts("\u{FEFF}---\n# not\n---\n# Real\n"), ["Real"]);
 }
 
+/// `export_text` decoded only about 140 common named references, so the
+/// rest of HTML's (`&aring;`, `&eacute;`, `&ccedil;`, `&Cconint;`,
+/// `&NoBreak;`) stayed as written while the page showed the character.
+/// Every name CommonMark knows is decoded, by case; an unknown one stays.
+#[test]
+fn strip_inline_decodes_every_named_reference() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(
+        strip_inline_markdown("&aring;&eacute;&ccedil; &Ouml;"),
+        "\u{e5}\u{e9}\u{e7} \u{d6}"
+    );
+    // Names with two code points and astral ones.
+    assert_eq!(strip_inline_markdown("&NotEqualTilde;"), "\u{2242}\u{338}");
+    assert_eq!(
+        strip_inline_markdown("&Afr; &Cconint;"),
+        "\u{1d504} \u{2230}"
+    );
+    assert_eq!(
+        strip_inline_markdown("&NoBreak;&ZeroWidthSpace;"),
+        "\u{2060}\u{200b}"
+    );
+    // The first and last names of the sorted table.
+    assert_eq!(strip_inline_markdown("&AElig; &zwnj;"), "\u{c6} \u{200c}");
+    // Names are matched by case, and unknown ones stay as written.
+    assert_eq!(strip_inline_markdown("&Aring; &ARING;"), "\u{c5} &ARING;");
+    assert_eq!(
+        strip_inline_markdown("&eacute &nosuch;"),
+        "&eacute &nosuch;"
+    );
+}
+
 /// `strip_inline_markdown` kept character references as written (`&amp;`
 /// read `&amp;`, not `&`) and dropped every `*` or `_` run that was not
 /// between spaces or inside a word, so an unpaired `*note` lost its star.

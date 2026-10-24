@@ -3003,6 +3003,8 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 }
 
 // The front matter and code fence rule every Markdown scanner here uses.
+// Every HTML named character reference, for [`named_reference`].
+mod entities;
 #[path = "../../../src/markdown_lines.rs"]
 mod markdown_lines;
 use markdown_lines::LineKind;
@@ -8774,8 +8776,8 @@ const MAX_OPENER_SEARCH: usize = 256;
 /// reads one, with how many chars it takes: `&#` and 1 to 7 digits, `&#x`
 /// and 1 to 6 hex digits, or `&` and a name this table knows, then `;`. A
 /// numeric reference to no character (0, a surrogate, past U+10FFFF) reads
-/// U+FFFD, as micromark decodes it. Named references are a common subset
-/// of HTML's; an unknown one is `None` and stays text.
+/// U+FFFD, as micromark decodes it. Named references are all of HTML's
+/// ([`named_reference`]); an unknown one is `None` and stays text.
 fn character_reference(chars: &[char]) -> Option<(String, usize)> {
     if chars.first() != Some(&'&') {
         return None;
@@ -8811,156 +8813,15 @@ fn character_reference(chars: &[char]) -> Option<(String, usize)> {
     Some((text, semi + 1))
 }
 
-/// The text of the HTML named character references most often written in
-/// Markdown. CommonMark knows all of HTML's (over 2000); a name missing
-/// here is left as written.
+/// The text of an HTML named character reference (`amp` for `&amp;`): any
+/// of the 2125 names CommonMark decodes ([`entities::lookup`]), matched
+/// case-sensitively. Only a common subset used to be known, so
+/// `&Cconint;`, `&nbsp` lookalikes such as `&NoBreak;`, and most accented
+/// letters (`&aring;`, `&eacute;`... `&ccedil;`) stayed as written in
+/// `export_text` while the page showed the character. An unknown name is
+/// `None` and stays text.
 fn named_reference(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "amp" | "AMP" => "&",
-        "lt" | "LT" => "<",
-        "gt" | "GT" => ">",
-        "quot" | "QUOT" => "\"",
-        "apos" => "'",
-        "nbsp" => "\u{a0}",
-        "ensp" => "\u{2002}",
-        "emsp" => "\u{2003}",
-        "thinsp" => "\u{2009}",
-        "zwj" => "\u{200d}",
-        "zwnj" => "\u{200c}",
-        "shy" => "\u{ad}",
-        "copy" | "COPY" => "©",
-        "reg" | "REG" => "®",
-        "trade" | "TRADE" => "™",
-        "hellip" | "mldr" => "…",
-        "mdash" => "\u{2014}",
-        "ndash" => "\u{2013}",
-        "minus" => "−",
-        "lsquo" => "‘",
-        "rsquo" => "’",
-        "ldquo" => "“",
-        "rdquo" => "”",
-        "sbquo" => "‚",
-        "bdquo" => "„",
-        "laquo" => "«",
-        "raquo" => "»",
-        "lsaquo" => "‹",
-        "rsaquo" => "›",
-        "middot" => "·",
-        "bull" => "•",
-        "deg" => "°",
-        "plusmn" => "±",
-        "times" => "×",
-        "divide" => "÷",
-        "frac12" => "½",
-        "frac14" => "¼",
-        "frac34" => "¾",
-        "sup2" => "²",
-        "sup3" => "³",
-        "micro" => "µ",
-        "para" => "¶",
-        "sect" => "§",
-        "dagger" => "†",
-        "Dagger" => "‡",
-        "permil" => "‰",
-        "prime" => "′",
-        "Prime" => "″",
-        "euro" => "€",
-        "pound" => "£",
-        "yen" => "¥",
-        "cent" => "¢",
-        "curren" => "¤",
-        "larr" => "←",
-        "rarr" => "→",
-        "uarr" => "↑",
-        "darr" => "↓",
-        "harr" => "↔",
-        "lArr" => "⇐",
-        "rArr" => "⇒",
-        "hArr" => "⇔",
-        "le" => "≤",
-        "ge" => "≥",
-        "ne" => "≠",
-        "asymp" => "≈",
-        "equiv" => "≡",
-        "infin" => "∞",
-        "sum" => "∑",
-        "prod" => "∏",
-        "radic" => "√",
-        "part" => "∂",
-        "nabla" => "∇",
-        "isin" => "∈",
-        "forall" => "∀",
-        "exist" => "∃",
-        "empty" => "∅",
-        "and" => "∧",
-        "or" => "∨",
-        "cap" => "∩",
-        "cup" => "∪",
-        "alpha" => "α",
-        "beta" => "β",
-        "gamma" => "γ",
-        "delta" => "δ",
-        "epsilon" => "ε",
-        "lambda" => "λ",
-        "mu" => "μ",
-        "pi" => "π",
-        "sigma" => "σ",
-        "theta" => "θ",
-        "omega" => "ω",
-        "Delta" => "Δ",
-        "Sigma" => "Σ",
-        "Omega" => "Ω",
-        "check" => "✓",
-        "star" => "☆",
-        "starf" => "★",
-        "hearts" => "♥",
-        "iexcl" => "¡",
-        "iquest" => "¿",
-        "ast" => "*",
-        "lowbar" => "_",
-        "num" => "#",
-        "excl" => "!",
-        "lsqb" | "lbrack" => "[",
-        "rsqb" | "rbrack" => "]",
-        "lpar" => "(",
-        "rpar" => ")",
-        "grave" => "`",
-        "tilde" => "˜",
-        "verbar" | "vert" => "|",
-        "bsol" => "\\",
-        "sol" => "/",
-        "colon" => ":",
-        "semi" => ";",
-        "comma" => ",",
-        "period" => ".",
-        "quest" => "?",
-        "equals" => "=",
-        "plus" => "+",
-        "percnt" => "%",
-        "dollar" => "$",
-        "commat" => "@",
-        "lcub" | "lbrace" => "{",
-        "rcub" | "rbrace" => "}",
-        "Hat" => "^",
-        "eacute" => "é",
-        "Eacute" => "É",
-        "egrave" => "è",
-        "agrave" => "à",
-        "aacute" => "á",
-        "auml" => "ä",
-        "ouml" => "ö",
-        "uuml" => "ü",
-        "Auml" => "Ä",
-        "Ouml" => "Ö",
-        "Uuml" => "Ü",
-        "szlig" => "ß",
-        "ccedil" => "ç",
-        "ntilde" => "ñ",
-        "oslash" => "ø",
-        "aring" => "å",
-        "aelig" => "æ",
-        _ => return None,
-    })
+    entities::lookup(name)
 }
 
 /// A code span or inline math in a block's inline text, from

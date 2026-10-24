@@ -118,6 +118,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` decodes every HTML named character reference.** It knew about
+  140 common names, so the rest of HTML's 2125 (`&aring;`, `&eacute;`,
+  `&ccedil;`, `&NoBreak;`, `&Cconint;`) stayed as written in the plain text
+  while the page showed the character. The full table adds about 22 KiB to the
+  `mdopener-mcp` release binary.
 - **Save As keeps one tab per file.** After Save As, the tab was found by the
   path as the dialog gave it, so opening the new file by another path (through
   a symbolic link, or in other case on a disk that ignores case) opened it in a
