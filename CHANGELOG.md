@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The editors' inline AI offers the fix, not a Retry that fails again.**
+  After a refused key or an account out of credit, the inline AI in both
+  editors still offered Retry. It now offers Open Preferences or an Add
+  credit link, as the AI sidebar does.
 - **The Outline jumps to the right heading after one inside a numbered
   item.** A heading indented four spaces under `1. x` (after a blank line)
   is a heading in the item, and the page gives it an id, but the Outline

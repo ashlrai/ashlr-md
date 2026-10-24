@@ -22,6 +22,9 @@ export interface AIErrorInfo {
   setup?: "key" | "credit";
 }
 
+/** Where an Anthropic account adds credit, for an out-of-credit failure. */
+export const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
+
 /**
  * What every AI surface says when no provider is found: the editors' inline
  * AI and the selection popover alike.

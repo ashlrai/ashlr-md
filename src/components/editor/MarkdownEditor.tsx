@@ -6,7 +6,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import type { ActionId } from "../../ai/actions";
-import { aiErrorLine, describeAIError, NO_PROVIDER_MESSAGE } from "../../ai/errors";
+import {
+  type AIErrorInfo,
+  ANTHROPIC_BILLING_URL,
+  aiErrorLine,
+  describeAIError,
+  NO_PROVIDER_MESSAGE,
+} from "../../ai/errors";
 import { NoProviderError, runInlineTransform } from "../../ai/inline";
 import {
   buildLinkMarkdown,
@@ -28,6 +34,7 @@ import {
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useUiStore } from "../../store/uiStore";
 import "../../styles/editor.css";
 
 /**
@@ -66,6 +73,11 @@ type InlinePhase =
       retryFn: (() => void) | null;
       /** No provider: offer to open the AI sidebar's setup panel. */
       setup?: boolean;
+      /**
+       * A refused key or an empty account, which a retry cannot fix: offer
+       * Preferences or the Add credit link instead of Retry.
+       */
+      fix?: AIErrorInfo["setup"];
     };
 
 // ── Table wizard types ──────────────────────────────────────────────────────────
@@ -236,13 +248,16 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
             setup: true,
           });
         } else {
-          const { detail } = describeAIError(e);
+          const { detail, setup: fix } = describeAIError(e);
           // Offer one Retry: the message's Retry button reruns the transform
           // after a 500 ms pause. Nothing retries on its own, and a failed
           // retry offers none (this used to say "one automatic retry with
           // exponential back-off (500 ms -> 1 s)", which never happened).
+          // A refused key or an empty account fails a retry the same way,
+          // so it offers the step that fixes it instead, as the AI sidebar
+          // does.
           const retryFn =
-            retryCount < 1
+            !fix && retryCount < 1
               ? () => {
                   const delay = 500 * 2 ** retryCount;
                   setTimeout(
@@ -251,7 +266,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                   );
                 }
               : null;
-          setPhase({ kind: "error", message: aiErrorLine(e), detail, retryFn });
+          setPhase({ kind: "error", message: aiErrorLine(e), detail, retryFn, fix });
         }
       } finally {
         runningRef.current = false;
@@ -1098,6 +1113,29 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
                 >
                   Retry
                 </button>
+              )}
+              {phase.fix === "key" && (
+                <button
+                  type="button"
+                  className="inline-ai-retry"
+                  onClick={() => {
+                    useUiStore.getState().openSettings();
+                    setAnchor(null);
+                    setPhase({ kind: "menu" });
+                  }}
+                >
+                  Open Preferences
+                </button>
+              )}
+              {phase.fix === "credit" && (
+                <a
+                  className="inline-ai-retry"
+                  href={ANTHROPIC_BILLING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Add credit
+                </a>
               )}
               {/* The message says to set AI up in the sidebar, which it
                   used to leave the user to find. */}

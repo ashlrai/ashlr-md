@@ -5,7 +5,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
-import { type AIErrorInfo, describeAIError, isMacPlatform } from "../../ai/errors";
+import {
+  type AIErrorInfo,
+  ANTHROPIC_BILLING_URL,
+  describeAIError,
+  isMacPlatform,
+} from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -68,9 +73,6 @@ function DocTypeHint({ docType }: { docType: DocType }) {
 
 /** Maximum number of retry attempts after an initial failure. */
 export const MAX_RETRIES = 3;
-
-/** Where an Anthropic account adds credit, for an out-of-credit failure. */
-const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
 
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
