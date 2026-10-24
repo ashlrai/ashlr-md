@@ -7469,6 +7469,57 @@ fn export_output_path_returns_once_the_file_is_written() {
     assert_eq!(v["bytes"], json!(24));
 }
 
+/// `export` overwrote whatever was at `output_path` while it was listed
+/// with `destructiveHint: false`. An existing file is now refused unless
+/// `overwrite: true`, without reaching the app, and the tool is listed as
+/// destructive.
+#[test]
+fn export_replaces_an_existing_file_only_with_overwrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::fs::canonicalize(dir.path()).unwrap().join("plan.html");
+    std::fs::write(&out, "mine").unwrap();
+    for overwrite in [json!(null), json!(false)] {
+        let app = exporting_app(true);
+        let resp = tool_export_with(
+            id(1),
+            &json!({ "format": "html", "output_path": out.to_string_lossy(), "overwrite": overwrite }),
+            &app,
+            SHORT,
+        );
+        let text = tool_error_text(&resp);
+        assert!(
+            text.contains("already exists") && text.contains("overwrite: true"),
+            "{text}"
+        );
+        assert!(
+            app.posts.lock().unwrap().is_empty(),
+            "must not reach the app"
+        );
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "mine");
+    }
+    let resp = tool_export_with(
+        id(1),
+        &json!({ "format": "html", "output_path": out.to_string_lossy(), "overwrite": true }),
+        &exporting_app(true),
+        SHORT,
+    );
+    assert!(!is_error(&resp), "{resp:?}");
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        "<!doctype html><p>hi</p>"
+    );
+
+    let reg = tool_registry();
+    let def = reg.iter().find(|d| d.name == "export").unwrap();
+    assert_eq!(def.tier, ToolTier::Destructive);
+    let ann = def.annotations.as_ref().unwrap();
+    assert_eq!(ann["destructiveHint"], json!(true));
+    assert_eq!(
+        def.input_schema["properties"]["overwrite"]["type"],
+        json!("boolean")
+    );
+}
+
 #[test]
 fn export_output_path_errors_when_the_app_never_writes_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -7477,7 +7528,7 @@ fn export_output_path_errors_when_the_app_never_writes_it() {
     std::fs::write(&out, "old").unwrap();
     let resp = tool_export_with(
         id(1),
-        &json!({ "format": "html", "output_path": out.to_string_lossy() }),
+        &json!({ "format": "html", "output_path": out.to_string_lossy(), "overwrite": true }),
         &exporting_app(false),
         SHORT,
     );

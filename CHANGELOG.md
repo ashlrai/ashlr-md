@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP `export` no longer overwrites a file unasked.** With `output_path`
+  it replaced whatever file was there while it was listed with
+  `destructiveHint: false`. An existing file is now refused unless the call
+  passes the new `overwrite: true` (default `false`, as `save` defaults to
+  `false` on the edit tools), and the tool is listed as destructive, after
+  the read-only and targeted tools.
 - **An export never writes through a symbolic link.** An HTML (or Notion,
   Slack or email) export chosen in the dialog was saved like a document,
   into the file a link points to, so exporting over a `report.html` linked
