@@ -3425,6 +3425,15 @@ fn best_snippet_no_match_falls_back_to_first_nonempty_line() {
     );
 }
 
+/// `\r`, `\n` and `\r\n` are each one line break.
+#[test]
+fn best_snippet_counts_lone_cr_as_a_line_break() {
+    let (line_no, snippet) = best_snippet_for_query("one\rtwo\r\nthree needle\nfour", "needle");
+    assert_eq!((line_no, snippet.as_str()), (3, "three needle"));
+    let (line_no, snippet) = best_snippet_for_query("\r\r  first\rsecond", "absent");
+    assert_eq!((line_no, snippet.as_str()), (3, "first"));
+}
+
 #[test]
 fn best_snippet_empty_content_returns_line_one() {
     let (line_no, snippet) = best_snippet_for_query("", "anything");
@@ -3562,6 +3571,30 @@ fn grep_vault_with_real_temp_file_finds_match() {
     assert!(!first["path"].as_str().unwrap().is_empty());
     assert!(first["snippet"].as_str().unwrap().contains("quarterly"));
     assert!(first["score"].as_f64().unwrap() > 0.0);
+}
+
+/// A lone `\r` ends a line (an old Mac file), as CommonMark and the
+/// editor read it: the grep counted the whole file as line 1.
+#[test]
+fn grep_vault_splits_lone_cr_line_breaks() {
+    use std::io::Write;
+    let mut f = tempfile::Builder::new()
+        .prefix("note")
+        .suffix(".md")
+        .tempfile()
+        .expect("tempfile");
+    f.write_all(b"# Notes\rintro\r\nthe quarterly review\rtail")
+        .unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let ipc = MockIpc::new().on_get(
+        "/vault",
+        Ok(json!({ "files": [{ "path": path, "name": "test.md" }], "recents": [] })),
+    );
+    let results = grep_vault("quarterly", 50, &ipc).expect("grep_vault ok");
+    assert_eq!(results[0]["lineNumber"], json!(3), "{results:?}");
+    assert_eq!(results[0]["snippet"], json!("the quarterly review"));
+    // One matching line of four.
+    assert_eq!(results[0]["score"], json!(0.25));
 }
 
 #[test]
@@ -6804,6 +6837,17 @@ fn hunks_carry_full_trailing_context_and_merge_when_close() {
         diff.ends_with("+eighteen\n 19\n 20\n\\ No newline at end of file"),
         "{diff}"
     );
+}
+
+/// A lone `\r` ends a line, so one changed line of an old Mac file is one
+/// changed line, not the whole file.
+#[test]
+fn diff_splits_lone_cr_line_breaks() {
+    let (diff, hunks, added, removed) =
+        compute_unified_diff("a", "b", "1\r2\r3\r", "1\rtwo\r3\r", 0);
+    assert_eq!((hunks, added, removed), (1, 1, 1), "{diff:?}");
+    assert!(diff.contains("@@ -2,1 +2,1 @@\n-2\r\n+two\r"), "{diff:?}");
+    assert!(!diff.contains("No newline"), "{diff:?}");
 }
 
 // ── text://vault-search: the documented fields are the real ones ─────────────

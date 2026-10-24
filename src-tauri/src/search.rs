@@ -6,6 +6,7 @@
 //! matches with a trimmed snippet around each hit.
 
 use crate::doc_read::{read_document_following, CheckedDocument, MAX_DOCUMENT_BYTES};
+use crate::line_breaks;
 use serde::Serialize;
 use std::path::Path;
 
@@ -119,7 +120,8 @@ fn search_with<T>(
         };
 
         let mut matches = Vec::new();
-        for (i, line) in content.lines().enumerate() {
+        // `\r`, `\n` and `\r\n` each end a line, as the editor numbers them.
+        for (i, line) in line_breaks::lines(&content).enumerate() {
             if matches.len() >= MAX_MATCHES_PER_FILE {
                 break;
             }
@@ -214,6 +216,17 @@ mod tests {
         assert_eq!(res[0].matches.len(), 1);
         assert_eq!(res[0].matches[0].line_no, 2);
         assert!(res[0].matches[0].snippet.contains("Beta"));
+    }
+
+    /// A lone `\r` (an old Mac file) ends a line, as `\n` and `\r\n` do
+    /// and as the editor numbers lines: the whole file was line 1.
+    #[test]
+    fn counts_lone_cr_as_a_line_break() {
+        let path = temp_md("cr", "alpha\rbeta\r\ngamma beta\ndelta\rbeta");
+        let res = search_files(vec![path], "beta".into(), None);
+        let lines: Vec<_> = res[0].matches.iter().map(|m| m.line_no).collect();
+        assert_eq!(lines, vec![2, 3, 5]);
+        assert_eq!(res[0].matches[0].snippet, "beta");
     }
 
     /// The search panel read every listed file whole: a FIFO in the list

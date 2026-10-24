@@ -3007,6 +3007,10 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
 mod markdown_lines;
 use markdown_lines::LineKind;
 
+// `\r`, `\n` and `\r\n` line breaks, as CommonMark and the editor read them.
+#[path = "../../../src/line_breaks.rs"]
+mod line_breaks;
+
 // The task-checkbox parser is shared with the app's `/annotations`.
 #[path = "../../../src/task_list.rs"]
 mod task_list;
@@ -5718,7 +5722,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
         let mut match_count = 0usize;
         let mut first_line = 0usize;
         let mut first_snippet = String::new();
-        for (idx, line) in content.lines().enumerate() {
+        for (idx, line) in line_breaks::lines(&content).enumerate() {
             if line.to_lowercase().contains(&lower_query) {
                 match_count += 1;
                 if first_snippet.is_empty() {
@@ -5728,7 +5732,7 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
             }
         }
         if match_count > 0 {
-            let total_lines = content.lines().count().max(1);
+            let total_lines = line_breaks::lines(&content).count().max(1);
             let score = (match_count as f64 / total_lines as f64).min(1.0);
             results.push(SearchResult {
                 path: path.clone(),
@@ -5753,12 +5757,12 @@ fn grep_paths(query: &str, limit: u64, paths: &[String]) -> Vec<Value> {
 /// Returns `(1-based line number, snippet text)`.
 pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
     let lower = query.to_lowercase();
-    for (idx, line) in content.lines().enumerate() {
+    for (idx, line) in line_breaks::lines(content).enumerate() {
         if line.to_lowercase().contains(&lower) {
             return (idx + 1, line.chars().take(200).collect());
         }
     }
-    for (idx, line) in content.lines().enumerate() {
+    for (idx, line) in line_breaks::lines(content).enumerate() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
             return (idx + 1, trimmed.chars().take(200).collect());
@@ -6333,9 +6337,10 @@ pub fn compute_unified_diff(
 ) -> (String, usize, usize, usize) {
     // Lines keep their terminators, so files that differ only in line
     // endings (CRLF vs LF) or in the final newline are not reported as
-    // identical, as they were with `str::lines`.
-    let lines_a: Vec<&str> = text_a.split_inclusive('\n').collect();
-    let lines_b: Vec<&str> = text_b.split_inclusive('\n').collect();
+    // identical, as they were with `str::lines`. A lone `\r` ends a line
+    // too, as CommonMark reads it, so an old Mac file is not one line.
+    let lines_a: Vec<&str> = line_breaks::split_lines_inclusive(text_a).collect();
+    let lines_b: Vec<&str> = line_breaks::split_lines_inclusive(text_b).collect();
 
     // Build the edit script via LCS (longest common subsequence).
     let lcs = lcs_diff(&lines_a, &lines_b);
@@ -6446,10 +6451,12 @@ pub fn compute_unified_diff(
         ));
 
         for e in slice {
-            // The `\n` is the joiner; a `\r` stays visible, and a last line
-            // without a newline is marked the way `diff -u` marks it.
+            // The `\n` is the joiner; a `\r` stays visible (a lone `\r`
+            // break too), and a last line without a line break is marked
+            // the way `diff -u` marks it.
             match e.text.strip_suffix('\n') {
                 Some(text) => diff_lines.push(format!("{}{}", e.kind, text)),
+                None if e.text.ends_with('\r') => diff_lines.push(format!("{}{}", e.kind, e.text)),
                 None => {
                     diff_lines.push(format!("{}{}", e.kind, e.text));
                     diff_lines.push("\\ No newline at end of file".to_string());

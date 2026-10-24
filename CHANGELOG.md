@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A lone CR is a line break in search, diffs and edit previews.** A file
+  with old Mac line breaks (`\r` alone) was one line to the search panel,
+  the MCP `search_vault` grep and its snippets, `diff_documents` and the
+  `stream_edit` preview, while the editor showed many, so every match was on
+  line 1 and a one-line change replaced the whole file. `\r`, `\n` and
+  `\r\n` now each end one line, as CommonMark and the editor read them, in
+  the app and the sidecar alike.
 - **`replace_document` keeps a CRLF document's line breaks and its byte order
   mark.** An agent writes the whole text with LF and no mark, so replacing a
   CRLF file (`replace_document` or `set_content`) changed every line of it on

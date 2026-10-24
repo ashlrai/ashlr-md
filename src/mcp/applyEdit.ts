@@ -212,12 +212,14 @@ export function findAllOccurrences(haystack: string, needle: string): number[] {
 
 /**
  * Convert a character offset into a 1-based line number within `content`.
+ * `\r\n`, a lone `\r` and `\n` are each one line break, as CommonMark and
+ * the editor (CodeMirror) read them, so an old Mac file is not one line.
  */
 export function offsetToLine(content: string, offset: number): number {
-  // Count newlines before `offset`.
   let line = 1;
   for (let i = 0; i < offset && i < content.length; i++) {
-    if (content[i] === "\n") line++;
+    const c = content[i];
+    if (c === "\n" || (c === "\r" && content[i + 1] !== "\n")) line++;
   }
   return line;
 }
@@ -245,19 +247,23 @@ export function buildUnifiedDiff(
   contextLines = 3,
   label = "document",
 ): string {
-  const lines = content.split("\n");
+  // A lone `\r` ends a line too ({@link offsetToLine}).
+  const breaks = /\n|\r(?!\n)/;
+  const lines = content.split(breaks);
   const afterContent =
     content.slice(0, matchOffset) + replace + content.slice(matchOffset + find.length);
-  const afterLines = afterContent.split("\n");
+  const afterLines = afterContent.split(breaks);
 
   // The edit touches whole lines [s, s + removed) of the original. Everything
   // outside them is unchanged, so on the "after" side the same lines start at
   // s and span `replace`'s line count. The added lines are read from the
   // edited text, not from `replace`: a match inside a line keeps the text
   // around it ("Hello world" with "world" -> "there" reads "+Hello there").
+  // The line counts come from where the match and the replacement end, so
+  // they number lines as `offsetToLine` does.
   const s = offsetToLine(content, matchOffset) - 1;
-  const removedLineCount = find.split("\n").length;
-  const addedLineCount = replace.split("\n").length;
+  const removedLineCount = offsetToLine(content, matchOffset + find.length) - s;
+  const addedLineCount = offsetToLine(afterContent, matchOffset + replace.length) - s;
 
   // Context window, clamped to the file on each side.
   const ctxStart = Math.max(0, s - contextLines);

@@ -15,6 +15,7 @@ import {
   applyUniqueEdit,
   computeStreamEditDiff,
   FIND_NOT_FOUND,
+  offsetToLine,
 } from "./applyEdit";
 
 describe("applyUniqueEdit — exact, unique find/replace contract", () => {
@@ -191,5 +192,23 @@ describe("mcp://edit applies against the LIVE document, not a stale mirror", () 
     // full-document snapshot had been pushed back).
     expect(result).toContain("Intro paragraph.");
     expect(result).toContain("More fresh text.");
+  });
+});
+
+describe("line numbers follow CommonMark line breaks", () => {
+  it("counts a lone CR, LF and CRLF as one break each", () => {
+    const doc = "a\rb\r\nc\nd";
+    expect(offsetToLine(doc, doc.indexOf("a"))).toBe(1);
+    expect(offsetToLine(doc, doc.indexOf("b"))).toBe(2);
+    expect(offsetToLine(doc, doc.indexOf("c"))).toBe(3);
+    expect(offsetToLine(doc, doc.indexOf("d"))).toBe(4);
+  });
+
+  it("numbers a stream_edit candidate in an old Mac file by its line", () => {
+    const r = computeStreamEditDiff("one\rtwo x\rthree x\r", "x", "y", 0);
+    expect(r.candidates?.map((c) => c.startLine)).toEqual([2, 3]);
+    expect(r.diff).toBe(
+      "--- a/document\n+++ b/document\n@@ -2,1 +2,1 @@\n-two x\n+two y\n",
+    );
   });
 });
