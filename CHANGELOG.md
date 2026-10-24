@@ -128,6 +128,61 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen and the MCP server: a launcher that cannot start says so.** An
+  `xdg-open` (or `gio`, `open`) on the PATH that could not be started, not
+  being executable for one, was reported as having "exited with status
+  signal", which read as a crash of the launcher. The message now says it
+  could not be started, with the system's reason.
+- **mdopen: `~/` is the home folder, even quoted.** `mdopen "~/notes.md"`,
+  or a script's `FILE="~/notes.md"`, reaches mdopen unexpanded, and it
+  looked for a folder named `~` in the working directory ("does not exist").
+  A leading `~` (alone or before `/`) is now the home folder, as it is for
+  the MCP server's paths; a file that is really there by that name still
+  wins, and `~user/` is left as it is.
+- **mdopen: a path that resolves to a non-UTF-8 name is refused.** `mdopen
+  notes.md`, where `notes.md` links into a folder whose name is not UTF-8,
+  handed the app the lossy spelling of the target, a path that names no
+  file. mdopen now stops with exit 1 and says the resolved path is not
+  UTF-8; the `--hook` mode opens nothing for such a file.
+- **MCP: a path that resolves to a non-UTF-8 name is refused, saying so.**
+  A `notes.md` link into a folder whose name is not UTF-8 was resolved to
+  the lossy spelling of its target, a file that does not exist, so
+  `open_file`, `export_text`, `diff_documents` and the other path tools said
+  "the file does not exist" of a file that is there. They now refuse it,
+  naming the path it resolves to and saying to rename it.
+- **An edit that changes nothing does not leave the window unsaved.** Every
+  keystroke tells the close guard at once that the window has unsaved edits,
+  and only the next change in the document store said otherwise. A
+  character typed and deleted before the editor reported it changed nothing
+  there, so the window stayed marked unsaved, and a close went through the
+  window first. Half a second after the last edit the guard now takes the
+  edits and reports what is true.
+- **Adding or removing a table column keeps the table's layout.** A column
+  added or removed in the WYSIWYG editor saved the whole table re-padded,
+  every column to its widest cell, so the change showed as every row of the
+  table. The other columns now keep their padding and delimiter cells, and
+  only the new column's cells are written.
+- **Exports with math carry only the fonts they use.** An HTML or PDF export
+  with math put all 20 KaTeX fonts in the page (about 300 KB), most of them
+  for symbols the page never shows. It now puts in the faces the read view
+  set the math in (a plain formula needs KaTeX's Main and Math faces); the
+  others stay links the browser follows only if it needs them. When the
+  faces cannot be measured, every font is put in, as before.
+- **Email export keeps an element's own style.** The email export added its
+  inline style as a second `style` attribute to an element that had one (a
+  highlighted code block, raw HTML with a style), and a second `class` to a
+  table with a class. Browsers and mail clients read only the first, so the
+  code block lost its colours. Both are now merged into the one attribute,
+  with the element's own declarations last so they still win.
+- **A list item that starts with a callout keeps it.** Editing such an item
+  (`- > [!TIP]`, or one that starts with a code block) in the WYSIWYG editor
+  saved it as `- <br />` with the callout on the lines under it, as the
+  editor gives every item a paragraph first. That empty paragraph is no
+  longer written, so the item is saved as it was typed.
+- **mdopen's timeout test no longer flakes under load.** It answered 500 ms
+  after mdopen's 6 s read timeout, and an mdopen that started its read late
+  got the answer in time and failed the test. The fake app now never answers
+  and waits for mdopen to hang up.
 - **The PDF waits for its fonts.** The print frame was printed 150 ms after
   it loaded, whatever was still loading, so a PDF's math could come out in
   fallback fonts. It now waits for the frame's fonts (up to 3 seconds).

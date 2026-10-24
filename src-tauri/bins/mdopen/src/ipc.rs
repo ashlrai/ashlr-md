@@ -408,21 +408,40 @@ mod tests {
         );
     }
 
+    /// The fake app reads the request and then never answers: it waits for
+    /// mdopen to hang up. This used to answer 500 ms after `IO_TIMEOUT`, and
+    /// under load mdopen could start its read late enough to get that answer
+    /// in time (so the test failed); with no answer at all the only way out
+    /// is the timeout, whatever the scheduling.
     #[test]
     fn no_answer_in_time_is_a_failure_naming_the_timeout() {
         let s = Scratch::new("timeout");
-        let (port, app) = fake_app_after(
-            "200 OK",
-            r#"{"ok":true}"#,
-            IO_TIMEOUT + Duration::from_millis(500),
-        );
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            // A bound on the wait, so a mdopen that never hung up fails the
+            // test (below) instead of hanging it.
+            s.set_read_timeout(Some(IO_TIMEOUT * 5)).unwrap();
+            let mut chunk = [0u8; 4096];
+            loop {
+                match s.read(&mut chunk) {
+                    Ok(0) => return true,
+                    Ok(_) => {}
+                    Err(_) => return false,
+                }
+            }
+        });
         s.write("ipc-port", &port.to_string());
         s.write("ipc-token", "tok");
         let err = open(&s.0, "/a.md", None).unwrap_err();
-        app.join().unwrap();
         assert!(
             matches!(&err, Failure::Failed(m) if m.contains("did not answer within 6 s")),
             "{err:?}"
+        );
+        assert!(
+            app.join().unwrap(),
+            "mdopen did not hang up after the timeout"
         );
     }
 

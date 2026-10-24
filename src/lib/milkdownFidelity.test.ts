@@ -28,6 +28,8 @@ vi.hoisted(() => {
 
 import { Crepe } from "@milkdown/crepe";
 import { editorViewCtx, serializerCtx } from "@milkdown/kit/core";
+import { TextSelection } from "@milkdown/kit/prose/state";
+import { addColumnAfter } from "@milkdown/kit/prose/tables";
 import {
   inLineBreaks,
   joinFrontmatter,
@@ -183,6 +185,29 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
     expect(saved.endsWith("\n\nOutro.\n")).toBe(true);
     expect(saved).toMatch(
       /^Intro\.\n\n[*-] one\n[*-] two!\n {2}[*-] nested\n\nOutro\.\n$/,
+    );
+  });
+
+  it("a column added in the editor keeps the other columns' padding", async () => {
+    const raw =
+      "Intro.\n\n|  name | n |\n|------:|:-|\n|  alpha | 1 |\n|  b | 22 |\n\nOutro.\n";
+    const ed = await open(raw);
+    await settle();
+    ed.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      let pos = -1;
+      view.state.doc.descendants((n, p) => {
+        if (pos === -1 && n.isText && n.text === "n") pos = p;
+      });
+      view.dispatch(
+        view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)),
+      );
+      addColumnAfter(view.state, view.dispatch);
+    });
+    await settle();
+    // Every column used to be re-padded to its widest cell.
+    expect(ed.saved()).toBe(
+      "Intro.\n\n|  name | n | |\n|------:|:-| :---: |\n|  alpha | 1 | |\n|  b | 22 | |\n\nOutro.\n",
     );
   });
 
@@ -611,9 +636,31 @@ describe("sourceRanges / spliceEdited", () => {
     // A new alignment: the delimiter row is the serializer's.
     const aligned = "| a | b |\n| :-: | :- |\n| 1 | 2 |\n| 3 | 4 |";
     expect(keepTableLayout(aligned, source).split("\n")[1]).toBe("| :-: | :- |");
-    // A column added: the serializer's table.
+    // A column added or removed: the other columns keep their padding (it
+    // used to be the serializer's table, every column re-padded).
     const wider = "| a | b | c |\n| -: | :- | - |\n| 1 | 2 | 3 |\n| 3 | 4 | 5 |";
-    expect(keepTableLayout(wider, source)).toBe(wider);
+    expect(keepTableLayout(wider, source)).toBe(
+      "|  a | b | c |\n|---:|:-| --- |\n|  1 | 2 | 3 |\n|  3 | 4 | 5 |",
+    );
+    const between = "| a |  | b |\n| -: | :-: | :- |\n| 1 |  | 2 |\n| 3 |  | 4 |";
+    expect(keepTableLayout(between, source)).toBe(
+      "|  a | | b |\n|---:| :---: |:-|\n|  1 | | 2 |\n|  3 | | 4 |",
+    );
+    const narrower = "| b |\n| :- |\n| 2 |\n| 4 |";
+    expect(keepTableLayout(narrower, source)).toBe("| b |\n|:-|\n| 2 |\n| 4 |");
+    // A row added with the column: the others are found by their cells.
+    const grown =
+      "| a | b | c |\n| -: | :- | - |\n| 1 | 2 |   |\n| 7 | 8 | 9 |\n| 3 | 4 |   |";
+    expect(keepTableLayout(grown, source)).toBe(
+      "|  a | b | c |\n|---:|:-| --- |\n|  1 | 2 | |\n| 7 | 8 | 9 |\n|  3 | 4 | |",
+    );
+    // Columns that cannot be lined up (two more, a renamed header): the
+    // serializer's table.
+    const two =
+      "| a | b | c | d |\n| - | - | - | - |\n| 1 | 2 | 3 | 4 |\n| 3 | 4 | 5 | 6 |";
+    expect(keepTableLayout(two, source)).toBe(two);
+    const renamed = "| x | b | c |\n| -: | :- | - |\n| 1 | 2 | 3 |\n| 3 | 4 | 5 |";
+    expect(keepTableLayout(renamed, source)).toBe(renamed);
     // An escaped pipe is no cell boundary; a changed cell keeps its padding.
     expect(keepTableLayout("| a\\|b | c! |\n| - | - |", "|a\\|b|c|\n|-|-|")).toBe(
       "|a\\|b|c!|\n|-|-|",

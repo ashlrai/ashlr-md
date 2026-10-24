@@ -164,13 +164,75 @@ export async function loadKatexFonts(): Promise<void> {
  * of every HTML and PDF export was set in fallback fonts, with misdrawn
  * roots, brackets and large operators. A font face none of whose files is
  * in `fonts` is left as it was.
+ *
+ * With `used` (from {@link usedKatexFaces}), only the faces the page's math
+ * is set in are put in the page, where all 20 were (about 300 KB, most of it
+ * for faces a page never uses); the others are left as they were, links the
+ * browser follows only for a face it needs. A family set in a weight or style
+ * it has no face for (the browser then picks the nearest) gets all its faces.
  */
 export function katexCssForExport(
   css: string,
   fonts: ReadonlyMap<string, string> | null = katexFonts,
+  used: ReadonlySet<string> | null = null,
 ): string {
   if (!fonts || fonts.size === 0) return css;
-  return css.replace(/src:([^;}]*)/g, (whole, list: string) => {
+  const faces = [...css.matchAll(/@font-face\s*\{[^}]*\}/g)].map((m) => fontFace(m[0]));
+  const needed = (face: KatexFace): boolean => {
+    if (!used || !face.family) return true;
+    if (used.has(faceKey(face))) return true;
+    // A used weight or style of this family that no face of it has.
+    return [...used].some((key) => {
+      const [family] = key.split("|");
+      return (
+        family === face.family &&
+        !faces.some((f) => f.family === family && faceKey(f) === key)
+      );
+    });
+  };
+  return css.replace(/@font-face\s*\{[^}]*\}/g, (block) =>
+    needed(fontFace(block)) ? embedFontFace(block, fonts) : block,
+  );
+}
+
+/** An `@font-face` rule's family, weight (400 or 700) and style. */
+interface KatexFace {
+  family: string;
+  weight: 400 | 700;
+  italic: boolean;
+}
+
+function fontFace(block: string): KatexFace {
+  const prop = (name: string) =>
+    new RegExp(`${name}\\s*:\\s*([^;}]*)`).exec(block)?.[1].trim() ?? "";
+  return {
+    family: firstFontFamily(prop("font-family")),
+    weight: boldWeight(prop("font-weight")) ? 700 : 400,
+    italic: /italic|oblique/.test(prop("font-style")),
+  };
+}
+
+/** A face as {@link usedKatexFaces} names it: `KaTeX_Main|700|italic`. */
+function faceKey(face: KatexFace): string {
+  return `${face.family}|${face.weight}|${face.italic ? "italic" : "normal"}`;
+}
+
+/** The first family of a `font-family` value, unquoted. */
+function firstFontFamily(value: string): string {
+  return (value.split(",")[0] ?? "").trim().replace(/^(["'])(.*)\1$/, "$2");
+}
+
+/** Whether a `font-weight` is set with a bold face (600 and up, as CSS matching picks 700). */
+function boldWeight(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (v === "bold" || v === "bolder") return true;
+  const n = Number.parseFloat(v);
+  return Number.isFinite(n) && n >= 600;
+}
+
+/** One `@font-face` rule with its WOFF2 files from `fonts` as `data:` URLs. */
+function embedFontFace(block: string, fonts: ReadonlyMap<string, string>): string {
+  return block.replace(/src:([^;}]*)/g, (whole, list: string) => {
     const kept = list
       .split(",")
       .map((entry) => {
@@ -181,6 +243,39 @@ export function katexCssForExport(
       .filter((x): x is string => x !== null);
     return kept.length > 0 ? `src:${kept.join(",")}` : whole;
   });
+}
+
+/**
+ * The KaTeX faces the read view's math is set in, as the browser styled it
+ * (each text's element's computed family, weight and style), named as
+ * {@link faceKey} does. Null when there is no math or none of it measured in
+ * a KaTeX family (its stylesheet not applied), so every face is kept.
+ */
+export function usedKatexFaces(root: ParentNode = document): Set<string> | null {
+  const used = new Set<string>();
+  const seen = new Set<Element>();
+  for (const math of root.querySelectorAll(".markdown-body .katex")) {
+    const walker = (math.ownerDocument ?? document).createTreeWalker(
+      math,
+      NodeFilter.SHOW_TEXT,
+    );
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      const el = t.parentElement;
+      if (!el || seen.has(el) || !t.nodeValue?.trim()) continue;
+      seen.add(el);
+      const style = getComputedStyle(el);
+      const family = firstFontFamily(style.fontFamily);
+      if (!family.startsWith("KaTeX_")) continue;
+      used.add(
+        faceKey({
+          family,
+          weight: boldWeight(style.fontWeight) ? 700 : 400,
+          italic: /italic|oblique/.test(style.fontStyle),
+        }),
+      );
+    }
+  }
+  return used.size > 0 ? used : null;
 }
 
 /** Load KaTeX's fonts when the read view shows math. */
@@ -367,7 +462,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCssForExport(katexCss)}
+${katexCssForExport(katexCss, katexFonts, usedKatexFaces())}
 
 /* ── Page shell ── */
 body{
@@ -1035,7 +1130,7 @@ ${themesCss}
 ${markdownCss}
 
 /* ── KaTeX ── */
-${katexCssForExport(katexCss)}
+${katexCssForExport(katexCss, katexFonts, content === undefined ? usedKatexFaces() : null)}
 
 /* ── Export profile: ${escapeHtml(profile.name)} ── */
 ${profile.css}
@@ -1060,70 +1155,138 @@ ${processedBody}
  * used email clients are known to reset: headings, paragraphs, links, tables.
  * It does NOT attempt to replicate the full cascade (that would require a real
  * CSS parser + CSSOM).
+ *
+ * An element that has a `style` (a Shiki code block, raw HTML) or a table
+ * that has a `class` gets these merged into it: they used to be added as a
+ * second attribute, which browsers drop, so the email lost them.
  */
 function inlineEmailStyles(html: string): string {
-  // Replace the body fragment via regex-based inline style injection.
-  // Order: most specific patterns first.
-  return (
-    html
-      // Tables: add class for the email profile table rules + cellpadding/spacing reset
-      .replace(
-        /<table(?![^>]*class="content-table")/gi,
-        '<table class="content-table" cellpadding="0" cellspacing="0"',
-      )
-      // Headings
-      .replace(
-        /<h1(\s|>)/gi,
-        '<h1 style="font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;"$1',
-      )
-      .replace(
-        /<h2(\s|>)/gi,
-        '<h2 style="font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;"$1',
-      )
-      .replace(
-        /<h3(\s|>)/gi,
-        '<h3 style="font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;"$1',
-      )
-      .replace(
-        /<h4(\s|>)/gi,
-        '<h4 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      .replace(
-        /<h5(\s|>)/gi,
-        '<h5 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      .replace(
-        /<h6(\s|>)/gi,
-        '<h6 style="font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;"$1',
-      )
-      // Paragraphs
-      .replace(
-        /<p(\s|>)/gi,
-        '<p style="margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;"$1',
-      )
-      // Links
-      .replace(/<a(\s)/gi, '<a style="color:#0066cc;text-decoration:underline;"$1')
-      // Inline code (not inside pre)
-      .replace(
-        /<code(\s|>)/gi,
-        "<code style=\"font-family:'Courier New',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;\"$1",
-      )
-      // Pre blocks (reset code inside pre)
-      .replace(
-        /<pre(\s|>)/gi,
-        "<pre style=\"background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.5;\"$1",
-      )
-      // Blockquotes
-      .replace(
-        /<blockquote(\s|>)/gi,
-        '<blockquote style="border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;"$1',
-      )
-      // Images — preserve data URIs, add responsive max-width
-      .replace(
-        /<img(\s)/gi,
-        '<img style="max-width:100%;height:auto;display:block;margin:0 0 16px;"$1',
-      )
+  // Tables: add the class for the email profile table rules + a
+  // cellpadding/spacing reset. A table with a class of its own keeps it.
+  let out = html.replace(
+    openingTag("table", false),
+    (tag, attrs: string, close: string) => {
+      const cls = attributeValue(attrs, "class");
+      if (cls?.value.split(/\s+/).includes("content-table")) return tag;
+      const classed = cls
+        ? replaceAttribute(attrs, cls, "class", `content-table ${cls.value.trim()}`)
+        : attrs;
+      const added = cls ? "" : ' class="content-table"';
+      const reset = /\scellpadding\s*=/i.test(attrs)
+        ? ""
+        : ' cellpadding="0" cellspacing="0"';
+      return `<table${added}${reset}${classed}${close}>`;
+    },
   );
+  for (const { tag, css, withAttributes } of EMAIL_INLINE_STYLES) {
+    out = out.replace(
+      openingTag(tag, withAttributes ?? false),
+      (_, attrs: string, close: string) => {
+        const style = attributeValue(attrs, "style");
+        // The element's own style comes after, so it still wins where both
+        // set a property (a Shiki block's colours, an image's width).
+        const merged = style
+          ? replaceAttribute(attrs, style, "style", `${css}${style.value.trim()}`)
+          : ` style="${css}"${attrs}`;
+        return `<${tag}${merged}${close}>`;
+      },
+    );
+  }
+  return out;
+}
+
+/**
+ * The inline styles {@link inlineEmailStyles} gives each element, in order;
+ * `withAttributes`: only an element that has an attribute (a link with its
+ * `href`, an image with its `src`).
+ */
+const EMAIL_INLINE_STYLES: readonly {
+  tag: string;
+  css: string;
+  withAttributes?: boolean;
+}[] = [
+  {
+    tag: "h1",
+    css: "font-size:28px;font-weight:700;color:#111111;margin:0 0 16px;line-height:1.2;",
+  },
+  {
+    tag: "h2",
+    css: "font-size:22px;font-weight:700;color:#222222;margin:24px 0 12px;border-bottom:2px solid #eeeeee;padding-bottom:6px;",
+  },
+  { tag: "h3", css: "font-size:18px;font-weight:600;color:#333333;margin:20px 0 8px;" },
+  { tag: "h4", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "h5", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "h6", css: "font-size:16px;font-weight:600;color:#444444;margin:16px 0 6px;" },
+  { tag: "p", css: "margin:0 0 16px;color:#333333;font-size:16px;line-height:1.6;" },
+  { tag: "a", css: "color:#0066cc;text-decoration:underline;", withAttributes: true },
+  {
+    tag: "code",
+    css: "font-family:'Courier New',Courier,monospace;font-size:14px;background-color:#f5f5f5;border:1px solid #e0e0e0;border-radius:3px;padding:2px 5px;color:#c7254e;",
+  },
+  {
+    tag: "pre",
+    css: "background-color:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:16px;overflow-x:auto;margin:0 0 16px;font-family:'Courier New',Courier,monospace;font-size:13px;line-height:1.5;",
+  },
+  {
+    tag: "blockquote",
+    css: "border-left:4px solid #cccccc;margin:0 0 16px;padding:8px 16px;color:#666666;font-style:italic;background-color:#fafafa;",
+  },
+  {
+    tag: "img",
+    css: "max-width:100%;height:auto;display:block;margin:0 0 16px;",
+    withAttributes: true,
+  },
+];
+
+/** One attribute of an HTML start tag, with or without a value. */
+const TAG_ATTRIBUTE = String.raw`[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>\x60]+))?`;
+
+/**
+ * Start tags `<tag ...>` of `tag` (any case): group 1 is the attributes,
+ * with their leading space, group 2 a self-closing `/`. With `withAttributes`,
+ * only a tag that has one.
+ */
+function openingTag(tag: string, withAttributes: boolean): RegExp {
+  return new RegExp(
+    `<${tag}((?:\\s+${TAG_ATTRIBUTE})${withAttributes ? "+" : "*"})\\s*(/?)>`,
+    "gi",
+  );
+}
+
+/** An attribute found in a start tag's attributes. */
+interface FoundAttribute {
+  /** Where it starts (at its leading space) and ends in the attributes. */
+  start: number;
+  end: number;
+  value: string;
+}
+
+/** The first `name` attribute in `attrs` (a start tag's attributes), its value decoded of `&quot;`. */
+function attributeValue(attrs: string, name: string): FoundAttribute | null {
+  const re = new RegExp(String.raw`\s+(${TAG_ATTRIBUTE})`, "gy");
+  for (let m = re.exec(attrs); m; m = re.exec(attrs)) {
+    const eq = m[1].indexOf("=");
+    const key = (eq === -1 ? m[1] : m[1].slice(0, eq)).trim().toLowerCase();
+    if (key !== name) continue;
+    let value = eq === -1 ? "" : m[1].slice(eq + 1).trim();
+    if (/^(["']).*\1$/s.test(value)) value = value.slice(1, -1);
+    return {
+      start: m.index,
+      end: re.lastIndex,
+      value: value.replaceAll("&quot;", '"'),
+    };
+  }
+  return null;
+}
+
+/** `attrs` with `found` replaced by `name="value"`, where it was. */
+function replaceAttribute(
+  attrs: string,
+  found: FoundAttribute,
+  name: string,
+  value: string,
+): string {
+  return `${attrs.slice(0, found.start)} ${name}="${value.replaceAll('"', "&quot;")}"${attrs.slice(found.end)}`;
 }
 
 /**

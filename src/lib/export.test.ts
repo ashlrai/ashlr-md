@@ -65,6 +65,7 @@ import {
   katexCssForExport,
   languageTag,
   loadKatexFonts,
+  usedKatexFaces,
   waitForRenderedImages,
   withExtension,
 } from "./export";
@@ -1548,6 +1549,32 @@ describe("buildExportHtml — email-html profile", () => {
     document.body.innerHTML = "";
     expect(() => buildExportHtml("email-html")).toThrow("Switch to Read view");
   });
+
+  it("merges into an element's own style and class, not a second attribute", () => {
+    const html = buildExportHtml(
+      "email-html",
+      '<pre class="shiki" style="background-color:#24292e;color:#e1e4e8" tabindex="0"><code>x</code></pre>' +
+        "<p style='text-align:center' id=\"c\">mid</p>" +
+        '<img src="a.png" style="width:50%" />' +
+        '<table class="wide"><tr><td>1</td></tr></table>',
+    );
+    const body = html.slice(html.indexOf("<article"));
+    for (const tag of body.match(/<[a-z][^>]*>/gi) ?? []) {
+      expect(tag.match(/\sstyle=/gi)?.length ?? 0, tag).toBeLessThanOrEqual(1);
+      expect(tag.match(/\sclass=/gi)?.length ?? 0, tag).toBeLessThanOrEqual(1);
+    }
+    // The element's own declarations come last, so they win.
+    expect(body).toMatch(
+      /<pre class="shiki" style="background-color:#f8f8f8;[^"]*;background-color:#24292e;color:#e1e4e8" tabindex="0">/,
+    );
+    expect(body).toMatch(/<p style="margin:0 0 16px;[^"]*;text-align:center" id="c">/);
+    expect(body).toContain(
+      '<img src="a.png" style="max-width:100%;height:auto;display:block;margin:0 0 16px;width:50%"/>',
+    );
+    expect(body).toContain(
+      '<table cellpadding="0" cellspacing="0" class="content-table wide">',
+    );
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2485,6 +2512,63 @@ describe("katexCssForExport", () => {
       /font-family:KaTeX_Main;[^}]*src:url\([^)]*KaTeX_Main-Regular\.woff2/,
     );
     expect(out).not.toMatch(/format\("woff"\)|format\("truetype"\)/);
+  });
+
+  it("puts in only the faces the page's math is set in", async () => {
+    const css = readFileSync("node_modules/katex/dist/katex.min.css", "utf8");
+    await loadKatexFonts();
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    // x (KaTeX_Math italic), 1 + a bold B (KaTeX_Main regular and bold).
+    body.innerHTML =
+      '<span class="katex"><span class="katex-html"><span class="base">' +
+      '<span class="mord mathnormal">x</span><span class="mord">1</span>' +
+      '<span class="mord mathbf">B</span></span></span></span>';
+    document.body.appendChild(body);
+    try {
+      const used = usedKatexFaces();
+      expect(used).toEqual(
+        new Set([
+          "KaTeX_Math|400|italic",
+          "KaTeX_Main|400|normal",
+          "KaTeX_Main|700|normal",
+        ]),
+      );
+      const out = katexCssForExport(css, undefined, used);
+      const embedded = [...out.matchAll(/@font-face\{[^}]*\}/g)]
+        .map((m) => m[0])
+        .filter((face) => !face.includes("url(fonts/"))
+        .map((face) => /([\w-]+)\.woff2/.exec(face)?.[1]);
+      expect(embedded.sort()).toEqual(
+        ["KaTeX_Main-Bold", "KaTeX_Main-Regular", "KaTeX_Math-Italic"].sort(),
+      );
+      // The others are left as links, followed only if a face is needed.
+      expect(out).toContain("url(fonts/KaTeX_Size1-Regular.woff2)");
+    } finally {
+      style.remove();
+      body.remove();
+    }
+  });
+
+  it("puts in every face of a family set in a weight it has no face for", () => {
+    const css =
+      '@font-face{font-family:KaTeX_Math;font-style:italic;font-weight:400;src:url(fonts/A.woff2) format("woff2")}' +
+      '@font-face{font-family:KaTeX_Math;font-style:italic;font-weight:700;src:url(fonts/B.woff2) format("woff2")}' +
+      '@font-face{font-family:KaTeX_Size1;font-style:normal;font-weight:400;src:url(fonts/C.woff2) format("woff2")}';
+    const fonts = new Map([
+      ["A.woff2", "data:a"],
+      ["B.woff2", "data:b"],
+      ["C.woff2", "data:c"],
+    ]);
+    const out = katexCssForExport(css, fonts, new Set(["KaTeX_Math|400|normal"]));
+    expect(out).toContain("url(data:a)");
+    expect(out).toContain("url(data:b)");
+    expect(out).toContain("url(fonts/C.woff2)");
+    // Nothing measured: every face.
+    expect(katexCssForExport(css, fonts, null)).not.toContain("url(fonts/");
   });
 
   it("keeps a face whose fonts are not given, and needs fonts to change anything", () => {

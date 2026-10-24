@@ -699,8 +699,13 @@ function cellTexts(row: TableRow): string[] {
  * as it was, a changed row keeps the source's padding in its unchanged
  * cells, and the delimiter row is kept while the columns and their
  * alignment are. The serializer padded every column to its widest cell, so
- * typing one character in a cell re-padded the whole table. When the
- * number of columns changed, `written` is the table.
+ * typing one character in a cell re-padded the whole table.
+ *
+ * A column added or removed ({@link columnMap}) re-padded it too: the
+ * other columns' cells keep their padding, a new column's cells are
+ * written with one space either side, and the delimiter row keeps its
+ * cells for the columns whose alignment is the same. When the columns
+ * cannot be lined up, `written` is the table.
  */
 export function keepTableLayout(written: string, source: string): string {
   const body = written.replace(/\n+$/, "");
@@ -710,33 +715,48 @@ export function keepTableLayout(written: string, source: string): string {
   if (wl.length < 2 || sl.length < 2) return written;
   const ws = wl.map(tableRow);
   const ss = sl.map(tableRow);
-  const columns = ws[0].cells.length;
-  if (ss[0].cells.length !== columns) return written;
   const wAlign = alignments(ws[1]);
   const sAlign = alignments(ss[1]);
-  if (!wAlign || !sAlign || sAlign.length !== columns) return written;
+  if (!wAlign || !sAlign || sAlign.length !== ss[0].cells.length) return written;
+  const col = columnMap(ws, ss);
+  if (!col || wAlign.length !== col.length) return written;
+  const identity = col.length === ss[0].cells.length && col.every((k, j) => k === j);
   const same = (a: string[], b: string[]) =>
     a.length === b.length && a.every((x, i) => x === b[i]);
+  // The cells of a written and a source row that are in both tables.
+  const kept = (wt: string[]) => wt.filter((_, j) => col[j] !== null);
+  const keptOf = (st: string[]) =>
+    col.filter((k): k is number => k !== null).map((k) => st[k] ?? "");
   const line = (w: number, s: number | null): string => {
     if (s === null) return wl[w];
     const wt = cellTexts(ws[w]);
     const st = cellTexts(ss[s]);
-    if (same(wt, st)) return sl[s].replace(/\r$/, "");
+    if (identity && same(wt, st)) return sl[s].replace(/\r$/, "");
     const src = ss[s];
-    const cells = wt.map((_, j) => {
-      if (j < st.length && wt[j] === st[j]) return src.cells[j];
+    const cells = wt.map((t, j) => {
+      const k = col[j];
+      if (k !== null && k < st.length && t === st[k]) return src.cells[k];
       // A changed cell keeps the spaces either side of its text.
-      const was = j < src.cells.length ? src.cells[j] : "";
-      if (wt[j] === "" || was.trim() === "") return wt[j] === "" ? " " : ` ${wt[j]} `;
+      const was = k !== null && k < src.cells.length ? src.cells[k] : "";
+      if (t === "" || was.trim() === "") return t === "" ? " " : ` ${t} `;
       const pad = /^(\s*)[\s\S]*?(\s*)$/.exec(was) as RegExpExecArray;
-      return `${pad[1]}${wt[j]}${pad[2]}`;
+      return `${pad[1]}${t}${pad[2]}`;
     });
     // Without a leading pipe, an empty first cell would not be one.
     if (!src.lead && wt[0] === "") return wl[w];
     return `${src.indent}${src.lead ? "|" : ""}${cells.join("|")}${src.trail ? "|" : ""}`;
   };
-  const out = [line(0, 0)];
-  out.push(same(wAlign, sAlign) ? sl[1].replace(/\r$/, "") : wl[1]);
+  const delimiter = (): string => {
+    if (identity) return same(wAlign, sAlign) ? sl[1].replace(/\r$/, "") : wl[1];
+    const src = ss[1];
+    const cells = wAlign.map((a, j) => {
+      const k = col[j];
+      if (k !== null && sAlign[k] === a) return src.cells[k];
+      return ` ${a.startsWith(":") ? ":" : ""}---${a.endsWith(":") ? ":" : ""} `;
+    });
+    return `${src.indent}${src.lead ? "|" : ""}${cells.join("|")}${src.trail ? "|" : ""}`;
+  };
+  const out = [line(0, 0), delimiter()];
   // Body rows: paired in order when there are as many, else each with
   // the first unused source row that reads the same.
   const used = new Set<number>();
@@ -744,9 +764,9 @@ export function keepTableLayout(written: string, source: string): string {
     let s: number | null = null;
     if (wl.length === sl.length) s = w;
     else {
-      const wt = cellTexts(ws[w]);
+      const wt = kept(cellTexts(ws[w]));
       for (let i = 2; i < sl.length; i++) {
-        if (!used.has(i) && same(wt, cellTexts(ss[i]))) {
+        if (!used.has(i) && same(wt, keptOf(cellTexts(ss[i])))) {
           s = i;
           break;
         }
@@ -756,6 +776,49 @@ export function keepTableLayout(written: string, source: string): string {
     out.push(line(w, s));
   }
   return out.join("\n") + end;
+}
+
+/**
+ * For each column of the written table `ws`, its column in the source
+ * table `ss` (null: a column that was added), when the two have as many
+ * columns or one more or fewer. The added or removed column is the one
+ * that, left out, makes the most rows read the same (the header row, and
+ * the body rows in order when there are as many): a new column is
+ * empty, so its table reads as the source's without it. Null when the
+ * columns differ by more, or no choice makes the header row read the same.
+ */
+function columnMap(ws: TableRow[], ss: TableRow[]): (number | null)[] | null {
+  const wc = ws[0].cells.length;
+  const sc = ss[0].cells.length;
+  if (wc === sc) return Array.from({ length: wc }, (_, j) => j);
+  if (Math.abs(wc - sc) !== 1) return null;
+  const rows: [string[], string[]][] = [[cellTexts(ws[0]), cellTexts(ss[0])]];
+  if (ws.length === ss.length) {
+    for (let i = 2; i < ws.length; i++) rows.push([cellTexts(ws[i]), cellTexts(ss[i])]);
+  }
+  let best: (number | null)[] | null = null;
+  let bestScore = 0;
+  for (let at = 0; at < Math.max(wc, sc); at++) {
+    // Added (written has one more): written column `at` is new. Removed:
+    // source column `at` is gone.
+    const map = Array.from({ length: wc }, (_, j): number | null =>
+      wc > sc ? (j === at ? null : j < at ? j : j - 1) : j < at ? j : j + 1,
+    );
+    let score = 0;
+    for (const [i, [wt, st]] of rows.entries()) {
+      const matches = map.every((k, j) => k === null || wt[j] === (st[k] ?? ""));
+      if (i === 0 && !matches) {
+        score = 0;
+        break;
+      }
+      if (matches) score++;
+    }
+    if (score > bestScore) {
+      best = map;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /**
@@ -1134,7 +1197,9 @@ export function listSpread(value: unknown): boolean {
 /**
  * Milkdown config: write a tight bullet list tight, and a list item's
  * paragraph and nested list without a blank line between them when the item
- * is tight (see {@link listSpread}). Pass to `editor.config` before the
+ * is tight (see {@link listSpread}), and an item that starts with a block
+ * other than a paragraph without a `<br />` before it
+ * ({@link withoutLeadingEmptyParagraph}). Pass to `editor.config` before the
  * editor is created.
  */
 export function keepTightBulletLists(ctx: Ctx): void {
@@ -1173,13 +1238,35 @@ export function keepTightBulletLists(ctx: Ctx): void {
             state.openNode("listItem", undefined, {
               spread: listSpread(node.attrs.spread),
             });
-            state.next(node.content);
+            state.next(withoutLeadingEmptyParagraph(node.content));
             state.closeNode();
           },
         },
       };
     });
   }
+}
+
+/**
+ * A list item's content less the empty paragraph it starts with, when more
+ * follows. The editor's list item must start with a paragraph, so an item
+ * that starts with another block (`- > [!TIP]`, `- ```js`) is read with an
+ * empty one first, which was written as `<br />` on a line of its own: the
+ * item was saved as `- <br />` with the callout under it. Without it the
+ * item is written as the source had it. An item that is only an empty
+ * paragraph is left as it is.
+ */
+export function withoutLeadingEmptyParagraph(content: Fragment): Fragment {
+  const first = content.firstChild;
+  if (
+    content.childCount < 2 ||
+    first == null ||
+    first.type.name !== "paragraph" ||
+    first.content.size !== 0
+  ) {
+    return content;
+  }
+  return content.cut(first.nodeSize);
 }
 
 /**

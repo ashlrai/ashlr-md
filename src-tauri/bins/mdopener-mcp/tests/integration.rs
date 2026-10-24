@@ -7163,6 +7163,37 @@ fn assert_refused(resp: &mdopener_mcp::Response, label: &str) {
     );
 }
 
+/// A `link.md` into a folder whose name is not UTF-8 was resolved to the
+/// lossy spelling of its target (`bad\u{FFFD}dir/x.md`), a file that does not
+/// exist, and every tool said so ("the file does not exist") of a file that
+/// is there. It is refused, saying why. (Linux: macOS refuses such names.)
+#[cfg(target_os = "linux")]
+#[test]
+fn a_path_that_resolves_to_a_non_utf8_name_is_refused_saying_so() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir.path().join(std::ffi::OsStr::from_bytes(b"bad\xffdir"));
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::write(bad.join("x.md"), "# x\n").unwrap();
+    let link = dir.path().join("link.md");
+    std::os::unix::fs::symlink(bad.join("x.md"), &link).unwrap();
+    let link = link.to_string_lossy().into_owned();
+    let ipc = MockIpc::new();
+    for (tool, args) in [
+        ("export_text", json!({ "path": link })),
+        ("export_metadata", json!({ "path": link })),
+        ("diff_documents", json!({ "path_a": link, "path_b": link })),
+        ("open_file", json!({ "path": link })),
+    ] {
+        let resp = call(tool, args, &ipc);
+        let err = tool_error_text(&resp);
+        assert!(err.contains("not valid UTF-8"), "{tool}: {err}");
+        assert!(!err.contains("does not exist"), "{tool}: {err}");
+    }
+    // Nothing reached the app.
+    assert!(ipc.calls.lock().unwrap().is_empty());
+}
+
 #[test]
 fn read_tools_refuse_dotfiles_and_non_markdown_paths() {
     let (_dir, env, host, notes, link) = secret_fixture();
