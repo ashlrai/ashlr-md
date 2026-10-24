@@ -37,6 +37,7 @@ import {
 import {
   type BlockRange,
   blockStyle,
+  dropEmptyLineBreaks,
   keepSourceOnSave,
   keepSpellings,
   listSpread,
@@ -233,6 +234,28 @@ describe("WYSIWYG round trip: an edit inside a block rewrites only that block", 
       await settle();
       expect(ed.saved()).toBe(raw.replace("Para here.", "ParaX here."));
     }
+  });
+
+  it("reads an inline <br> as HTML and a lone <br /> as an empty paragraph", async () => {
+    const ed = await open("A<br>b\n\n<br />\n\nC\n");
+    const kinds = ed.crepe.editor.action((ctx) => {
+      const doc = ctx.get(editorViewCtx).state.doc;
+      const out: string[] = [];
+      doc.forEach((block) => {
+        const inner: string[] = [];
+        block.forEach((n) => {
+          inner.push(n.type.name);
+        });
+        out.push(`${block.type.name}[${inner.join(",")}]`);
+      });
+      return out;
+    });
+    // The <br> in "A<br>b" was dropped: the paragraph read "Ab".
+    expect(kinds).toEqual([
+      "paragraph[text,html,text]",
+      "paragraph[]",
+      "paragraph[text]",
+    ]);
   });
 
   it("undoing the only edit saves the file as it was", async () => {
@@ -447,6 +470,20 @@ describe("sourceRanges / spliceEdited", () => {
     expect(spelled("plain", "&bogus; plain")).toEqual([
       { type: "text", value: "plain" },
     ]);
+  });
+
+  it("drops only a <br /> that is all its paragraph or cell holds", () => {
+    const br = { type: "html", value: "<br />" };
+    const tree = {
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ ...br }] },
+        { type: "paragraph", children: [{ type: "text", value: "a" }, { ...br }] },
+        { type: "tableCell", children: [{ type: "html", value: "<br>" }] },
+      ],
+    };
+    dropEmptyLineBreaks(tree);
+    expect(tree.children.map((c) => c.children.length)).toEqual([0, 2, 0]);
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {

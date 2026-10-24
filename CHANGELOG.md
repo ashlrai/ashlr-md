@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An inline `<br>` is kept.** The WYSIWYG editor dropped every `<br>` when
+  it read a document (Milkdown's plugin for the `<br />` it writes for an
+  empty paragraph took them all), so `a<br>b` showed as `ab` and was saved
+  so once its paragraph was edited. Only a `<br />` that is all a paragraph
+  or table cell holds is read as empty now; any other stays in the text.
 - **An edited block keeps bare links bare.** Editing a paragraph in the
   WYSIWYG view wrote `www.example.com` as
   `[www.example.com](http://www.example.com)` and `https://example.com` as

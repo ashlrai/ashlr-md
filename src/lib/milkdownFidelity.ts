@@ -32,9 +32,20 @@
  */
 
 import type { Crepe } from "@milkdown/crepe";
-import { editorViewCtx, remarkCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
-import type { Ctx } from "@milkdown/kit/ctx";
-import { bulletListSchema, listItemSchema } from "@milkdown/kit/preset/commonmark";
+import {
+  editorViewCtx,
+  InitReady,
+  remarkCtx,
+  remarkPluginsCtx,
+  schemaCtx,
+  serializerCtx,
+} from "@milkdown/kit/core";
+import type { Ctx, MilkdownPlugin } from "@milkdown/kit/ctx";
+import {
+  bulletListSchema,
+  listItemSchema,
+  remarkPreserveEmptyLinePlugin,
+} from "@milkdown/kit/preset/commonmark";
 import {
   extendListItemSchemaForTask,
   tableCellSchema,
@@ -705,19 +716,69 @@ export function keepEmptyTableCells(ctx: Ctx): void {
   }
 }
 
+/** An HTML line break, as the editor writes an empty paragraph: `<br />` and its spellings. */
+function isBreakTag(node: SpelledNode): boolean {
+  return (
+    node.type === "html" &&
+    ["<br />", "<br>", "<br >", "<br/>"].includes((node.value ?? "").trim())
+  );
+}
+
+/**
+ * Remove from `tree` each `<br />` that is all a paragraph or table cell
+ * holds: Milkdown writes an empty paragraph (or cell) that way, and reads
+ * it back as empty. A `<br>` among other text is kept: Milkdown's own
+ * plugin removed every one, so `a<br>b` showed and saved as `ab`.
+ */
+export function dropEmptyLineBreaks(tree: unknown): void {
+  const walk = (node: SpelledNode) => {
+    const kids = node.children;
+    if (!kids) return;
+    if (
+      (node.type === "paragraph" || node.type === "tableCell") &&
+      kids.length === 1 &&
+      isBreakTag(kids[0])
+    ) {
+      node.children = [];
+      return;
+    }
+    for (const kid of kids) walk(kid);
+  };
+  walk(tree as SpelledNode);
+}
+
+/**
+ * Milkdown plugin: read an inline `<br>` as HTML, kept in the text, and
+ * only an empty paragraph's `<br />` as empty ({@link dropEmptyLineBreaks}),
+ * in place of the commonmark preset's remark plugin, which dropped every
+ * `<br>`. Use it after the preset (Crepe's `editor.use`, before create).
+ */
+export const keepInlineLineBreaks: MilkdownPlugin = (ctx) => async () => {
+  await ctx.wait(InitReady);
+  const options = ctx.get(remarkPreserveEmptyLinePlugin.options.key);
+  const narrowed = () => (tree: unknown) => dropEmptyLineBreaks(tree);
+  ctx.update(remarkPluginsCtx, (plugins) =>
+    plugins.map((p) => (p.options === options ? { ...p, plugin: narrowed } : p)),
+  );
+};
+
 /**
  * Wire a Crepe editor (before it is created) to save only what was edited:
  * `onChange` gets the body to save on every change, built by
  * {@link sourceKeeper} from `original`, the body the editor was given.
- * Tight bullet lists stay tight ({@link keepTightBulletLists}) and empty
- * table cells empty ({@link keepEmptyTableCells}).
+ * Tight bullet lists stay tight ({@link keepTightBulletLists}), empty
+ * table cells empty ({@link keepEmptyTableCells}) and an inline `<br>` in
+ * the text ({@link keepInlineLineBreaks}).
  */
 export function keepSourceOnSave(
   crepe: Crepe,
   original: string,
   onChange: (body: string) => void,
 ): void {
-  crepe.editor.config(keepTightBulletLists).config(keepEmptyTableCells);
+  crepe.editor
+    .config(keepTightBulletLists)
+    .config(keepEmptyTableCells)
+    .use(keepInlineLineBreaks);
   let keep: ((written: string) => string) | null = null;
   crepe.on((api) => {
     api.mounted((ctx) => {
