@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Indented code that opens a blockquote after a list item.** After an item
+  with only its marker had ended, a quoted line indented as code (`-`, a blank
+  line, then `>     code`) was taken to close a container, so the next quoted
+  line could open an item that cannot interrupt the code (`> 2) ...`) and its
+  fence or heading. The page reads that line as paragraph text; the Outline and
+  mdopener-mcp now do too. Found by checking against the renderer on generated
+  documents.
 - **Lint heading rules read setext headings.** `single-h1`, `max-heading-depth`,
   `no-empty-headings` and `orphaned-heading` read only `#` headings, so `Title`
   underlined with `===` and then `# Other` was not flagged as two H1s, and a

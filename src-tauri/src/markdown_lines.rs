@@ -275,8 +275,9 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 } else if !lazy {
                     // Indented code that closed a container without opening
                     // one, or after a bare item's end, does not hold the
-                    // next line's markers.
-                    let closed = (matched < open.len() && !opened) || closer;
+                    // next line's markers; one that opens a blockquote
+                    // (`-`, a blank line, then `>     code`) does.
+                    let closed = (matched < open.len() || closer) && !opened;
                     // Only a marker with nothing after it, not even a
                     // space, has its first content on the next line, at
                     // its content column.

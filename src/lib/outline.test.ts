@@ -41,6 +41,24 @@ describe("parseHeadings", () => {
     ]);
   });
 
+  it("lets indented code that opens a blockquote hold the next line's markers", () => {
+    // After a bare item's end, `>     code` opens a quote and is indented
+    // code in it, so `> 2) ...` cannot interrupt it and is paragraph text,
+    // as the renderer reads it: its ``` is no fence. It used to open an
+    // item, and the item's fence made the lines after it code.
+    const doc = "-\n\n>     code\n> 2) ```\n> x\n";
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "text",
+      "text",
+      "text",
+      "text",
+      "text",
+      "text",
+    ]);
+    const quoted = "> > - \n   \n   >       code\n   >   2) - - -\n===\n2) #\n";
+    expect(markdownLines(quoted)[5]).toMatchObject({ contained: true, content: "#" });
+  });
+
   it("ignores `#` lines inside fenced code blocks", () => {
     const doc = [
       "# Title",

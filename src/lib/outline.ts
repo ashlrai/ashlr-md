@@ -413,7 +413,11 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           indented = null;
           bare = false;
         } else if (!lazy) {
-          const closed = (c.matched < open.length && !opened) || closer;
+          // Indented code that closed a container without opening one, or
+          // after a bare item's end, does not hold the next line's markers;
+          // one that opens a blockquote (`-`, a blank line, then
+          // `>     code`) does.
+          const closed = (c.matched < open.length || closer) && !opened;
           open = c.list;
           const last = c.list[c.list.length - 1];
           bare = opened && empty && !last.quote;

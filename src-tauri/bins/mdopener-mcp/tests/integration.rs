@@ -8588,6 +8588,19 @@ fn export_text_keeps_brackets_that_are_not_task_checkboxes() {
     }
 }
 
+/// After a bare item's end, indented code that opens a blockquote
+/// (`-`, a blank line, then `>     code`) was taken to close a container,
+/// so it did not hold the next line's markers: `> 2) ```` opened an item
+/// and a fence, and the quoted `[[Link]]` after it was code. The renderer
+/// reads `2) ```` as paragraph text there, since `2)` cannot interrupt
+/// the code, so the link is a link.
+#[test]
+fn indented_code_that_opens_a_quote_holds_the_next_markers() {
+    use mdopener_mcp::extract_wikilinks;
+    let doc = "-\n\n>     code\n> 2) ```\n>    [[Link]]\n";
+    assert_eq!(extract_wikilinks(doc), vec!["Link".to_string()]);
+}
+
 /// markdown_lines tracked list items only up to the first blockquote, so
 /// a quoted item's continuation was read by its indentation in the quote:
 /// `>     **b**` after `> - a` was indented code, and a `> ```` line
