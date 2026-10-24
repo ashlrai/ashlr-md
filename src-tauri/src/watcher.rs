@@ -31,18 +31,16 @@ pub fn watch_file(
     let app_for_cb = app.clone();
     let reported = path.clone();
 
-    let mut watcher = notify::recommended_watcher(
-        move |res: notify::Result<notify::Event>| {
-            let Ok(event) = res else { return };
-            if matches!(
-                event.kind,
-                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
-            ) && event.paths.iter().any(|p| targets.contains(p))
-            {
-                let _ = app_for_cb.emit("file-changed", reported.clone());
-            }
-        },
-    )
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+        if matches!(
+            event.kind,
+            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+        ) && event.paths.iter().any(|p| targets.contains(p))
+        {
+            let _ = app_for_cb.emit("file-changed", reported.clone());
+        }
+    })
     .map_err(|e| e.to_string())?;
 
     for dir in &dirs {
