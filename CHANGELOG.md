@@ -219,6 +219,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A canvas image card's title shows the image in its folder.** Clicking it
+  opened the image as a document, which failed with a toast. It now reveals
+  the image in the file manager, and the canvas stays in view.
 - **Switching tabs keeps your place in the read view.** Every switch scrolled
   the read view to the top, so going back to a long document lost where it
   was being read. A tab switched back to now returns to where it was; a newly
