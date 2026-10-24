@@ -139,7 +139,7 @@ pub struct ItemStart<'a> {
 }
 
 /// The ATX headings ([`atx_heading`]) of the text lines of `content`
-/// ([`text_lines`]) that sit in no blockquote or list item, empty ones
+/// ([`LineKind::Text`]) that sit in no blockquote or list item, empty ones
 /// included: a document's title and `export_metadata`'s headings. A line
 /// behind `> ` or `- ` markers, or indented into an open item's content
 /// column (`- x`, a blank line, then `  # Sub`), is in a container by the
@@ -1049,16 +1049,6 @@ fn definitions_len(lines: &[String]) -> usize {
         }
     }
     i
-}
-
-/// The lines of `content` that are Markdown text: not front matter, not a
-/// fence and not fenced code.
-// mdopener-mcp uses it; the app includes this file only for its tasks.
-#[allow(dead_code)]
-pub fn text_lines(content: &str) -> impl Iterator<Item = &str> {
-    markdown_lines(content)
-        .filter(|(kind, _)| *kind == LineKind::Text)
-        .map(|(_, line)| line)
 }
 
 /// How many lines a leading front matter block takes, its two delimiters
