@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../styles/outline.css";
 import { formatShortcut } from "../lib/keymap";
+import { smoothScrollBehavior } from "../lib/motion";
 import { type HeadingItem, parseHeadings } from "../lib/outline";
 import { useReturnFocus } from "../lib/useReturnFocus";
 import { useDocumentStore } from "../store/documentStore";
@@ -34,7 +35,7 @@ function CloseIcon() {
 /** Smoothly scroll a rendered heading into view by its slug id. */
 function scrollToSlug(slug: string) {
   const el = document.getElementById(slug);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  el?.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
 }
 
 export function Outline() {

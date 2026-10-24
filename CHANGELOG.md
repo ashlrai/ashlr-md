@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Reduced motion stops the scroll animations too.** With "Reduce motion"
+  set in the system, the app's animations were calmed, but jumping to a
+  heading from the outline or a link, to a find match, to a review finding,
+  and the AI chat's scroll to the newest message still animated: a smooth
+  scroll asked for in code is not changed by the stylesheet. They now jump.
 - **The tab bar answers the arrow keys.** It is announced as a set of tabs,
   but every tab was its own Tab stop and the arrow keys did nothing. Now
   only the active tab is a Tab stop, and Left, Right, Home and End move to

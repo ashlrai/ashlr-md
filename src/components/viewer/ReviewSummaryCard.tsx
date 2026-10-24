@@ -13,6 +13,7 @@
 
 import GithubSlugger from "github-slugger";
 import { useMemo } from "react";
+import { smoothScrollBehavior } from "../../lib/motion";
 import {
   type ReviewSummary,
   SEVERITY_LABEL,
@@ -53,7 +54,7 @@ function useFindingAnchors(summary: ReviewSummary): Map<number, string> {
 function scrollToSlug(slug: string) {
   const el = document.getElementById(slug);
   if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });
     // Briefly flag the target so the user sees where they landed.
     el.classList.add("review-finding-flash");
     window.setTimeout(() => el.classList.remove("review-finding-flash"), 1200);
