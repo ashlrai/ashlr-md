@@ -118,6 +118,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` reads tables by GFM's rules.** It took any line with a `|`
+  over a delimiter-like line as a table, and ended a table at the first line
+  without a `|`. A table now starts only at a header over a delimiter row with
+  as many cells (`a | b` over `| - |` is text, as on the page; `a` over `:-:`
+  is a table), and a body row without a pipe goes on with it until a blank
+  line or another block (a list, heading, quote, rule or fence).
 - **`export_text` decodes every HTML named character reference.** It knew about
   140 common names, so the rest of HTML's 2125 (`&aring;`, `&eacute;`,
   `&ccedil;`, `&NoBreak;`, `&Cconint;`) stayed as written in the plain text

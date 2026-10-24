@@ -7982,6 +7982,7 @@ pub fn strip_markdown(content: &str) -> String {
     let footnotes: Vec<Option<String>> = starts.iter().map(|s| s.footnote.clone()).collect();
     let underlines: Vec<bool> = starts.iter().map(|s| s.underline).collect();
     let continues: Vec<bool> = starts.iter().map(|s| s.continues).collect();
+    let contained: Vec<bool> = starts.iter().map(|s| s.contained).collect();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -7998,6 +7999,9 @@ pub fn strip_markdown(content: &str) -> String {
     };
 
     let mut in_table = false;
+    // The open table's delimiter row, and whether it sits in a container.
+    let mut table_delimiter = 0;
+    let mut table_contained = false;
     // The line before was indented code right after a table's rows.
     let mut after_table = false;
     // The HTML block being read, past its containers.
@@ -8054,22 +8058,30 @@ pub fn strip_markdown(content: &str) -> String {
             LineKind::FrontMatter | LineKind::Text => {}
         }
         let Some((text, item)) = text else {
+            in_table = false;
             reads.push(Read::Break);
             continue;
         };
         let item = *item;
         let trimmed = text.trim();
 
-        // GFM tables: a header row followed by a delimiter row starts one,
-        // and it runs until a blank line or a line without a pipe. Rows
-        // become tab-separated cells; the delimiter row is dropped. A table
-        // may sit in a blockquote or a list item, so rows are read past
-        // their containers. A line indented four columns (tabs expanded) is
-        // no row: it is indented code, as mdast reads it (`| a |`, `| - |`,
-        // then `    | c |` is a table and a code block holding `| c |`), and
-        // so are the indented lines right after it; a header or delimiter
-        // row indented that far starts no table. The rows were read
-        // trimmed, so indented code went into the table as a row.
+        // GFM tables: a header row followed by a delimiter row with as many
+        // cells starts one ([`delimiter_cells`]: `:?-+:?` cells between
+        // pipes), and it runs until a blank line or a line that starts
+        // another block: a list item, an ATX heading, a thematic break, a
+        // fence or HTML, or a line out of the table's container (`> x`
+        // after a table that is not quoted). Any other line is a row, with
+        // or without a pipe, as micromark reads it. Rows become
+        // tab-separated cells; the delimiter row is dropped. Detection used
+        // to key on any `|`: a row without one ended the table and read as
+        // a paragraph, and `| a | b |` over `| - |` (one cell, so no table)
+        // was read as one. A table may sit in a blockquote or a list item,
+        // so rows are read past their containers. A line indented four
+        // columns (tabs expanded) is no row: it is indented code, as mdast
+        // reads it (`| a |`, `| - |`, then `    | c |` is a table and a
+        // code block holding `| c |`), and so are the indented lines right
+        // after it; a header or delimiter row indented that far starts no
+        // table.
         let row = trimmed;
         let indented_at = |i: usize| match lines.get(i) {
             Some(((LineKind::Text, _), (_, Some((text, _))))) => text.starts_with("    "),
@@ -8080,7 +8092,14 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
         after_table = false;
-        if in_table && (!row.contains('|') || indented_at(idx)) {
+        if in_table
+            && (row.is_empty()
+                || indented_at(idx)
+                || item
+                || contained[idx] != table_contained
+                || markdown_lines::atx_heading(text).is_some()
+                || is_thematic_break(row))
+        {
             in_table = false;
             if indented_at(idx) {
                 after_table = true;
@@ -8088,11 +8107,21 @@ pub fn strip_markdown(content: &str) -> String {
                 continue;
             }
         }
-        if !in_table && row.contains('|') && !indented_at(idx) && !indented_at(idx + 1) {
-            in_table = row_of(idx + 1).is_some_and(is_table_delimiter);
+        if !in_table
+            && !row.is_empty()
+            && !indented_at(idx)
+            && !indented_at(idx + 1)
+            && !underlines.get(idx + 1).copied().unwrap_or(false)
+            && markdown_lines::atx_heading(text).is_none()
+            && !definitions[idx]
+        {
+            let cells = table_cells(row).len();
+            in_table = row_of(idx + 1).and_then(delimiter_cells) == Some(cells);
+            table_delimiter = idx + 1;
+            table_contained = contained[idx];
         }
         if in_table {
-            if is_table_delimiter(row) {
+            if idx == table_delimiter {
                 reads.push(Read::Break);
             } else {
                 let cells: Vec<String> = table_cells(row)
@@ -8126,16 +8155,9 @@ pub fn strip_markdown(content: &str) -> String {
         }
 
         // Horizontal rules (`---`, `***`, `___` optionally with spaces).
-        {
-            let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
-            if no_space.len() >= 3
-                && (no_space.chars().all(|c| c == '-')
-                    || no_space.chars().all(|c| c == '*')
-                    || no_space.chars().all(|c| c == '_'))
-            {
-                reads.push(Read::Break);
-                continue;
-            }
+        if is_thematic_break(trimmed) {
+            reads.push(Read::Break);
+            continue;
         }
 
         // The line's text sits past its blockquote markers, list markers
@@ -8227,11 +8249,41 @@ pub fn strip_markdown(content: &str) -> String {
 }
 
 /// True for a GFM table delimiter row such as `|:---|---:|` or `--- | ---`.
-fn is_table_delimiter(line: &str) -> bool {
-    let t = line.trim();
-    t.contains('|')
-        && t.contains('-')
-        && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+/// How many cells `line` has as a GFM table delimiter row, or `None` when it
+/// is none: cells of `:?-+:?` (spaces and tabs around them), between pipes,
+/// a leading and a trailing pipe optional (`|-`, `-:` and `| :-: | --- |`
+/// are rows of one, one and two cells). A cell of only colons, a hyphen run
+/// with a space in it (`- -`) or other text makes it no delimiter row. A
+/// `---` line with no pipe or colon is a setext underline first; the caller
+/// checks that.
+fn delimiter_cells(line: &str) -> Option<usize> {
+    let t = line.trim_matches([' ', '\t']);
+    let inner = t.strip_prefix('|').unwrap_or(t);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    if inner.trim_matches([' ', '\t']).is_empty() {
+        return None;
+    }
+    let mut cells = 0;
+    for cell in inner.split('|') {
+        let c = cell.trim_matches([' ', '\t']);
+        let c = c.strip_prefix(':').unwrap_or(c);
+        let c = c.strip_suffix(':').unwrap_or(c);
+        if c.is_empty() || !c.bytes().all(|b| b == b'-') {
+            return None;
+        }
+        cells += 1;
+    }
+    Some(cells)
+}
+
+/// Whether `trimmed` (a text line, trimmed) is a thematic break: three or
+/// more `-`, `*` or `_`, all the same, with only spaces or tabs between.
+fn is_thematic_break(trimmed: &str) -> bool {
+    let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+    no_space.len() >= 3
+        && (no_space.chars().all(|c| c == '-')
+            || no_space.chars().all(|c| c == '*')
+            || no_space.chars().all(|c| c == '_'))
 }
 
 /// The cells of a table row, outer pipes dropped and `\|` read as a pipe.

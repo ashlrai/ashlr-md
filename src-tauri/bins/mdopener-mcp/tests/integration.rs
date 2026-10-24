@@ -14760,6 +14760,49 @@ fn a_line_indented_four_columns_after_a_table_is_code_not_a_row() {
     assert_eq!(count_embedded_images("| a |\n| - |\n    ![i](i.png)\n"), 0);
 }
 
+/// export_text found tables by any `|`: a body row without a pipe ended the
+/// table and read as a paragraph, though GFM keeps it as a row until a
+/// blank line or another block starts, and a header over a delimiter row
+/// of another cell count (no table on the page) was read as one. The rules
+/// are GFM's, each case as micromark reads it.
+#[test]
+fn export_text_reads_tables_by_the_gfm_delimiter_row_rules() {
+    use mdopener_mcp::strip_markdown;
+    let cases = [
+        // A row with no pipe goes on with the table, to the blank line.
+        (
+            "| a | b |\n| - | - |\n| c | d |\nbar\n\nx",
+            "a\tb\nc\td\nbar\n\nx",
+        ),
+        ("| a |\n| - |\n\\# x", "a\n# x"),
+        ("| a | b |\n| - | - |\nbar\n| c | d |", "a\tb\nbar\nc\td"),
+        ("| a |\n| -- |\n| c\n=", "a\nc\n="),
+        // Another block ends it.
+        ("| a | b |\n| - | - |\n> q", "a\tb\nq"),
+        ("| a |\n| - |\n- item", "a\nitem"),
+        ("| a |\n| - |\n1. x", "a\nx"),
+        ("| a |\n| - |\n# h", "a\nh"),
+        ("| a |\n| - |\n***\nafter", "a\nafter"),
+        ("| a |\n| - |\n```\ncode\n```", "a\ncode"),
+        ("- | a |\n  | - |\n  c\nd", "a\nc\nd"),
+        // Delimiter rows: optional outer pipes, colons, one cell.
+        ("a|b\n-|-\nc", "a\tb\nc"),
+        ("| a |\n|-\nc", "a\nc"),
+        ("|a|\n:-:\nc", "a\nc"),
+        ("a\n|---|\nx", "a\nx"),
+        // No table: the cell counts differ, a cell is no `:?-+:?`, or the
+        // line is a setext underline.
+        ("a | b\n| - |\nc", "a | b\n| - |\nc"),
+        ("|a|b|\n|-|-|-|\nc", "|a|b|\n|-|-|-|\nc"),
+        ("| a |\n| - - |\nc", "| a |\n| - - |\nc"),
+        ("| a |\n| : |\nc", "| a |\n| : |\nc"),
+        ("| a |\n---\nx", "| a |\nx"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
 /// `[[note\|alias]]`, the form a wikilink with an alias takes in a table
 /// cell, was read as a link to `note\`; the page links `note`.
 #[test]
