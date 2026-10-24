@@ -96,6 +96,21 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **HTML blocks and footnote definitions are read as the page reads them.** The
+  line scanner behind the Outline, task checkboxes, `export_text`,
+  `export_metadata` and document titles read the lines of an HTML block (a
+  `<div>` or a lone `<u>` line up to a blank line, a comment up to its `-->`) as
+  Markdown, although the page shows them as raw HTML. A `# x` in a `<div>` was
+  listed as a heading, a `- [ ] t` in one was a task, and a link reference
+  definition after `<!-- c -->` was read as part of a paragraph. GFM footnote
+  definitions (`[^1]: text`) were not containers, so a task, a heading or a
+  fence in one (`[^1]: - [ ] t`, or a line indented four columns after it) was
+  read as paragraph text, and a footnote definition that interrupts a paragraph,
+  also lazily after a blockquote, went on with it. Both are now read as
+  micromark reads them, in the Rust scanner and the app's `outline.ts` alike, and
+  `export_text` reads an HTML block's text without its tags. `[^a b]: x`, which
+  is no footnote because its label has a space, is now dropped as a link
+  reference definition.
 - **The `export_text` tool description says what links read.** It said links,
   images and HTML tags are stripped, and nothing about what stays: a link's text,
   an image's alt text, the brackets of a `[text]` whose label is not defined and

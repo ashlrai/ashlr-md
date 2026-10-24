@@ -1347,7 +1347,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 reads its text and an image its alt text, without their inline marks; a `[text]` \
                 with no `(url)` keeps its brackets unless the document defines its label, a link \
                 reference definition (`[text]: /url`) reads nothing, as on the page, and an \
-                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. Returns \
+                autolink (`<https://x>`, `<me@x.org>`) reads its URL or address. An HTML block \
+                (a `<div>` line to a blank line, a comment to its `-->`) reads its text without its \
+                tags, as raw HTML, not as Markdown. Returns \
                 { text, word_count, char_count, path }: the extracted text, its word count, its length \
                 in Unicode characters (`char_count`, not bytes: `caf\u{e9}` counts 4), and the absolute \
                 path of the document (with `path` omitted, the open document's file). \
@@ -7912,7 +7914,14 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   so `> # Quote` reads `Quote` (it used to keep its `#`).
 /// - Ordered and unordered list markers (`- `, `* `, `+ `, `1. `) are removed.
 /// - Task-list checkboxes (`[ ]` / `[x]`) are removed.
-/// - HTML tags are stripped.
+/// - HTML tags are stripped. An HTML block ([`markdown_lines`]: a `<div>`
+///   or a lone `<u>` line up to a blank line, a comment up to its `-->`)
+///   is raw HTML on the page, so it reads its text without its tags and
+///   comments and is not read as Markdown. Its lines used to be read as
+///   Markdown, so a `# x` in a `<div>` lost its `#`.
+/// - A footnote definition (`[^1]: text`) reads `[1] text`, its text read
+///   past it as a container that holds the lines indented four columns
+///   after it, as remark-gfm reads it ([`markdown_lines`]).
 /// - Horizontal rules (`---`, `***`, `___` on their own line) are removed.
 /// - Blank lines are collapsed to a single blank line between paragraphs.
 pub fn strip_markdown(content: &str) -> String {
@@ -7932,6 +7941,12 @@ pub fn strip_markdown(content: &str) -> String {
     );
     let tasks = task_list::task_marks(content);
     let (refs, definitions) = reference_definitions(content);
+    // The label of the footnote definition each line opens, past the
+    // front matter the lines below leave out.
+    let footnotes: Vec<Option<String>> = markdown_lines::item_starts(content)
+        .skip(markdown_lines::front_matter_len(content))
+        .map(|s| s.footnote)
+        .collect();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -7948,6 +7963,8 @@ pub fn strip_markdown(content: &str) -> String {
     };
 
     let mut in_table = false;
+    // The HTML block being read, past its containers.
+    let mut html = String::new();
 
     for (idx, ((kind, line), (code, text))) in lines.iter().enumerate() {
         match kind {
@@ -7965,6 +7982,18 @@ pub fn strip_markdown(content: &str) -> String {
                 in_table = false;
                 out.push_str(code.as_deref().unwrap_or(line));
                 out.push('\n');
+                continue;
+            }
+            LineKind::Html => {
+                // An HTML block is raw HTML: the page shows its text, not
+                // Markdown, so only its tags and comments are taken off,
+                // over the whole block, as a comment may span lines.
+                in_table = false;
+                html.push_str(code.as_deref().unwrap_or(line));
+                html.push('\n');
+                if !matches!(lines.get(idx + 1), Some(((LineKind::Html, _), _))) {
+                    out.push_str(&strip_html(&std::mem::take(&mut html)));
+                }
                 continue;
             }
             LineKind::FrontMatter | LineKind::Text => {}
@@ -8039,20 +8068,6 @@ pub fn strip_markdown(content: &str) -> String {
             None => text.trim_start(),
         };
 
-        // A footnote definition `[^1]: text` reads `[1] text`.
-        if let Some((label, rest)) = line
-            .strip_prefix("[^")
-            .and_then(|r| r.split_once("]:"))
-            .filter(|(label, _)| !label.is_empty() && !label.contains(char::is_whitespace))
-        {
-            out.push_str(&format!(
-                "[{label}] {}",
-                strip_inline_markdown(rest.trim_start())
-            ));
-            out.push('\n');
-            continue;
-        }
-
         // A task-list checkbox, where the renderer reads one
         // ([`task_list::task_marks`]): `- [ ]` alone keeps its `[ ]`, and
         // `-`, then `  [ ] t`, loses it.
@@ -8062,9 +8077,15 @@ pub fn strip_markdown(content: &str) -> String {
             line
         };
 
-        // Now process inline Markdown on the remaining text.
+        // Now process inline Markdown on the remaining text. A footnote
+        // definition `[^1]: text` reads `[1] text`; its text is read past
+        // the definition, as a container, so `[^1]: # H` reads `[1] H`.
         let plain = strip_inline_markdown(line);
-        out.push_str(&plain);
+        if let Some(label) = &footnotes[idx] {
+            out.push_str(format!("[{label}] {plain}").trim_end());
+        } else {
+            out.push_str(&plain);
+        }
         out.push('\n');
     }
 
@@ -8162,7 +8183,7 @@ fn definition(text: &str, following: &[&str]) -> Option<(String, usize)> {
     }
     let end = end?;
     let label = &inner[..end];
-    if label.trim().is_empty() || label.starts_with('^') || label.chars().count() > 999 {
+    if label.trim().is_empty() || label.chars().count() > 999 {
         return None;
     }
     let label = normalize_label(label);
@@ -8284,6 +8305,7 @@ fn reference_definitions(content: &str) -> (std::collections::HashSet<String>, V
         if paragraph
             && (text.trim().is_empty()
                 || start.text.is_some()
+                || start.footnote.is_some()
                 || markdown_lines::atx_heading(text).is_some()
                 || is_thematic_break(text)
                 || i.checked_sub(1)
@@ -8553,6 +8575,26 @@ fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> Strin
         i += 1;
     }
 
+    out
+}
+
+/// `s` without the HTML tags, comments, processing instructions,
+/// declarations and CDATA sections ([`html_end`]) in it: the text of an
+/// HTML block.
+fn strip_html(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '<' {
+            if let Some(end) = html_end(&chars, i) {
+                i = end;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
     out
 }
 

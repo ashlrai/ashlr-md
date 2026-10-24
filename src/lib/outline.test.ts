@@ -465,4 +465,47 @@ describe("parseHeadings", () => {
     ]);
     expect(atxHeadings(doc).map((h) => h.line)).toEqual([7, 8, 9, 10]);
   });
+  it("reads an HTML block as HTML, not Markdown, as the renderer does", () => {
+    // The page shows the lines of an HTML block as raw HTML, so a `# x`
+    // in one is no heading and takes no slug. They used to be read as
+    // Markdown, so the Outline listed it.
+    const doc = ["<div>", "# Inside", "</div>", "", "# After"].join("\n");
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "html",
+      "html",
+      "html",
+      "text",
+      "text",
+    ]);
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug])).toEqual([
+      ["After", "after"],
+    ]);
+    // A comment runs to its `-->`, a lone tag to a blank line.
+    expect(parseHeadings("<!--\n# c\n-->\n# K").map((h) => h.text)).toEqual(["K"]);
+    expect(parseHeadings("<u>\n# H\n\n# K").map((h) => h.text)).toEqual(["K"]);
+    // A lone tag cannot interrupt a paragraph; a block tag can.
+    expect(parseHeadings("a\n<u>\n# H").map((h) => h.text)).toEqual(["H"]);
+    expect(parseHeadings("a\n<div>\n# H").map((h) => h.text)).toEqual([]);
+    // In a blockquote, it ends with the quote.
+    expect(parseHeadings("> <div>\n# H").map((h) => h.text)).toEqual(["H"]);
+  });
+
+  it("reads a footnote definition as a container", () => {
+    // `[^n]: x` holds the lines indented four columns after it, as
+    // remark-gfm reads it; they used to be read by their indentation in
+    // the document.
+    const lines = markdownLines("[^n]: x\n\n    # Note\n\n# Note");
+    expect(lines.map((l) => [l.contained, l.content])).toEqual([
+      [true, "x"],
+      [true, ""],
+      [true, "# Note"],
+      [true, ""],
+      [false, "# Note"],
+    ]);
+    // A footnote's heading is in the page's footnotes, after every other
+    // heading, so it takes no slug before them.
+    expect(parseHeadings("[^n]: # Note\n\n# Note").map((h) => h.slug)).toEqual([
+      "note",
+    ]);
+  });
 });

@@ -8682,6 +8682,68 @@ fn export_text_drops_definitions_and_reads_autolinks_as_commonmark() {
     assert!(docs.contains("an autolink reads its URL or address"));
 }
 
+/// markdown_lines read the lines of an HTML block as Markdown, although
+/// the page shows them as raw HTML: a `# x` in a `<div>` was a heading of
+/// export_metadata and the document's title, a `[[link]]` in one was a
+/// link, and export_text read their Markdown. A link reference definition
+/// after a one-line HTML comment was read as going on with a paragraph, so
+/// it was not dropped. HTML blocks are now read as CommonMark reads them.
+#[test]
+fn html_blocks_are_read_as_raw_html() {
+    use mdopener_mcp::{document_title, extract_headings, extract_wikilinks, strip_markdown};
+    let doc = "Intro\n\n<div>\n# Inside\n[[Hidden]] **b**\n</div>\n\n# After\n";
+    assert_eq!(
+        extract_headings(doc),
+        vec![json!({ "level": 1, "text": "After" })]
+    );
+    assert!(extract_wikilinks(doc).is_empty());
+    assert_eq!(document_title("<div>\n# Inside\n</div>").as_deref(), None);
+    assert_eq!(
+        strip_markdown(doc),
+        "Intro\n\n# Inside\n[[Hidden]] **b**\n\nAfter"
+    );
+    let cases = [
+        // A comment ends on its `-->` line, and a definition can follow it.
+        ("x\n<!-- c -->\n[a]: /u\n\n[a] y", "x\n\na y"),
+        // A comment over lines hides its text; a lone tag runs to a blank
+        // line, so the `===` after it is no setext underline.
+        ("x\n\n<!--\n# c\n-->\n# K", "x\n\nK"),
+        ("x\n\n<u>\n===\n\ny", "x\n\n===\n\ny"),
+        // A lone tag cannot interrupt a paragraph, a block tag can.
+        ("a\n<u>\n# H", "a\n\nH"),
+        ("a\n<div>\n# H", "a\n\n# H"),
+        // In a blockquote, it ends with the quote.
+        ("x\n\n> <div>\n# H", "x\n\nH"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// markdown_lines did not read GFM footnote definitions as containers:
+/// a definition, a heading or a fence on a footnote's lines, or on its
+/// first line (`[^n]: [a]: /u`), was read as paragraph text, a footnote
+/// definition interrupting a paragraph (`para`, then `[^n]: x`) was read
+/// as going on with it, and `[^a b]: x` (a link reference definition,
+/// since a footnote label has no space) was kept.
+#[test]
+fn footnote_definitions_are_containers() {
+    use mdopener_mcp::{extract_headings, strip_markdown};
+    let cases = [
+        ("[n]\n\n[^n]: note", "[n]\n\n[n] note"),
+        ("[^n]: # Note", "[n] Note"),
+        ("[a]\n\npara\n[^n]: [a]: /u", "a\n\npara"),
+        ("[a]\n\n> para\n[^n]: [a]: /u", "a\n\npara"),
+        ("[a]\n\n[^n]: x\n\n    [a]: /u", "a\n\n[n] x"),
+        ("[^a b] x\n\n[^a b]: /u", "^a b x"),
+        ("[^n]: x\n\n    ```\n    # c\n    ```", "[n] x\n\n# c"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+    assert!(extract_headings("[^n]: x\n\n    # Sub").is_empty());
+}
+
 /// A link's text and an image's alt text kept their inline markup:
 /// `[**a**](u)` read `**a**`, where the page shows `a`.
 #[test]

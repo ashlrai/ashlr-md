@@ -161,4 +161,17 @@ mod tests {
         assert!(tasks("- > -\n  > [ ] t\n").is_empty());
         assert!(tasks("- -\n   [ ] t\n").is_empty());
     }
+
+    /// A task in a footnote definition is one, as remark-gfm reads the
+    /// definition as a container (`[^n]: - [ ] t`, and the lines indented
+    /// four columns after it), and a `- [ ] t` line in an HTML block is
+    /// raw HTML on the page, not a task.
+    #[test]
+    fn footnotes_hold_tasks_and_html_blocks_do_not() {
+        assert_eq!(tasks("[^n]: - [ ] t\n"), vec![t(1, false, "t")]);
+        assert_eq!(tasks("[^n]: x\n\n    - [x] u\n"), vec![t(3, true, "u")]);
+        assert!(tasks("<div>\n- [ ] t\n</div>\n").is_empty());
+        assert!(tasks("<u>\n- [ ] t\n").is_empty());
+        assert_eq!(tasks("<u>\n\n- [ ] t\n"), vec![t(3, false, "t")]);
+    }
 }
