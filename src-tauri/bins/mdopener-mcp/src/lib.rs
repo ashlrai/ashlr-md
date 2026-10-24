@@ -2381,10 +2381,19 @@ pub fn expand_home(raw: &str) -> std::borrow::Cow<'_, str> {
 
 pub fn agent_path(raw: &str) -> String {
     let raw = &*expand_home(raw);
+    // A canonical path that is not UTF-8 (a link into such a folder) is not
+    // taken: its lossy spelling names no file, so it was reported as one
+    // that "does not exist". The path as given is kept, and a document check
+    // ([`checked_document`]) says what is wrong with it.
     std::fs::canonicalize(raw)
-        .or_else(|_| std::path::absolute(raw))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| raw.to_string())
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .or_else(|| {
+            std::path::absolute(raw)
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| raw.to_string())
 }
 
 // The `output_path` rule is shared with the app's `/export`, which applies it
@@ -5120,11 +5129,31 @@ pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
-/// Canonicalize a path string, returning the input unchanged on failure.
+/// Canonicalize a path string, returning the input unchanged on failure,
+/// and when the canonical path is not UTF-8 (its lossy spelling would name
+/// no file).
 pub fn canonicalize_path(raw: &str) -> String {
     std::fs::canonicalize(raw)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| raw.to_string())
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .unwrap_or_else(|| raw.to_string())
+}
+
+/// The refusal for a path whose canonical form (links resolved) is not
+/// UTF-8, or `None`. Tools and the app take paths as UTF-8 text, so such a
+/// document could only be read, opened or written under a name that is not
+/// its own; it used to be reported as a file that does not exist.
+fn non_utf8_canonical_refusal(raw: &str, arg: &str, verb: &str) -> Option<String> {
+    let real = std::fs::canonicalize(raw).ok()?;
+    if real.to_str().is_some() {
+        return None;
+    }
+    Some(format!(
+        "Refusing to {verb} `{arg}` '{raw}': it resolves to {}, a path that is not valid \
+         UTF-8, and Ashlr MD works only with UTF-8 paths. Rename the file or folder (or \
+         the link's target) to a UTF-8 name, then try again.",
+        real.to_string_lossy()
+    ))
 }
 
 /// Read a file as UTF-8 text, refusing anything that is not a regular file
@@ -5386,6 +5415,9 @@ impl Use {
 
 fn checked_document_for(raw: &str, arg: &str, why: Use) -> Result<CheckedDocument, String> {
     let (verb, done) = why.words();
+    if let Some(refusal) = non_utf8_canonical_refusal(raw, arg, verb) {
+        return Err(refusal);
+    }
     let abs = canonicalize_path(raw);
     let p = std::path::Path::new(&abs);
     let hidden = p

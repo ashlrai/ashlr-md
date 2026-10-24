@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **MCP: a path that resolves to a non-UTF-8 name is refused, saying so.**
+  A `notes.md` link into a folder whose name is not UTF-8 was resolved to
+  the lossy spelling of its target, a file that does not exist, so
+  `open_file`, `export_text`, `diff_documents` and the other path tools said
+  "the file does not exist" of a file that is there. They now refuse it,
+  naming the path it resolves to and saying to rename it.
 - **An edit that changes nothing does not leave the window unsaved.** Every
   keystroke tells the close guard at once that the window has unsaved edits,
   and only the next change in the document store said otherwise. A
