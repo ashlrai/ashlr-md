@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The AI sidebar's retry toast is styled.** The toast shown after a
+  failed generation, its Retry, Open Preferences and Add credit actions
+  and its dismiss button had no styles, so they showed as bare browser
+  controls. They now match the app's buttons and error accents in every
+  theme, and the editors' Add credit link looks like their buttons.
 - **The editors' inline AI offers the fix, not a Retry that fails again.**
   After a refused key or an account out of credit, the inline AI in both
   editors still offered Retry. It now offers Open Preferences or an Add

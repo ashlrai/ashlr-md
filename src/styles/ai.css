@@ -470,6 +470,93 @@
   }
 }
 
+/* ----- Retry toast -----
+   Shown above the input row after a failed generation: the next step, its
+   action (Retry, Open Preferences or the Add credit link) and a dismiss.
+   The red rail matches .ai-msg__error. */
+
+.ai-retry-toast {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 6px 6px 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid #dc2626;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+:root[data-theme="midnight"] .ai-retry-toast {
+  border-left-color: #f87171;
+}
+.ai-retry-toast__msg {
+  flex: 1;
+  min-width: 0;
+}
+.ai-retry-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.ai-retry-btn:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+.ai-retry-btn:focus-visible,
+.ai-retry-dismiss:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.ai-retry-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ai-retry-dismiss:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-retry-btn,
+  .ai-retry-dismiss {
+    transition: none;
+  }
+}
+
 /* ----- Input row ----- */
 
 .ai-input-row {

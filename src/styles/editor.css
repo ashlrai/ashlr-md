@@ -202,6 +202,12 @@
   color: var(--bg);
   border-color: var(--accent);
 }
+/* The Add credit link after an out-of-credit failure looks like the buttons. */
+a.inline-ai-retry {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
 
 @keyframes inline-ai-in {
   from {
