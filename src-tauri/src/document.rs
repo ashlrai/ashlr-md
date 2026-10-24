@@ -544,8 +544,21 @@ fn resolve_wikilink_in(base: &Path, target: &str, root: Option<&Path>) -> Option
             return canonical_string(&from_root);
         }
     }
+    // A note's name may hold a dot (`v1.2 plan`, `2024.01.05`): only an
+    // extension a link may resolve to makes the target a file name. Any dot
+    // used to, so `[[v1.2 plan]]` was looked up as a file named `v1.2 plan`
+    // and never found `v1.2 plan.md`.
+    let has_ext = Path::new(target)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .is_some_and(|e| {
+            MD_EXTENSIONS.contains(&e.as_str())
+                || LINKABLE_EXTENSIONS.contains(&e.as_str())
+                || TEXT_EXTENSIONS.contains(&e.as_str())
+        });
     // 3. Relative path + a Markdown extension (current dir, then vault root).
-    if Path::new(target).extension().is_none() {
+    if !has_ext {
         for ext in MD_EXTENSIONS {
             let cand = base.join(format!("{target}.{ext}"));
             if cand.is_file() {
@@ -561,15 +574,11 @@ fn resolve_wikilink_in(base: &Path, target: &str, root: Option<&Path>) -> Option
     }
     // 4. Vault-wide name match: collect every candidate, then pick the closest.
     let scan_root = root.unwrap_or(base);
-    let has_ext = Path::new(target).extension().is_some();
-    let wanted = if has_ext {
-        Path::new(target).file_name()
-    } else {
-        Path::new(target).file_stem()
-    }
-    .and_then(|s| s.to_str())
-    .unwrap_or(target)
-    .to_ascii_lowercase();
+    let wanted = Path::new(target)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(target)
+        .to_ascii_lowercase();
 
     let mut matches = Vec::new();
     collect_matches(scan_root, &wanted, has_ext, 0, &mut matches);
@@ -1753,6 +1762,46 @@ mod tests {
         assert!(resolve_wikilink(nb.clone(), "../plain.json".into(), None).is_none());
         assert!(resolve_wikilink(nb.clone(), "../secret".into(), None).is_some());
         assert!(resolve_wikilink(nb, "../Alpha".into(), None).is_some());
+    }
+
+    /// A note whose name holds a dot (`v1.2 plan`, `2024.01.05`) was looked
+    /// up as a file of that full name, since any dot counted as an
+    /// extension, so `[[v1.2 plan]]` was a broken link to `v1.2 plan.md`.
+    #[test]
+    fn wikilinks_to_a_note_with_a_dot_in_its_name_resolve() {
+        let root = make_tree();
+        let vault = root.join("vault");
+        std::fs::create_dir_all(vault.join("daily")).unwrap();
+        std::fs::write(vault.join("v1.2 plan.md"), "# plan").unwrap();
+        std::fs::write(vault.join("daily").join("2024.01.05.md"), "# day").unwrap();
+        std::fs::write(vault.join("pic.png"), "png").unwrap();
+        let base = s(&vault);
+        let vr = Some(s(&vault));
+        let at = |p: std::path::PathBuf| canonical_string(&p);
+
+        // Next to the note, and by name anywhere in the vault.
+        assert_eq!(
+            resolve_wikilink(base.clone(), "v1.2 plan".into(), vr.clone()),
+            at(vault.join("v1.2 plan.md"))
+        );
+        assert_eq!(
+            resolve_wikilink(base.clone(), "2024.01.05#Morning".into(), vr.clone()),
+            at(vault.join("daily").join("2024.01.05.md"))
+        );
+        assert_eq!(
+            resolve_wikilink(base.clone(), "daily/2024.01.05".into(), vr.clone()),
+            at(vault.join("daily").join("2024.01.05.md"))
+        );
+        // A real extension still names the file itself.
+        assert_eq!(
+            resolve_wikilink(base.clone(), "v1.2 plan.md".into(), vr.clone()),
+            at(vault.join("v1.2 plan.md"))
+        );
+        assert_eq!(
+            resolve_wikilink(base.clone(), "pic.png".into(), vr.clone()),
+            at(vault.join("pic.png"))
+        );
+        assert!(resolve_wikilink(base, "v1.3 plan".into(), vr).is_none());
     }
 
     /// A wikilink to a plain-text attachment (`[[notes.txt]]`) was refused

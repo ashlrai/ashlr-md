@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A wikilink to a note with a dot in its name resolves.** `[[v1.2 plan]]`
+  or `[[2024.01.05]]` was taken to name a file with the extension `2 plan`
+  or `05`, so it was looked up as a file of that full name and showed as a
+  broken link to `v1.2 plan.md`. Only an extension a link may resolve to
+  (a note, image, canvas, PDF or text file) now makes a target a file name.
 - **A link's hover preview shows for every link a click opens.** The preview
   sorted links by a test of its own (a path ending in `.md`, or a name with
   no `/`), so `notes/plan.md#Goals`, `notes/Plan`, `Plan.MD` and
