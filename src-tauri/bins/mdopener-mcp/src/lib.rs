@@ -9240,7 +9240,7 @@ pub fn tool_export_text(id: Value, args: &Value, ipc: &dyn IpcClient) -> Respons
 fn frontmatter_lines(content: &str) -> Option<Vec<&str>> {
     // The block `markdown_lines` skips, without its two delimiters.
     let len = markdown_lines::front_matter_len(content);
-    (len > 0).then(|| content.lines().skip(1).take(len - 2).collect())
+    (len > 0).then(|| line_breaks::lines(content).skip(1).take(len - 2).collect())
 }
 
 /// Extract YAML front-matter from the start of a Markdown document.

@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A lone CR ends a line for the Rust Markdown scanners too.** The shared
+  line scanner (`markdown_lines.rs`: front matter, fences, headings, tasks,
+  wikilinks, export text, semantic-search chunks) split lines at LF only, so
+  an old Mac file (CR line breaks) was one line: its code was read as
+  Markdown and its front matter was missed, while the editor and the Outline
+  saw many lines. It now uses the shared `line_breaks` rule, as search
+  already did, and so do the search chunker and `frontmatter_lines`.
 - **An agent's save is reported as saved when the user switches tabs during
   it.** `save: true` on an edit read its outcome back from the active tab, so
   switching tabs while the file was written told the agent the save failed

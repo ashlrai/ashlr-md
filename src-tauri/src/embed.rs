@@ -169,7 +169,8 @@ fn chunk_markdown(text: &str) -> Vec<String> {
     // one, so the `# comment` lines of a code block cut it into chunks too
     // small to keep, and its code was not indexed.
     let texts = crate::markdown_lines::line_text(text);
-    for (line, line_text) in text.lines().zip(texts) {
+    // Lines as `line_text` splits them (a lone `\r` ends one too).
+    for (line, line_text) in crate::line_breaks::lines(text).zip(texts) {
         let is_heading =
             line_text.is_some_and(|(t, _)| crate::markdown_lines::atx_heading(&t).is_some());
         if is_heading && !current.trim().is_empty() {
