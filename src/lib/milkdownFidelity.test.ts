@@ -38,6 +38,7 @@ import {
   type BlockRange,
   blockStyle,
   keepSourceOnSave,
+  keepSpellings,
   listSpread,
   type MdNode,
   type PmNode,
@@ -383,6 +384,29 @@ describe("sourceRanges / spliceEdited", () => {
     };
     expect(restyled("Title X\n=======\n", "Title\n===", setext)).toBe("Title X\n===\n");
     expect(restyled("# Title X\n", "Title\n===", setext)).toBe("# Title X\n");
+  });
+
+  it("keeps trailing-space breaks where the block used them", () => {
+    const tree = () => ({
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [{ type: "text", value: "a" }, { type: "break" }],
+        },
+        { type: "heading", children: [{ type: "break" }] },
+      ],
+    });
+    const spaced = tree();
+    keepSpellings(spaced, "a   \nb");
+    expect(spaced.children[0].children[1]).toEqual({ type: "html", value: "   \n" });
+    // A heading holds one line: left to the serializer.
+    expect(spaced.children[1].children[0]).toEqual({ type: "break" });
+    for (const source of ["a\\\nb", "a  \nb\\\nc", "plain"]) {
+      const t = tree();
+      keepSpellings(t, source);
+      expect(t).toEqual(tree());
+    }
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {

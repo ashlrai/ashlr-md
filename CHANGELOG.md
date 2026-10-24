@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited block keeps trailing-space line breaks.** A hard break written
+  as two trailing spaces became a backslash when its paragraph (or list item,
+  or quote) was edited in the WYSIWYG view. A block that wrote its breaks
+  with spaces keeps writing them so; one that used backslashes keeps those.
 - **An edited setext heading stays setext.** Typing in an underlined
   (`===` or `---`) heading in the WYSIWYG view wrote it as a `#` heading. It
   now stays underlined, with its underline as it was, and a `## Title ##`

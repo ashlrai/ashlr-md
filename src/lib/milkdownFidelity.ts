@@ -26,7 +26,8 @@
  * ({@link blockStyle}): a `-` or `+` bullet list keeps its marker, an
  * ordered list its `)` and its numbering (`1.` `1.` `1.` stays so), a
  * setext heading stays setext (with its underline) and `## x ##` keeps its
- * closing `##`.
+ * closing `##`, and a block that ends lines with two spaces for a hard break
+ * keeps doing so ({@link keepSpellings}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -367,6 +368,39 @@ export function restyled(written: string, original: string, node: MdNode): strin
   return `${written.slice(0, out.index)}\n${underline[1]}${out[2]}`;
 }
 
+/** The parts of an mdast node {@link keepSpellings} reads and writes. */
+interface SpelledNode {
+  type: string;
+  value?: string;
+  children?: SpelledNode[];
+}
+
+/**
+ * Put back, in `tree` (one block as the serializer will write it), how the
+ * block's `source` spelled what the tree no longer says: a hard break
+ * written as trailing spaces (the serializer writes a backslash) stays
+ * trailing spaces, when the block wrote none as a backslash. Each is put in
+ * as raw text (an `html` node, which is written as it is).
+ */
+export function keepSpellings(tree: unknown, source: string): void {
+  const spaces = /( {2,})\r?\n/.exec(source);
+  const breakText = spaces && !/\\\r?\n/.test(source) ? `${spaces[1]}\n` : null;
+  if (breakText === null) return;
+  const walk = (node: SpelledNode, inLine: boolean) => {
+    const kids = node.children;
+    if (!kids) return;
+    // A heading or a table cell holds one line: its breaks are written as
+    // spaces, by the serializer's own rules.
+    const line = inLine || node.type === "heading" || node.type === "tableCell";
+    for (let i = 0; i < kids.length; i++) {
+      const kid = kids[i];
+      if (kid.type === "break" && !line) kids[i] = { type: "html", value: breakText };
+      else walk(kid, line);
+    }
+  };
+  walk(tree as SpelledNode, false);
+}
+
 /** The editor's remark processor: callable for a copy, as unified's are. */
 interface Processor {
   (): Processor;
@@ -400,6 +434,8 @@ function styledSerializer(
     const state = new SerializerState(ctx.get(schemaCtx));
     state.run(doc);
     const tree: MarkdownNode = state.build();
+    const r = range(source);
+    if (r) keepSpellings(tree, original.slice(r.start, r.end));
     return restyled(processor.stringify(tree), original, source);
   };
 }
