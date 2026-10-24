@@ -7978,7 +7978,10 @@ fn heading_closing_hashes_are_not_heading_text() {
 /// or a shorter fence ended a block early and its `# comment` lines became
 /// headings. Headings now use document_title's rule: front matter is
 /// skipped, a fence closes only on the same character at least as long, and
-/// an open fence runs to the end.
+/// an open fence runs to the end. The tool's description called them a
+/// "headings tree" of every heading outside front matter and fenced code,
+/// though they are a flat list that leaves out empty headings and those in
+/// blockquotes and list items; it now says so.
 #[test]
 fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
     use mdopener_mcp::extract_headings;
@@ -8031,9 +8034,10 @@ fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
         .unwrap();
     let d = tool["description"].as_str().unwrap();
     assert!(
-        d.contains("every ATX heading outside front matter and fenced code"),
+        d.contains("every ATX heading with text outside front matter, fenced code, blockquotes and list items"),
         "{d}"
     );
+    assert!(!d.contains("headings tree"), "{d}");
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains(
         "for every ATX heading outside a leading YAML front matter block and fenced code"

@@ -1371,11 +1371,14 @@ pub fn tool_registry() -> Vec<ToolDef> {
             name: "export_metadata",
             description: "Extract structural metadata from a Markdown document without the full \
                 content: YAML front-matter (a subset parsed to an object: scalars, lists, lists of \
-                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), a \
-                headings tree (level + text for \
-                every ATX heading outside front matter and fenced code), all [[wikilinks]] outside fenced \
+                mappings, nested mappings, `|` and `>` block scalars; an empty value is null), the \
+                headings as a flat list in document order (level + text for every ATX heading with \
+                text outside front matter, fenced code, blockquotes and list items: `> # Quote`, \
+                `- # Step` and a heading on an item's continuation line are left out, as in the \
+                app's Outline), all [[wikilinks]] outside fenced \
                 code (front matter properties included), the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax), and the total word count, as \
+                images (`![…](…)` and `![[…]]` syntax outside fenced code and front matter), and the \
+                total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
                 embedded_image_count, word_count, path } \
                 (`frontmatter` null without front-matter, `wikilinks` the distinct link targets sorted, \

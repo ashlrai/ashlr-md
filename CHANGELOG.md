@@ -101,6 +101,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **`export_metadata`'s description says which headings it lists.** It
+  promised a "headings tree" of every ATX heading outside front matter and
+  fenced code, so an agent looked for nesting and for headings in quotes
+  and list items. It now says `headings` is a flat list in document order
+  that leaves out empty headings and those in blockquotes and list items,
+  and that images in fenced code and front matter are not counted.
 - **`export_text` keeps indented code in a list item as code.** A line
   indented four columns past a list item's text (`- a`, a blank line, then
   six spaces and `# step`) or past a blockquote's `>` is indented code, as
