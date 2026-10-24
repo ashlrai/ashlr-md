@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Indented code counts as code when a document is classified.** The
+  document type the AI sidebar hints at measured code by fenced blocks only,
+  so a runbook of indented commands read as prose. Indented code now counts
+  too.
 - **`no-consecutive-blank-lines` keeps indented code whole.** Blank lines
   between two parts of an indented code block belong to the code, but the
   rule flagged them and its fix collapsed them, changing the code. They are
