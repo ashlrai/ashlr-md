@@ -77,6 +77,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   `prefers-reduced-motion`.
 
 ### Security
+- **A headless export never writes through a symbolic link.** The `export` MCP
+  tool and the app's `/export` checked an `output_path` by its name's extension,
+  and an HTML export is written through a link into the file it points to, so
+  `report.html` linked to `~/.bashrc` had the export written over the shell
+  profile. An output path that is a symbolic link is now refused.
 - **Setting: Load remote images.** A web image in a document
   (`![](https://host/pixel.png)`, or an `<img>` or `<picture>` in its HTML) is
   fetched as the document renders, which tells that host the document was
