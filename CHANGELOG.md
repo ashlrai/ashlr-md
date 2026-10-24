@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An edited setext heading stays setext.** Typing in an underlined
+  (`===` or `---`) heading in the WYSIWYG view wrote it as a `#` heading. It
+  now stays underlined, with its underline as it was, and a `## Title ##`
+  heading keeps its closing `##`.
 - **An edited list keeps its markers and numbering.** Typing in a list in the
   WYSIWYG view wrote it Milkdown's way: `-` and `+` bullets became `*`, `1)`
   became `1.`, and a list numbered `1.` `1.` `1.` was renumbered `1.` `2.`

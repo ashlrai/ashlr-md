@@ -41,6 +41,7 @@ import {
   listSpread,
   type MdNode,
   type PmNode,
+  restyled,
   sourceRanges,
   spliceEdited,
 } from "./milkdownFidelity";
@@ -364,6 +365,24 @@ describe("sourceRanges / spliceEdited", () => {
     expect(style("1) a\n2) b", true)).toEqual({ bulletOrdered: ")" });
     expect(style("7. only", true)).toEqual({ bulletOrdered: "." });
     expect(blockStyle("Para.", { type: "paragraph" })).toEqual({});
+    const heading = (src: string, depth: number) =>
+      blockStyle(src, {
+        type: "heading",
+        depth,
+        position: { start: { offset: 0 }, end: { offset: src.length } },
+      });
+    expect(heading("Title\n=====", 1)).toEqual({ setext: true });
+    expect(heading("Title\n---", 2)).toEqual({ setext: true });
+    expect(heading("# Title", 1)).toEqual({});
+    expect(heading("### Three", 3)).toEqual({});
+    expect(heading("## Two ##", 2)).toEqual({ closeAtx: true });
+    const setext = {
+      type: "heading",
+      depth: 1,
+      position: { start: { offset: 0 }, end: { offset: 9 } },
+    };
+    expect(restyled("Title X\n=======\n", "Title\n===", setext)).toBe("Title X\n===\n");
+    expect(restyled("# Title X\n", "Title\n===", setext)).toBe("# Title X\n");
   });
 
   it("reads Milkdown's string spread as remark's boolean", () => {

@@ -24,7 +24,9 @@
  * A block that is edited (one top-level block for one, as typing does) is
  * written in the style its source used where the serializer has a choice
  * ({@link blockStyle}): a `-` or `+` bullet list keeps its marker, an
- * ordered list its `)` and its numbering (`1.` `1.` `1.` stays so).
+ * ordered list its `)` and its numbering (`1.` `1.` `1.` stays so), a
+ * setext heading stays setext (with its underline) and `## x ##` keeps its
+ * closing `##`.
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -52,6 +54,8 @@ export interface MdNode {
   children?: MdNode[];
   /** A list's. */
   ordered?: boolean | null;
+  /** A heading's level. */
+  depth?: number;
 }
 
 /** The parts of a ProseMirror node this module reads. */
@@ -113,14 +117,22 @@ export interface SourceMap {
  * How a block's source spells what the serializer has a choice about, as
  * remark-stringify settings: a bullet list's marker (`-`, `+` or `*`), an
  * ordered list's delimiter (`.` or `)`) and whether its numbers count up
- * (`1.` `2.` `3.`) or repeat (`1.` `1.` `1.`). An edited block written with
+ * (`1.` `2.` `3.`) or repeat (`1.` `1.` `1.`), and whether a level 1 or 2
+ * heading is underlined (setext) or `#` (ATX). An edited block written with
  * these keeps its look; Milkdown wrote every bullet `*`, every ordered list
- * `1.` `2.` `3.`.
+ * `1.` `2.` `3.`, every heading `#`.
  */
 export function blockStyle(original: string, node: MdNode): Record<string, unknown> {
   const style: Record<string, unknown> = {};
   const r = range(node);
   if (!r) return style;
+  if (node.type === "heading") {
+    // A setext heading's source starts with its text, not `#`.
+    const text = original.slice(r.start, r.end);
+    if ((node.depth ?? 0) <= 2 && !/^ {0,3}#/.test(text)) style.setext = true;
+    // `## Title ##`: the closing sequence is kept.
+    else if (/^ {0,3}#{1,6}[ \t].*[ \t]#+[ \t]*$/.test(text)) style.closeAtx = true;
+  }
   if (node.type === "list") {
     const items = (node.children ?? [])
       .map((item) => range(item))
@@ -340,6 +352,21 @@ export function sourceKeeper(ctx: Ctx, original: string): (written: string) => s
   };
 }
 
+/**
+ * `written` (a block as the serializer wrote it in its {@link blockStyle})
+ * with what the settings cannot say put back from the block's source: a
+ * setext heading's underline, at its length (the serializer matches the
+ * text's, so it changed with every edit).
+ */
+export function restyled(written: string, original: string, node: MdNode): string {
+  const r = range(node);
+  if (!r || node.type !== "heading") return written;
+  const underline = /\n( {0,3}([=-])\2*[ \t]*)$/.exec(original.slice(r.start, r.end));
+  const out = /\n([=-])\1*(\n*)$/.exec(written);
+  if (!underline || !out || underline[2] !== out[1]) return written;
+  return `${written.slice(0, out.index)}\n${underline[1]}${out[2]}`;
+}
+
 /** The editor's remark processor: callable for a copy, as unified's are. */
 interface Processor {
   (): Processor;
@@ -373,7 +400,7 @@ function styledSerializer(
     const state = new SerializerState(ctx.get(schemaCtx));
     state.run(doc);
     const tree: MarkdownNode = state.build();
-    return processor.stringify(tree);
+    return restyled(processor.stringify(tree), original, source);
   };
 }
 
