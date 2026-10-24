@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import "../../styles/ai.css";
 import "../../styles/split.css";
 import { linkScroll } from "../../lib/syncScroll";
@@ -75,16 +75,27 @@ export function Shell({ dragOver }: ShellProps) {
   const splitRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
+  // Where each tab's read view was scrolled to, and the tab shown, so that
+  // switching back to a tab returns to the place it was read at: every
+  // switch scrolled to the top, losing the place in a long document.
+  const readScroll = useRef(new Map<string, number>());
+  const shownTab = useRef<string | null>(null);
+
   // In read mode, focus the scroller for keyboard scrolling and reset to top
   // whenever a new document loads or is reloaded. reloadNonce is a deliberate
-  // trigger so the reset re-runs after an external reload.
+  // trigger so the reset re-runs after an external reload. A tab switched
+  // back to goes to where it was. Before paint, and before the scroll event
+  // the new document's height may cause, so that event is the new tab's.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadNonce is a deliberate trigger
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const switched = activeId !== shownTab.current;
+    shownTab.current = activeId;
     if (path && viewMode === "read" && contentRef.current) {
-      contentRef.current.scrollTo({ top: 0 });
+      const back = switched && activeId ? readScroll.current.get(activeId) : undefined;
+      contentRef.current.scrollTo({ top: back ?? 0 });
       contentRef.current.focus({ preventScroll: true });
     }
-  }, [path, viewMode, reloadNonce]);
+  }, [path, viewMode, reloadNonce, activeId]);
 
   // Editors remount (fresh initial content) when the file or disk version changes.
   const docKey = `${path}-${reloadNonce}`;
@@ -137,6 +148,11 @@ export function Shell({ dragOver }: ShellProps) {
         id={DOCUMENT_PANEL_ID}
         className={`app-content${scrolls ? "" : " no-scroll"}`}
         ref={contentRef}
+        onScroll={(e) => {
+          if (scrolls && shownTab.current) {
+            readScroll.current.set(shownTab.current, e.currentTarget.scrollTop);
+          }
+        }}
         tabIndex={-1}
         // With tabs shown, this is the panel the active tab controls.
         role={hasTabs ? "tabpanel" : undefined}

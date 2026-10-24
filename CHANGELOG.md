@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Switching tabs keeps your place in the read view.** Every switch scrolled
+  the read view to the top, so going back to a long document lost where it
+  was being read. A tab switched back to now returns to where it was; a newly
+  opened document still starts at the top.
 - **Opening a recent, search hit or related note that is gone keeps the
   document in view.** A file deleted or moved since the command palette's
   recents, the file search or the AI sidebar's related notes listed it put
