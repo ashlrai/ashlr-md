@@ -679,9 +679,7 @@ describe("handlers integration — edits with save: true", () => {
       }
       return Promise.resolve(undefined);
     });
-    useDocumentStore.setState({ path: null, tabs: [], activeId: null } as Parameters<
-      typeof useDocumentStore.setState
-    >[0]);
+    useDocumentStore.setState({ path: null, tabs: [], activeId: null });
     await useDocumentStore.getState().openPath("/b.md");
     await useDocumentStore.getState().openPath("/a.md");
     invokeMock.mockClear();
