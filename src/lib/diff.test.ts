@@ -443,3 +443,20 @@ describe("applyHunkToContent", () => {
     }
   });
 });
+
+describe("applyHunkToContent keeps the replacement as written", () => {
+  it("does not read `$` patterns and keeps CRLF", () => {
+    // String.replace read `$$` in the replacement as `$`, and `$&` as the
+    // text found.
+    const hunk = { targetFile: null, header: "", find: "x", replace: "$$a$$ $& $'" };
+    expect(applyHunkToContent("1 x 2", hunk)).toEqual({
+      ok: true,
+      newContent: "1 $$a$$ $& $' 2",
+    });
+    const crlf = { targetFile: null, header: "", find: "a\nb", replace: "a\nc" };
+    expect(applyHunkToContent("a\r\nb\r\n", crlf)).toEqual({
+      ok: true,
+      newContent: "a\r\nc\r\n",
+    });
+  });
+});

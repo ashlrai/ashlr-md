@@ -23,7 +23,9 @@ import {
   lintDocument,
   positionFromOffset,
   ruleFrontmatterRequired,
+  ruleInvalidLinkTarget,
   ruleMaxHeadingDepth,
+  ruleMissingAltText,
   ruleNoBareUrls,
   ruleNoConsecutiveBlankLines,
   ruleNoEmptyHeadings,
@@ -300,6 +302,12 @@ describe("rule:no-bare-urls", () => {
     expect(violations).toHaveLength(1);
   });
 
+  it("passes a URL in indented code", () => {
+    // Indented code is code, as fenced code is; its URL used to be flagged.
+    const doc = "Run:\n\n    curl https://example.com/x\n";
+    expect(lintDocument(doc, { rules: [ruleNoBareUrls] })).toHaveLength(0);
+  });
+
   it("reports correct range for a bare URL", () => {
     const doc = "Go to https://example.com now.\n";
     const violations = lintDocument(doc, { rules: [ruleNoBareUrls] });
@@ -409,6 +417,26 @@ describe("rule:max-heading-depth", () => {
 // ─── 3f. Rule: wikilink-targets-exist ────────────────────────────────────────
 
 describe("rule:wikilink-targets-exist", () => {
+  it("skips wikilinks in code spans and indented code", () => {
+    // The page shows them as code, and export_metadata leaves them out;
+    // they used to be reported.
+    const doc =
+      "Use `[[Missing]]` or ``a [[Gone]] ` b``.\n\n    [[Code]]\n\nSee [[Real]].\n";
+    const v = lintDocument(doc, {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(v.map((x) => x.message)).toEqual(['Wikilink target not found: "Real"']);
+    expect(doc.slice(v[0].range!.from.offset, v[0].range!.to.offset)).toBe("[[Real]]");
+    expect(v[0].range!.from.line).toBe(5);
+    // An unclosed backtick is text, so the link after it is one.
+    const open = lintDocument("a ` [[Open]]\n", {
+      rules: [ruleWikilinkTargetsExist],
+      knownTargets: new Set<string>(),
+    });
+    expect(open).toHaveLength(1);
+  });
+
   it("passes when all wikilinks are in knownTargets", () => {
     const doc = "See [[MyNote]] and [[Other Note]].\n";
     const knownTargets = new Set(["MyNote", "Other Note"]);
@@ -911,5 +939,42 @@ describe("heading rules read setext headings", () => {
     expect(
       lintDocument(doc, { rules: [ruleSingleH1, ruleOrphanedHeading] }),
     ).toHaveLength(0);
+  });
+});
+
+// ─── Fixes keep code, line breaks and the rest of the document ──────────────
+
+describe("lint fixes leave code and line breaks alone", () => {
+  const fixAll = (doc: string, rules: Parameters<typeof lintDocument>[1]) =>
+    applyAllFixes(doc, lintDocument(doc, rules));
+
+  it("flags no link or image in code", () => {
+    // The link and image rules read the raw document, so a code sample was
+    // flagged and its fix rewrote the code.
+    const doc = "```md\n[x](#) and ![](a.png)\n```\n\n    ![](b.png)\n\n`[y]()` text\n";
+    const rules = { rules: [ruleInvalidLinkTarget, ruleMissingAltText] };
+    expect(lintDocument(doc, rules)).toHaveLength(0);
+    expect(lintDocument("See [x](#) and ![](c.png).\n", rules)).toHaveLength(2);
+  });
+
+  it("reads trailing spaces before a CRLF and keeps them in code", () => {
+    const rules = { rules: [ruleNoTrailingSpaces] };
+    expect(fixAll("a   \r\nb\r\n", rules)).toBe("a\r\nb\r\n");
+    const code = "```\nx   \n```\n";
+    expect(lintDocument(code, rules)).toHaveLength(0);
+  });
+
+  it("collapses only the flagged blank lines, not code's", () => {
+    const rules = { rules: [ruleNoConsecutiveBlankLines] };
+    // Every run of `\n`s was collapsed, in code too, and `\r\n` runs and
+    // blank lines holding spaces were not.
+    expect(fixAll("```\na\n\n\n\nb\n```\n", rules)).toBe("```\na\n\n\n\nb\n```\n");
+    expect(fixAll("a\r\n\r\n\r\n\r\nb\r\n", rules)).toBe("a\r\n\r\nb\r\n");
+    expect(fixAll("a\n\n  \n\nb\n\n\n\nc\n", rules)).toBe("a\n\nb\n\nc\n");
+  });
+
+  it("adds front matter in the document's line breaks", () => {
+    const fixed = fixAll("# T\r\n", { rules: [ruleFrontmatterRequired] });
+    expect(fixed).toBe("---\r\ntitle: \r\ntags: []\r\n---\r\n\r\n# T\r\n");
   });
 });

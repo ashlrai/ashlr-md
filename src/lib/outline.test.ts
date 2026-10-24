@@ -50,7 +50,7 @@ describe("parseHeadings", () => {
     expect(markdownLines(doc).map((l) => l.kind)).toEqual([
       "text",
       "text",
-      "text",
+      "indented",
       "text",
       "text",
       "text",
@@ -388,7 +388,7 @@ describe("parseHeadings", () => {
       "fence",
       "code",
       "text",
-      "text",
+      "indented",
       "text",
     ]);
     expect(parseHeadings(doc).map((h) => h.text)).not.toContain("comment");
@@ -429,7 +429,7 @@ describe("parseHeadings", () => {
     ]);
     expect(kinds(["- > ```", "  # out"])).toEqual(["f", "t"]);
     // Four spaces past the item's text is indented code, not a fence.
-    expect(kinds(["- a", "", "      ```", "  # h"])).toEqual(["t", "t", "t", "t"]);
+    expect(kinds(["- a", "", "      ```", "  # h"])).toEqual(["t", "t", "i", "t"]);
     // A line less indented than the item's text after a blank line ends it.
     expect(kinds(["- a", "", "b", "", "  ```", "x"])).toEqual([
       "t",
@@ -506,6 +506,74 @@ describe("parseHeadings", () => {
     // heading, so it takes no slug before them.
     expect(parseHeadings("[^n]: # Note\n\n# Note").map((h) => h.slug)).toEqual([
       "note",
+    ]);
+  });
+
+  it("reads no setext heading of link reference definitions", () => {
+    // Definitions alone leave no paragraph to make a heading of, so an
+    // underline after them starts one, which a lone tag cannot interrupt,
+    // as remark-gfm reads it. It used to end the paragraph as a heading, so
+    // the `</u>` after it opened an HTML block that hid the heading below.
+    for (const doc of [
+      "[a]: /u\n===\n</u>\n# Title",
+      "[a]: /u\n--\n</u>\n# Title",
+      "[a]: /u\n- \n</u>\n# Title",
+      '[a]:\n/u\n"t"\n===\n</u>\n# Title',
+    ]) {
+      expect(
+        parseHeadings(doc).map((h) => h.slug),
+        doc,
+      ).toEqual(["title"]);
+      expect(
+        markdownLines(doc).some((l) => l.setext || l.kind === "html"),
+        doc,
+      ).toBe(false);
+    }
+    // A heading after definitions has only the paragraph's own lines, so a
+    // later `# Title` is `title-1` in the page, not `title`.
+    expect(parseHeadings("[a]: /u\nTitle\n===\n\n# Title").map((h) => h.slug)).toEqual([
+      "title-1",
+    ]);
+    // A `---` line there is a thematic break.
+    expect(markdownLines("[a]: /u\n---").some((l) => l.setext)).toBe(false);
+  });
+
+  it("marks indented code as indented", () => {
+    // The rule of mdopener-mcp's `with_indented_code`: four columns past
+    // the line's containers, not going on with a paragraph. It used to be
+    // `text`, so callers reading Markdown on text lines read it in code.
+    const kinds = (doc: string) => markdownLines(doc).map((l) => l.kind);
+    expect(kinds("    # code\n\n    more\nx")).toEqual([
+      "indented",
+      "text",
+      "indented",
+      "text",
+    ]);
+    expect(kinds("para\n    more")).toEqual(["text", "text"]);
+    expect(kinds("- a\n\n      code\n  text")).toEqual([
+      "text",
+      "text",
+      "indented",
+      "text",
+    ]);
+    expect(kinds(">     [[x]]")).toEqual(["indented"]);
+  });
+
+  it("reads a $$ math block as fenced code", () => {
+    // The page renders it with remark-math, which reads it as fenced code
+    // is read; its `# x` lines used to be listed and take slugs.
+    expect(parseHeadings("$$\n# not\n$$\n# Real").map((h) => h.text)).toEqual(["Real"]);
+    expect(markdownLines("> $$ m\n> x\n> $$$\ny").map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "fence",
+      "text",
+    ]);
+    // `$$x$$` is inline math, and `$` alone is text.
+    expect(markdownLines("$$x$$\n$\n# h").map((l) => l.kind)).toEqual([
+      "text",
+      "text",
+      "text",
     ]);
   });
 });

@@ -19,6 +19,7 @@ import {
   atxHeading,
   type MarkdownLine,
   markdownLines,
+  maskCodeSpans,
 } from "./outline";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -218,7 +219,11 @@ export const ruleFrontmatterRequired: LintRule = {
         message: "Document is missing a frontmatter block.",
         severity: "warning",
         range: null,
-        fix: (d) => `---\ntitle: \ntags: []\n---\n\n${d}`,
+        // In the document's line breaks: a CRLF file got LF lines.
+        fix: (d) => {
+          const eol = d.includes("\r\n") ? "\r\n" : "\n";
+          return ["---", "title: ", "tags: []", "---", "", d].join(eol);
+        },
       },
     ];
   },
@@ -262,7 +267,7 @@ export const ruleMaxHeadingDepth: LintRule = {
  * A "bare URL" is a URL that is:
  *   - not inside a markdown link: [text](url)
  *   - not inside an angle-bracket autolink: <url>
- *   - not inside a code span or fenced block
+ *   - not inside a code span, a fenced block or indented code
  */
 export const ruleNoBareUrls: LintRule = {
   id: "no-bare-urls",
@@ -277,7 +282,7 @@ export const ruleNoBareUrls: LintRule = {
 
     // Match bare URLs: starts with http:// or https://, not preceded by ( or <
     // and not followed by ) (which would mean it's already in a link)
-    const URL_RE = /(?<![(<[])(https?:\/\/[^\s<>)"'\]]+)/g;
+    const URL_RE = /(?<![(<[])(https?:\/\/[^\s<>)"'\]\0]+)/g;
     for (const m of stripped.matchAll(URL_RE)) {
       const url = m[1];
       const from = m.index;
@@ -313,25 +318,38 @@ export const ruleWikilinkTargetsExist: LintRule = {
     // One line, as Obsidian reads a link: an alias or heading used to run
     // across newlines to a `]]` lines later.
     const WIKI_RE = /\[\[([^\]|#\r\n]+?)(?:[|#][^\]\r\n]*?)?\]\]/g;
-    // Fenced code is skipped, as export_metadata skips it: a `[[x]]` in a
-    // code sample used to be reported. A front matter property such as
-    // `related: "[[Plan]]"` is a link, as Obsidian and export_metadata read
-    // it, and a front matter line never opens a fence.
-    for (const l of markdownLines(doc)) {
-      if (l.kind !== "text" && l.kind !== "frontmatter") continue;
-      for (const m of l.text.matchAll(WIKI_RE)) {
-        const target = m[1].trim();
-        if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
-        const from = l.start + m.index;
-        const to = from + m[0].length;
-        violations.push({
-          ruleId: "wikilink-targets-exist",
-          message: `Wikilink target not found: "${target}"`,
-          severity: "error",
-          range: range(doc, from, to),
-          fix: null, // can't auto-create the missing file
-        });
-      }
+    // Fenced and indented code and code spans are skipped, as
+    // export_metadata skips them: a `[[x]]` in a code sample used to be
+    // reported, and one in indented code or a code span still was. A front
+    // matter property such as `related: "[[Plan]]"` is a link, as Obsidian
+    // and export_metadata read it, and a front matter line never opens a
+    // fence.
+    const lines = markdownLines(doc).filter(
+      (l) => l.kind === "text" || l.kind === "frontmatter",
+    );
+    const text = maskCodeSpans(lines.map((l) => l.text).join("\n"));
+    // Where each line starts in `text`.
+    const starts: number[] = [];
+    let at = 0;
+    for (const l of lines) {
+      starts.push(at);
+      at += l.text.length + 1;
+    }
+    for (const m of text.matchAll(WIKI_RE)) {
+      const target = m[1].trim();
+      if (knownTargets.has(target) || knownTargets.has(`${target}.md`)) continue;
+      // The pattern holds no line break, so the link is on one line.
+      let i = starts.length - 1;
+      while (starts[i] > m.index) i--;
+      const from = lines[i].start + m.index - starts[i];
+      const to = from + m[0].length;
+      violations.push({
+        ruleId: "wikilink-targets-exist",
+        message: `Wikilink target not found: "${target}"`,
+        severity: "error",
+        range: range(doc, from, to),
+        fix: null, // can't auto-create the missing file
+      });
     }
     return violations;
   },
@@ -375,11 +393,16 @@ export const ruleNoTrailingSpaces: LintRule = {
   check({ doc, lines }): LintViolation[] {
     const violations: LintViolation[] = [];
     let offset = 0;
-    for (const line of lines) {
+    // Code keeps its spaces: the fix used to take them off code lines.
+    const kinds = markdownLines(doc);
+    for (const [i, line] of lines.entries()) {
       // Allow exactly two trailing spaces (Markdown hard line break).
-      // Match any trailing whitespace run, then skip if it is exactly two spaces.
-      const m = line.match(/ +$/);
-      if (m && m[0].length !== 2) {
+      // Match any trailing whitespace run, then skip if it is exactly two
+      // spaces. A CRLF line's spaces come before its `\r`; they used to be
+      // missed.
+      const m = line.match(/ +(?=\r?$)/);
+      const code = kinds[i]?.kind === "code" || kinds[i]?.kind === "indented";
+      if (m && m[0].length !== 2 && !code) {
         const trailStart = offset + m.index!;
         const trailEnd = trailStart + m[0].length;
         // Capture offset and line by value in a const so the fix closure
@@ -394,7 +417,7 @@ export const ruleNoTrailingSpaces: LintRule = {
           fix: (d) => {
             const cleaned = d
               .slice(lineStart, lineEnd)
-              .replace(/ +$/, (s) => (s.length === 2 ? s : ""));
+              .replace(/ +(?=\r?$)/, (s) => (s.length === 2 ? s : ""));
             return d.slice(0, lineStart) + cleaned + d.slice(lineEnd);
           },
         });
@@ -452,24 +475,32 @@ export const ruleNoConsecutiveBlankLines: LintRule = {
     let offset = 0;
     let blankRun = 0;
     let blankRunStart = 0;
+    // Where the run's second blank line starts.
+    let secondBlank = 0;
+    // Blank lines in code are code, not gaps between sections.
+    const kinds = markdownLines(doc);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (line.trim() === "") {
+      const kind = kinds[i]?.kind;
+      if (line.trim() === "" && kind !== "code" && kind !== "indented") {
         if (blankRun === 0) blankRunStart = offset;
+        if (blankRun === 1) secondBlank = offset;
         blankRun++;
       } else {
         if (blankRun > 1) {
           // The run covers blankRunStart .. offset-1 (the \n before current line)
+          const from = secondBlank;
+          const to = offset;
           violations.push({
             ruleId: "no-consecutive-blank-lines",
             message: `${blankRun} consecutive blank lines (max 1).`,
             severity: "info",
             range: range(doc, blankRunStart, offset - 1),
-            fix: (d) => {
-              // Collapse any run of 2+ blank lines to a single blank line
-              return d.replace(/\n{3,}/g, "\n\n");
-            },
+            // This run keeps its first blank line. The fix used to collapse
+            // every run of `\n`s in the document, in code blocks too, and
+            // none of `\r\n`s or of lines holding spaces.
+            fix: (d) => d.slice(0, from) + d.slice(to),
           });
         }
         blankRun = 0;
@@ -532,7 +563,9 @@ export const ruleInvalidLinkTarget: LintRule = {
     const violations: LintViolation[] = [];
     // Match [text](href) — capture the full match so we can compute offset
     const LINK_RE = /\[([^\]]*?)\]\(([^)]*)\)/g;
-    for (const m of doc.matchAll(LINK_RE)) {
+    // Not in code, front matter or HTML blocks (stripCodeBlocks).
+    for (const m of stripCodeBlocks(doc).matchAll(LINK_RE)) {
+      if (m[0].includes("\0")) continue;
       const href = m[2];
       // Consider invalid: empty, whitespace-only, lone "#", lone "?"
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
@@ -570,7 +603,9 @@ export const ruleMissingAltText: LintRule = {
     const violations: LintViolation[] = [];
     // Match ![alt](src) — alt may be empty
     const IMG_RE = /!\[([^\]]*?)\]\([^)]+\)/g;
-    for (const m of doc.matchAll(IMG_RE)) {
+    // Not in code, front matter or HTML blocks (stripCodeBlocks).
+    for (const m of stripCodeBlocks(doc).matchAll(IMG_RE)) {
+      if (m[0].includes("\0")) continue;
       const alt = m[1];
       if (/^\s*$/.test(alt)) {
         const from = m.index;
@@ -693,19 +728,22 @@ export function applyFix(doc: string, violation: LintViolation): string {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
- * Replace front matter, fenced code blocks and inline code spans with
- * spaces so URL/link rules don't flag content inside code or a property
- * (where the autofix would break the YAML). Preserves character offsets
- * and line breaks. Fences are read by markdownLines (outline.ts), as the
- * outline and mdopener-mcp read them: a regex used to blank only from a
- * ``` to the next ```, so a `~~~` block was linted and a ```` block
- * holding ``` ended early.
+ * `doc` with front matter, fenced and indented code, HTML blocks and code
+ * spans replaced by NULs, so the URL, link and image rules neither flag
+ * content inside code or a property nor match across it (where an autofix
+ * would break the code or the YAML). Preserves character offsets and line
+ * breaks. Lines are read by markdownLines (outline.ts) and code spans by
+ * maskCodeSpans, as the outline and mdopener-mcp read them. Spans used to
+ * be one backtick on one line, so ``` `` a`b `` ``` was linted, and the
+ * link and image rules read the raw document, so a `[x](#)` or `![](a.png)`
+ * in a code sample was flagged and its fix rewrote the code.
  */
 function stripCodeBlocks(doc: string): string {
-  let result = markdownLines(doc)
-    .map((l) => (l.kind === "text" ? l.text : " ".repeat(l.text.length)))
+  const text = markdownLines(doc)
+    .map((l) => (l.kind === "text" ? l.text : l.text.replace(/[^\r]/g, "\0")))
     .join("\n");
-  // Replace inline code (`...`) with spaces
-  result = result.replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
-  return result;
+  const spans = maskCodeSpans(text);
+  let out = "";
+  for (let i = 0; i < text.length; i++) out += spans[i] === text[i] ? text[i] : "\0";
+  return out;
 }

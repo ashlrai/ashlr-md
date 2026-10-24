@@ -23,7 +23,8 @@ const WORDS_PER_MINUTE = 220;
  * `#`s, by the line rule of the Outline and the task checkboxes
  * ({@link markdownLines}). Front matter, fences and fenced code (also in a
  * blockquote or a list item, and closed only by the same character at least
- * as long), setext underlines and thematic breaks are left out. Fences used
+ * as long), indented code, setext underlines and thematic breaks are left
+ * out. Fences used
  * to be any line starting with three backticks or tildes, closed by any
  * later one of the same character, so a longer fence holding a shorter one
  * ended early and a quoted fence was counted; list and quote markers

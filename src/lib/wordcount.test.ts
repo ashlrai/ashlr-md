@@ -45,4 +45,12 @@ describe("computeDocStats", () => {
     expect(computeDocStats("- item one\n> quoted text\n# Title").words).toBe(5);
     expect(computeDocStats("  ---\nkept\n---\n").words).toBe(1);
   });
+
+  it("counts no words in indented code", () => {
+    // Indented code is code, as fenced code is; its words used to count.
+    expect(computeDocStats("para\n\n    const x = 1;\n\nend").words).toBe(2);
+    expect(computeDocStats("- a\n\n      code in item\n").words).toBe(1);
+    // A line indented four spaces that goes on with a paragraph is text.
+    expect(computeDocStats("para\n    more").words).toBe(2);
+  });
 });

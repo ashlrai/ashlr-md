@@ -18,6 +18,7 @@
  */
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { markdownLines, maskCodeSpans } from "./outline";
 
 // ── Regex patterns ─────────────────────────────────────────────────────────────
 
@@ -49,19 +50,40 @@ export interface ImageRef {
 // ── Pure helpers ───────────────────────────────────────────────────────────────
 
 /**
+ * `markdown` with every character the page does not read as Markdown text
+ * replaced by a NUL, line breaks kept, so offsets stay: front matter,
+ * fenced and indented code and HTML blocks (by the Outline's line rule,
+ * {@link markdownLines}), and code spans ({@link maskCodeSpans}).
+ */
+function maskNonText(markdown: string): string {
+  const text = markdownLines(markdown)
+    .map((l) => (l.kind === "text" ? l.text : l.text.replace(/[^\r]/g, "\0")))
+    .join("\n");
+  const spans = maskCodeSpans(text);
+  let out = "";
+  for (let i = 0; i < text.length; i++) out += spans[i] === text[i] ? text[i] : "\0";
+  return out;
+}
+
+/**
  * Extract all image references (wiki-embed and standard) from `markdown` in
- * document order.
+ * document order. One in front matter, code or an HTML block is none: the
+ * page renders no image for it, and it used to be counted, so a drag moved
+ * the image after the one dropped and rewrote the code.
  */
 export function extractImageRefs(markdown: string): ImageRef[] {
   const refs: ImageRef[] = [];
+  const masked = maskNonText(markdown);
 
   WIKI_IMAGE_RE.lastIndex = 0;
-  for (const m of markdown.matchAll(WIKI_IMAGE_RE)) {
+  for (const m of masked.matchAll(WIKI_IMAGE_RE)) {
+    if (m[0].includes("\0")) continue;
     refs.push({ token: m[0], offset: m.index ?? 0, kind: "wiki" });
   }
 
   MD_IMAGE_RE.lastIndex = 0;
-  for (const m of markdown.matchAll(MD_IMAGE_RE)) {
+  for (const m of masked.matchAll(MD_IMAGE_RE)) {
+    if (m[0].includes("\0")) continue;
     refs.push({ token: m[0], offset: m.index ?? 0, kind: "standard" });
   }
 
@@ -111,13 +133,16 @@ export function reorderImageInMarkdown(
   const effectiveTo = from < to ? to - 1 : to;
   const clampedTo = Math.max(0, Math.min(effectiveTo, refsAfterRemoval.length));
 
+  // A CRLF document keeps its line breaks.
+  const eol = markdown.includes("\r\n") ? "\r\n" : "\n";
+
   if (clampedTo >= refsAfterRemoval.length) {
     // Append after the last remaining image ref.
     const last = refsAfterRemoval[refsAfterRemoval.length - 1];
     const insertAt = last.offset + last.token.length;
     return (
       withoutDragged.slice(0, insertAt) +
-      "\n" +
+      eol +
       dragged.token +
       withoutDragged.slice(insertAt)
     );
@@ -127,7 +152,7 @@ export function reorderImageInMarkdown(
   return (
     withoutDragged.slice(0, insertAt) +
     dragged.token +
-    "\n" +
+    eol +
     withoutDragged.slice(insertAt)
   );
 }

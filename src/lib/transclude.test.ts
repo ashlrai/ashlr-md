@@ -61,6 +61,23 @@ describe("extractSection", () => {
     expect(extractSection(doc, "Nope")).toBe(doc);
   });
 
+  it("finds a block id only on a text line", () => {
+    // A `^id` in front matter or code is not a block id; it used to be
+    // found there, and the block ran back over the lines above it.
+    const doc = [
+      "---",
+      "note: x ^abc",
+      "---",
+      "```",
+      "code ^abc",
+      "```",
+      "Real block. ^abc",
+    ].join("\n");
+    expect(extractSection(doc, "^abc")).toBe("Real block.");
+    expect(extractSection("    code ^c\n\nText", "^c")).toBe("    code ^c\n\nText");
+    expect(extractSection("A\r\nB ^d\r\n", "^d")).toBe("A\r\nB");
+  });
+
   it("extracts a block by ^id and strips the marker", () => {
     const blockDoc = ["A paragraph.", "", "Target block. ^xyz", "", "Another."].join(
       "\n",

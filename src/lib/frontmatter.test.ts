@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { joinFrontmatter, splitFrontmatter, stripFrontmatter } from "./frontmatter";
+import {
+  inLineBreaks,
+  joinFrontmatter,
+  splitFrontmatter,
+  stripFrontmatter,
+  usesCrlf,
+} from "./frontmatter";
 
 describe("frontmatter", () => {
   it("splits a frontmatter block from the body", () => {
@@ -89,5 +95,22 @@ describe("frontmatter", () => {
       expect(frontmatter === "", JSON.stringify(raw)).toBe(offset === 0);
       expect(joinFrontmatter(frontmatter, body)).toBe(raw);
     }
+  });
+});
+
+describe("the visual editor's line breaks", () => {
+  it("writes the body of a CRLF file in CRLF", () => {
+    // Crepe writes LF, so an edited CRLF file was saved with CRLF front
+    // matter and an LF body.
+    const raw = "---\r\na: 1\r\n---\r\n# T\r\n\r\nx\r\n";
+    const { frontmatter } = splitFrontmatter(raw);
+    const crlf = usesCrlf(raw);
+    expect(crlf).toBe(true);
+    expect(joinFrontmatter(frontmatter, inLineBreaks("# T\n\ny\n", crlf))).toBe(
+      "---\r\na: 1\r\n---\r\n# T\r\n\r\ny\r\n",
+    );
+    expect(usesCrlf("a\nb")).toBe(false);
+    expect(usesCrlf("a\r\nb\nc")).toBe(false);
+    expect(inLineBreaks("a\nb", false)).toBe("a\nb");
   });
 });

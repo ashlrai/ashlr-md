@@ -19,6 +19,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type ParsedHunk, parseDiffHunks } from "../../lib/diff";
+import { apply } from "../../lib/ot";
 import { buildHunkLines, buildHunkOp, buildInverseHunkOp } from "./DiffBlock";
 
 // ---------------------------------------------------------------------------
@@ -691,5 +692,16 @@ describe("OT op component structure", () => {
       else if (c.type === "delete") covered += c.count;
     }
     expect(covered).toBe(replaced.length);
+  });
+});
+
+describe("buildHunkOp in a CRLF document", () => {
+  it("finds and applies the hunk in the document's line breaks", () => {
+    // The hunk's lines are joined by `\n`, so it was never found in a CRLF
+    // document.
+    const content = "a\r\nb\r\nc\r\n";
+    const op = buildHunkOp(content, "a\nb", "a\nB\nb2", "agent", {}, 1);
+    expect(op).not.toBeNull();
+    expect(apply(content, op!)).toBe("a\r\nB\r\nb2\r\nc\r\n");
   });
 });

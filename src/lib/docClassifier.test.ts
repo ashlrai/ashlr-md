@@ -656,4 +656,15 @@ describe("classify: code is not structure", () => {
     expect(classify("--- \nkind: runbook\n---\t\nBody")).toBe("RUNBOOK");
     expect(classify("---\nkind: runbook\n--- not a close\n")).toBe("GENERIC");
   });
+
+  it("does not read a $$ math block as code", () => {
+    // The line rule reads a math block as fenced code is read, but its
+    // lines are TeX, not code, so they do not make a note a runbook.
+    const tex = Array.from({ length: 12 }, (_, i) => `e^{i\\pi} + ${i} = ${i}`).join(
+      "\n",
+    );
+    const doc = `# Euler\n\nThe identity:\n\n$$\n${tex}\n$$\n`;
+    expect(classify(doc)).toBe("GENERIC");
+    expect(classify(doc.replace(/\$\$/g, "```"))).toBe("RUNBOOK");
+  });
 });

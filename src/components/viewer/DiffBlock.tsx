@@ -26,7 +26,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ParsedHunk, parseDiffHunks } from "../../lib/diff";
+import { inLineBreaksOf, type ParsedHunk, parseDiffHunks } from "../../lib/diff";
 import {
   del,
   insert,
@@ -59,6 +59,8 @@ export function buildHunkOp(
   seq: number,
 ): OtOperation | null {
   if (find === replace) return null; // no-op
+  // In a CRLF document the hunk's lines take `\r\n` (inLineBreaksOf).
+  ({ find, replace } = inLineBreaksOf(content, find, replace));
   const offset = content.indexOf(find);
   if (offset === -1) return null;
   // Ambiguity check — second occurrence must not exist.
@@ -207,7 +209,9 @@ function DiffHunkActions({
         );
         if (!op) {
           // Ambiguous or not found.
-          const occurrences = content.split(hunk.find).length - 1;
+          const occurrences =
+            content.split(inLineBreaksOf(content, hunk.find, hunk.replace).find)
+              .length - 1;
           if (occurrences === 0) {
             toast.error("Patch not found: the document may have already changed.");
           } else {

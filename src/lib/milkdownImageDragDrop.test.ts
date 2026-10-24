@@ -284,3 +284,46 @@ describe("makeDragDropPlugin — DOM event wiring", () => {
     expect(onReorder).not.toHaveBeenCalled();
   });
 });
+
+describe("image refs read as the page reads them", () => {
+  it("leaves out images in code, code spans and HTML blocks", () => {
+    // The page renders no image for them, so the rendered images' indices
+    // used to point one image off and a drag rewrote the code sample.
+    const md = [
+      "![](a.png)",
+      "",
+      "```md",
+      "![](code.png)",
+      "```",
+      "",
+      "`![[span.png]]` and ![[b.png]]",
+      "",
+      "    ![](indented.png)",
+      "",
+      "<div>",
+      "![](html.png)",
+      "</div>",
+      "",
+      "![](c.png)",
+    ].join("\n");
+    expect(extractImageRefs(md).map((r) => r.token)).toEqual([
+      "![](a.png)",
+      "![[b.png]]",
+      "![](c.png)",
+    ]);
+    const moved = reorderImageInMarkdown(md, 2, 0);
+    expect(moved).toContain("```md\n![](code.png)\n```");
+    expect(extractImageRefs(moved).map((r) => r.token)).toEqual([
+      "![](c.png)",
+      "![](a.png)",
+      "![[b.png]]",
+    ]);
+  });
+
+  it("keeps CRLF line breaks", () => {
+    const md = "![](a.png)\r\n\r\n![](b.png)\r\n";
+    const moved = reorderImageInMarkdown(md, 1, 0);
+    expect(moved).toBe("![](b.png)\r\n![](a.png)\r\n\r\n\r\n");
+    expect(moved.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+});

@@ -543,6 +543,26 @@ describe("classifySection", () => {
     expect(classifySection(doc, afterCode)).toBe("prose");
   });
 
+  it("reads fences and front matter by the page's rule", () => {
+    // Every line starting with three backticks or tildes toggled code, and
+    // front matter ended at any later line starting with `---`.
+    const long = "````\n```\ncode\n````\nprose";
+    expect(classifySection(long, long.indexOf("code"))).toBe("code");
+    expect(classifySection(long, long.indexOf("prose"))).toBe("prose");
+    const tilde = "```\n~~~\ncode\n```\nprose";
+    expect(classifySection(tilde, tilde.indexOf("code"))).toBe("code");
+    expect(classifySection(tilde, tilde.indexOf("prose"))).toBe("prose");
+    const quoted = "> ```\n> code\n";
+    expect(classifySection(quoted, quoted.indexOf("code"))).toBe("code");
+    const fm = "---\na: 1\n----\nb: 2\n...\nprose";
+    expect(classifySection(fm, fm.indexOf("b: 2"))).toBe("frontmatter");
+    expect(classifySection(fm, fm.indexOf("prose"))).toBe("prose");
+    const crlf = "---\r\na: 1\r\n---\r\n```\r\ncode\r\n```\r\nprose";
+    expect(classifySection(crlf, crlf.indexOf("a: 1"))).toBe("frontmatter");
+    expect(classifySection(crlf, crlf.indexOf("code"))).toBe("code");
+    expect(classifySection(crlf, crlf.indexOf("prose"))).toBe("prose");
+  });
+
   it("handles offsets at 0 and doc.length without throwing", () => {
     const doc = "hello";
     expect(() => classifySection(doc, 0)).not.toThrow();

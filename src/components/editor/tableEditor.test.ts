@@ -704,3 +704,57 @@ describe("HTML export — table structure preserved in serialized Markdown", () 
     expect(getCellContent(updated, 0, 0)).toBe("Alice");
   });
 });
+
+// ─── 10. Reading tables as the page does ─────────────────────────────────────
+
+describe("tables read by the page's rules", () => {
+  const add = { kind: "insertRow", atIndex: 0, below: true } as const;
+
+  it("keeps the line break and the blank line after the table", () => {
+    // The table's range took the line break after its last row, and the
+    // rewritten table has none, so the next line joined the table.
+    const doc = "| a | b |\n| - | - |\n| 1 | 2 |\n\nnext\n";
+    expect(applyTableEdit(doc, 2, add)).toBe(
+      "| a | b |\n| --- | --- |\n| 1 | 2 |\n|  |  |\n\nnext\n",
+    );
+    expect(applyTableEdit("| a |\n| - |\n# h\n", 2, add)).toBe(
+      "| a |\n| --- |\n|  |\n# h\n",
+    );
+  });
+
+  it("keeps CRLF line breaks", () => {
+    const doc = "| a |\r\n| - |\r\n| 1 |\r\n\r\nnext\r\n";
+    expect(applyTableEdit(doc, 2, add)).toBe(
+      "| a |\r\n| --- |\r\n| 1 |\r\n|  |\r\n\r\nnext\r\n",
+    );
+  });
+
+  it("finds no table in front matter, code, a setext heading or a break", () => {
+    for (const doc of [
+      "---\ntitle: x\n---\n\nBody",
+      "```\na | b\n--- | ---\n```\n",
+      "    a | b\n    --- | ---\n",
+      "Title\n---\n",
+      "a | b\n- - -\n",
+      "| a | b |\n| - |\n",
+    ]) {
+      expect(isInsideTable(doc, 2), doc).toBe(false);
+      expect(applyTableEdit(doc, 2, add), doc).toBe(doc);
+    }
+    // A delimiter row needs a pipe, and then a one-cell table is one.
+    expect(isInsideTable("a\n|---\n", 0)).toBe(true);
+  });
+
+  it("ends the table at a line that starts another block", () => {
+    const doc = "| a |\n| - |\n| 1 |\n- item\n";
+    expect(findTableRange(doc, 0)?.source).toBe("| a |\n| - |\n| 1 |");
+    // A row without pipes is still a row, as GFM reads it.
+    expect(findTableRange("| a |\n| - |\nnext", 0)?.source).toBe("| a |\n| - |\nnext");
+  });
+
+  it("does not split a cell at an escaped pipe", () => {
+    const t = parseTable("| a \\| b | c |\n| - | - |\n| 1 | 2 |");
+    expect(t.headers).toEqual(["a \\| b", "c"]);
+    expect(serializeTable(t)).toBe("| a \\| b | c |\n| --- | --- |\n| 1 | 2 |");
+  });
+});

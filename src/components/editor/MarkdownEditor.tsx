@@ -25,7 +25,12 @@ import {
   detectListContext,
   isUrl,
 } from "../../lib/editorShortcuts";
-import { joinFrontmatter, splitFrontmatter } from "../../lib/frontmatter";
+import {
+  inLineBreaks,
+  joinFrontmatter,
+  splitFrontmatter,
+  usesCrlf,
+} from "../../lib/frontmatter";
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
@@ -352,8 +357,11 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
     lastBodyRef.current = body;
 
     const crepe = new Crepe({ root, defaultValue: body });
+    // A CRLF file keeps its line breaks (Crepe writes LF).
+    const crlf = usesCrlf(initialContent);
     crepe.on((api) => {
-      api.markdownUpdated((_ctx, markdown) => {
+      api.markdownUpdated((_ctx, written) => {
+        const markdown = inLineBreaks(written, crlf);
         // Ignore no-op echoes; only propagate real content changes.
         if (markdown === lastBodyRef.current) return;
         lastBodyRef.current = markdown;
@@ -406,7 +414,11 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           const resolvedPos = doc.resolve(pos);
           const lineStart = resolvedPos.start();
           const lineText = doc.textBetween(lineStart, pos, "\n");
-          const listCtx = detectListContext(lineText);
+          // Not in a code block, whose `- x` lines are code: Enter there
+          // used to add a list marker to the code.
+          const listCtx = resolvedPos.parent.type.spec.code
+            ? null
+            : detectListContext(lineText);
           if (listCtx) {
             e.preventDefault();
             const continuation = continueList(listCtx);

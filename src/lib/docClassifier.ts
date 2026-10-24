@@ -221,12 +221,21 @@ function checklistDensity(content: string): number {
  * Returns a value in [0, 1]. Fenced code is read by the line rule of the
  * Outline ({@link markdownLines}): a line starting with three backticks used
  * to toggle "in code", so a `~~~` block, a quoted fence and a ```` block
- * holding ``` were misread.
+ * holding ``` were misread. A `$$` math block is read as a fence too, but
+ * it is not code, so its lines are left out.
  */
 function codeBlockDensity(lines: MarkdownLine[]): number {
   const total = lines.length;
   if (total === 0) return 0;
-  return lines.filter((l) => l.kind === "code").length / total;
+  // Every block of code opens at a fence line, so the last fence line
+  // before a code line opens its block.
+  let math = false;
+  let code = 0;
+  for (const l of lines) {
+    if (l.kind === "fence") math = l.content.trimStart().startsWith("$");
+    else if (l.kind === "code" && !math) code++;
+  }
+  return code / total;
 }
 
 // ---------------------------------------------------------------------------

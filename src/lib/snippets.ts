@@ -32,6 +32,7 @@ import {
 } from "@codemirror/autocomplete";
 import { type Extension, StateEffect } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
+import { markdownLines } from "./outline";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,47 +56,21 @@ export interface UserSnippet {
 // ---------------------------------------------------------------------------
 
 /**
- * Return true when `pos` is inside a fenced code block (``` or ~~~) in `doc`.
- *
- * We scan backward from `pos` for an opening fence and forward (or to EOF) for
- * a closing fence.  If we find an opener with no closer before `pos`, the
- * cursor is inside a fence.
- *
- * This is intentionally a text-only heuristic that avoids needing the
- * full Lezer syntax tree — it works correctly in the vitest environment where
- * CodeMirror's parser is not initialised.
+ * Return true when `pos` is inside a fenced code block (``` or ~~~, or a
+ * `$$` math block) in `doc`: on a line of its code, or on a fence line past
+ * its start. Lines are read by the Outline's rule ({@link markdownLines}),
+ * so a fence may be indented up to three spaces or sit in a blockquote or
+ * a list item, and only a fence of the same character at least as long
+ * with nothing after it closes one. Any later fence of the same character
+ * used to close it, so a ```` block holding ``` or a ```js line ended
+ * early, and an indented or quoted fence opened none.
  */
 export function isInsideFencedCode(doc: string, pos: number): boolean {
-  const fence = /^(`{3,}|~{3,})/m;
-  let searchPos = 0;
-  let depth = 0;
-  let lastFenceChar: string | null = null;
-
-  while (searchPos < pos) {
-    const sub = doc.slice(searchPos);
-    const m = fence.exec(sub);
-    if (!m) break;
-
-    const absStart = searchPos + m.index;
-    if (absStart >= pos) break;
-
-    const ch = m[1][0]; // '`' or '~'
-
-    if (depth === 0) {
-      // Opening fence
-      depth = 1;
-      lastFenceChar = ch;
-    } else if (ch === lastFenceChar) {
-      // Closing fence — we're back outside
-      depth = 0;
-      lastFenceChar = null;
-    }
-    // advance past the fence line
-    const nl = doc.indexOf("\n", absStart);
-    searchPos = nl === -1 ? doc.length : nl + 1;
+  for (const l of markdownLines(doc)) {
+    if (pos > l.start + l.text.length) continue;
+    return l.kind === "code" || (l.kind === "fence" && pos > l.start);
   }
-
-  return depth === 1;
+  return false;
 }
 
 /**
@@ -424,8 +399,10 @@ export function tableRowKeymap(): Extension {
         const doc = context_docString(view);
         const pos = view.state.selection.main.head;
 
-        // Only act at end-of-table-row, not in the middle of editing
-        if (!isAtEndOfTableRow(doc, pos)) return false;
+        // Only act at end-of-table-row, not in the middle of editing, and
+        // not in code, where a `| a |` line is no table row: it used to
+        // insert a row there too.
+        if (!isAtEndOfTableRow(doc, pos) || isInsideFencedCode(doc, pos)) return false;
 
         // Count cells in the current row to mirror the structure
         const lineStart = doc.lastIndexOf("\n", pos - 1) + 1;

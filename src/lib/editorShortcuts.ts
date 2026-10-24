@@ -42,17 +42,20 @@ export interface ListContext {
   content: string;
 }
 
-/** Regex that matches a GFM list item leader at the start of a string. */
-const LIST_ITEM_RE = /^(\s*)([-*+]|\d+\.)\s+(.*)/;
+/** Regex that matches a GFM list item leader at the start of a line. */
+const LIST_ITEM_RE = /^([ \t]*)([-*+]|\d+\.)[ \t]+(.*)$/;
 
 /**
- * Parse `line` as a list item.
+ * Parse `line` as a list item: only its last line, the one the cursor is
+ * on, when it holds line breaks (the text of a code block from its start).
+ * Its first line used to be read, and `\s` ran across line breaks, so a
+ * code block starting with `- a` or `1. x` continued a list on Enter.
  *
  * Returns `null` when `line` is not a list item (so the caller can fall back
  * to default Enter behaviour).
  */
 export function detectListContext(line: string): ListContext | null {
-  const m = LIST_ITEM_RE.exec(line);
+  const m = LIST_ITEM_RE.exec(line.slice(line.lastIndexOf("\n") + 1));
   if (!m) return null;
 
   const indent = m[1];

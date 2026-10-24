@@ -23,6 +23,8 @@
  *                                 Markdown document string and return the result
  */
 
+import { markdownLines } from "./outline";
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 /** Horizontal alignment for a GFM table column. */
@@ -89,18 +91,29 @@ function renderSeparator(alignments: ColAlignment[]): string {
   return `|${cells.map(padCell).join("|")}|`;
 }
 
-/** Split a pipe-delimited row into trimmed cell strings. */
+/**
+ * Split a pipe-delimited row into trimmed cell strings. An escaped pipe
+ * (`\\|`) is cell text, as GFM reads it; it used to split the cell.
+ */
 function splitRow(line: string): string[] {
   // Strip optional leading/trailing `|`, then split on `|`.
   const trimmed = line.trim();
   const inner = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
-  const cleaned = inner.endsWith("|") ? inner.slice(0, -1) : inner;
-  return cleaned.split("|").map((c) => c.trim());
+  const cleaned = /(^|[^\\])(\\\\)*\|$/.test(inner) ? inner.slice(0, -1) : inner;
+  return cleaned.split(/(?<!(?:^|[^\\])\\(?:\\\\)*)\|/).map((c) => c.trim());
 }
 
-/** Return true if a line looks like a GFM separator row (---). */
-function isSeparatorLine(line: string): boolean {
-  return /^\s*\|?[\s|:*-]+\|?\s*$/.test(line) && /[-]/.test(line);
+/**
+ * Whether `line` is a GFM delimiter row with `cells` cells, as remark-gfm
+ * reads one: a pipe somewhere, and each cell a run of `-` with an optional
+ * `:` at either end. Any line of `-`, `:`, `*`, `|` and spaces with a `-`
+ * used to be one, so a thematic break or a setext underline after a line
+ * made a table of it.
+ */
+function isDelimiterRow(line: string, cells: number): boolean {
+  if (!line.includes("|")) return false;
+  const parts = splitRow(line);
+  return parts.length === cells && parts.every((c) => /^:?-+:?$/.test(c));
 }
 
 /** Clamp a value to [min, max]. */
@@ -128,52 +141,54 @@ export function findTableRange(
   markdown: string,
   cursorOffset: number,
 ): TableRange | null {
-  const lines = markdown.split("\n");
-
-  // Build a map of line-start offsets.
-  const lineStarts: number[] = [];
-  let offset = 0;
-  for (const line of lines) {
-    lineStarts.push(offset);
-    offset += line.length + 1; // +1 for '\n'
-  }
+  // Lines are read by the Outline's rule (markdownLines): a table is made
+  // of text lines outside front matter, code, HTML blocks and containers.
+  // A `---` line in front matter or code, or a setext underline, used to
+  // make a table of the line before it, which an edit then rewrote.
+  const lines = markdownLines(markdown);
+  const row = (i: number) => {
+    const l = lines[i];
+    return l !== undefined && l.kind === "text" && !l.contained ? l : null;
+  };
 
   // Find which line the cursor is on.
-  let cursorLine = lineStarts.length - 1;
-  for (let i = 0; i < lineStarts.length; i++) {
-    const end = i + 1 < lineStarts.length ? lineStarts[i + 1] : markdown.length + 1;
-    if (cursorOffset >= lineStarts[i] && cursorOffset < end) {
+  let cursorLine = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) {
+    if (
+      cursorOffset >= lines[i].start &&
+      cursorOffset <= lines[i].start + lines[i].text.length
+    ) {
       cursorLine = i;
       break;
     }
   }
 
-  // A GFM table is 3+ consecutive lines: header | separator | data*.
-  // Scan for table blocks by finding separator rows (row 1 of each table).
-  // We then determine if cursorLine is within any such block.
-
+  // A GFM table is a header row, a delimiter row with as many cells, then
+  // the data rows: the lines after it that would go on with a paragraph,
+  // up to a blank line or a line that starts another block (a heading, a
+  // list item, a blockquote, indented code).
   for (let sepIdx = 1; sepIdx < lines.length; sepIdx++) {
-    if (!isSeparatorLine(lines[sepIdx])) continue;
-    // The header line is immediately before the separator.
+    const header = row(sepIdx - 1);
+    const sep = row(sepIdx);
+    if (!header || !sep || header.content.trim() === "") continue;
+    if (!isDelimiterRow(sep.content, splitRow(header.content).length)) continue;
     const headerIdx = sepIdx - 1;
-    // Data rows follow until a non-table line or EOF.
     let lastDataIdx = sepIdx;
     for (let r = sepIdx + 1; r < lines.length; r++) {
-      const l = lines[r].trim();
-      // Empty line or non-pipe line ends the table.
-      if (l === "" || !l.includes("|")) break;
+      const l = row(r);
+      if (!l?.continues || l.content.trim() === "" || /^ {4}/.test(l.content)) break;
       lastDataIdx = r;
     }
     if (cursorLine >= headerIdx && cursorLine <= lastDataIdx) {
-      const start = lineStarts[headerIdx];
-      const tableEnd =
-        lastDataIdx + 1 < lineStarts.length
-          ? lineStarts[lastDataIdx + 1]
-          : markdown.length;
-      // Don't include trailing newline in the source; it stays as a gap.
-      const end = tableEnd;
+      const start = lines[headerIdx].start;
+      // The table ends with its last row's text: the line break after it
+      // (`\r\n` too) stays, as an edit's table has none. It used to be
+      // taken, so the line after the table was joined to its last row.
+      const last = lines[lastDataIdx];
+      const end = last.start + last.text.replace(/\r$/, "").length;
       return { start, end, source: markdown.slice(start, end) };
     }
+    sepIdx = lastDataIdx;
   }
 
   return null;
@@ -421,6 +436,8 @@ export function applyTableEdit(
       break;
   }
 
-  const newSource = serializeTable(table);
+  // A table in a CRLF file keeps its line breaks.
+  const eol = range.source.includes("\r\n") ? "\r\n" : "\n";
+  const newSource = serializeTable(table).replace(/\n/g, eol);
   return markdown.slice(0, range.start) + newSource + markdown.slice(range.end);
 }

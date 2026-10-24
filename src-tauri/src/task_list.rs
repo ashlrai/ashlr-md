@@ -75,6 +75,22 @@ mod tests {
         (line, checked, text.to_string())
     }
 
+    /// A `$$` math block, which the page renders with remark-math, is read
+    /// as fenced code is: a `- [ ] t` line in it was a task.
+    #[test]
+    fn a_math_block_holds_no_task() {
+        assert_eq!(
+            tasks("$$\n- [ ] x\n$$\n- [ ] real\n"),
+            vec![t(4, false, "real")]
+        );
+        assert_eq!(
+            tasks("> $$ m\n> - [ ] x\n- [ ] real\n"),
+            vec![t(3, false, "real")]
+        );
+        // `$$x$$` is inline math, so the line after it is read.
+        assert_eq!(tasks("$$x$$\n- [ ] real\n"), vec![t(2, false, "real")]);
+    }
+
     /// Tasks were read from raw lines: a quoted task and an ordered one were
     /// missed, and an indented `- [ ] t` (indented code) was a task.
     #[test]

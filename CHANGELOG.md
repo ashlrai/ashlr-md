@@ -96,6 +96,97 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The visual editor keeps a CRLF file's line breaks.** It writes Markdown
+  with LF, so a CRLF file edited there was saved with CRLF front matter and an
+  LF body, and every line of the body showed as changed. The body now keeps
+  the file's CRLF line breaks.
+- **Diff hunks apply to CRLF documents.** An agent's diff hunk is matched by
+  its lines joined with LF, so Apply on a hunk in a CRLF document always said
+  the patch was not found. Its lines now take the document's line breaks.
+  `applyHunkToContent` also read `$$`, `$&` and `` $` `` in the replacement as
+  `String.replace` patterns, so `$$` math in a hunk became `$`.
+- **Lint fixes leave code and line breaks alone.** `invalid-link-target` and
+  `missing-alt-text` (both on by default) read the raw document, so a
+  `[x](#)` or `![](a.png)` in a code sample was flagged and its fix rewrote
+  the code. The blank-line fix collapsed every run of line breaks in the
+  document, in code blocks too, and none of a CRLF file's. Trailing spaces
+  before a CRLF were missed, and their fix took a code line's spaces off.
+  The front matter fix added LF lines to a CRLF file. Each rule now reads
+  code, front matter and code spans by the Outline's rule and fixes only
+  what it flags, in the document's line breaks.
+- **Agent edit sections read code and front matter by the page's rule.** The
+  section an agent edit lands in (front matter, code or prose, which decides
+  the side that wins a conflict) toggled code on every line starting with
+  three backticks or tildes and ended front matter at any later line starting
+  with `---`, so a ```` ```` ```` block holding ```` ``` ````, a `~~~` line
+  in a backtick block or a `----` line in front matter misread the rest of
+  the document. It now reads lines by the Outline's rule.
+- **Dragging an image moves the image dropped.** The visual editor matches
+  the images it renders to the image references in the Markdown by their
+  order, but it counted references in code blocks, code spans, indented code
+  and HTML blocks, which render no image. A drag after one of them moved the
+  wrong image and could rewrite the code sample. A CRLF document got LF line
+  breaks where the image was moved to. References are now read as the page
+  reads them.
+- **Enter in a code block adds no list marker.** In the visual editor, list
+  continuation read the text of a code block from its start, so Enter in a
+  code block whose first line was `- a` or `1. x` inserted `- ` or `2. ` into
+  the code. It now reads only the cursor's line, and never in a code block.
+- **Source editor snippets and table rows read code blocks as the page does.**
+  The source editor took any later fence of the same character as the end of
+  a code block, so a ```` ```` ```` block holding ```` ``` ```` or a
+  ```` ```js ```` line ended it early, and an indented or quoted fence opened
+  none: snippet suggestions showed in that code. Typing `|` at the end of a
+  `| a |` line in a code block inserted a table row there. Both now read
+  fences by the Outline's rule, `$$` math blocks included.
+- **Table edits keep the lines around the table.** An edit from the table menu
+  (add or delete a row or column, alignment) took the line break after the
+  table and wrote the table back without one, so the next line joined the
+  table's last row and a blank line after the table was lost. A table in a
+  CRLF file came back with LF line breaks. A table was any line before a
+  `---` line, so front matter, a setext heading, a thematic break or a
+  `--- | ---` line in a code block was read as a table and rewritten, and an
+  escaped pipe (`\|`) split a cell. Tables are now read by the page's rules.
+- **`$$` math blocks are read as the page renders them.** The page renders a
+  `$$` block with remark-math, but every line reader (the Outline, task
+  checkboxes, word count, `export_metadata` headings, `export_text`) read its
+  lines as Markdown, so a `# x` in TeX was a heading, `- [ ] x` a task, and
+  `export_text` took the `*` and `_` out of the TeX. A math block is now read
+  as fenced code is, in blockquotes and list items too; `$$x$$` on one line
+  stays inline math. The classifier does not count its lines as code.
+- **`export_text` reads code spans by their backtick runs.** A code span
+  closed at any run of as many backticks, also part of a longer run, and an
+  unclosed run's later backticks opened a new span, so ``` `` b`c ``` read
+  `` ` bc ``. A span now closes only at a run of exactly as many backticks,
+  an unclosed run is text, and the one space each side of padded code is
+  taken off, as CommonMark reads them.
+- **`export_text` and `export_metadata` read no wikilink across inline HTML.**
+  A `[[...]]` holding a tag, an autolink or a code span (`[[a<b>c]]`) was
+  read as a link across it, so `export_text` read `a<b>c` and
+  `export_metadata` listed it, although the page reads wikilinks only in its
+  text and shows `[[ac]]`. It is now text around them, as on the page.
+- **Block embeds find a `^id` only in text.** A partial embed
+  (`![[note#^id]]`) took the first line ending with ` ^id`, also in front
+  matter or in fenced or indented code, and its block then ran back over the
+  fence above it. It now reads lines by the Outline's rule, and a block ends
+  at a line that is not text.
+- **The broken-wikilink lint skips code spans.** `wikilink-targets-exist`
+  reported a `[[link]]` in a code span (`` `[[x]]` ``) or in indented code,
+  which the page shows as code and `export_metadata` leaves out. It now reads
+  links where `export_metadata` does.
+- **Indented code is code to the app's Markdown readers.** The app's line rule
+  (`markdownLines`) marked indented code as text, unlike mdopener-mcp's, so
+  the status bar's word count counted its words, `no-bare-urls` flagged a URL
+  in it, and every other reader of text lines read Markdown in it. It now has
+  its own kind, which those readers skip as they skip fenced code.
+- **An underline after link reference definitions starts a paragraph.** The
+  line rule of the Outline, the headings and `export_text` read an `===`, `--`
+  or `- ` line right after a paragraph of only definitions (`[a]: /u`) as a
+  setext underline, although definitions leave no paragraph to make a heading
+  of. So a `</u>` line after it opened an HTML block that hid the `# Title`
+  below it, and an underline after `[a]: /u` and `Title` took the
+  definition's text into the heading's slug. Both sides now read definitions
+  as micromark does.
 - **`export_metadata` reads no wikilinks or images in code.** Its wikilinks and
   image count were read on every line outside fenced code, so a `[[link]]` or an
   `![image](u)` in indented code or in a code span (`` `[[x]]` ``) was counted,

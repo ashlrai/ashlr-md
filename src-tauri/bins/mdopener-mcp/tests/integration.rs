@@ -14394,3 +14394,90 @@ fn export_text_without_path_says_it_reads_the_window_not_the_file() {
     assert_eq!(r["text"].as_str().unwrap().trim(), "unsaved words", "{r}");
     assert_eq!(r["path"], json!(path));
 }
+
+/// Link reference definitions alone leave no paragraph for a setext
+/// underline to make a heading of, so micromark reads an `===`, `--` or
+/// `- ` line after them as the first line of a paragraph, which a lone tag
+/// (`</u>`) cannot interrupt. markdown_lines read it as an underline that
+/// ended the paragraph, so the `</u>` after it opened an HTML block that
+/// hid the heading after it, and export_text dropped the `===` line.
+#[test]
+fn an_underline_after_reference_definitions_starts_a_paragraph() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    for doc in [
+        "[a]: /u\n===\n</u>\n# Title\n",
+        "[a]: /u\n--\n</u>\n# Title\n",
+        "[a]: /u\n- \n</u>\n# Title\n",
+        "[a]: /u\n[b]: /v\n===\n</u>\n# Title\n",
+        "[a]:\n/u\n\"t\"\n===\n</u>\n# Title\n",
+        "> [a]: /u\n> ===\n> </u>\n\n# Title\n",
+    ] {
+        assert_eq!(texts(doc), ["Title"], "{doc:?}");
+    }
+    // A `---` line there is a thematic break, and a paragraph after the
+    // definitions takes the underline.
+    assert!(texts("[a]: /u\n---\n</u>\n# Hidden\n").is_empty());
+    assert!(texts("[a]: /u\nx\n===\n</u>\n# Hidden\n").is_empty());
+    assert_eq!(strip_markdown("[a]: /u\n===\nb\n").trim(), "===\nb");
+    assert_eq!(strip_markdown("[a]: /u\nx\n===\nb\n").trim(), "x\nb");
+}
+
+/// The page reads wikilinks in its text nodes (remark-wikilinks.ts), so a
+/// `[[...]]` that holds the start of inline HTML, an autolink or a code
+/// span is text around them, not a link. export_text and export_metadata
+/// read it as a link across them, so `[[a<b>c]]` read `a<b>c` and was
+/// listed as a wikilink.
+#[test]
+fn a_wikilink_does_not_hold_inline_html_or_code_spans() {
+    use mdopener_mcp::extract_wikilinks;
+    assert_eq!(strip_markdown("[[a<b>c]]\n").trim(), "[[ac]]");
+    assert_eq!(
+        strip_markdown("[[a<https://x>]]\n").trim(),
+        "[[ahttps://x]]"
+    );
+    assert_eq!(strip_markdown("x ![[a<b>c]] y\n").trim(), "x ![[ac]] y");
+    // A `<` that starts no tag is text in the link.
+    assert_eq!(strip_markdown("[[a < b]]\n").trim(), "a < b");
+    assert_eq!(strip_markdown("[[a<b>[[c]]\n").trim(), "[[ac");
+    assert_eq!(
+        extract_wikilinks("[[a<b>c]] [[x `y` z]] [[a`b]] [[ok]]\n"),
+        ["a`b", "ok"]
+    );
+    assert_eq!(mdopener_mcp::count_embedded_images("![[i<b>.png]]\n"), 0);
+}
+
+/// A code span is closed by the next run of exactly as many backticks, and
+/// a run never closed is text, as CommonMark reads it. export_text closed
+/// it at any run as long, also part of a longer one, and read the
+/// backticks of an unclosed run after its first as a new span.
+#[test]
+fn export_text_reads_code_spans_by_their_backtick_runs() {
+    assert_eq!(strip_markdown("x `` b`c y\n").trim(), "x `` b`c y");
+    assert_eq!(strip_markdown("``a```b`` c\n").trim(), "a```b c");
+    assert_eq!(strip_markdown("`` a`b `` c\n").trim(), "a`b c");
+    assert_eq!(strip_markdown("` `` `\n").trim(), "``");
+}
+
+/// The page renders a `$$` math block with remark-math, which micromark
+/// reads as it reads fenced code. Its lines were text, so a `# x` in it was
+/// one of export_metadata's headings and its TeX lost its `*` and `_`.
+#[test]
+fn a_math_block_is_read_as_fenced_code() {
+    use mdopener_mcp::extract_headings;
+    let texts = |doc: &str| -> Vec<String> {
+        extract_headings(doc)
+            .iter()
+            .map(|h| h["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(texts("$$\n# not\n$$\n# Real\n"), ["Real"]);
+    assert_eq!(texts("$$$ m\n# not\n$$\n# not\n$$$\n# Real\n"), ["Real"]);
+    assert_eq!(texts("$$x$$\n# Real\n"), ["Real"]);
+    assert_eq!(strip_markdown("$$\na_1 * b_2\n$$\n").trim(), "a_1 * b_2");
+}
