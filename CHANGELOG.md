@@ -128,6 +128,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A damaged settings file no longer breaks the app.** Settings were
+  loaded as stored, whatever their type, so a hand edit, a damaged file or
+  a newer version that changed a value put a `null` linter config (the
+  linter threw on every document), a text font size or an unknown theme
+  into the app. Each setting is now checked when loaded: a value of the
+  wrong type keeps its default, a setting missing from the file (such as
+  "Load remote images") takes its default, malformed templates and snippets
+  are dropped, and keys from a newer version are kept for it.
 - **Save As onto a file open in another tab leaves one tab.** Both tabs
   stayed open for the same file, and the other one showed the text the save
   had just replaced, so its next save wrote that back. The other tab now

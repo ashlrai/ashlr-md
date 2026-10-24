@@ -204,6 +204,103 @@ const order: ThemeId[] = THEMES.map((t) => t.id);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const strings = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+
+/**
+ * A persisted setting as the store reads it, or undefined when its type is
+ * wrong (the default is kept). Arrays keep only their well-formed entries.
+ */
+function checkedSetting(key: string, v: unknown): unknown {
+  switch (key) {
+    case "theme":
+      return order.includes(v as ThemeId) ? v : undefined;
+    case "fontSize":
+      return typeof v === "number" && Number.isFinite(v) ? clamp(v, 13, 24) : undefined;
+    case "contentWidth":
+      return typeof v === "number" && Number.isFinite(v)
+        ? clamp(v, 600, 960)
+        : undefined;
+    case "notificationsEnabled":
+    case "autoEmbedIndex":
+    case "loadRemoteImages":
+    case "epubEnabled":
+      return typeof v === "boolean" ? v : undefined;
+    case "vaultRoot":
+      return v === null || (typeof v === "string" && v !== "") ? v : undefined;
+    case "defaultPromptSnoozedUntil":
+      return v === null || (typeof v === "number" && Number.isFinite(v))
+        ? v
+        : undefined;
+    case "pasteImageTarget":
+      return v === "doc-relative" || v === "downloads" ? v : undefined;
+    case "linterConfig": {
+      const rules = isRecord(v) ? strings(v.disabledRules) : undefined;
+      return rules ? { disabledRules: rules } : undefined;
+    }
+    case "activeTemplateId":
+      return typeof v === "string" ? v : undefined;
+    case "userTemplates":
+      return Array.isArray(v)
+        ? v
+            .filter(
+              (t) =>
+                isRecord(t) &&
+                typeof t.id === "string" &&
+                typeof t.name === "string" &&
+                typeof t.css === "string",
+            )
+            .map((t) => ({ ...t, builtin: false }))
+        : undefined;
+    case "disabledProfileIds":
+      return strings(v)?.filter((id) =>
+        (ALL_PROFILE_IDS as readonly string[]).includes(id),
+      );
+    case "customSnippets":
+      return Array.isArray(v)
+        ? v.filter(
+            (sn) =>
+              isRecord(sn) &&
+              typeof sn.label === "string" &&
+              typeof sn.template === "string" &&
+              (sn.detail === undefined || typeof sn.detail === "string"),
+          )
+        : undefined;
+    default:
+      return v;
+  }
+}
+
+/**
+ * The persisted settings merged into the defaults (`persist`'s `merge`).
+ * Every value is checked against the type the store reads: the default
+ * merge took whatever the stored JSON held, so a damaged or hand-edited
+ * file, or a newer version that changed a value's type, put a `null`
+ * `linterConfig` (the linter settings threw on `disabledRules`), a string
+ * `fontSize` or an unknown `theme` into the app. A value of the wrong type
+ * keeps its default; a key missing (a setting added since, such as
+ * `loadRemoteImages`) takes its default. Keys this version does not know
+ * (a newer version's) are kept, so they survive the next write, but never
+ * one that names an action.
+ */
+export function mergePersistedSettings(
+  persisted: unknown,
+  current: SettingsState,
+): SettingsState {
+  if (!isRecord(persisted)) return current;
+  const out: Record<string, unknown> = { ...current };
+  const known = current as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(persisted)) {
+    if (typeof known[key] === "function") continue;
+    const checked = key in known ? checkedSetting(key, value) : value;
+    if (checked !== undefined) out[key] = checked;
+  }
+  return out as unknown as SettingsState;
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -328,6 +425,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: "mdopener-settings",
       version: 8,
+      merge: mergePersistedSettings,
       // v0 stored a permanent `defaultPromptDismissed: boolean`. Map a dismissed
       // prompt to the "never ask" sentinel so prior choices are honored.
       // v2 adds userTemplates + activeTemplateId (default to empty / "none").
