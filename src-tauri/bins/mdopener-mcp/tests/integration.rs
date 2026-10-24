@@ -14692,3 +14692,39 @@ fn strip_inline_decodes_references_and_keeps_unpaired_emphasis() {
     // The rule of three: `*a**b*` is one emphasis holding `a**b`.
     assert_eq!(strip_inline_markdown("*a**b*"), "a**b");
 }
+
+/// A line indented four columns after a table's rows is indented code, as
+/// mdast reads it, not a row: `strip_markdown` read the rows trimmed, so
+/// `    | c | d |` became the cells `c` and `d`, and `    [[x]]` read `x`.
+/// The app's `maskInlineCode` masks those lines whole, and the link and
+/// image counts drop them; a header or delimiter row indented that far
+/// starts no table.
+#[test]
+fn a_line_indented_four_columns_after_a_table_is_code_not_a_row() {
+    use mdopener_mcp::{count_embedded_images, strip_markdown};
+    assert_eq!(
+        strip_markdown("| a | b |\n| - | - |\n    | c | d |\n"),
+        "a\tb\n| c | d |"
+    );
+    assert_eq!(
+        strip_markdown("| a |\n| - |\n\t[[x]] `y`\n"),
+        "a\n[[x]] `y`"
+    );
+    // Three spaces is still a row; the code ends at a line that is not.
+    assert_eq!(strip_markdown("| a |\n| - |\n   | c |\n"), "a\nc");
+    assert_eq!(
+        strip_markdown("| a |\n| - |\n    x\n    y\n| d |\n"),
+        "a\nx\ny\n| d |"
+    );
+    // In a blockquote, past its marker.
+    assert_eq!(
+        strip_markdown("> | a |\n> | - |\n>     | c |\n"),
+        "a\n| c |"
+    );
+    // An indented header row starts no table.
+    assert_eq!(
+        strip_markdown("x\n    | a | b |\n| - | - |\n"),
+        "x\n| a | b |\n| - | - |"
+    );
+    assert_eq!(count_embedded_images("| a |\n| - |\n    ![i](i.png)\n"), 0);
+}

@@ -7996,6 +7996,8 @@ pub fn strip_markdown(content: &str) -> String {
     };
 
     let mut in_table = false;
+    // The line before was indented code right after a table's rows.
+    let mut after_table = false;
     // The HTML block being read, past its containers.
     let mut html = String::new();
     // What each line reads, in order: text as it is (code, an HTML block, a
@@ -8014,6 +8016,9 @@ pub fn strip_markdown(content: &str) -> String {
     let mut reads: Vec<Read> = Vec::with_capacity(lines.len());
 
     for (idx, ((kind, line), (code, text))) in lines.iter().enumerate() {
+        if *kind != LineKind::Text {
+            after_table = false;
+        }
         match kind {
             // Drop the fence line itself; preserve the code inside.
             LineKind::Fence => {
@@ -8057,12 +8062,31 @@ pub fn strip_markdown(content: &str) -> String {
         // and it runs until a blank line or a line without a pipe. Rows
         // become tab-separated cells; the delimiter row is dropped. A table
         // may sit in a blockquote or a list item, so rows are read past
-        // their containers.
+        // their containers. A line indented four columns (tabs expanded) is
+        // no row: it is indented code, as mdast reads it (`| a |`, `| - |`,
+        // then `    | c |` is a table and a code block holding `| c |`), and
+        // so are the indented lines right after it; a header or delimiter
+        // row indented that far starts no table. The rows were read
+        // trimmed, so indented code went into the table as a row.
         let row = trimmed;
-        if in_table && !row.contains('|') {
-            in_table = false;
+        let indented_at = |i: usize| match lines.get(i) {
+            Some(((LineKind::Text, _), (_, Some((text, _))))) => text.starts_with("    "),
+            _ => false,
+        };
+        if after_table && indented_at(idx) {
+            reads.push(Read::Text(format!("{}\n", &text[4..])));
+            continue;
         }
-        if !in_table && row.contains('|') {
+        after_table = false;
+        if in_table && (!row.contains('|') || indented_at(idx)) {
+            in_table = false;
+            if indented_at(idx) {
+                after_table = true;
+                reads.push(Read::Text(format!("{}\n", &text[4..])));
+                continue;
+            }
+        }
+        if !in_table && row.contains('|') && !indented_at(idx) && !indented_at(idx + 1) {
             in_table = row_of(idx + 1).is_some_and(is_table_delimiter);
         }
         if in_table {

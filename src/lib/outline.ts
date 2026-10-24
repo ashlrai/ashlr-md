@@ -997,8 +997,15 @@ export function maskInlineCode(lines: MarkdownLine[]): string[] {
           out[r] = cells;
         }
         from = k + rows;
-        // Lines indented four columns after it are indented code.
-        while (from < j && /^ {4}/.test(lines[from].content)) from++;
+        // Lines indented four columns after it are indented code (mdast
+        // reads `| a |`, `| - |`, then `    | c |` as a table and a code
+        // block), so none of their text is Markdown: they are masked whole,
+        // as mdopener-mcp's `prose_text_block` drops them. They used to be
+        // left as they were, so a `[[link]]` or a URL in that code was read.
+        while (from < j && /^ {4}/.test(lines[from].content)) {
+          out[from] = out[from].replace(/[^\n]/g, "\r");
+          from++;
+        }
         k = from - 1;
       }
       mask(from, j, true);

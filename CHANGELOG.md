@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A line indented four columns after a table is code, in the app and for
+  agents.** mdast reads `| a |`, `| - |`, then `    | c |` as a table and a
+  code block. The app's prose masking (`maskInlineCode`, which lint reads
+  links from) left those lines as text, so a `[[link]]` or URL in that code
+  was read, while mdopener-mcp's link and image counts dropped them; and
+  `export_text` read them trimmed, as a table row (`c`) or as Markdown. Both
+  now treat them as code: the app masks them whole, `export_text` keeps them
+  as written, and an indented header or delimiter row starts no table.
 - **Agents' plain text decodes character references and keeps unpaired
   emphasis markers.** mdopener-mcp's inline stripping (export text, titles,
   headings) kept `&amp;`, `&#123;` and `&#x1F600;` as written where the page
