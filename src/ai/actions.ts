@@ -101,6 +101,9 @@ function msg(system: string, user: string): AIMessage[] {
   ];
 }
 
+/** The language "translate" uses when no `arg` names one. */
+export const DEFAULT_TRANSLATE_LANGUAGE = "Spanish";
+
 // ---------------------------------------------------------------------------
 // The action catalogue
 // ---------------------------------------------------------------------------
@@ -233,7 +236,7 @@ export const AI_ACTIONS: AIAction[] = [
     label: "Translate",
     shortLabel: "Translate",
     icon: "🌐",
-    buildMessages(text, arg = "Spanish") {
+    buildMessages(text, arg = DEFAULT_TRANSLATE_LANGUAGE) {
       return msg(
         `You are a professional translator. Translate the provided text into ${arg}. ` +
           "Output only the translation, with no commentary and no preamble.",

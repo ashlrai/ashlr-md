@@ -109,6 +109,75 @@ function codeFence(line: string): { marker: string; rest: string } | null {
   return { marker: m[1], rest: m[2] };
 }
 
+/** Whether fence `f` closes a block opened by `marker`. */
+function closesFence(f: ReturnType<typeof codeFence>, marker: string): boolean {
+  return (
+    f !== null &&
+    f.marker[0] === marker[0] &&
+    f.marker.length >= marker.length &&
+    f.rest.trim() === ""
+  );
+}
+
+/**
+ * `line` without up to `max` leading blockquote markers (at most three
+ * spaces, `>`, then one optional space or tab), and how many it lost. The
+ * rule of mdopener-mcp's `markdown_lines::strip_quote_markers`.
+ */
+function stripQuoteMarkers(
+  line: string,
+  max: number,
+): { markers: number; rest: string } {
+  const marker = /^ {0,3}>[ \t]?/;
+  let rest = line;
+  let markers = 0;
+  while (markers < max) {
+    const m = marker.exec(rest);
+    if (!m) break;
+    rest = rest.slice(m[0].length);
+    markers++;
+  }
+  return { markers, rest };
+}
+
+/**
+ * The fence that opens a list item, and the item's content column, when
+ * `line` is one or more list markers (at most three spaces, `-`, `*`, `+`
+ * or 1 to 9 digits and `.` or `)`, then one to four spaces) followed by a
+ * code fence: `- ` then three backticks, or `1. - ~~~`. The rule of
+ * mdopener-mcp's `markdown_lines::list_fence`.
+ */
+function listFence(line: string): { marker: string; column: number } | null {
+  const marker = /^ {0,3}(?:[-*+]|\d{1,9}[.)])( {1,4})(?! )/;
+  let rest = line;
+  let column = 0;
+  let m = marker.exec(rest);
+  if (!m) return null;
+  while (m) {
+    column += m[0].length;
+    rest = rest.slice(m[0].length);
+    m = marker.exec(rest);
+  }
+  const f = /^(`{3,}|~{3,})(.*)$/.exec(rest);
+  if (!f || (f[1][0] === "`" && f[2].includes("`"))) return null;
+  return { marker: f[1], column };
+}
+
+/**
+ * How many columns of spaces and tabs `line` starts with (a tab reaches
+ * the next multiple of four), and the rest of the line.
+ */
+function leadingIndent(line: string): { columns: number; rest: string } {
+  let columns = 0;
+  let i = 0;
+  for (; i < line.length; i++) {
+    if (line[i] === " ") columns++;
+    else if (line[i] === "\t") columns += 4 - (columns % 4);
+    else break;
+  }
+  return { columns, rest: line.slice(i) };
+}
+
 /** A source line of a Markdown document, from {@link markdownLines}. */
 export interface MarkdownLine {
   /**
@@ -130,7 +199,19 @@ export interface MarkdownLine {
  * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
  * matter block is closed by `---` or `...` (its lines are never fences),
  * and a fence is closed only by the same character at least as long with
- * nothing after it; one left open runs to the end.
+ * nothing after it; one left open runs to the end. A fence inside a
+ * blockquote (`> ` then a fence) is a fence too: the lines after it with at
+ * least as many `>` markers are its code until a closing fence behind
+ * those markers, and a line with fewer (a blank line included) ends the
+ * quote and so the block, as in CommonMark. A quoted fence used to be
+ * text, so a `[[link]]` in quoted code was linted as a link.
+ *
+ * A fence that opens a list item (`- ` then a fence) is a fence too: the
+ * lines after it indented at least to the item's content column (blank
+ * lines included) are its code until a closing fence at that column (up
+ * to three more spaces), and a less indented line ends the item and so
+ * the block. A list-item fence used to be text, so a `  # comment` in an
+ * item's code was listed in the Outline and `  - [ ] x` read as a task.
  */
 export function markdownLines(markdown: string): MarkdownLine[] {
   const { lines: body, offset } = stripFrontmatter(markdown);
@@ -142,26 +223,69 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     start += all[i].length + 1;
   }
   let fence: string | null = null; // active fence marker, e.g. "```" or "~~~~"
+  // The fence open inside a blockquote, with its number of `>` markers.
+  let quoteFence: { marker: string; depth: number } | null = null;
+  // The fence open in a list item, with the item's content column.
+  let itemFence: { marker: string; column: number } | null = null;
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
+    const line = offset + i + 1;
+    if (itemFence) {
+      const ind = leadingIndent(text);
+      if (ind.rest.trim() === "" || ind.columns >= itemFence.column) {
+        let kind: MarkdownLine["kind"] = "code";
+        if (
+          ind.columns - itemFence.column <= 3 &&
+          closesFence(codeFence(ind.rest), itemFence.marker)
+        ) {
+          itemFence = null;
+          kind = "fence";
+        }
+        out.push({ kind, text, line, start });
+        start += text.length + 1;
+        continue;
+      }
+      itemFence = null;
+    }
+    if (quoteFence) {
+      const q = stripQuoteMarkers(text, quoteFence.depth);
+      if (q.markers === quoteFence.depth) {
+        const f = codeFence(q.rest);
+        let kind: MarkdownLine["kind"] = "code";
+        if (closesFence(f, quoteFence.marker)) {
+          quoteFence = null;
+          kind = "fence";
+        }
+        out.push({ kind, text, line, start });
+        start += text.length + 1;
+        continue;
+      }
+      quoteFence = null;
+    }
     const f = codeFence(text);
     let kind: MarkdownLine["kind"] = "text";
     if (fence) {
       kind = "code";
-      if (
-        f &&
-        f.marker[0] === fence[0] &&
-        f.marker.length >= fence.length &&
-        f.rest.trim() === ""
-      ) {
+      if (closesFence(f, fence)) {
         fence = null;
         kind = "fence";
       }
     } else if (f) {
       fence = f.marker;
       kind = "fence";
+    } else {
+      const q = stripQuoteMarkers(text, Number.POSITIVE_INFINITY);
+      const qf = q.markers > 0 ? codeFence(q.rest) : null;
+      const lf = qf ? null : listFence(text);
+      if (qf) {
+        quoteFence = { marker: qf.marker, depth: q.markers };
+        kind = "fence";
+      } else if (lf) {
+        itemFence = lf;
+        kind = "fence";
+      }
     }
-    out.push({ kind, text, line: offset + i + 1, start });
+    out.push({ kind, text, line, start });
     start += text.length + 1;
   }
   return out;
@@ -185,6 +309,48 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
 }
 
 /**
+ * The text inside the blockquote markers and list markers that open
+ * `line` (`> `, `>> `, `- `, `1. `, `- > `), or null when it has none. A
+ * list marker loses one space or tab after it, so `-     # x` (indented
+ * code in the item) is not read as a heading.
+ */
+function containerContent(line: string): string | null {
+  const marker = /^ {0,3}(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
+  let rest = line.endsWith("\r") ? line.slice(0, -1) : line;
+  let m = marker.exec(rest);
+  if (!m) return null;
+  while (m) {
+    rest = rest.slice(m[0].length);
+    m = marker.exec(rest);
+  }
+  return rest;
+}
+
+/**
+ * The content columns of the list items `line` opens (`- x` is 2, `10. x`
+ * is 4, `1. - x` is 3 then 5), or null when it opens none. A marker
+ * followed by five or more spaces, or by nothing, has its content one
+ * column past the marker, as in CommonMark.
+ */
+function listItemColumns(line: string): number[] | null {
+  const marker = /^( {0,3})([-*+]|\d{1,9}[.)])(?=[ \t]|$)/;
+  const columns: number[] = [];
+  let rest = line.endsWith("\r") ? line.slice(0, -1) : line;
+  let column = 0;
+  let m = marker.exec(rest);
+  while (m) {
+    const end = column + m[0].length;
+    const after = leadingIndent(rest.slice(m[0].length));
+    const pad = after.rest === "" || after.columns > 4 ? 1 : after.columns;
+    column = end + pad;
+    columns.push(column);
+    rest = after.columns > 4 ? "" : after.rest;
+    m = marker.exec(rest);
+  }
+  return columns.length > 0 ? columns : null;
+}
+
+/**
  * Parse ATX headings (`#` to `######`) into an ordered outline.
  *
  * - Headings are read by {@link atxHeadings}: a leading YAML frontmatter
@@ -192,6 +358,22 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
  *   spaces before its `#`s, as the renderer and mdopener-mcp read it. A
  *   tab-indented `# x` (indented code) used to be listed, and `## ##` was
  *   listed as `#`.
+ * - A heading inside a blockquote (`> # Quote`) is not listed, as in
+ *   Obsidian's outline and mdopener-mcp's `export_metadata` headings: quoted
+ *   text from elsewhere would clutter the outline. The renderer still gives
+ *   it a slug id, so it takes its slug here too, and a later `# Quote` is
+ *   `quote-1` as in the DOM. It used to take none, so that later heading's
+ *   entry jumped into the quote.
+ * - A heading in a list item (`- # Step`) is not listed either, as
+ *   mdopener-mcp's `export_metadata` headings leave it out, but the
+ *   renderer gives it an id, so it takes its slug the same way. It used to
+ *   take none, so a later `# Step` was `step` here and `step-1` in the page.
+ * - A heading indented four or more columns as a list item's continuation
+ *   (`1. x`, a blank line, then `    # Sub`) is a heading in the item when
+ *   it is at most three columns past the item's content column, and the
+ *   renderer gives it an id, so it takes its slug the same way without
+ *   being listed. It used to take none (it was read as indented code), so
+ *   a later `# Sub` was `sub` here and `sub-1` in the page.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -202,10 +384,48 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
 export function parseHeadings(markdown: string): HeadingItem[] {
   const slugger = new GithubSlugger();
   const out: HeadingItem[] = [];
-  for (const h of atxHeadings(markdown)) {
-    const text = stripInline(h.text);
-    if (text === "") continue; // empty heading -> no anchor rendered
-    out.push({ depth: h.depth, text, slug: slugger.slug(text), line: h.line });
+  // Quoted fences are fences ({@link markdownLines}), so quoted code is
+  // skipped here with the rest of the code.
+  // The content columns of the open list items, outermost first.
+  let items: number[] = [];
+  let blank = true;
+  for (const l of markdownLines(markdown)) {
+    if (l.kind === "frontmatter" || l.kind === "code") continue;
+    const ind = leadingIndent(l.text);
+    if (ind.rest.trim() === "") {
+      blank = true;
+      continue;
+    }
+    const wasBlank = blank;
+    blank = false;
+    const opened = l.kind === "text" ? listItemColumns(l.text) : null;
+    const h = l.kind === "text" ? atxHeading(l.text) : null;
+    // A line less indented than an item ends it, unless it is a lazy
+    // paragraph continuation (no blank line before it, not a heading or
+    // fence). A new item replaces the items at or past its marker.
+    if (opened || wasBlank || h || l.kind === "fence") {
+      items = items.filter((c) => c <= ind.columns);
+    }
+    if (opened) items.push(...opened);
+    if (l.kind !== "text") continue;
+    if (h) {
+      const text = stripInline(h.text);
+      if (text === "") continue; // empty heading -> no anchor rendered
+      out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
+      continue;
+    }
+    const item = items[items.length - 1];
+    if (!opened && item !== undefined && ind.columns >= 4) {
+      const ih = ind.columns - item <= 3 ? atxHeading(ind.rest) : null;
+      const text = ih ? stripInline(ih.text) : "";
+      if (text !== "") slugger.slug(text);
+      continue;
+    }
+    const inner = containerContent(l.text);
+    if (inner === null) continue;
+    const qh = atxHeading(inner);
+    const text = qh ? stripInline(qh.text) : "";
+    if (text !== "") slugger.slug(text);
   }
   return out;
 }

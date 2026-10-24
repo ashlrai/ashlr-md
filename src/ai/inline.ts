@@ -9,6 +9,12 @@
 import { type ActionId, getAction } from "./actions";
 import { detectProvider, NOOP_PROVIDER_ID, runSelectionAction } from "./registry";
 
+/**
+ * How long the editors' Retry button waits before it reruns a failed
+ * transform. Only one retry is offered, so the pause is a constant.
+ */
+export const INLINE_RETRY_DELAY_MS = 500;
+
 export class NoProviderError extends Error {
   constructor() {
     super("No AI provider is available.");

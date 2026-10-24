@@ -96,6 +96,90 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The inline AI's Retry pause is one constant.** Both editors computed
+  a doubling delay (500 ms times 2 to the retry count) for a Retry that is
+  offered only once, so it was always 500 ms. They now share that 500 ms
+  pause as a constant; the Retry button works as before.
+- **The AI sidebar's retry toast is styled.** The toast shown after a
+  failed generation, its Retry, Open Preferences and Add credit actions
+  and its dismiss button had no styles, so they showed as bare browser
+  controls. They now match the app's buttons and error accents in every
+  theme, and the editors' Add credit link looks like their buttons.
+- **The editors' inline AI offers the fix, not a Retry that fails again.**
+  After a refused key or an account out of credit, the inline AI in both
+  editors still offered Retry. It now offers Open Preferences or an Add
+  credit link, as the AI sidebar does.
+- **The Outline jumps to the right heading after one inside a numbered
+  item.** A heading indented four spaces under `1. x` (after a blank line)
+  is a heading in the item, and the page gives it an id, but the Outline
+  read it as code and counted no id for it, so a later heading with the
+  same text jumped to the wrong place.
+- **Code inside a list item is code.** A fence that opens a list item
+  (`- ` then a fence) was read as text, so a `# comment` in the item's
+  code was listed in the Outline and `- [ ] x` in it read as a task. It
+  is now a fence in the app and in mdopener-mcp, closed by its fence or by
+  a line indented less than the item's text.
+- **The inline AI's retry comment matches what it does.** The source
+  editor said a failed rewrite got "one automatic retry with exponential
+  back-off", but the Retry button runs it once after a 500 ms pause and
+  nothing retries on its own. Both editors now say so.
+- **A refused key or an empty account no longer offers a Retry.** After
+  Anthropic refused the key (or the cloud token) or said the account was
+  out of credit, the sidebar's toast offered Retry, which failed the same
+  way. It now offers Open Preferences or Add credit instead.
+- **The AI sidebar says when a long document is cut.** Only the first
+  8,000 characters of the document go to the AI, and that was silent, so
+  questions about the rest got guesses. A short note under the quick
+  actions now says how much the AI sees.
+- **A greyed-out AI quick action says why.** Its tooltip repeated its
+  label, so on an empty document or while an answer streamed the buttons
+  were disabled with no reason. The tooltip now names it.
+- **The Outline jumps to the right heading after a list-item one.** A
+  heading in a list item (`- # Step`) is not listed, as in
+  `export_metadata`, but the page gives it an id, so a later `# Step` is
+  `step-1` there while the Outline linked `step`. Its slug now counts.
+- **Code inside a blockquote is code.** A fence behind `>` markers was
+  read as text, so a `[[link]]` in quoted code was linted as a missing
+  link and `export_text` dropped the `#` of a quoted `# comment`. Quoted
+  fences are now fences in the app and in mdopener-mcp, closed by their
+  fence or by a line with fewer `>` markers.
+- **The Outline jumps to the right heading after a quoted one.** A heading
+  inside a blockquote (`> # Plan`) stays out of the Outline panel and
+  `export_metadata`'s headings, as in Obsidian's outline, so quoted text
+  from elsewhere does not clutter it. The read view still gives that
+  heading an id, though, so a later `# Plan` is `plan-1` in the page while
+  the Outline gave it `plan` and jumped into the quote. The Outline now
+  counts a quoted heading's slug without listing it.
+- **Task totals skip code and front matter.** The agent badge and the
+  status bar's "done / total tasks" counted every `- [ ]` line, so a plan
+  that showed a task list in a code sample, or kept a to-do list in its
+  front matter, reported tasks nobody could tick. Tasks are now read
+  outside front matter and fenced code, by the rule the Outline uses.
+- **"Frontmatter required" accepts a block closed by `...`.** The lint
+  rule used its own pattern, so front matter closed by a YAML `...` line
+  (which the Outline, Obsidian and `export_metadata` read as front matter)
+  and an empty `---`/`---` block were flagged as missing, while a `----`
+  line closed a block. It now uses the Outline's front matter rule.
+- **"No bare URLs" skips every code block and front matter.** The rule
+  blanked only text between one ```` ``` ```` and the next, so a URL in a
+  `~~~` block was flagged, a ```` ```` ```` block that shows a ```` ``` ````
+  fence ended early, and a URL property in front matter was flagged with a
+  fix that broke the YAML. Code and front matter are now read by the
+  Outline's rules.
+- **The selection popover's Translate button names its language.** The
+  popover has no language picker, so Translate always answered in Spanish,
+  but its button read only "Translate". The button now reads "To Spanish"
+  (titled "Translate to Spanish"), and the chat shows the same label.
+- **The AI setup panel can check again.** The sidebar looked for a provider
+  only when it opened, so starting Ollama with the "No AI provider found"
+  panel open changed nothing until the sidebar was closed and reopened. The
+  panel now has a "Check again" button, which says so when it still finds
+  none. Its key button read "Save key & retry" but retried nothing; it now
+  reads "Save key".
+- **Inline AI with no provider opens the setup panel.** In both editors, a
+  rewrite with no AI provider said "No AI provider. Set one up in the AI
+  sidebar." and left the user to find the sidebar. The message now has a
+  "Set up AI" button that opens it, as the selection popover's does.
 - **MCP: a wikilink's target agrees with the app.** `export_metadata`
   took everything between `[[` and `]]` (before a `|`) as the target, so
   `[[Plan#Goals]]` listed `Plan#Goals`, a note that does not exist, and

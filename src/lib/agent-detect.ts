@@ -63,8 +63,8 @@ export interface DocInfo {
 // Regexes
 // ---------------------------------------------------------------------------
 
-/** Matches GFM task-list items (checked or unchecked). */
-const TASK_RE = /^[ \t]*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s/gm;
+/** Matches a line that is a GFM task-list item (checked or unchecked). */
+const TASK_RE = /^[ \t]*(?:[-*+]|\d+\.)[ \t]+\[([ xX])\](?:\s|$)/;
 
 /** Matches a fenced diff block opening fence. */
 const DIFF_FENCE_RE = /^```diff\b/m;
@@ -248,17 +248,20 @@ function extractAcceptanceCriteria(content: string): string[] {
   return results;
 }
 
-/** Count GFM task-list items in a markdown string. */
+/**
+ * Count GFM task-list items in a markdown string, outside front matter and
+ * fenced code ({@link markdownLines}): a `- [ ]` line in a code sample is
+ * not a task, and it used to count toward the badge and the status bar.
+ */
 function countTasks(content: string): { total: number; done: number } {
   let total = 0;
   let done = 0;
-  // Reset lastIndex since we reuse the regex
-  TASK_RE.lastIndex = 0;
-  let m: RegExpExecArray | null = TASK_RE.exec(content);
-  while (m !== null) {
+  for (const l of markdownLines(content)) {
+    if (l.kind !== "text") continue;
+    const m = TASK_RE.exec(l.text);
+    if (!m) continue;
     total++;
     if (m[1] !== " ") done++;
-    m = TASK_RE.exec(content);
   }
   return { total, done };
 }

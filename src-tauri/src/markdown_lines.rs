@@ -34,12 +34,63 @@ pub enum LineKind {
 /// tildes (a backtick fence's info string has no backtick). It is closed by
 /// a fence of the same character at least as long with nothing after it,
 /// and a fence left open runs to the end, as in CommonMark.
+///
+/// A fence inside a blockquote (a `>` line whose quoted text is a fence)
+/// is a fence too: the
+/// lines after it with at least as many `>` markers are its code until a
+/// closing fence behind those markers, and a line with fewer markers (a
+/// blank line included) ends the quote and so the block, as in CommonMark.
+/// A quoted fence used to be text, so a `# comment` or a `[[link]]` in
+/// quoted code was read as Markdown.
+///
+/// A fence that opens a list item ([`list_fence`]) is a fence too: the
+/// lines after it indented at least to the item's content column (blank
+/// lines included) are its code until a closing fence at that column (up
+/// to three more spaces), and a less indented line ends the item and so
+/// the block. A list-item fence used to be text, so a `  # comment` in an
+/// item's code was read as a heading and `  - [ ] x` as a task.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
     let front_matter = front_matter_len(content);
     let mut fence: Option<(char, usize)> = None;
+    // The fence open inside a blockquote, with its number of `>` markers.
+    let mut quote_fence: Option<(char, usize, usize)> = None;
+    // The fence open in a list item, with the item's content column.
+    let mut item_fence: Option<(char, usize, usize)> = None;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
             return (LineKind::FrontMatter, line);
+        }
+        if let Some((c, n, column)) = item_fence {
+            let columns = indent_columns(line);
+            let rest = line.trim_start_matches([' ', '\t']);
+            if rest.trim().is_empty() || columns >= column {
+                return match code_fence(rest) {
+                    Some((rc, rn, tail))
+                        if columns - column <= 3
+                            && rc == c
+                            && rn >= n
+                            && tail.trim().is_empty() =>
+                    {
+                        item_fence = None;
+                        (LineKind::Fence, line)
+                    }
+                    _ => (LineKind::Code, line),
+                };
+            }
+            item_fence = None;
+        }
+        if let Some((c, n, depth)) = quote_fence {
+            let (markers, inner) = strip_quote_markers(line, depth);
+            if markers == depth {
+                return match code_fence(inner) {
+                    Some((rc, rn, rest)) if rc == c && rn >= n && rest.trim().is_empty() => {
+                        quote_fence = None;
+                        (LineKind::Fence, line)
+                    }
+                    _ => (LineKind::Code, line),
+                };
+            }
+            quote_fence = None;
         }
         let kind = match (fence, code_fence(line)) {
             (Some((c, n)), Some((rc, rn, rest)))
@@ -53,10 +104,85 @@ pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
                 fence = Some((rc, rn));
                 LineKind::Fence
             }
-            (None, None) => LineKind::Text,
+            (None, None) => {
+                let (markers, inner) = strip_quote_markers(line, usize::MAX);
+                match code_fence(inner) {
+                    Some((rc, rn, _)) if markers > 0 => {
+                        quote_fence = Some((rc, rn, markers));
+                        LineKind::Fence
+                    }
+                    _ => match list_fence(line) {
+                        Some(open) => {
+                            item_fence = Some(open);
+                            LineKind::Fence
+                        }
+                        None => LineKind::Text,
+                    },
+                }
+            }
         };
         (kind, line)
     })
+}
+
+/// `line` without up to `max` leading blockquote markers (at most three
+/// spaces, `>`, then one optional space or tab), and how many it lost.
+pub fn strip_quote_markers(line: &str, max: usize) -> (usize, &str) {
+    let mut rest = line;
+    let mut markers = 0;
+    while markers < max {
+        let body = rest.trim_start_matches(' ');
+        if rest.len() - body.len() > 3 {
+            break;
+        }
+        let Some(after) = body.strip_prefix('>') else {
+            break;
+        };
+        rest = after.strip_prefix([' ', '\t']).unwrap_or(after);
+        markers += 1;
+    }
+    (markers, rest)
+}
+
+/// The fence character, its run length and the item's content column when
+/// `line` is one or more list markers (at most three spaces, `-`, `*`, `+`
+/// or 1 to 9 digits and `.` or `)`, then one to four spaces) followed by a
+/// code fence: `- ` then three backticks, or `1. - ~~~`. The app's
+/// `outline.ts` reads a list-item fence by the same rule.
+fn list_fence(line: &str) -> Option<(char, usize, usize)> {
+    let mut rest = line;
+    let mut column = 0;
+    while let Some(len) = list_marker_len(rest) {
+        column += len;
+        rest = &rest[len..];
+    }
+    if column == 0 || rest.starts_with(' ') {
+        return None;
+    }
+    code_fence(rest).map(|(c, n, _)| (c, n, column))
+}
+
+/// The length of the list marker that opens `line` with its one to four
+/// spaces (at most three spaces, `-`, `*`, `+` or 1 to 9 digits and `.` or
+/// `)`), when it has one and no fifth space follows.
+fn list_marker_len(line: &str) -> Option<usize> {
+    let body = line.trim_start_matches(' ');
+    let indent = line.len() - body.len();
+    if indent > 3 {
+        return None;
+    }
+    let digits = body.bytes().take_while(u8::is_ascii_digit).count();
+    let after = if digits == 0 {
+        body.strip_prefix(['-', '*', '+'])?
+    } else if digits <= 9 {
+        body[digits..].strip_prefix(['.', ')'])?
+    } else {
+        return None;
+    };
+    let spaces = after.len() - after.trim_start_matches(' ').len();
+    (1..=4)
+        .contains(&spaces)
+        .then(|| line.len() - after.len() + spaces)
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a
@@ -100,6 +226,9 @@ fn code_fence(line: &str) -> Option<(char, usize, &str)> {
 /// is `Title`, `C#` keeps its `#`, and `#` alone or `## ##` is an empty
 /// heading). A line indented four spaces or a tab is indented code, not a
 /// heading, and `#tag` or `#!/bin/sh` is text.
+/// A line in a blockquote (`> # Quote`) is not one: Obsidian's outline
+/// lists no quoted heading, and the app's Outline panel reads it the same
+/// way, so quoted text from elsewhere does not clutter either.
 // mdopener-mcp uses it; the app includes this file only for its tasks.
 #[allow(dead_code)]
 pub fn atx_heading(line: &str) -> Option<(usize, &str)> {

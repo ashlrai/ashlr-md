@@ -5,7 +5,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOC_ACTIONS } from "../../ai/actions";
-import { type AIErrorInfo, describeAIError, isMacPlatform } from "../../ai/errors";
+import {
+  type AIErrorInfo,
+  ANTHROPIC_BILLING_URL,
+  describeAIError,
+  isMacPlatform,
+} from "../../ai/errors";
 import {
   detectProvider,
   getCachedProvider,
@@ -72,7 +77,7 @@ export const MAX_RETRIES = 3;
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
 // ---------------------------------------------------------------------------
-const MAX_CONTEXT_CHARS = 8_000;
+export const MAX_CONTEXT_CHARS = 8_000;
 
 // ---------------------------------------------------------------------------
 // Privacy badge
@@ -170,9 +175,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 
 function SetupNudge({
   onKeySet,
+  onCheckAgain,
+  stillMissing,
   notice,
 }: {
   onKeySet: () => void;
+  /** Look for a provider again, say once Ollama is running. */
+  onCheckAgain: () => void;
+  /** A "Check again" found no provider, so say so instead of nothing. */
+  stillMissing: boolean;
   /** The request that just failed for want of a provider (say a selection
    *  popover action), shown on top so the user sees why nothing ran. */
   notice: AIErrorInfo | null;
@@ -225,6 +236,17 @@ function SetupNudge({
         <br />
         Or enter an Anthropic API key below for cloud inference.
       </p>
+      {/* Detection ran only when the sidebar opened, so a user who started
+          Ollama with the panel open had to close and reopen it to be seen. */}
+      <button className="ai-recheck-btn" type="button" onClick={onCheckAgain}>
+        Check again
+      </button>
+      {stillMissing && (
+        <p className="ai-setup-nudge__still" role="status">
+          Still no AI provider found. Start Ollama with a model pulled, or save a key
+          below, then check again.
+        </p>
+      )}
       <form className="ai-key-form" onSubmit={submit}>
         <input
           className="ai-key-input"
@@ -236,7 +258,7 @@ function SetupNudge({
           spellCheck={false}
         />
         <button className="ai-key-submit" type="submit" disabled={!draft.trim()}>
-          Save key &amp; retry
+          Save key
         </button>
       </form>
     </div>
@@ -314,12 +336,19 @@ export function AISidebar() {
   const [input, setInput] = useState("");
   const [resolvedProvider, setResolvedProvider] = useState<AIProvider | null>(null);
   const [detecting, setDetecting] = useState(false);
+  // A "Check again" on the setup panel found no provider.
+  const [recheckMissed, setRecheckMissed] = useState(false);
   // retryState: holds the pending retry context when a generation fails.
   const [retryState, setRetryState] = useState<{
     retryCount: number;
     /** Re-run the last failed generation. */
     retry: () => void;
+    /** The failure needs a new key or credit first, so a retry would fail
+     *  the same way: offer that step instead of Retry. */
+    setup?: AIErrorInfo["setup"];
   } | null>(null);
+  // How the last generation failed, for the retry toast.
+  const lastErrorRef = useRef<AIErrorInfo | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -362,6 +391,25 @@ export function AISidebar() {
       cancelled = true;
     };
   }, [open, setProvider, clearProvider, hasApiKey]);
+
+  /** Look for a provider again, from the setup panel. Resolves to whether
+   *  one was found. */
+  async function redetect(): Promise<boolean> {
+    setDetecting(true);
+    let found = false;
+    try {
+      const p = await detectProvider();
+      setResolvedProvider(p);
+      setProvider(p.id, p.capabilities);
+      found = p.id !== NOOP_PROVIDER_ID;
+    } catch {
+      setResolvedProvider(null);
+      clearProvider();
+    }
+    setRecheckMissed(!found);
+    setDetecting(false);
+    return found;
+  }
 
   // Scroll to bottom when messages change.
   useEffect(() => {
@@ -439,7 +487,9 @@ export function AISidebar() {
           stopLast();
         } else {
           recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
-          failLast(describeAIError(e));
+          const info = describeAIError(e);
+          lastErrorRef.current = info;
+          failLast(info);
         }
         return false;
       }
@@ -513,6 +563,7 @@ export function AISidebar() {
         ...history.slice(-20), // Keep last 20 to stay within context windows
       ];
 
+      lastErrorRef.current = null;
       const succeeded = await runGeneration(allMessages, citations, controller);
 
       finalizeLast();
@@ -529,6 +580,8 @@ export function AISidebar() {
               setRetryState(null);
               void send(text, nextRetryCount);
             },
+            // Set by runGeneration, which TS cannot see through the await.
+            setup: (lastErrorRef.current as AIErrorInfo | null)?.setup,
           });
         } else {
           // Exceeded max retries — clear retry state.
@@ -579,6 +632,7 @@ export function AISidebar() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      lastErrorRef.current = null;
       const succeeded = await runGeneration(msgs, [], controller);
 
       finalizeLast();
@@ -595,6 +649,8 @@ export function AISidebar() {
               setRetryState(null);
               void runDocAction(actionId, nextRetryCount);
             },
+            // Set by runGeneration, which TS cannot see through the await.
+            setup: (lastErrorRef.current as AIErrorInfo | null)?.setup,
           });
         } else {
           setRetryState(null);
@@ -632,6 +688,13 @@ export function AISidebar() {
     setRetryState(null);
   }
 
+  // Why the quick actions are disabled, or null when they can run.
+  const quickActionBlock = busy
+    ? "wait for the current answer to finish, or stop it."
+    : !docContent.trim()
+      ? "this document has no text to work on."
+      : null;
+
   return (
     <aside
       className={`ai-sidebar${open ? " ai-sidebar--open" : ""}`}
@@ -657,7 +720,9 @@ export function AISidebar() {
         </button>
       </div>
 
-      {/* Quick action buttons */}
+      {/* Quick action buttons. A disabled one says why in its tooltip: it
+          used to repeat its label, so an empty document's greyed-out buttons
+          gave no reason. They show only once a provider is set up. */}
       {!isNoop && provider && (
         <div className="ai-quick-actions" aria-label="Quick actions">
           {DOC_ACTIONS.map((a) => (
@@ -665,14 +730,23 @@ export function AISidebar() {
               key={a.id}
               type="button"
               className="ai-quick-btn"
-              disabled={busy || !docContent}
+              disabled={!!quickActionBlock}
               onClick={() => runDocAction(a.id)}
-              title={a.label}
+              title={quickActionBlock ? `${a.label}: ${quickActionBlock}` : a.label}
             >
               {a.icon} {a.label}
             </button>
           ))}
         </div>
+      )}
+
+      {/* The document is cut to MAX_CONTEXT_CHARS before it is sent, which
+          used to happen with no word, so answers about its end were guesses. */}
+      {!isNoop && provider && docContent.length > MAX_CONTEXT_CHARS && (
+        <p className="ai-context-note" role="note">
+          The AI sees only the first {MAX_CONTEXT_CHARS.toLocaleString("en-US")} of this
+          document's {docContent.length.toLocaleString("en-US")} characters.
+        </p>
       )}
 
       {/* Body: nudge or chat */}
@@ -686,21 +760,9 @@ export function AISidebar() {
       ) : isNoop || !provider ? (
         <SetupNudge
           notice={unrunNotice(messages)}
-          onKeySet={() => {
-            setDetecting(true);
-            detectProvider().then(
-              (p) => {
-                setResolvedProvider(p);
-                setProvider(p.id, p.capabilities);
-                setDetecting(false);
-              },
-              () => {
-                setResolvedProvider(null);
-                clearProvider();
-                setDetecting(false);
-              },
-            );
-          }}
+          stillMissing={recheckMissed}
+          onKeySet={() => void redetect()}
+          onCheckAgain={() => void redetect()}
         />
       ) : (
         <>
@@ -728,24 +790,52 @@ export function AISidebar() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Retry toast — shown after a failed generation (non-abort). */}
+          {/* Retry toast — shown after a failed generation (non-abort). A
+              refused key or an empty account fails every retry the same way,
+              so those offer the step that fixes them instead of Retry. */}
           {retryState && (
             <div className="ai-retry-toast" role="alert" aria-live="assertive">
               <span className="ai-retry-toast__msg">
                 Generation failed.{" "}
-                {retryState.retryCount <= MAX_RETRIES
-                  ? `Retry ${retryState.retryCount} of ${MAX_RETRIES}?`
-                  : "No more retries."}
+                {retryState.setup === "key"
+                  ? "Replace the key or token in Preferences, then send again."
+                  : retryState.setup === "credit"
+                    ? "Add credit, then send again."
+                    : retryState.retryCount <= MAX_RETRIES
+                      ? `Retry ${retryState.retryCount} of ${MAX_RETRIES}?`
+                      : "No more retries."}
               </span>
-              {retryState.retryCount <= MAX_RETRIES && (
+              {retryState.setup === "key" ? (
                 <button
                   type="button"
                   className="ai-retry-btn"
-                  onClick={retryState.retry}
-                  aria-label="Retry failed AI generation"
+                  onClick={() => {
+                    setRetryState(null);
+                    useUiStore.getState().openSettings();
+                  }}
                 >
-                  Retry
+                  Open Preferences
                 </button>
+              ) : retryState.setup === "credit" ? (
+                <a
+                  className="ai-retry-btn"
+                  href={ANTHROPIC_BILLING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Add credit
+                </a>
+              ) : (
+                retryState.retryCount <= MAX_RETRIES && (
+                  <button
+                    type="button"
+                    className="ai-retry-btn"
+                    onClick={retryState.retry}
+                    aria-label="Retry failed AI generation"
+                  >
+                    Retry
+                  </button>
+                )
               )}
               <button
                 type="button"

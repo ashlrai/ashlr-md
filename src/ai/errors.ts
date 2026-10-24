@@ -14,7 +14,16 @@ export interface AIErrorInfo {
   command?: string;
   /** The provider's raw error text, for the secondary "Details" line. */
   detail: string;
+  /**
+   * A failure a retry cannot fix: `key` when the key or token is missing or
+   * refused (replace it in Preferences), `credit` when the account is out of
+   * credit (add credit in the Anthropic Console).
+   */
+  setup?: "key" | "credit";
 }
+
+/** Where an Anthropic account adds credit, for an out-of-credit failure. */
+export const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
 
 /**
  * What every AI surface says when no provider is found: the editors' inline
@@ -124,6 +133,7 @@ export function describeAIError(err: unknown): AIErrorInfo {
         message:
           "No Anthropic API key is saved. Add one in Preferences, Anthropic API key.",
         detail,
+        setup: "key",
       };
     }
     if (
@@ -135,6 +145,7 @@ export function describeAIError(err: unknown): AIErrorInfo {
         message:
           "Anthropic rejected your API key: it is wrong, revoked or expired. Replace it in Preferences, Anthropic API key.",
         detail,
+        setup: "key",
       };
     }
     if (status === 429 || /rate_limit_error/i.test(raw)) {
@@ -148,6 +159,7 @@ export function describeAIError(err: unknown): AIErrorInfo {
         message:
           "Your Anthropic account is out of credit. Add credit in the Anthropic Console, then retry.",
         detail,
+        setup: "credit",
       };
     }
     if (status === 529 || /overloaded_error/i.test(raw)) {
@@ -179,6 +191,7 @@ export function describeAIError(err: unknown): AIErrorInfo {
         message:
           "Your Ashlr MD Cloud token is invalid or expired. Replace it in Preferences, Hosted AI.",
         detail,
+        setup: "key",
       };
     }
     if (status === 429) {

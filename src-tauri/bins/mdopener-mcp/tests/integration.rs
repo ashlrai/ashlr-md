@@ -8040,6 +8040,61 @@ fn export_metadata_headings_skip_front_matter_and_use_the_fence_rule() {
     ));
 }
 
+/// A fence that opens a list item (`- ` then a fence) was text, so a
+/// `[[link]]` or a `# comment` in an item's code was read as Markdown. It
+/// is now a fence; its block ends at its closing fence at the item's
+/// content column or at a less indented line, as in CommonMark.
+#[test]
+fn a_fence_in_a_list_item_is_a_fence() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    let cases: [(&str, &[&str]); 5] = [
+        (
+            "- ```\n  [[InCode]]\n\n  [[InCode]]\n  ```\n[[Real]]\n",
+            &["Real"],
+        ),
+        (
+            "1. ~~~\n   [[InCode]]\n   ```\n   ~~~\n   [[Real]]\n",
+            &["Real"],
+        ),
+        ("- ```\n  [[InCode]]\n[[Real]]\n", &["Real"]),
+        ("1. - ```\n     [[InCode]]\n  [[Real]]\n", &["Real"]),
+        ("-     ```\n[[Real]]\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    assert!(
+        strip_markdown("- ```sh\n  # comment\n  ```\n").contains("# comment"),
+        "the `#` of item code is kept"
+    );
+}
+
+/// A fence inside a blockquote was text, so a `[[link]]` in quoted code
+/// was a link and export_text read a quoted `# comment` as a heading. A
+/// quoted fence is now a fence; its block ends at its closing fence or at a
+/// line with fewer `>` markers, as in CommonMark.
+#[test]
+fn a_fence_in_a_blockquote_is_a_fence() {
+    use mdopener_mcp::{extract_wikilinks, strip_markdown};
+    let cases: [(&str, &[&str]); 5] = [
+        ("> ```\n> [[InCode]]\n> ```\n[[Real]]\n", &["Real"]),
+        (
+            "> ~~~\n>> [[InCode]]\n> ```\n> ~~~\n> [[Real]]\n",
+            &["Real"],
+        ),
+        ("> > ```\n> > [[InCode]]\n> [[Real]]\n", &["Real"]),
+        ("> ```\n> [[InCode]]\n\n[[Real]]\n", &["Real"]),
+        ("```\n> ```\n[[InCode]]\n```\n[[Real]]\n", &["Real"]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    assert_eq!(
+        strip_markdown("> ```sh\n> # comment **x**\n> ```\n> # Quote\n").trim(),
+        "# comment **x**\nQuote"
+    );
+}
+
 /// extract_wikilinks flipped "in code" on any line starting with ``` or
 /// ~~~, so a `~~~` line inside a backtick block made the code after it
 /// links and the text after the block not, and a ``` line in a front matter
@@ -8171,6 +8226,25 @@ fn title_and_headings_share_the_atx_heading_rule() {
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("so `  # Title` and `#<tab>Title` were not titles"));
     assert!(docs.contains("so a `# comment` indented four spaces is indented code"));
+}
+
+/// A heading inside a blockquote is not listed in `export_metadata`'s
+/// headings and is not a title, as in Obsidian's outline and the app's
+/// Outline panel (src/lib/outline.ts), which agree on it.
+#[test]
+fn a_heading_inside_a_blockquote_is_not_listed() {
+    use mdopener_mcp::{document_title, extract_headings};
+    let doc = "> # Quote\n>> ## Deep\n   > ### Spaced\n\n## Real\n";
+    let texts: Vec<String> = extract_headings(doc)
+        .iter()
+        .map(|h| h["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(texts, ["Real"]);
+    assert_eq!(document_title(doc), None);
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(docs.contains("a heading inside a blockquote, `> # Quote`, is not listed"));
+    let outline = include_str!("../../../../src/lib/outline.ts");
+    assert!(outline.contains("A heading inside a blockquote (`> # Quote`) is not"));
 }
 
 /// `strip_markdown` trimmed a line before it took its `#`s off, so a

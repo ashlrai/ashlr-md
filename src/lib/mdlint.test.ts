@@ -261,6 +261,17 @@ describe("rule:frontmatter-required", () => {
     const doc = "---\r\ntitle: X\r\n---\r\n# Hello\r\n";
     expect(lintDocument(doc, { rules: [ruleFrontmatterRequired] })).toHaveLength(0);
   });
+
+  it("reads front matter by the markdownLines rule", () => {
+    const flagged = (doc: string) =>
+      lintDocument(doc, { rules: [ruleFrontmatterRequired] }).length;
+    // A YAML document end `...` closes front matter, as in Obsidian and
+    // mdopener-mcp, and an empty block is still a block.
+    expect(flagged("---\ntitle: X\n...\n# Hello\n")).toBe(0);
+    expect(flagged("---\n---\n# Hello\n")).toBe(0);
+    // A `----` line closes nothing, so this `---` is never closed.
+    expect(flagged("---\ntitle: X\n----\n# Hello\n")).toBe(1);
+  });
 });
 
 // ─── 3d. Rule: no-bare-urls ───────────────────────────────────────────────────
@@ -303,6 +314,29 @@ describe("rule:no-bare-urls", () => {
   it("does not flag URLs inside code spans", () => {
     const doc = "Use `https://example.com` as a reference.\n";
     expect(lintDocument(doc, { rules: [ruleNoBareUrls] })).toHaveLength(0);
+  });
+
+  it("skips code by the markdownLines fence rule and front matter", () => {
+    const doc = [
+      "---",
+      "source: https://example.com/yaml",
+      "---",
+      "~~~",
+      "https://example.com/tilde",
+      "~~~",
+      "````md",
+      "```",
+      "https://example.com/inner",
+      "```",
+      "https://example.com/still-code",
+      "````",
+      "See https://example.com/real here.",
+    ].join("\n");
+    const violations = lintDocument(doc, { rules: [ruleNoBareUrls] });
+    expect(violations.map((v) => v.message)).toEqual([
+      "Bare URL: https://example.com/real",
+    ]);
+    expect(violations[0].range?.from).toMatchObject({ line: 13, col: 4 });
   });
 
   it("does not flag URLs inside fenced code blocks", () => {

@@ -138,4 +138,133 @@ describe("parseHeadings", () => {
     }
     expect(lines[8]).toMatchObject({ text: "y", line: 9 });
   });
+
+  it("leaves a quoted heading out but counts its slug as the renderer does", () => {
+    // Obsidian's outline lists no heading inside a blockquote, and neither
+    // does mdopener-mcp. rehype-slug still gives `> # Plan` the id `plan`,
+    // so the real `# Plan` below it is `plan-1`.
+    const doc = [
+      "> # Plan",
+      ">> ## Deep ##",
+      "",
+      "> ```",
+      "> # not a heading",
+      "> ```",
+      "",
+      "# Plan",
+      "## Deep",
+      "# not a heading",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Plan", "plan-1", 8],
+      ["Deep", "deep-1", 9],
+      ["not a heading", "not-a-heading", 10],
+    ]);
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([8, 9, 10]);
+  });
+  it("reads a fence inside a blockquote as a fence", () => {
+    // A quoted fence used to be text, so its `[[link]]`s were linted and
+    // its lines read as Markdown. A line with fewer `>` markers ends it.
+    const doc = [
+      "> ```sh",
+      "> # comment",
+      ">> - [ ] not a task",
+      "> ```",
+      "> text",
+      "> > ~~~",
+      "> > code",
+      "> after",
+      "> ```",
+      "",
+      "- [ ] task",
+    ].join("\n");
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "code",
+      "fence",
+      "text",
+      "fence",
+      "code",
+      "text",
+      "fence",
+      "text",
+      "text",
+    ]);
+  });
+  it("counts the slug of a heading indented in a list item as the renderer does", () => {
+    // `    # Sub` after `1. x` is a heading in the item (at most three
+    // columns past its text), which rehype-slug gives the id `sub`, so the
+    // real `# Sub` is `sub-1`. Four columns past the text is code.
+    const doc = [
+      "1. x",
+      "",
+      "    # Sub",
+      "",
+      "- y",
+      "",
+      "      # Code",
+      "",
+      "# Sub",
+      "# Code",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Sub", "sub-1", 9],
+      ["Code", "code", 10],
+    ]);
+  });
+  it("reads a fence in a list item as a fence", () => {
+    // A list-item fence used to be text, so `  # comment` in the item's
+    // code was listed in the Outline. A less indented line ends it.
+    const doc = [
+      "- ```sh",
+      "  # comment",
+      "",
+      "  - [ ] not a task",
+      "  ```",
+      "  # after",
+      "1. - ~~~",
+      "     code",
+      "  # out",
+      "-     ```",
+      "# Real",
+    ].join("\n");
+    expect(markdownLines(doc).map((l) => l.kind)).toEqual([
+      "fence",
+      "code",
+      "code",
+      "code",
+      "fence",
+      "text",
+      "fence",
+      "code",
+      "text",
+      "text",
+      "text",
+    ]);
+    expect(parseHeadings(doc).map((h) => h.text)).not.toContain("comment");
+  });
+  it("leaves a list-item heading out but counts its slug as the renderer does", () => {
+    // rehype-slug gives `- # Step` (a heading in a list item) the id `step`,
+    // so the real `# Step` below it is `step-1` in the page.
+    const doc = [
+      "- # Step",
+      "1. ## Two",
+      "> - ### Quoted item",
+      "-     # indented code",
+      "- #tag",
+      "",
+      "# Step",
+      "## Two",
+      "### Quoted item",
+      "# indented code",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Step", "step-1", 7],
+      ["Two", "two-1", 8],
+      ["Quoted item", "quoted-item-1", 9],
+      ["indented code", "indented-code", 10],
+    ]);
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([7, 8, 9, 10]);
+  });
 });

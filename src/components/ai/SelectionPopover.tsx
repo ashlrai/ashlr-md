@@ -9,7 +9,12 @@
 //   4. Selection clearing (mousedown elsewhere, Escape) removes the popover.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ActionId, AI_ACTIONS } from "../../ai/actions";
+import {
+  type ActionId,
+  AI_ACTIONS,
+  type AIAction,
+  DEFAULT_TRANSLATE_LANGUAGE,
+} from "../../ai/actions";
 import { describeAIError, NO_PROVIDER_RUN_MESSAGE } from "../../ai/errors";
 import {
   detectProvider,
@@ -26,6 +31,24 @@ interface PopoverPosition {
 
 // Actions to show in the popover (subset — keep it tight).
 const POPOVER_ACTIONS: ActionId[] = ["explain", "rewrite", "summarize", "translate"];
+
+/**
+ * What the popover's button and the chat call `action`. The popover has no
+ * language picker, so Translate runs into the default language, and its
+ * button says which: it used to read only "Translate" and answer in Spanish.
+ */
+export function popoverLabels(action: AIAction): {
+  label: string;
+  shortLabel: string;
+} {
+  if (action.id === "translate") {
+    return {
+      label: `Translate to ${DEFAULT_TRANSLATE_LANGUAGE}`,
+      shortLabel: `To ${DEFAULT_TRANSLATE_LANGUAGE}`,
+    };
+  }
+  return { label: action.label, shortLabel: action.shortLabel };
+}
 
 export function SelectionPopover() {
   const [visible, setVisible] = useState(false);
@@ -145,7 +168,7 @@ export function SelectionPopover() {
 
     pushMessage({
       role: "user",
-      content: `${action.label}: "${selectedText.slice(0, 80)}${selectedText.length > 80 ? "…" : ""}"`,
+      content: `${popoverLabels(action).label}: "${selectedText.slice(0, 80)}${selectedText.length > 80 ? "…" : ""}"`,
     });
 
     // No provider: say so in the sidebar with the next step, as the editors'
@@ -167,7 +190,10 @@ export function SelectionPopover() {
       return;
     }
 
-    const msgs = action.buildMessages(selectedText);
+    const msgs = action.buildMessages(
+      selectedText,
+      id === "translate" ? DEFAULT_TRANSLATE_LANGUAGE : undefined,
+    );
     pushMessage({ role: "assistant", content: "", streaming: true });
     setBusy(true);
 
@@ -227,6 +253,7 @@ export function SelectionPopover() {
       ) : (
         POPOVER_ACTIONS.map((id, i) => {
           const action = AI_ACTIONS.find((a) => a.id === id)!;
+          const { label, shortLabel } = popoverLabels(action);
           return (
             <span key={id} style={{ display: "contents" }}>
               {i > 0 && <span className="ai-popover-divider" aria-hidden="true" />}
@@ -235,9 +262,9 @@ export function SelectionPopover() {
                 className="ai-popover-btn"
                 disabled={busy}
                 onClick={() => runAction(id)}
-                title={action.label}
+                title={label}
               >
-                {action.icon} {action.shortLabel}
+                {action.icon} {shortLabel}
               </button>
             </span>
           );
