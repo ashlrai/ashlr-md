@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A code span no longer runs across GFM table cells.** remark-gfm reads
+  each table cell as its own inline text, so `` | `a | b` | `` shows two
+  backticks as text. The lint rules (the Outline's `maskInlineCode`) and the
+  sidecar's link and image counts (`prose_chars`) read the text between them,
+  or a backtick in the next row, as code, so a `[[link]]` or `![[image]]` in
+  a table could go uncounted and a lint rule skipped text the page shows.
+  A table (a header row with as many cells as the delimiter row after it,
+  not on a lazy line) is now read cell by cell. Fuzzed against mdast.
 - **Outline links reach headings with HTML, entities, escapes or spacing.**
   The Outline took a heading's slug from text with rough patterns, so it
   differed from the page's id for `# a  b` (`a--b` on the page, `a-b` in the

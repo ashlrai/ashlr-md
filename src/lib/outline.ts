@@ -812,37 +812,136 @@ function inlineLinkEnd(text: string, start: number): number | null {
  * mdopener-mcp's `prose_chars` reads it. Other lines are as they are. A
  * code span used to be read over the whole document, so a backtick could
  * pair with one paragraphs later, and inline math was not read.
+ *
+ * A GFM table in a paragraph ({@link tableRows}) is read cell by cell, as
+ * remark-gfm reads each cell's inline content on its own: a backtick could
+ * pair with one in the next cell or row (`` | `a | b` | ``), which the page
+ * shows as text, so the text between was taken for code.
  */
 export function maskInlineCode(lines: MarkdownLine[]): string[] {
   const out = lines.map((l) => l.text);
+  // Mask the spans of lines [from, to) read as one inline block.
+  const mask = (from: number, to: number, math: boolean) => {
+    if (from >= to) return;
+    const block = out.slice(from, to).join("\n");
+    maskSpans(block, math)
+      .split("\n")
+      .forEach((t, k) => {
+        out[from + k] = t;
+      });
+  };
   let i = 0;
   while (i < lines.length) {
     const kind = lines[i].kind;
     let j = i + 1;
     if (kind === "frontmatter") {
       while (j < lines.length && lines[j].kind === "frontmatter") j++;
+      mask(i, j, false);
     } else if (kind === "text") {
       while (j < lines.length && lines[j].kind === "text" && lines[j].continues) j++;
-    } else {
-      i = j;
-      continue;
+      // The paragraph's lines up to a table, its rows cell by cell, and
+      // the lines after it as the next block.
+      let from = i;
+      for (let k = i; k + 1 < j; k++) {
+        const rows = tableRows(lines, k, j, lines[i].contained);
+        if (rows === 0) continue;
+        mask(from, k, true);
+        for (let r = k; r < k + rows; r++) {
+          if (r === k + 1) continue; // The delimiter row holds no text.
+          let cells = "";
+          for (const cell of splitCells(out[r])) cells += maskSpans(cell, true);
+          out[r] = cells;
+        }
+        from = k + rows;
+        // Lines indented four columns after it are indented code.
+        while (from < j && /^ {4}/.test(lines[from].content)) from++;
+        k = from - 1;
+      }
+      mask(from, j, true);
     }
-    const block = out.slice(i, j).join("\n");
-    let masked = "";
-    let at = 0;
-    for (const span of inlineSpans(block, kind === "text")) {
-      masked +=
-        block.slice(at, span.start) +
-        block.slice(span.start, span.end).replace(/[^\n]/g, "\r");
-      at = span.end;
-    }
-    masked += block.slice(at);
-    masked.split("\n").forEach((t, k) => {
-      out[i + k] = t;
-    });
     i = j;
   }
   return out;
+}
+
+/** `block` with its code spans (and with `math` inline math) masked by `\r`s. */
+function maskSpans(block: string, math: boolean): string {
+  let masked = "";
+  let at = 0;
+  for (const span of inlineSpans(block, math)) {
+    masked +=
+      block.slice(at, span.start) +
+      block.slice(span.start, span.end).replace(/[^\n]/g, "\r");
+    at = span.end;
+  }
+  return masked + block.slice(at);
+}
+
+/**
+ * `row` cut before each pipe that splits GFM table cells (one no backslash
+ * escapes, in a code span too), so the pieces join back to `row`.
+ */
+function splitCells(row: string): string[] {
+  const out: string[] = [];
+  let at = 0;
+  for (let i = 0; i < row.length; i++) {
+    if (row[i] === "\\") i++;
+    else if (row[i] === "|") {
+      out.push(row.slice(at, i));
+      at = i;
+    }
+  }
+  out.push(row.slice(at));
+  return out;
+}
+
+/** The number of GFM table cells of `content` (a row past its containers). */
+function cellCount(content: string): number {
+  const row = content.trim();
+  const pipes = splitCells(row).length - 1;
+  const lead = row.startsWith("|") ? 1 : 0;
+  // A closing pipe no backslash escapes; a lone `|` opens and closes no cell.
+  const trail =
+    row.endsWith("|") && splitCells(row.slice(0, -1)).length === pipes ? 1 : 0;
+  return pipes + 1 - lead - trail;
+}
+
+/**
+ * How many lines of a paragraph, `lines` [k, end), the GFM table that
+ * starts at `k` takes (its header row, its delimiter row and its body
+ * rows), or 0 when none starts there, as remark-gfm reads one: a header
+ * row of as many cells as the delimiter row after it (`:?-+:?` cells, not
+ * a setext underline), then the lines that go on in the same containers,
+ * up to a blank line or one indented four columns.
+ */
+function tableRows(
+  lines: MarkdownLine[],
+  k: number,
+  end: number,
+  contained: boolean,
+): number {
+  const head = lines[k];
+  const delim = lines[k + 1];
+  // A lazy line (`> a`, then `b`) is no row.
+  if (head.contained !== contained || delim.contained !== contained) return 0;
+  if (delim.setext || /^ {4}/.test(head.content) || /^ {4}/.test(delim.content))
+    return 0;
+  const d = delim.content.trim();
+  const cells = splitCells(d.replace(/^\|/, "").replace(/\|$/, "")).map((c) =>
+    c.replace(/^\|/, "").trim(),
+  );
+  if (!cells.every((c) => /^:?-+:?$/.test(c))) return 0;
+  if (!d.includes("|") && !/^:|:$/.test(d)) return 0;
+  if (cellCount(head.content) !== cells.length) return 0;
+  let n = 2;
+  while (
+    k + n < end &&
+    lines[k + n].contained === head.contained &&
+    lines[k + n].content.trim() !== "" &&
+    !/^ {4}/.test(lines[k + n].content)
+  )
+    n++;
+  return n;
 }
 
 /**

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { atxHeading, atxHeadings, markdownLines, parseHeadings } from "./outline";
+import {
+  atxHeading,
+  atxHeadings,
+  markdownLines,
+  maskInlineCode,
+  parseHeadings,
+} from "./outline";
 
 describe("parseHeadings", () => {
   it("skips a leading YAML frontmatter block", () => {
@@ -651,5 +657,45 @@ describe("parseHeadings reads inline text as mdast does (rehype-slug parity)", (
     expect(slugs("# ==hi== %%note%% [[Target|alias]] ![[embed]]\n")).toEqual([
       "hi--alias-",
     ]);
+  });
+});
+
+describe("maskInlineCode reads a GFM table cell by cell", () => {
+  const masked = (md: string) =>
+    maskInlineCode(markdownLines(md)).map((t) => t.replace(/\r/g, "#"));
+
+  it("does not pair backticks across cells or rows", () => {
+    // remark-gfm reads `a and b` as text in two cells, and the rows apart.
+    expect(masked("| `a | b` |\n|---|---|\n| `c | d` |\n")).toEqual([
+      "| `a | b` |",
+      "|---|---|",
+      "| `c | d` |",
+      "",
+    ]);
+    expect(masked("a|b\n-|-\n`x|y\nz`|w\n")).toEqual([
+      "a|b",
+      "-|-",
+      "`x|y",
+      "z`|w",
+      "",
+    ]);
+  });
+
+  it("still masks a code span inside one cell, and an escaped pipe in it", () => {
+    expect(masked("| `a` | `b \\| c` |\n|-|-|\n")).toEqual([
+      "| ### | ######## |",
+      "|-|-|",
+      "",
+    ]);
+  });
+
+  it("reads the paragraph before the table, and no table without a matching delimiter row", () => {
+    // The line before the delimiter row is the header, out of the paragraph.
+    expect(masked("`x\ny` b|c\n-|-\n")).toEqual(["`x", "y` b|c", "-|-", ""]);
+    expect(masked("`x\ny`\nb|c\n-|-\n")).toEqual(["##", "##", "b|c", "-|-", ""]);
+    // Two header cells, one delimiter cell: a paragraph, so the span pairs.
+    expect(masked("`a|b\nc`|-\n:-\n")).toEqual(["####", "##|-", ":-", ""]);
+    // A lazy line in a blockquote is no delimiter row.
+    expect(masked("> `a | b\n`-|-\n")).toEqual(["> ######", "#-|-", ""]);
   });
 });

@@ -8508,6 +8508,26 @@ fn export_text_keeps_indented_code_and_reads_headings_by_the_atx_rule() {
     );
 }
 
+/// A GFM table's cells are separate inline contexts, as remark-gfm reads
+/// them: a backtick in one cell does not pair with one in another cell or
+/// row, so the link between them is a link on the page and here.
+#[test]
+fn code_spans_do_not_run_across_table_cells() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "| `a | [[Link]] | b` |\n|---|---|---|\n";
+    assert_eq!(extract_wikilinks(doc), ["Link"]);
+    let doc = "a|b\n-|-\n`x|![[i.png]]|y`\n";
+    assert_eq!(count_embedded_images(doc), 1);
+    // A code span inside one cell still hides what it holds.
+    assert!(extract_wikilinks("a|b\n-|-\n`[[No]]`|c\n").is_empty());
+    // Out of a table (no delimiter row), the span pairs over the pipes.
+    assert!(extract_wikilinks("`a | [[Hidden]] | b`\n").is_empty());
+    // A lazy line is no delimiter row.
+    assert!(extract_wikilinks("> `a | [[Hidden]]\n-|-\n`\n").is_empty());
+    // Without the quote it is a table, and the link shows.
+    assert_eq!(extract_wikilinks("`a | [[Shown]]\n-|-\n`\n"), ["Shown"]);
+}
+
 /// `find_double_close` looked for `]]` across newlines, so an unclosed `[[`
 /// took the text up to a `]]` lines later as its target and hid the links
 /// in between, and an unclosed `![[` counted as an image. A wikilink or an

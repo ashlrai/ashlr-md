@@ -119,6 +119,7 @@ pub fn item_starts(content: &str) -> impl Iterator<Item = ItemStart<'_>> {
         continues: l.continues,
         underline: l.underline,
         footnote: l.footnote,
+        contained: l.contained,
     })
 }
 
@@ -136,6 +137,10 @@ pub struct ItemStart<'a> {
     // mdopener-mcp uses it; the app reads only tasks.
     #[allow(dead_code)]
     pub footnote: Option<String>,
+    /// Whether the line sits in a blockquote or a list item.
+    // mdopener-mcp uses it; the app reads only tasks.
+    #[allow(dead_code)]
+    pub contained: bool,
 }
 
 /// The ATX headings ([`atx_heading`]) of the text lines of `content`

@@ -9537,16 +9537,23 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
     // The block being read: its lines, and whether it is text (not front
     // matter). Blocks are joined by line breaks, as their lines are.
-    let mut blocks: Vec<(Vec<&str>, bool)> = Vec::new();
+    let mut blocks: Vec<(Vec<ProseLine>, bool)> = Vec::new();
     let mut open = false;
-    for ((kind, line), start) in
-        markdown_lines::with_indented_code(content).zip(markdown_lines::item_starts(content))
+    for (((kind, line), start), text) in markdown_lines::with_indented_code(content)
+        .zip(markdown_lines::item_starts(content))
+        .zip(markdown_lines::line_text(content))
     {
         let front = kind == LineKind::FrontMatter;
         if kind != LineKind::Text && !(front_matter && front) {
             open = false;
             continue;
         }
+        let line = ProseLine {
+            line,
+            content: text.map(|(t, _)| t.into_owned()).unwrap_or_default(),
+            contained: start.contained,
+            underline: start.underline,
+        };
         // A front matter line goes on with the front matter, and a text
         // line that goes on with the paragraph before it with that.
         let joins = |text: bool| (front && !text) || (!front && text && start.continues);
@@ -9561,16 +9568,165 @@ fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
         if k > 0 {
             out.push('\n');
         }
-        let chars: Vec<char> = lines.join("\n").chars().collect();
-        let mut at = 0;
-        for span in inline_spans(&chars, *text) {
-            out.extend(&chars[at..span.start]);
-            out.push('\r');
-            at = span.end;
+        if *text {
+            out.extend(prose_text_block(lines));
+        } else {
+            let joined: Vec<&str> = lines.iter().map(|l| l.line).collect();
+            out.extend(masked_spans(&joined.join("\n"), false));
         }
-        out.extend(&chars[at..]);
     }
     out
+}
+
+/// A line of a [`prose_chars`] block: the line, its text past its
+/// containers ([`markdown_lines::line_text`]), whether it sits in a
+/// blockquote or a list item, and whether it is a setext underline.
+struct ProseLine<'a> {
+    line: &'a str,
+    content: String,
+    contained: bool,
+    underline: bool,
+}
+
+/// `text` with each code span (and with `math` inline math) read as a `\r`.
+fn masked_spans(text: &str, math: bool) -> Vec<char> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::with_capacity(chars.len());
+    let mut at = 0;
+    for span in inline_spans(&chars, math) {
+        out.extend(&chars[at..span.start]);
+        out.push('\r');
+        at = span.end;
+    }
+    out.extend(&chars[at..]);
+    out
+}
+
+/// The lines of a paragraph block ([`prose_chars`]) with their spans read
+/// as `\r`s, joined by line breaks. A GFM table in it ([`table_rows`]) is
+/// read cell by cell, as remark-gfm reads each cell's inline content on its
+/// own, and indented code after it is no text: a backtick used to pair
+/// with one in the next cell or row (`` | `a | [[b]] | c` | ``), so a
+/// link the page shows was taken for code. The rule of `maskInlineCode` in
+/// the app's `outline.ts`.
+fn prose_text_block(lines: &[ProseLine]) -> Vec<char> {
+    let join = |ls: &[ProseLine]| {
+        let joined: Vec<&str> = ls.iter().map(|l| l.line).collect();
+        masked_spans(&joined.join("\n"), true)
+    };
+    let contained = lines.first().is_some_and(|l| l.contained);
+    let mut parts: Vec<Vec<char>> = Vec::new();
+    let mut from = 0;
+    let mut k = 0;
+    while k + 1 < lines.len() {
+        let rows = table_rows(lines, k, contained);
+        if rows == 0 {
+            k += 1;
+            continue;
+        }
+        if from < k {
+            parts.push(join(&lines[from..k]));
+        }
+        for (r, l) in lines[k..k + rows].iter().enumerate() {
+            if r == 1 {
+                // The delimiter row holds no text.
+                parts.push(l.line.chars().collect());
+                continue;
+            }
+            let mut cells = Vec::new();
+            for cell in split_cells(l.line) {
+                cells.extend(masked_spans(cell, true));
+            }
+            parts.push(cells);
+        }
+        from = k + rows;
+        // Lines indented four columns after it are indented code.
+        while from < lines.len() && lines[from].content.starts_with("    ") {
+            parts.push(Vec::new());
+            from += 1;
+        }
+        k = from;
+    }
+    if from < lines.len() {
+        parts.push(join(&lines[from..]));
+    }
+    parts.join(&'\n')
+}
+
+/// `row` cut before each pipe that splits GFM table cells (one no
+/// backslash escapes, in a code span too), so the pieces join back to `row`.
+fn split_cells(row: &str) -> Vec<&str> {
+    let bytes = row.as_bytes();
+    let mut out = Vec::new();
+    let (mut at, mut i) = (0, 0);
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 1;
+        } else if bytes[i] == b'|' {
+            out.push(&row[at..i]);
+            at = i;
+        }
+        i += 1;
+    }
+    out.push(&row[at..]);
+    out
+}
+
+/// The number of GFM table cells of `content` (a row past its containers).
+fn cell_count(content: &str) -> usize {
+    let row = content.trim();
+    let pipes = split_cells(row).len() - 1;
+    let lead = usize::from(row.starts_with('|'));
+    // A closing pipe no backslash escapes; a lone `|` opens and closes no cell.
+    let trail =
+        usize::from(row.ends_with('|') && split_cells(&row[..row.len() - 1]).len() == pipes);
+    (pipes + 1).saturating_sub(lead + trail)
+}
+
+/// How many lines of a paragraph, `lines[k..]`, the GFM table that starts
+/// at `k` takes (its header row, its delimiter row and its body rows), or
+/// 0 when none starts there, as remark-gfm reads one: a header row of as
+/// many cells as the delimiter row after it (`:?-+:?` cells, not a setext
+/// underline), both in the paragraph's containers (not lazy), then the
+/// lines that go on in them, up to a blank line or one indented four
+/// columns. The rule of `tableRows` in the app's `outline.ts`.
+fn table_rows(lines: &[ProseLine], k: usize, contained: bool) -> usize {
+    let (head, delim) = (&lines[k], &lines[k + 1]);
+    if head.contained != contained
+        || delim.contained != contained
+        || delim.underline
+        || head.content.starts_with("    ")
+        || delim.content.starts_with("    ")
+    {
+        return 0;
+    }
+    let d = delim.content.trim();
+    let inner = d.strip_prefix('|').unwrap_or(d);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    let cells: Vec<&str> = split_cells(inner)
+        .into_iter()
+        .map(|c| c.strip_prefix('|').unwrap_or(c).trim())
+        .collect();
+    let delimiter = |c: &str| {
+        let c = c.strip_prefix(':').unwrap_or(c);
+        let c = c.strip_suffix(':').unwrap_or(c);
+        !c.is_empty() && c.bytes().all(|b| b == b'-')
+    };
+    if !cells.iter().all(|c| delimiter(c))
+        || (!d.contains('|') && !d.starts_with(':') && !d.ends_with(':'))
+        || cell_count(&head.content) != cells.len()
+    {
+        return 0;
+    }
+    let mut n = 2;
+    while k + n < lines.len()
+        && lines[k + n].contained == head.contained
+        && !lines[k + n].content.trim().is_empty()
+        && !lines[k + n].content.starts_with("    ")
+    {
+        n += 1;
+    }
+    n
 }
 
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
