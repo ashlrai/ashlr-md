@@ -155,7 +155,7 @@ describe("a byte order mark", () => {
 describe("frontmatterText", () => {
   it("reads a plain, quoted or commented scalar at the top level", () => {
     const doc =
-      '---\r\ntitle: "Field Notes: Spring"\r\nauthor: Ada Lovelace # me\r\nsub: \'it\'\'s\'\r\n---\r\n# Body';
+      "---\r\ntitle: \"Field Notes: Spring\"\r\nauthor: Ada Lovelace # me\r\nsub: 'it''s'\r\n---\r\n# Body";
     expect(frontmatterText(doc, "title")).toBe("Field Notes: Spring");
     expect(frontmatterText(doc, "author")).toBe("Ada Lovelace");
     expect(frontmatterText(doc, "sub")).toBe("it's");
@@ -166,9 +166,9 @@ describe("frontmatterText", () => {
     expect(frontmatterText("---\nauthor: [Ada, 'Grace Hopper']\n---\n", "author")).toBe(
       "Ada, Grace Hopper",
     );
-    expect(frontmatterText("---\nauthor:\n  - Ada\n  - Grace\ntitle: T\n---\n", "author")).toBe(
-      "Ada, Grace",
-    );
+    expect(
+      frontmatterText("---\nauthor:\n  - Ada\n  - Grace\ntitle: T\n---\n", "author"),
+    ).toBe("Ada, Grace");
   });
 
   it("is null without front matter, for nested keys, mappings and block scalars", () => {

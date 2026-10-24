@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Slack export is Slack text.** The Slack profile saved a whole HTML
+  page (styles and markup) into its `.txt`, which pasted into Slack as
+  code. It now writes Slack's own formatting: `*bold*`, `_italic_`,
+  `~strike~`, `` `code` ``, fenced code blocks, `> quotes`, `<url|text>`
+  links, bullet and numbered lists, headings as bold lines and tables as
+  rows, with images as their alt text.
 - **Exports carry the front matter's title and author.** An EPUB was titled
   by its file name with an empty author, and the HTML, PDF, DOCX and
   profile exports were titled by the file name too. The front matter's

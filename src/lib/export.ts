@@ -29,6 +29,7 @@ import { READ_VIEW_REQUIRED } from "./exportErrors";
 import type { ExportProfileId, ExportTemplate } from "./exportTemplates";
 import { findProfile, findTemplate } from "./exportTemplates";
 import { frontmatterText } from "./frontmatter";
+import { slackMrkdwn } from "./slackText";
 
 // ─── EPUB theme CSS ──────────────────────────────────────────────────────────
 
@@ -163,11 +164,16 @@ export function cloneWithoutInjectedChrome(el: Element): Element {
  * absent — this happens when the user is in Edit or Source view.
  */
 function captureMarkdownBody(): string {
+  return captureMarkdownElement().outerHTML;
+}
+
+/** {@link captureMarkdownBody} as an element (a detached copy). */
+function captureMarkdownElement(): Element {
   const el = document.querySelector(".markdown-body");
   if (!el) {
     throw READ_VIEW_REQUIRED;
   }
-  return cloneWithoutInjectedChrome(el).outerHTML;
+  return cloneWithoutInjectedChrome(el);
 }
 
 /**
@@ -305,7 +311,10 @@ export function buildStandaloneHtmlWithActiveTemplate(title: string): string {
  * `author: ""` and every export was titled by its file name, whatever the
  * front matter said. The suggested file name stays the file's.
  */
-export function exportMetadata(fallbackTitle: string): { title: string; author: string } {
+export function exportMetadata(fallbackTitle: string): {
+  title: string;
+  author: string;
+} {
   const content = useDocumentStore.getState().content ?? "";
   return {
     title: frontmatterText(content, "title") ?? fallbackTitle,
@@ -926,7 +935,8 @@ function inlineEmailStyles(html: string): string {
  * Export a document using a named format profile.
  *
  * Triggers a native save dialog with the profile's recommended extension
- * (`.html` for Notion/Email, `.txt` for Slack).
+ * (`.html` for Notion/Email, `.txt` for Slack). The Slack file is Slack
+ * mrkdwn text ({@link slackMrkdwn}); every other profile is an HTML page.
  *
  * @param profileId  The profile to use — one of `"notion-html"`, `"slack-html"`,
  *                   `"email-html"`.
@@ -939,8 +949,13 @@ export async function exportWithProfile(
   const profile = findProfile(profileId);
   if (!profile) throw `Unknown export profile: "${profileId}"`;
 
-  // throws if not in Read view
-  const html = buildExportHtml(profileId, undefined, exportMetadata(title).title);
+  // A text profile (Slack) is the text it promises, not a page: the Slack
+  // .txt used to hold a whole HTML document, which pasted as markup.
+  // Either throws if not in Read view.
+  const content =
+    profile.extension === "txt"
+      ? slackMrkdwn(captureMarkdownElement())
+      : buildExportHtml(profileId, undefined, exportMetadata(title).title);
 
   const ext = profile.extension;
   const filterName = ext === "txt" ? "Text / Markdown" : "HTML Document";
@@ -952,7 +967,7 @@ export async function exportWithProfile(
   if (!path) return; // user cancelled — no toast
 
   try {
-    await writeExportBytes(path, new TextEncoder().encode(html));
+    await writeExportBytes(path, new TextEncoder().encode(content));
   } catch (e) {
     toast.error(`Export failed: ${errMsg(e)}`);
     throw e;

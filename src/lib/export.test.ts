@@ -325,7 +325,8 @@ describe("exportHtml", () => {
     mockDocGetState.mockReturnValueOnce({
       path: "/vault/my-doc.md",
       fileName: "my-doc.md",
-      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
     });
     await exportHtml("my-doc");
     expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
@@ -341,7 +342,9 @@ describe("exportHtml", () => {
         : Promise.resolve(undefined),
     );
     await expect(exportHtml("My Doc")).rejects.toMatch("symbolic link");
-    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(false);
+    expect(invokeMock.mock.calls.some((c) => c[0] === "write_markdown_file")).toBe(
+      false,
+    );
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
       expect.stringContaining("symbolic link"),
     );
@@ -1469,10 +1472,14 @@ describe("exportWithProfile", () => {
         ]),
       }),
     );
-    expect(writtenExport()).toEqual({
-      path: "/out/doc.txt",
-      text: expect.stringContaining("<!doctype html>"),
-    });
+    // Slack mrkdwn text, which the .txt promises: it used to be a whole
+    // HTML document.
+    const written = writtenExport();
+    expect(written?.path).toBe("/out/doc.txt");
+    expect(written?.text).not.toMatch(/<!doctype|<html|<style|<p>/i);
+    expect(written?.text).toContain("*Document Title*");
+    expect(written?.text).toContain("*bold*");
+    expect(written?.text).toContain("<https://example.com|a link>");
   });
 
   it("saves email-html as .html with correct filter", async () => {
@@ -1524,7 +1531,8 @@ describe("exportWithProfile", () => {
     mockDocGetState.mockReturnValueOnce({
       path: "/vault/my-doc.md",
       fileName: "my-doc.md",
-      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
     });
     await exportWithProfile("notion-html", "my-doc");
     expect(writtenExport()?.text).toContain("<title>Field Notes</title>");
@@ -1539,11 +1547,12 @@ describe("exportWithProfile", () => {
     expect(written).toContain("notion-html export profile");
   });
 
-  it("written content contains profile-specific CSS marker for slack-html", async () => {
+  it("written content for slack-html is text, without the profile's CSS", async () => {
     saveMock.mockResolvedValue("/out/doc.txt");
     await exportWithProfile("slack-html", "Check");
     const written = writtenExport()?.text as string;
-    expect(written).toContain("slack-html export profile");
+    expect(written).not.toContain("slack-html export profile");
+    expect(written).toContain("• List item one");
   });
 
   it("written content contains profile-specific CSS marker for email-html", async () => {
@@ -1996,7 +2005,8 @@ describe("exportEpub", () => {
     mockDocGetState.mockReturnValue({
       path: "/vault/my-doc.md",
       fileName: "my-doc.md",
-      content: "---\ntitle: \"Field Notes\"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n",
+      content:
+        '---\ntitle: "Field Notes"\nauthor: [Ada Lovelace, Grace Hopper]\n---\n# Hello\n',
     });
     try {
       const { exportEpub: fresh } = await import("./export");

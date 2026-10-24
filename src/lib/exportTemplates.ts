@@ -875,7 +875,7 @@ export const EXPORT_PROFILES: readonly ExportProfile[] = [
     id: "slack-html",
     name: "Slack",
     description:
-      "Plaintext + Markdown formatting constrained to Slack thread width (~520px). Save as .txt and paste into Slack.",
+      "Slack mrkdwn text (*bold*, _italic_, `code`, <url|links>, quotes and lists) saved as .txt to paste into a Slack message.",
     extension: "txt",
     css: SLACK_PROFILE_CSS,
   },

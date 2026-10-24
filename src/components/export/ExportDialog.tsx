@@ -418,7 +418,7 @@ export function ExportDialog() {
             <span className="export-format-text">
               <span className="export-format-name">Slack</span>
               <span className="export-format-desc">
-                Markdown-preserved plaintext constrained to Slack thread width (~520px)
+                Slack-formatted text to paste into a message
               </span>
             </span>
           </button>
