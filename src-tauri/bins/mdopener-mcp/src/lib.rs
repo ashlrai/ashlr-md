@@ -1384,9 +1384,9 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 headings as a flat list in document order (level + text for every ATX heading with \
                 text outside front matter, fenced code, blockquotes and list items: `> # Quote`, \
                 `- # Step` and a heading on an item's continuation line are left out, as in the \
-                app's Outline), all [[wikilinks]] outside fenced \
-                code (front matter properties included), the count of embedded \
-                images (`![…](…)` and `![[…]]` syntax outside fenced code and front matter), and the \
+                app's Outline), all [[wikilinks]] outside fenced and indented \
+                code and code spans (front matter properties included), the count of embedded \
+                images (`![…](…)` and `![[…]]` syntax outside code and front matter), and the \
                 total word count, as \
                 { frontmatter, headings: [{ level, text }], wikilinks, wikilink_headings: [{ target, heading }], \
                 embedded_image_count, word_count, path } \
@@ -9478,11 +9478,7 @@ pub fn extract_wikilink_headings(content: &str) -> Vec<(String, String)> {
 /// target and trimmed heading fragment, embeds (`![[...]]`) and empty
 /// targets left out.
 fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
-    let text: Vec<&str> = markdown_lines::markdown_lines(content)
-        .filter(|(kind, _)| matches!(kind, LineKind::Text | LineKind::FrontMatter))
-        .map(|(_, line)| line)
-        .collect();
-    let chars: Vec<char> = text.join("\n").chars().collect();
+    let chars = prose_chars(content, true);
     let mut refs = Vec::new();
     let mut i = 0;
     while i < chars.len() {
@@ -9504,6 +9500,55 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
     refs
 }
 
+/// The text lines of `content` (and its front matter lines with
+/// `front_matter`), joined by line breaks, with the code spans in them
+/// (`` `…` ``) left out: where [`extract_wikilinks`] and
+/// [`count_embedded_images`] read links and images. Fenced code, indented
+/// code ([`markdown_lines::with_indented_code`]) and HTML blocks are not
+/// text; indented code and code spans used to be read, so a `[[link]]` in
+/// either was counted, although the page shows it as code.
+fn prose_chars(content: &str, front_matter: bool) -> Vec<char> {
+    let text: Vec<&str> = markdown_lines::with_indented_code(content)
+        .filter(|(kind, _)| {
+            *kind == LineKind::Text || (front_matter && *kind == LineKind::FrontMatter)
+        })
+        .map(|(_, line)| line)
+        .collect();
+    let chars: Vec<char> = text.join("\n").chars().collect();
+    let mut out = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '`' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let run = chars[i..].iter().take_while(|&&c| c == '`').count();
+        // The next run of exactly as many backticks closes the span.
+        let mut j = i + run;
+        let mut close = None;
+        while j < chars.len() {
+            let n = chars[j..].iter().take_while(|&&c| c == '`').count();
+            if n == run {
+                close = Some(j + n);
+                break;
+            }
+            j += n.max(1);
+        }
+        match close {
+            Some(end) => {
+                out.push(' ');
+                i = end;
+            }
+            None => {
+                out.extend(&chars[i..i + run]);
+                i += run;
+            }
+        }
+    }
+    out
+}
+
 /// Count embedded images: `![…](…)` and `![[…]]` syntax (not in code blocks).
 ///
 /// Fenced code and a leading front matter block are skipped by
@@ -9514,8 +9559,7 @@ fn wikilink_refs(content: &str) -> Vec<(String, Option<String>)> {
 /// (wikilinks there still are links, see [`extract_wikilinks`]).
 pub fn count_embedded_images(content: &str) -> usize {
     let mut count = 0usize;
-    let text: Vec<&str> = markdown_lines::text_lines(content).collect();
-    let chars: Vec<char> = text.join("\n").chars().collect();
+    let chars = prose_chars(content, false);
     let n = chars.len();
     let mut i = 0;
     while i < n {

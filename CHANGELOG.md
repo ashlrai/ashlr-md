@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_metadata` reads no wikilinks or images in code.** Its wikilinks and
+  image count were read on every line outside fenced code, so a `[[link]]` or an
+  `![image](u)` in indented code or in a code span (`` `[[x]]` ``) was counted,
+  although the page shows it as code. They are now left out.
 - **The document-kind classifier reads no structure in code.** Its heading
   patterns and numbered steps were matched on the whole text, so a code sample
   listing `## Rollback` or `1. step` lines scored as the document's own and could

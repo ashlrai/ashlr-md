@@ -8262,7 +8262,9 @@ fn export_metadata_wikilinks_use_the_fence_rule_and_keep_front_matter() {
         .unwrap();
     let d = tool["description"].as_str().unwrap();
     assert!(
-        d.contains("all [[wikilinks]] outside fenced code (front matter properties included)"),
+        d.contains(
+            "all [[wikilinks]] outside fenced and indented code and code spans (front matter properties included)"
+        ),
         "{d}"
     );
     let docs = include_str!("../../../../docs/AGENTS.md");
@@ -8310,7 +8312,7 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     for said in [
         "a `- [ ]` line in fenced or indented code or front matter is not,",
         "(code blocks kept as written, by the fence rule of `export_metadata`;",
-        "images outside fenced code and front matter",
+        "images outside fenced and indented code, code spans and front matter",
     ] {
         assert!(docs.contains(said), "docs/AGENTS.md must say {said}");
     }
@@ -8818,6 +8820,24 @@ fn export_text_reads_inline_links_as_commonmark() {
     assert_eq!(strip_markdown("![i](a b) ![j](a \"t\")"), "![i](a b) j");
     // export_metadata's image count reads images by the same rule.
     assert_eq!(count_embedded_images("![i](a b) ![j](a \"t\") ![k](u)"), 2);
+}
+
+/// export_metadata read its wikilinks and images on every line outside
+/// fenced code, so a `[[link]]` or an `![image](u)` in indented code (four
+/// columns past its containers) or in a code span was counted, although
+/// the page shows it as code.
+#[test]
+fn export_metadata_reads_no_links_or_images_in_code() {
+    use mdopener_mcp::{count_embedded_images, extract_wikilinks};
+    let doc = "para\n\n    [[Code]] ![a](b)\n\n- item\n\n      [[Item code]]\n\n\
+        [[Real]] `[[Span]]` ``a ![c](d) b`` ![e](f)\n";
+    assert_eq!(extract_wikilinks(doc), vec!["Real".to_string()]);
+    assert_eq!(count_embedded_images(doc), 1);
+    // Front matter properties are still links.
+    assert_eq!(
+        extract_wikilinks("---\nrelated: \"[[Plan]]\"\n---\n"),
+        vec!["Plan".to_string()]
+    );
 }
 
 /// A link's text and an image's alt text kept their inline markup:
