@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Outline: no lint warning in the container scan.** `containers` in
+  `outline.ts` declared `interrupt` with `let` and kept a commented-out
+  assignment to it, so biome warned that it could be `const`. It is `const`
+  now and the dead comment is gone; the scan reads lines as before.
 - **Indented code that opens a blockquote after a list item.** After an item
   with only its marker had ended, a quoted line indented as code (`-`, a blank
   line, then `>     code`) was taken to close a container, so the next quoted

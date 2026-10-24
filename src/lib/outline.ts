@@ -211,13 +211,12 @@ function containers(
     list.push(c);
   }
   const matched = list.length;
-  let interrupt = held === matched;
+  const interrupt = held === matched;
   for (;;) {
     const q = quoteMarker(rest);
     if (q !== null) {
       list.push({ quote: true });
       rest = q;
-      // interrupt = false;
       continue;
     }
     const item = thematicBreak(rest) ? null : listMarker(rest);
