@@ -962,6 +962,21 @@ describe("Command execution — delegates fire correctly", () => {
     ).resolves.not.toThrow();
   });
 
+  it("names the export after the file without its extension", async () => {
+    // The palette passed "notes.md": the save dialog offered notes.md.html
+    // and the page was titled "notes.md".
+    docState.path = "/tmp/notes.md";
+    docState.fileName = "notes.md";
+    try {
+      await getCommands()
+        .find((c) => c.id === "file.export.html")!
+        .run();
+      expect(exportHtmlMock).toHaveBeenCalledWith("notes");
+    } finally {
+      docState.fileName = "test.md";
+    }
+  });
+
   it("file.export.html.run() does nothing when no doc is open", async () => {
     docState.path = null;
     await getCommands()

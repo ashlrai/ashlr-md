@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports from the command palette are named after the document.** "Export
+  as HTML/PDF/Word/EPUB" in the palette passed the file name with its
+  extension, so the save dialog offered `notes.md.html` and a document
+  without a front matter `title` was titled "notes.md". They now strip the
+  extension as the Export dialog and the MCP export do (`notes.html`).
 - **Closing right after typing asks to save.** The WYSIWYG editor reports an
   edit 200 ms after the last keystroke, and the window told the close guard
   it had unsaved edits only from that report, so closing the window in that

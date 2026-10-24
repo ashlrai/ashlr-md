@@ -22,6 +22,7 @@ import { useUiStore } from "../store/uiStore";
 import { unwatchDirectory } from "./activity";
 import { copyAsRichText, copyDocumentAsRichText } from "./copyRichText";
 import { exportDocx, exportEpub, exportHtml, exportPdf } from "./export";
+import { exportTitle } from "./exportName";
 import { pickAndOpen } from "./openFile";
 import { getSourceView } from "./sourceSearchBridge";
 import { buildEmptyTable } from "./tableEditor";
@@ -40,7 +41,7 @@ async function runExport(fn: (name: string) => Promise<void>): Promise<void> {
     await waitForElement(".markdown-body");
   }
   try {
-    await fn(doc.fileName || "export");
+    await fn(exportTitle(doc.fileName));
   } catch (e) {
     toast.error(typeof e === "string" ? e : "Export failed");
   }

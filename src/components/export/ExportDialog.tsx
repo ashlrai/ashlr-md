@@ -6,6 +6,7 @@ import {
   exportPdf,
   exportWithProfile,
 } from "../../lib/export";
+import { exportTitle } from "../../lib/exportName";
 import { isDismissEscape } from "../../lib/keymap";
 import { useFocusTrap } from "../../lib/useFocusTrap";
 import { useDocumentStore } from "../../store/documentStore";
@@ -197,8 +198,7 @@ export function ExportDialog() {
   const exportFormat = useUiStore((s) => s.exportFormat);
   const fileName = useDocumentStore((s) => s.fileName);
   const epubEnabled = useSettingsStore((s) => s.epubEnabled);
-  // Strip extension for use as the export title.
-  const title = fileName.replace(/\.(md|markdown|mdown|mkd|mdx)$/i, "") || "export";
+  const title = exportTitle(fileName);
 
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
   const busy = status.kind === "busy";
