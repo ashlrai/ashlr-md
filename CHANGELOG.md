@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Snippet completion reads only up to the cursor.** The check that keeps
+  snippets out of code read the whole document on every keystroke. It now
+  reads up to the end of the cursor's line, with the same answers (front
+  matter that closes after the cursor is still front matter).
 - **A new table row has as many cells as its row.** Typing `|` at the end of
   a table row in the source editor split the row on every `|`, so a cell
   holding an escaped `\|` gave the new row one cell more. Cells are now read

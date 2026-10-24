@@ -65,9 +65,28 @@ export interface UserSnippet {
  * with nothing after it closes one. Any later fence of the same character
  * used to close it, so a ```` block holding ``` or a ```js line ended
  * early, and an indented or quoted fence opened none.
+ *
+ * A line is read by the lines before it, so only the document up to the
+ * end of the cursor's line is read: the completion source asks on every
+ * keystroke, and it used to read the whole document. The one thing a
+ * later line decides is front matter, which needs its closing `---`: a
+ * cursor in a block that opens the document and closes after it is in
+ * front matter, not code.
  */
 export function isInsideFencedCode(doc: string, pos: number): boolean {
-  for (const l of markdownLines(doc)) {
+  const lineEnd = doc.indexOf("\n", pos);
+  const head = lineEnd < 0 ? doc : doc.slice(0, lineEnd);
+  const lines = markdownLines(head);
+  if (
+    lines[0]?.kind !== "frontmatter" &&
+    lineEnd >= 0 &&
+    /^---[ \t\r]*$/.test(lines[0]?.text ?? "")
+  ) {
+    // The block opens the document: it is front matter when a later line
+    // closes it.
+    if (/^(---|\.\.\.)[ \t\r]*$/m.test(doc.slice(lineEnd + 1))) return false;
+  }
+  for (const l of lines) {
     if (pos > l.start + l.text.length) continue;
     return l.kind === "code" || (l.kind === "fence" && pos > l.start);
   }
