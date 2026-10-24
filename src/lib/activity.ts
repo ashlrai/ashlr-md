@@ -30,8 +30,13 @@ export interface MdFileInfo {
 
 /** Payload of the `activity://file` event. A superset of {@link MdFileInfo}. */
 export interface ActivityEvent extends MdFileInfo {
-  /** Whether the watcher saw the file appear or change. */
-  kind: "created" | "modified";
+  /**
+   * Whether the watcher saw the file appear, change or go (deleted, or
+   * renamed or moved away; `mtimeMs` and `size` are then 0). A rename inside
+   * the folder is a `"removed"` for the old path and a `"modified"` for the
+   * new one.
+   */
+  kind: "created" | "modified" | "removed";
 }
 
 /** Name of the file-activity event emitted by the backend watcher. */

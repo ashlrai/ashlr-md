@@ -1,6 +1,6 @@
 //! Agent activity watcher — watches a project directory recursively and streams
-//! newly-created / modified Markdown files to the frontend as `activity://file`
-//! events. Designed for surfaces like PLAN.md / research.md written by AI
+//! newly-created / modified / removed Markdown files to the frontend as
+//! `activity://file` events. Designed for surfaces like PLAN.md / research.md written by AI
 //! coding agents (Claude Code, Cursor, etc.).
 //!
 //! # Debouncing
@@ -71,7 +71,9 @@ fn should_skip_path(path: &Path) -> bool {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityFilePayload {
-    /// `"created"` or `"modified"`
+    /// `"created"`, `"modified"` or `"removed"` (deleted, or renamed or moved
+    /// away; `mtimeMs` and `size` are then 0). A rename inside the folder is
+    /// a `"removed"` for the old path and a `"modified"` for the new one.
     pub kind: &'static str,
     /// Absolute path to the file.
     pub path: String,
@@ -134,15 +136,146 @@ fn stat_file(path: &Path) -> (u64, u64) {
     }
 }
 
+/// How long a removed path must stay gone before its removal is sent. An
+/// editor that saves by renaming the old file away and writing a new one
+/// (vim's default) removes the path for a moment; that is not a deletion.
+const REMOVE_SETTLE: Duration = Duration::from_millis(250);
+
+type EmitFn = std::sync::Arc<dyn Fn(ActivityFilePayload) + Send + Sync>;
+
+/// Turns watcher events into `activity://file` payloads. Removals used to be
+/// dropped (only creates and modifies were sent), so a note deleted, renamed
+/// or moved elsewhere stayed in the Activity list and in the wikilink cache.
+struct EventRouter {
+    debounce: std::sync::Arc<Mutex<HashMap<String, Instant>>>,
+    /// Paths seen removed, sent once [`EventRouter::settle`] has passed and
+    /// they are still gone. Non-empty means a flush is scheduled.
+    removals: Mutex<Vec<PathBuf>>,
+    emit: EmitFn,
+    settle: Duration,
+}
+
+impl EventRouter {
+    fn new(
+        debounce: std::sync::Arc<Mutex<HashMap<String, Instant>>>,
+        emit: EmitFn,
+        settle: Duration,
+    ) -> Self {
+        EventRouter {
+            debounce,
+            removals: Mutex::new(Vec::new()),
+            emit,
+            settle,
+        }
+    }
+
+    fn handle(self: &std::sync::Arc<Self>, event: &notify::Event) {
+        use notify::event::ModifyKind;
+        for path in &event.paths {
+            if should_skip_path(path) || !is_markdown(path) {
+                continue;
+            }
+            match event.kind {
+                EventKind::Create(_) => self.present(path, "created"),
+                // A rename reports the old path (now gone) and the new one,
+                // together or as separate events depending on the platform.
+                EventKind::Modify(ModifyKind::Name(_)) => {
+                    if path.exists() {
+                        self.present(path, "modified");
+                    } else {
+                        self.gone(path);
+                    }
+                }
+                EventKind::Modify(_) => self.present(path, "modified"),
+                EventKind::Remove(_) => self.gone(path),
+                _ => {}
+            }
+        }
+    }
+
+    fn present(&self, path: &Path, kind: &'static str) {
+        // Skip if file no longer exists (transient create+remove).
+        if !path.exists() {
+            return;
+        }
+        let path_str = path.to_string_lossy().into_owned();
+        // Debounce: suppress if we emitted this path within DEBOUNCE window.
+        {
+            let mut map = self.debounce.lock().unwrap();
+            let now = Instant::now();
+            if let Some(&last) = map.get(&path_str) {
+                if now.duration_since(last) < DEBOUNCE {
+                    return;
+                }
+            }
+            map.insert(path_str.clone(), now);
+        }
+        let (mtime_ms, size) = stat_file(path);
+        (self.emit)(payload_for(path, path_str, kind, mtime_ms, size));
+    }
+
+    fn gone(self: &std::sync::Arc<Self>, path: &Path) {
+        let mut pending = self.removals.lock().unwrap();
+        let schedule = pending.is_empty();
+        if !pending.iter().any(|p| p == path) {
+            pending.push(path.to_path_buf());
+        }
+        drop(pending);
+        if schedule {
+            let router = self.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(router.settle);
+                router.flush_removals();
+            });
+        }
+    }
+
+    fn flush_removals(&self) {
+        let paths = std::mem::take(&mut *self.removals.lock().unwrap());
+        for path in paths {
+            if path.exists() {
+                continue;
+            }
+            let path_str = path.to_string_lossy().into_owned();
+            // A file made again at this path is new, not a repeat to suppress.
+            self.debounce.lock().unwrap().remove(&path_str);
+            (self.emit)(payload_for(&path, path_str, "removed", 0, 0));
+        }
+    }
+}
+
+fn payload_for(
+    path: &Path,
+    path_str: String,
+    kind: &'static str,
+    mtime_ms: u64,
+    size: u64,
+) -> ActivityFilePayload {
+    ActivityFilePayload {
+        kind,
+        path: path_str,
+        name: path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        dir: path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        mtime_ms,
+        size,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
-/// Start watching `path` recursively for Markdown file creates and modifies.
-/// Replaces any previously active directory watch.
+/// Start watching `path` recursively for Markdown file creates, modifies,
+/// removals and renames. Replaces any previously active directory watch.
 ///
 /// Emits **`activity://file`** for each qualifying event with payload
-/// `{ kind, path, name, dir, mtimeMs, size }`.
+/// `{ kind, path, name, dir, mtimeMs, size }` (see [`ActivityFilePayload`]).
 #[tauri::command]
 pub fn watch_directory(
     app: AppHandle,
@@ -154,8 +287,6 @@ pub fn watch_directory(
         return Err(format!("Not a directory: {path}"));
     }
 
-    // Clone app + state refs for the callback closure.
-    let app_cb = app.clone();
     // We borrow last_seen via the state in the closure by passing in an Arc.
     // Because the state lifetime is tied to the Tauri app (which outlives any
     // individual command), we can safely clone the Arc-like State handle.
@@ -166,65 +297,17 @@ pub fn watch_directory(
         std::sync::Arc::new(Mutex::new(HashMap::new()));
     let debounce_map_cb = debounce_map.clone();
 
+    let emit_app = app;
+    let router = std::sync::Arc::new(EventRouter::new(
+        debounce_map_cb,
+        std::sync::Arc::new(move |payload: ActivityFilePayload| {
+            let _ = emit_app.emit("activity://file", payload);
+        }),
+        REMOVE_SETTLE,
+    ));
     let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
-
-        let kind_str: &'static str = match event.kind {
-            EventKind::Create(_) => "created",
-            EventKind::Modify(_) => "modified",
-            _ => return,
-        };
-
-        for path_buf in &event.paths {
-            // Apply skip rules.
-            if should_skip_path(path_buf) {
-                continue;
-            }
-            if !is_markdown(path_buf) {
-                continue;
-            }
-            // Skip if file no longer exists (transient create+remove).
-            if !path_buf.exists() {
-                continue;
-            }
-
-            let path_str = path_buf.to_string_lossy().into_owned();
-
-            // Debounce: suppress if we emitted this path within DEBOUNCE window.
-            {
-                let mut map = debounce_map_cb.lock().unwrap();
-                let now = Instant::now();
-                if let Some(&last) = map.get(&path_str) {
-                    if now.duration_since(last) < DEBOUNCE {
-                        continue;
-                    }
-                }
-                map.insert(path_str.clone(), now);
-            }
-
-            let (mtime_ms, size) = stat_file(path_buf);
-
-            let name = path_buf
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-
-            let dir = path_buf
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-
-            let payload = ActivityFilePayload {
-                kind: kind_str,
-                path: path_str,
-                name,
-                dir,
-                mtime_ms,
-                size,
-            };
-
-            let _ = app_cb.emit("activity://file", payload);
-        }
+        router.handle(&event);
     })
     .map_err(|e| e.to_string())?;
 
@@ -454,7 +537,7 @@ impl Walk {
 
 #[cfg(test)]
 mod tests {
-    use super::{list_markdown_files, scan_newest};
+    use super::{list_markdown_files, scan_newest, ActivityFilePayload, EventRouter};
     use std::path::{Path, PathBuf};
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -478,6 +561,138 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// An [`EventRouter`] that records what it would emit, settling removals
+    /// after 30 ms.
+    fn recording_router() -> (
+        std::sync::Arc<EventRouter>,
+        std::sync::Arc<std::sync::Mutex<Vec<ActivityFilePayload>>>,
+    ) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let router = std::sync::Arc::new(EventRouter::new(
+            Default::default(),
+            std::sync::Arc::new(move |p| sink.lock().unwrap().push(p)),
+            Duration::from_millis(30),
+        ));
+        (router, seen)
+    }
+
+    fn kinds(seen: &std::sync::Mutex<Vec<ActivityFilePayload>>) -> Vec<(String, String)> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .map(|p| (p.kind.to_string(), p.name.clone()))
+            .collect()
+    }
+
+    /// Wait (up to 2 s) until `n` payloads were emitted.
+    fn wait_for(seen: &std::sync::Mutex<Vec<ActivityFilePayload>>, n: usize) {
+        for _ in 0..200 {
+            if seen.lock().unwrap().len() >= n {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_deleted_note_is_sent_as_removed() {
+        use notify::event::{EventKind, RemoveKind};
+        let dir = TempDir::new("removed");
+        let gone = dir.0.join("gone.md");
+        let (router, seen) = recording_router();
+        router.handle(
+            &notify::Event::new(EventKind::Remove(RemoveKind::File)).add_path(gone.clone()),
+        );
+        wait_for(&seen, 1);
+        let sent = seen.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].kind, "removed");
+        assert_eq!(sent[0].path, gone.to_string_lossy());
+        assert_eq!(sent[0].name, "gone.md");
+        assert_eq!(sent[0].dir, dir.0.to_string_lossy());
+        assert_eq!((sent[0].mtime_ms, sent[0].size), (0, 0));
+    }
+
+    #[test]
+    fn a_rename_inside_the_folder_removes_the_old_path_and_lists_the_new() {
+        use notify::event::{EventKind, ModifyKind, RenameMode};
+        let dir = TempDir::new("renamed");
+        let new = dir.0.join("new.md");
+        std::fs::write(&new, "# x\n").unwrap();
+        let (router, seen) = recording_router();
+        router.handle(
+            &notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                .add_path(dir.0.join("old.md"))
+                .add_path(new),
+        );
+        wait_for(&seen, 2);
+        assert_eq!(
+            kinds(&seen),
+            vec![
+                ("modified".to_string(), "new.md".to_string()),
+                ("removed".to_string(), "old.md".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_note_renamed_away_and_back_by_a_save_is_not_removed() {
+        use notify::event::{EventKind, ModifyKind, RenameMode};
+        let dir = TempDir::new("resaved");
+        let note = dir.0.join("note.md");
+        let (router, seen) = recording_router();
+        // The editor renamed the note away, then writes it again at once.
+        router.handle(
+            &notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                .add_path(note.clone()),
+        );
+        std::fs::write(&note, "# x\n").unwrap();
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(kinds(&seen).is_empty(), "{:?}", kinds(&seen));
+    }
+
+    #[test]
+    fn removals_skip_what_creates_skip() {
+        use notify::event::{EventKind, RemoveKind};
+        let dir = TempDir::new("skipped");
+        let (router, seen) = recording_router();
+        for name in ["pic.png", ".hidden.md", "x.md.mdopener.tmp"] {
+            router.handle(
+                &notify::Event::new(EventKind::Remove(RemoveKind::File)).add_path(dir.0.join(name)),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(120));
+        assert!(kinds(&seen).is_empty(), "{:?}", kinds(&seen));
+    }
+
+    #[test]
+    fn a_note_made_again_after_its_removal_is_sent_again() {
+        use notify::event::{CreateKind, EventKind, RemoveKind};
+        let dir = TempDir::new("again");
+        let note = dir.0.join("note.md");
+        std::fs::write(&note, "# x\n").unwrap();
+        let (router, seen) = recording_router();
+        router.handle(
+            &notify::Event::new(EventKind::Create(CreateKind::File)).add_path(note.clone()),
+        );
+        std::fs::remove_file(&note).unwrap();
+        router.handle(
+            &notify::Event::new(EventKind::Remove(RemoveKind::File)).add_path(note.clone()),
+        );
+        wait_for(&seen, 2);
+        std::fs::write(&note, "# y\n").unwrap();
+        router.handle(&notify::Event::new(EventKind::Create(CreateKind::File)).add_path(note));
+        assert_eq!(
+            kinds(&seen),
+            vec![
+                ("created".to_string(), "note.md".to_string()),
+                ("removed".to_string(), "note.md".to_string()),
+                ("created".to_string(), "note.md".to_string()),
+            ]
+        );
     }
 
     fn write_md(dir: &Path, name: &str, mtime_secs: u64) {
