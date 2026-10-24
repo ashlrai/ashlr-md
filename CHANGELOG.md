@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Agent edits match line breaks either way.** `edit_document`,
+  `stream_edit` and `stream_edit_apply` needed `find` to match a CRLF
+  document's `\r\n`s exactly, so an agent's LF `find` was "not found" there
+  (the docs said so), and an LF `replace` added LF lines to a CRLF file. A
+  line break in `find` now matches LF or CRLF, everything else still matches
+  exactly, and `replace` is written in the line breaks of the line it
+  starts on, so CRLF and mixed files keep theirs.
 - **Indented code counts as code when a document is classified.** The
   document type the AI sidebar hints at measured code by fenced blocks only,
   so a runbook of indented commands read as prose. Indented code now counts

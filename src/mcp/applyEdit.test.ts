@@ -52,6 +52,49 @@ describe("applyUniqueEdit — exact, unique find/replace contract", () => {
     );
   });
 
+  it("matches an LF find in a CRLF document and writes CRLF", () => {
+    // An agent's find text has LF breaks; in a CRLF file it was "not
+    // found", and an LF replacement added LF lines to it.
+    const doc = "\uFEFF# T\r\n\r\nOne\r\nTwo\r\n";
+    const r = applyUniqueEdit(doc, "One\nTwo", "Uno\nDos\nTres");
+    expect(r).toEqual({
+      ok: true,
+      replaced: 1,
+      content: "\uFEFF# T\r\n\r\nUno\r\nDos\r\nTres\r\n",
+    });
+    // A CRLF find matches LF text too, and the replacement takes LF there.
+    expect(applyUniqueEdit("a\nb\n", "a\r\nb", "x\r\ny").content).toBe("x\ny\n");
+    // Matches are counted with either break, and the rest is exact.
+    expect(applyUniqueEdit("a\r\nb a\nb", "a\nb", "q").error).toMatch(
+      /not unique \(2 matches\)/,
+    );
+    expect(applyUniqueEdit("One\r\nTwo", "one\ntwo", "q").error).toBe(FIND_NOT_FOUND);
+    // A match does not start inside a CRLF break.
+    expect(applyUniqueEdit("a\r\nb\r\n", "\nb", "\nc").content).toBe("a\r\nc\r\n");
+  });
+
+  it("keeps a mixed document's line breaks where it edits", () => {
+    const doc = "lf one\nlf two\ncr one\r\ncr two\r\n";
+    expect(applyUniqueEdit(doc, "cr one\ncr", "x\ny").content).toBe(
+      "lf one\nlf two\nx\r\ny two\r\n",
+    );
+    expect(applyUniqueEdit(doc, "lf one\n", "a\nb\n").content).toBe(
+      "a\nb\nlf two\ncr one\r\ncr two\r\n",
+    );
+    expect(applyEditAtOccurrence(doc, "one\n", "1\n", 1).content).toBe(
+      "lf one\nlf two\ncr 1\r\ncr two\r\n",
+    );
+  });
+
+  it("previews an LF find in a CRLF document", () => {
+    const r = computeStreamEditDiff("a\r\nb\r\nc\r\n", "b\nc", "B\nC", 0);
+    expect(r.ok).toBe(true);
+    expect(r.matchCount).toBe(1);
+    expect(r.diff).toBe(
+      "--- a/document\n+++ b/document\n@@ -2,2 +2,2 @@\n-b\r\n-c\r\n+B\r\n+C\r\n",
+    );
+  });
+
   it("errors when find is not unique and reports the count", () => {
     const r = applyUniqueEdit("the cat sat on the mat", "the", "a");
     expect(r.ok).toBe(false);

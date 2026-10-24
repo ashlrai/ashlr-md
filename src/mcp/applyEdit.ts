@@ -29,20 +29,76 @@ export interface EditOutcome {
   error?: string;
 }
 
-/** Count non-overlapping occurrences of `needle` in `haystack`. */
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle === "") return 0;
-  let count = 0;
-  let from = 0;
-  for (;;) {
-    const i = haystack.indexOf(needle, from);
-    if (i === -1) break;
-    count += 1;
-    // Advance past this match (non-overlapping), mirroring Rust's
-    // `str::matches`, which also counts non-overlapping matches.
-    from = i + needle.length;
+/** A match of `find` in a document: `[start, end)`. */
+export interface FindMatch {
+  start: number;
+  end: number;
+}
+
+/**
+ * The non-overlapping matches of `find` in `content`, in order. A line
+ * break in `find` (`\n` or `\r\n`) matches either line break in `content`,
+ * and every other character matches exactly, so an agent's LF `find`
+ * matches the same text in a CRLF document: it used to be "not found"
+ * there, though get_current_content's text, once the agent's client read
+ * it, often had LF breaks. A match never starts between the `\r` and the
+ * `\n` of a line break.
+ */
+export function findMatches(content: string, find: string): FindMatch[] {
+  if (find === "") return [];
+  const out: FindMatch[] = [];
+  if (!find.includes("\n")) {
+    let from = 0;
+    for (;;) {
+      const i = content.indexOf(find, from);
+      if (i === -1) break;
+      // Advance past this match (non-overlapping), mirroring Rust's
+      // `str::matches`, which also counts non-overlapping matches.
+      out.push({ start: i, end: i + find.length });
+      from = i + find.length;
+    }
+    return out;
   }
-  return count;
+  const pattern = find
+    .split(/\r?\n/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\r?\\n");
+  for (const m of content.matchAll(new RegExp(pattern, "g"))) {
+    out.push({ start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+
+/**
+ * The line break of `content` at `offset`: the one that ends its line, or
+ * for the last line the one before it, `\n` when it has none. A
+ * replacement is written in it, so a CRLF document (or a CRLF part of a
+ * mixed one) keeps CRLF lines.
+ */
+function lineBreakAt(content: string, offset: number): string {
+  let nl = content.indexOf("\n", offset);
+  if (nl === -1) nl = content.lastIndexOf("\n", offset - 1);
+  return nl > 0 && content[nl - 1] === "\r" ? "\r\n" : "\n";
+}
+
+/** `replace` with its line breaks in those of `content` at `offset`. */
+function inDocumentLineBreaks(
+  content: string,
+  offset: number,
+  replace: string,
+): string {
+  return replace.includes("\n")
+    ? replace.replace(/\r?\n/g, lineBreakAt(content, offset))
+    : replace;
+}
+
+/** `content` with `match` replaced by `replace`, in its line breaks. */
+function replaceMatch(content: string, match: FindMatch, replace: string): string {
+  return (
+    content.slice(0, match.start) +
+    inDocumentLineBreaks(content, match.start, replace) +
+    content.slice(match.end)
+  );
 }
 
 /**
@@ -52,12 +108,14 @@ function countOccurrences(haystack: string, needle: string): number {
  * document that changed since it was read.
  */
 export const FIND_NOT_FOUND =
-  "`find` string not found in the current document. It must match the document exactly, whitespace and line breaks included: read the live text with get_current_content and copy `find` from it.";
+  "`find` string not found in the current document. It must match the document exactly, whitespace included (a line break matches LF or CRLF): read the live text with get_current_content and copy `find` from it.";
 
 /**
- * Apply a single exact find→replace requiring `find` to appear EXACTLY once.
- * Returns the new content on success, or a human-readable error otherwise.
- * Pure — does not touch any store.
+ * Apply a single exact find→replace requiring `find` to appear EXACTLY once
+ * ({@link findMatches}: a line break matches LF or CRLF). The replacement
+ * is written in the document's line breaks. Returns the new content on
+ * success, or a human-readable error otherwise. Pure — does not touch any
+ * store.
  */
 export function applyUniqueEdit(
   content: string,
@@ -67,7 +125,8 @@ export function applyUniqueEdit(
   if (find === "") {
     return { ok: false, replaced: 0, error: "`find` must not be empty." };
   }
-  const n = countOccurrences(content, find);
+  const matches = findMatches(content, find);
+  const n = matches.length;
   if (n === 0) {
     return {
       ok: false,
@@ -82,10 +141,7 @@ export function applyUniqueEdit(
       error: `\`find\` string is not unique (${n} matches): include more surrounding context to disambiguate.`,
     };
   }
-  // Replace only the first (and only) occurrence.
-  const idx = content.indexOf(find);
-  const next = content.slice(0, idx) + replace + content.slice(idx + find.length);
-  return { ok: true, replaced: 1, content: next };
+  return { ok: true, replaced: 1, content: replaceMatch(content, matches[0], replace) };
 }
 
 // ── Stream-edit diff utilities ────────────────────────────────────────────────
@@ -131,20 +187,11 @@ export interface StreamEditDiffResult {
 }
 
 /**
- * Collect all non-overlapping start indices of `needle` within `haystack`.
- * Returns indices in document order.
+ * Collect all non-overlapping start indices of `needle` within `haystack`
+ * ({@link findMatches}). Returns indices in document order.
  */
 export function findAllOccurrences(haystack: string, needle: string): number[] {
-  if (needle === "") return [];
-  const indices: number[] = [];
-  let from = 0;
-  for (;;) {
-    const i = haystack.indexOf(needle, from);
-    if (i === -1) break;
-    indices.push(i);
-    from = i + needle.length;
-  }
-  return indices;
+  return findMatches(haystack, needle).map((m) => m.start);
 }
 
 /**
@@ -242,9 +289,9 @@ export function computeStreamEditDiff(
     return { ok: false, matchCount: 0, error: "`find` must not be empty." };
   }
 
-  const offsets = findAllOccurrences(content, find);
+  const matches = findMatches(content, find);
 
-  if (offsets.length === 0) {
+  if (matches.length === 0) {
     return {
       ok: false,
       matchCount: 0,
@@ -252,23 +299,27 @@ export function computeStreamEditDiff(
     };
   }
 
-  if (offsets.length === 1) {
-    const diff = buildUnifiedDiff(
+  // Each diff shows the text matched and the replacement as it is written
+  // (in the document's line breaks).
+  const diffOf = (m: FindMatch) =>
+    buildUnifiedDiff(
       content,
-      find,
-      replace,
-      offsets[0],
+      content.slice(m.start, m.end),
+      inDocumentLineBreaks(content, m.start, replace),
+      m.start,
       contextLines,
       label,
     );
-    return { ok: true, diff, matchCount: 1 };
+
+  if (matches.length === 1) {
+    return { ok: true, diff: diffOf(matches[0]), matchCount: 1 };
   }
 
   // Multiple matches — build ranked candidates (rank 1 = first occurrence).
-  const candidates: StreamEditCandidate[] = offsets.map((offset, idx) => ({
+  const candidates: StreamEditCandidate[] = matches.map((m, idx) => ({
     matchIndex: idx,
-    startLine: offsetToLine(content, offset),
-    diff: buildUnifiedDiff(content, find, replace, offset, contextLines, label),
+    startLine: offsetToLine(content, m.start),
+    diff: diffOf(m),
     rank: idx + 1,
   }));
 
@@ -277,7 +328,7 @@ export function computeStreamEditDiff(
     ok: true,
     diff: candidates[0].diff,
     candidates,
-    matchCount: offsets.length,
+    matchCount: matches.length,
   };
 }
 
@@ -300,9 +351,9 @@ export function applyEditAtOccurrence(
     return { ok: false, replaced: 0, error: "`find` must not be empty." };
   }
 
-  const offsets = findAllOccurrences(content, find);
+  const matches = findMatches(content, find);
 
-  if (offsets.length === 0) {
+  if (matches.length === 0) {
     return {
       ok: false,
       replaced: 0,
@@ -310,17 +361,19 @@ export function applyEditAtOccurrence(
     };
   }
 
-  if (matchIndex < 0 || matchIndex >= offsets.length) {
+  if (matchIndex < 0 || matchIndex >= matches.length) {
     return {
       ok: false,
       replaced: 0,
       error:
-        `matchIndex ${matchIndex} out of bounds: document has ${offsets.length} occurrence(s). ` +
-        `Use a match_index from 0 to ${offsets.length - 1}, or call stream_edit again to see the candidates.`,
+        `matchIndex ${matchIndex} out of bounds: document has ${matches.length} occurrence(s). ` +
+        `Use a match_index from 0 to ${matches.length - 1}, or call stream_edit again to see the candidates.`,
     };
   }
 
-  const offset = offsets[matchIndex];
-  const next = content.slice(0, offset) + replace + content.slice(offset + find.length);
-  return { ok: true, replaced: 1, content: next };
+  return {
+    ok: true,
+    replaced: 1,
+    content: replaceMatch(content, matches[matchIndex], replace),
+  };
 }
