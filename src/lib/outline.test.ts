@@ -213,6 +213,27 @@ describe("parseHeadings", () => {
       ["Code", "code", 10],
     ]);
   });
+  it("leaves out a heading on a list item's continuation line", () => {
+    // `  # Sub` after `- x` and a blank line, or after a bare `-`, is in
+    // the item, so it is counted for slugs but not listed. It used to be
+    // listed. One less indented than the item's text ends the list.
+    const doc = [
+      "- x",
+      "",
+      "  # Sub",
+      "-",
+      "  ## Bare",
+      "",
+      " # Out",
+      "# Sub",
+      "## Bare",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Out", "out", 7],
+      ["Sub", "sub-1", 8],
+      ["Bare", "bare-1", 9],
+    ]);
+  });
   it("reads a fence in a list item as a fence", () => {
     // A list-item fence used to be text, so `  # comment` in the item's
     // code was listed in the Outline. A less indented line ends it.
@@ -243,6 +264,55 @@ describe("parseHeadings", () => {
       "text",
     ]);
     expect(parseHeadings(doc).map((h) => h.text)).not.toContain("comment");
+  });
+  it("reads fences in item continuations, nested items, tabs and quotes in items", () => {
+    // These were text, so their `# comment`s were listed in the Outline.
+    // Each matches what the renderer (micromark) reads as fenced code.
+    const kinds = (lines: string[]) =>
+      markdownLines(lines.join("\n")).map((l) => l.kind[0]);
+    // A fence on an item's continuation line, after a blank line or not.
+    expect(kinds(["- a", "", "  ```", "  # c", "  ```", "# real"])).toEqual([
+      "t",
+      "t",
+      "f",
+      "c",
+      "f",
+      "t",
+    ]);
+    expect(kinds(["- a", "  ~~~", "  # c", "x"])).toEqual(["t", "f", "c", "t"]);
+    // An item indented four spaces or more under its parent.
+    expect(kinds(["- a", "    - ```", "      # c", "      ```"])).toEqual([
+      "t",
+      "f",
+      "c",
+      "f",
+    ]);
+    expect(kinds(["1. a", "   - b", "     - ```", "       # c", "     # out"])).toEqual(
+      ["t", "t", "f", "c", "t"],
+    );
+    // A tab after the marker: the item's text starts at column four.
+    expect(kinds(["-\t```", "    # c", "  # out"])).toEqual(["f", "c", "t"]);
+    // A fence in a quote in an item, which a line without `>` ends.
+    expect(kinds(["- > ```", "  > # c", "  > ```", "# r"])).toEqual([
+      "f",
+      "c",
+      "f",
+      "t",
+    ]);
+    expect(kinds(["- > ```", "  # out"])).toEqual(["f", "t"]);
+    // Four spaces past the item's text is indented code, not a fence.
+    expect(kinds(["- a", "", "      ```", "  # h"])).toEqual(["t", "t", "t", "t"]);
+    // A line less indented than the item's text after a blank line ends it.
+    expect(kinds(["- a", "", "b", "", "  ```", "x"])).toEqual([
+      "t",
+      "t",
+      "t",
+      "t",
+      "f",
+      "c",
+    ]);
+    const doc = ["- a", "", "  ```sh", "  # comment", "  ```", "", "# Real"].join("\n");
+    expect(parseHeadings(doc).map((h) => h.text)).toEqual(["Real"]);
   });
   it("leaves a list-item heading out but counts its slug as the renderer does", () => {
     // rehype-slug gives `- # Step` (a heading in a list item) the id `step`,

@@ -113,4 +113,11 @@ describe("source editor: inline AI failures a retry cannot fix", () => {
     expect(buttons(error)).toContain("Retry");
     expect(error.querySelector("a")).toBeNull();
   });
+
+  it("puts the selected text back once, not twice", async () => {
+    // A failure before any output used to restore the selection in front
+    // of itself, so "hello world" read "hellohello world".
+    await failRewrite(new Error("Anthropic error 529: overloaded_error"));
+    expect(getSourceView()?.state.doc.toString()).toBe("hello world");
+  });
 });

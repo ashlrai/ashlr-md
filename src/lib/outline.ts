@@ -120,47 +120,151 @@ function closesFence(f: ReturnType<typeof codeFence>, marker: string): boolean {
 }
 
 /**
- * `line` without up to `max` leading blockquote markers (at most three
- * spaces, `>`, then one optional space or tab), and how many it lost. The
- * rule of mdopener-mcp's `markdown_lines::strip_quote_markers`.
+ * `line` with each tab replaced by the spaces that reach the next multiple
+ * of four columns, as CommonMark reads indentation.
  */
-function stripQuoteMarkers(
-  line: string,
-  max: number,
-): { markers: number; rest: string } {
-  const marker = /^ {0,3}>[ \t]?/;
-  let rest = line;
-  let markers = 0;
-  while (markers < max) {
-    const m = marker.exec(rest);
-    if (!m) break;
-    rest = rest.slice(m[0].length);
-    markers++;
+function expandTabs(line: string): string {
+  if (!line.includes("\t")) return line;
+  let out = "";
+  let column = 0;
+  for (const ch of line) {
+    const n = ch === "\t" ? 4 - (column % 4) : 1;
+    out += ch === "\t" ? " ".repeat(n) : ch;
+    column += n;
   }
-  return { markers, rest };
+  return out;
+}
+
+/** How many spaces `line` (tabs expanded) starts with. */
+function spacesBefore(line: string): number {
+  return line.length - line.replace(/^ +/, "").length;
 }
 
 /**
- * The fence that opens a list item, and the item's content column, when
- * `line` is one or more list markers (at most three spaces, `-`, `*`, `+`
- * or 1 to 9 digits and `.` or `)`, then one to four spaces) followed by a
- * code fence: `- ` then three backticks, or `1. - ~~~`. The rule of
- * mdopener-mcp's `markdown_lines::list_fence`.
+ * `line` (tabs expanded) without the blockquote marker that opens it (at
+ * most three spaces, `>`, then one optional space), or null when it has
+ * none. The rule of mdopener-mcp's `markdown_lines::quote_marker`.
  */
-function listFence(line: string): { marker: string; column: number } | null {
-  const marker = /^ {0,3}(?:[-*+]|\d{1,9}[.)])( {1,4})(?! )/;
-  let rest = line;
-  let column = 0;
-  let m = marker.exec(rest);
+function quoteMarker(line: string): string | null {
+  const m = /^ {0,3}>/.exec(line);
   if (!m) return null;
-  while (m) {
-    column += m[0].length;
-    rest = rest.slice(m[0].length);
-    m = marker.exec(rest);
+  const after = line.slice(m[0].length);
+  return after.startsWith(" ") ? after.slice(1) : after;
+}
+
+/**
+ * The content column of the list item `line` (tabs expanded) opens, past
+ * the line's start, and the rest of the line, or null when it opens none:
+ * at most three spaces, `-`, `*`, `+` or 1 to 9 digits and `.` or `)`,
+ * then one to four spaces before the text. An item with nothing after its
+ * marker, or with five or more spaces (indented code), has its content one
+ * column past the marker, as in CommonMark. `one` is false for an ordered
+ * item that does not start at 1. The rule of mdopener-mcp's
+ * `markdown_lines::list_marker`.
+ */
+function listMarker(
+  line: string,
+): { width: number; rest: string; one: boolean } | null {
+  const m = /^ {0,3}(?:[-*+]|(\d{1,9})[.)])/.exec(line);
+  if (!m) return null;
+  const end = m[0].length;
+  const after = line.slice(end);
+  const spaces = spacesBefore(after);
+  // Whether the item may interrupt a paragraph by its marker.
+  const one = m[1] === undefined || Number(m[1]) === 1;
+  if (after.trim() === "") return { width: end + 1, rest: "", one };
+  if (spaces === 0) return null;
+  if (spaces > 4) return { width: end + 1, rest: after.slice(1), one };
+  return { width: end + spaces, rest: after.slice(spaces), one };
+}
+
+/**
+ * Whether `line` (tabs expanded) is a thematic break: at most three
+ * spaces, then three or more `-`, `*` or `_`, spaces between them allowed.
+ */
+function thematicBreak(line: string): boolean {
+  return /^ {0,3}([-*_])( *\1){2,} *$/.test(line);
+}
+
+/**
+ * A container a line can sit in: a blockquote, or a list item with how
+ * many columns its content is past the container before it.
+ */
+type Container = { quote: true } | { quote: false; width: number };
+
+/**
+ * The containers `line` (tabs expanded) sits in and the rest of the line:
+ * first the open list items `items` (their widths, outermost first) it is
+ * indented into, then the blockquote markers and list markers it opens
+ * (`> `, `- `, `1. - `, `- > `). `matched` is how many of `items` it
+ * continues. When the line would otherwise continue a paragraph held by
+ * `held` of the items (or indented code, which the renderer treats alike),
+ * a list marker that opens no text (`-` alone) or an ordered one that does
+ * not start at 1 is text, as in CommonMark, until a blockquote opens. A
+ * thematic break (`- - -`) opens no item. The rule of mdopener-mcp's `markdown_lines::containers`.
+ */
+function containers(
+  line: string,
+  items: number[],
+  held: number | null,
+): { list: Container[]; matched: number; rest: string } {
+  const list: Container[] = [];
+  let rest = line;
+  for (const width of items) {
+    if (spacesBefore(rest) < width) break;
+    rest = rest.slice(width);
+    list.push({ quote: false, width });
   }
-  const f = /^(`{3,}|~{3,})(.*)$/.exec(rest);
-  if (!f || (f[1][0] === "`" && f[2].includes("`"))) return null;
-  return { marker: f[1], column };
+  const matched = list.length;
+  let interrupt = held === matched;
+  for (;;) {
+    const q = quoteMarker(rest);
+    if (q !== null) {
+      list.push({ quote: true });
+      rest = q;
+      interrupt = false;
+      continue;
+    }
+    const item = thematicBreak(rest) ? null : listMarker(rest);
+    if (!item || (interrupt && (!item.one || item.rest.trim() === ""))) break;
+    list.push({ quote: false, width: item.width });
+    rest = item.rest;
+  }
+  return { list, matched, rest };
+}
+
+/**
+ * The rest of `line` (tabs expanded) inside the containers `list` of an
+ * open fence, or null when the line leaves one of them: a blockquote needs
+ * its `>` (a blank line has none), and a list item needs its content
+ * indentation unless the line is blank.
+ */
+function continues(line: string, list: Container[]): string | null {
+  let rest = line;
+  for (const c of list) {
+    if (c.quote) {
+      const q = quoteMarker(rest);
+      if (q === null) return null;
+      rest = q;
+    } else if (rest.trim() === "") {
+      rest = "";
+    } else if (spacesBefore(rest) >= c.width) {
+      rest = rest.slice(c.width);
+    } else {
+      return null;
+    }
+  }
+  return rest;
+}
+
+/** The widths of the list items that open `list`, before any blockquote. */
+function leadingItems(list: Container[]): number[] {
+  const out: number[] = [];
+  for (const c of list) {
+    if (c.quote) break;
+    out.push(c.width);
+  }
+  return out;
 }
 
 /**
@@ -199,19 +303,20 @@ export interface MarkdownLine {
  * text by the rules of mdopener-mcp's `markdown_lines`: a leading front
  * matter block is closed by `---` or `...` (its lines are never fences),
  * and a fence is closed only by the same character at least as long with
- * nothing after it; one left open runs to the end. A fence inside a
- * blockquote (`> ` then a fence) is a fence too: the lines after it with at
- * least as many `>` markers are its code until a closing fence behind
- * those markers, and a line with fewer (a blank line included) ends the
- * quote and so the block, as in CommonMark. A quoted fence used to be
- * text, so a `[[link]]` in quoted code was linted as a link.
+ * nothing after it; one left open runs to the end.
  *
- * A fence that opens a list item (`- ` then a fence) is a fence too: the
- * lines after it indented at least to the item's content column (blank
- * lines included) are its code until a closing fence at that column (up
- * to three more spaces), and a less indented line ends the item and so
- * the block. A list-item fence used to be text, so a `  # comment` in an
- * item's code was listed in the Outline and `  - [ ] x` read as a task.
+ * A fence may sit in blockquotes and list items, as in CommonMark: behind
+ * `> ` markers, after list markers (`- `, `1. - `, `-` then a tab), in a
+ * quote in an item (`- > `), or on an item's continuation line indented to
+ * its content column (`- a`, a blank line, then two spaces and a fence),
+ * nested items included however deep. The lines after it that stay in
+ * those containers (each quote's `>`, each item's content indentation, a
+ * blank line staying in an item but ending a quote) are its code until a
+ * closing fence in them, and a line that leaves one ends the block. Open
+ * list items are tracked across text lines, a less indented line ending
+ * them unless it continues a paragraph. A quoted fence, a list-item fence
+ * and then these used to be text, so a `# comment` in their code was
+ * listed in the Outline and `- [ ] x` read as a task.
  */
 export function markdownLines(markdown: string): MarkdownLine[] {
   const { lines: body, offset } = stripFrontmatter(markdown);
@@ -222,69 +327,89 @@ export function markdownLines(markdown: string): MarkdownLine[] {
     out.push({ kind: "frontmatter", text: all[i], line: i + 1, start });
     start += all[i].length + 1;
   }
-  let fence: string | null = null; // active fence marker, e.g. "```" or "~~~~"
-  // The fence open inside a blockquote, with its number of `>` markers.
-  let quoteFence: { marker: string; depth: number } | null = null;
-  // The fence open in a list item, with the item's content column.
-  let itemFence: { marker: string; column: number } | null = null;
+  // The open fence, with the containers its code lines stay in.
+  let fence: { marker: string; list: Container[] } | null = null;
+  // The widths of the open list items, outermost first.
+  let items: number[] = [];
+  // How many open items hold the paragraph the line before is in (-1 for
+  // one in a blockquote), or null after any other line.
+  let paragraph: number | null = null;
+  // The same for indented code, which a blank line does not end.
+  let indented: number | null = null;
+  // Whether the innermost open item has only its marker so far.
+  let bare = false;
+  // Whether the line before was in a blockquote or ended a bare item:
+  // indented code after it closes a container.
+  let closer = false;
   for (let i = 0; i < body.length; i++) {
     const text = body[i];
     const line = offset + i + 1;
-    if (itemFence) {
-      const ind = leadingIndent(text);
-      if (ind.rest.trim() === "" || ind.columns >= itemFence.column) {
-        let kind: MarkdownLine["kind"] = "code";
-        if (
-          ind.columns - itemFence.column <= 3 &&
-          closesFence(codeFence(ind.rest), itemFence.marker)
-        ) {
-          itemFence = null;
-          kind = "fence";
-        }
-        out.push({ kind, text, line, start });
-        start += text.length + 1;
-        continue;
-      }
-      itemFence = null;
-    }
-    if (quoteFence) {
-      const q = stripQuoteMarkers(text, quoteFence.depth);
-      if (q.markers === quoteFence.depth) {
-        const f = codeFence(q.rest);
-        let kind: MarkdownLine["kind"] = "code";
-        if (closesFence(f, quoteFence.marker)) {
-          quoteFence = null;
-          kind = "fence";
-        }
-        out.push({ kind, text, line, start });
-        start += text.length + 1;
-        continue;
-      }
-      quoteFence = null;
-    }
-    const f = codeFence(text);
+    const expanded = expandTabs(text.endsWith("\r") ? text.slice(0, -1) : text);
     let kind: MarkdownLine["kind"] = "text";
-    if (fence) {
-      kind = "code";
-      if (closesFence(f, fence)) {
-        fence = null;
-        kind = "fence";
-      }
-    } else if (f) {
-      fence = f.marker;
-      kind = "fence";
+    const inside = fence ? continues(expanded, fence.list) : null;
+    let lineList: Container[] = fence?.list ?? [];
+    let endsBare = false;
+    if (fence && inside !== null) {
+      kind = closesFence(codeFence(inside), fence.marker) ? "fence" : "code";
+      if (kind === "fence") fence = null;
     } else {
-      const q = stripQuoteMarkers(text, Number.POSITIVE_INFINITY);
-      const qf = q.markers > 0 ? codeFence(q.rest) : null;
-      const lf = qf ? null : listFence(text);
-      if (qf) {
-        quoteFence = { marker: qf.marker, depth: q.markers };
+      fence = null;
+      const c = containers(expanded, items, paragraph ?? indented);
+      lineList = c.list;
+      const f = codeFence(c.rest);
+      const empty = c.rest.trim() === "";
+      const opened = c.list.length > c.matched;
+      if (f) {
+        fence = { marker: f.marker, list: c.list };
+        items = leadingItems(c.list);
         kind = "fence";
-      } else if (lf) {
-        itemFence = lf;
-        kind = "fence";
+        paragraph = null;
+        indented = null;
+        bare = false;
+      } else if (empty && !opened) {
+        // A blank line. An item that starts with one ends at a second.
+        if (bare) items = items.slice(0, -1);
+        endsBare = bare;
+        paragraph = null;
+        bare = false;
+      } else {
+        const heading = atxHeading(c.rest) !== null;
+        // A paragraph goes on in a line that leaves an item without
+        // opening one, or a blockquote (lazy continuation).
+        const lazy =
+          paragraph !== null &&
+          !heading &&
+          !opened &&
+          (c.matched < items.length || paragraph === -1);
+        if (paragraph === c.matched && !opened && /^ {0,3}(?:-+|=+) *$/.test(c.rest)) {
+          // A setext underline ends the paragraph as a heading.
+          items = items.slice(0, c.matched);
+          paragraph = null;
+          indented = null;
+          bare = false;
+        } else if (thematicBreak(c.rest)) {
+          // A thematic break ends the items it is not indented into.
+          items = leadingItems(c.list);
+          paragraph = null;
+          indented = null;
+          bare = false;
+        } else if (!lazy) {
+          const closed = c.matched < items.length || closer;
+          items = leadingItems(c.list);
+          const last = c.list[c.list.length - 1];
+          bare = opened && empty && !last.quote;
+          const level = c.list.some((x) => x.quote) ? -1 : items.length;
+          // Four spaces past the containers is indented code, not text.
+          const code: boolean =
+            (opened || paragraph === null) && !empty && spacesBefore(c.rest) >= 4;
+          paragraph = heading || empty || code ? null : level;
+          // Only indented code that closed no container, as the renderer
+          // reads it.
+          indented = code && !closed ? level : null;
+        }
       }
     }
+    closer = endsBare || lineList.some((x) => x.quote);
     out.push({ kind, text, line, start });
     start += text.length + 1;
   }
@@ -373,7 +498,10 @@ function listItemColumns(line: string): number[] | null {
  *   it is at most three columns past the item's content column, and the
  *   renderer gives it an id, so it takes its slug the same way without
  *   being listed. It used to take none (it was read as indented code), so
- *   a later `# Sub` was `sub` here and `sub-1` in the page.
+ *   a later `# Sub` was `sub` here and `sub-1` in the page. One indented
+ *   zero to three columns past the item's content column (`- x`, a blank
+ *   line, then `  # Sub`, or `-` then `  # Sub`) is in the item too, so it
+ *   is not listed either. It used to be listed.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -411,7 +539,10 @@ export function parseHeadings(markdown: string): HeadingItem[] {
     if (h) {
       const text = stripInline(h.text);
       if (text === "") continue; // empty heading -> no anchor rendered
-      out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
+      const slug = slugger.slug(text);
+      // Indented to an open item's content column, it is in the item.
+      if (items.length > 0) continue;
+      out.push({ depth: h.depth, text, slug, line: l.line });
       continue;
     }
     const item = items[items.length - 1];

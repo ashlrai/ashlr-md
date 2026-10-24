@@ -233,9 +233,12 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
         setAnchor(null);
         setPhase({ kind: "menu" });
       } catch (e) {
-        // Restore the original text on any failure or cancel.
+        // Restore the original text on any failure or cancel. It replaces
+        // [start, end): before any output that is still the selection,
+        // which [start, start + acc.length) left in place, so a failure
+        // before the first delta doubled the selected text.
         try {
-          const tr = view.state.tr.insertText(original, start, start + acc.length);
+          const tr = view.state.tr.insertText(original, start, end);
           view.dispatch(tr);
         } catch {
           // View may be gone.

@@ -96,6 +96,29 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A failed inline AI edit no longer doubles the selected text.** When
+  an inline AI action failed or was cancelled before any output arrived
+  (a refused key, an empty account, a network error), both editors put
+  the selection back in front of itself, so `hello world` with `hello`
+  selected read `hellohello world`. The selection is now left as it was.
+- **`export_text` strips a list item's indentation from its code.** Code
+  from a fence in a list item kept the item's indentation in the plain
+  text agents read, while code in a blockquote lost its `>` markers. Both
+  now read as CommonMark renders them: the item's indentation and the
+  fence's own indentation are taken off, deeper indentation is kept.
+- **More fences in list items are read as code.** A fence on a list
+  item's continuation line (`- a`, a blank line, then the fence indented
+  to the item's text), in an item indented four spaces or more under its
+  parent, after a tab after the marker, or in a quote in an item (`- > `
+  then a fence) was read as text. A `# comment` in its code was listed in
+  the Outline, and agents' `export_metadata` and task tools read its
+  `[[links]]`, headings and `- [ ]` lines as the note's own. The app and
+  mdopener-mcp now read each as a fence, as the preview renders it.
+- **The Outline leaves out a heading on a list item's continuation line.**
+  A heading indented to a list item's text after a blank line (`- x`, a
+  blank line, then `  # Sub`) or after a bare `-` is part of the item, and
+  the Outline already left out headings in list items. It was still
+  listed. It is now counted for the page's heading ids but not listed.
 - **The inline AI's Retry pause is one constant.** Both editors computed
   a doubling delay (500 ms times 2 to the retry count) for a Retry that is
   offered only once, so it was always 500 ms. They now share that 500 ms
