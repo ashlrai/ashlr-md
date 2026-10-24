@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type FileSearchResult, searchFiles } from "../../lib/crossSearch";
+import { type FileSearchResult, searchFilesOrThrow } from "../../lib/crossSearch";
 import { isDismissEscape } from "../../lib/keymap";
 import { revealLine } from "../../lib/revealLine";
 import { useReturnFocus } from "../../lib/useReturnFocus";
@@ -28,6 +28,8 @@ export function SearchPanel() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Why the last search failed; it used to read as "0 matches". */
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
@@ -55,6 +57,7 @@ export function SearchPanel() {
     if (!q) {
       setResults([]);
       setBusy(false);
+      setError(null);
       return;
     }
     setBusy(true);
@@ -62,11 +65,20 @@ export function SearchPanel() {
     // for an earlier query used to replace the newer query's results.
     let current = true;
     const handle = window.setTimeout(() => {
-      searchFiles(paths, q).then((r) => {
-        if (!current) return;
-        setResults(r);
-        setBusy(false);
-      });
+      searchFilesOrThrow(paths, q).then(
+        (r) => {
+          if (!current) return;
+          setResults(r);
+          setError(null);
+          setBusy(false);
+        },
+        (e: unknown) => {
+          if (!current) return;
+          setResults([]);
+          setError(e instanceof Error ? e.message : String(e));
+          setBusy(false);
+        },
+      );
     }, 180);
     return () => {
       current = false;
@@ -114,12 +126,17 @@ export function SearchPanel() {
       </div>
 
       {query.trim() && (
-        <div className="search-panel__summary">
+        <div
+          className="search-panel__summary"
+          role={error && !busy ? "alert" : undefined}
+        >
           {busy
             ? "Searching…"
-            : `${total} match${total === 1 ? "" : "es"} in ${results.length} file${
-                results.length === 1 ? "" : "s"
-              }`}
+            : error
+              ? `Couldn’t search the files: ${error}`
+              : `${total} match${total === 1 ? "" : "es"} in ${results.length} file${
+                  results.length === 1 ? "" : "s"
+                }`}
         </div>
       )}
 

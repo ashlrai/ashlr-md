@@ -8,10 +8,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const pending = new Map<string, (r: unknown) => void>();
+const failing = new Map<string, (e: unknown) => void>();
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(
     (_cmd: string, args: { query: string }) =>
-      new Promise((resolve) => pending.set(args.query, resolve)),
+      new Promise((resolve, reject) => {
+        pending.set(args.query, resolve);
+        failing.set(args.query, reject);
+      }),
   ),
 }));
 
@@ -36,6 +40,7 @@ describe("search panel results", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     pending.clear();
+    failing.clear();
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -82,6 +87,26 @@ describe("search panel results", () => {
       (n) => n.textContent,
     );
     expect(names).toEqual(["beta.md"]);
+    expect(host.querySelector(".search-panel__summary")?.textContent).toBe(
+      "1 match in 1 file",
+    );
+  });
+
+  /** A search that failed read as "0 matches in 0 files". */
+  it("says why a search failed instead of showing no matches", async () => {
+    type("alpha");
+    await act(async () => {
+      failing.get("alpha")?.("the search stopped: out of memory");
+    });
+    const summary = host.querySelector(".search-panel__summary");
+    expect(summary?.textContent).toBe(
+      "Couldn’t search the files: the search stopped: out of memory",
+    );
+    expect(summary?.getAttribute("role")).toBe("alert");
+    type("beta");
+    await act(async () => {
+      pending.get("beta")?.(hit("beta"));
+    });
     expect(host.querySelector(".search-panel__summary")?.textContent).toBe(
       "1 match in 1 file",
     );

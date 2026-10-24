@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A file search that fails says so.** Any error from the search was shown as
+  "0 matches in 0 files", so a failed search looked like a word that is in no
+  file. The panel now shows "Couldn’t search the files" and the reason. The AI
+  library context still treats a failed search as no excerpts.
 - **A search hit opens its file at the hit's line.** Clicking a match in the
   file search ("Line 7") opened the file at its top. Read view now scrolls to
   the block holding that line, and Source view puts the cursor on it. Edit
