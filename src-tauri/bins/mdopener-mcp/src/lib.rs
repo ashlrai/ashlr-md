@@ -1214,12 +1214,13 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 When the find string matches multiple locations, ALL candidate diffs are returned ranked \
                 by occurrence order (rank 1 = first match); the agent picks one and confirms it via \
                 stream_edit_apply with its 0-based `match_index`. With preview=false the app applies the edit at once (not written to disk; \
-                the find string must match exactly once) and the result has applied: true, so do not \
+                the find string must match exactly once) and the result has applied: true, an empty \
+                `diff` and `candidates` null (its editId names no preview), so do not \
                 call stream_edit_apply afterwards. Prefer this over edit_document only to see the change \
                 before committing it (edit_document applies at once), not for large files: both send the \
                 app only `find` and `replace`, a preview adds a diff and a second call, and with `path` \
                 this tool also asks the app for the open document's path (not its content) to compare. Returns { ok, editId, diff, candidates, matchCount, applied }: \
-                `diff` is the diff of the first (or only) match, `candidates` is null for a single match and \
+                `diff` is the diff of the first (or only) match of a preview, `candidates` is null for a single match and \
                 otherwise [{ matchIndex, startLine, diff, rank }], and `matchCount` counts the occurrences. \
                 Refused (isError, document unchanged) when no document is open \
                 (\"No document is open in Ashlr MD; open one first (open_file).\", as edit_document says), \

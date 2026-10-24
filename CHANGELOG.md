@@ -101,6 +101,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   (a refused key, an empty account, a network error), both editors put
   the selection back in front of itself, so `hello world` with `hello`
   selected read `hellohello world`. The selection is now left as it was.
+- **`stream_edit` says its result has no diff without a preview.** With
+  `preview: false` the edit is applied at once and the result's `diff` is
+  empty and `candidates` null, but the description called `diff` the diff
+  of the first match in every case, so an agent could read the empty diff
+  as an edit that changed nothing. The description and docs now say so.
 - **`export_metadata`'s description says which headings it lists.** It
   promised a "headings tree" of every ATX heading outside front matter and
   fenced code, so an agent looked for nesting and for headings in quotes

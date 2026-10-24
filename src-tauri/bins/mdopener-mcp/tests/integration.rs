@@ -7611,7 +7611,8 @@ fn edit_tools_assert_the_canonical_path() {
 }
 
 /// `preview: false` applies the edit at once; the result must say so, or an
-/// agent that then calls stream_edit_apply edits the document twice.
+/// agent that then calls stream_edit_apply edits the document twice. Its
+/// `diff` is empty, which the description now says.
 #[test]
 fn stream_edit_reports_whether_it_applied_the_edit() {
     let reply = json!({ "ok": true, "editId": "sedit_1", "diff": "", "matchCount": 1 });
@@ -7628,6 +7629,23 @@ fn stream_edit_reports_whether_it_applied_the_edit() {
         &ipc,
     ));
     assert_eq!(applied["applied"], true, "{applied}");
+    // The window sends no diff without a preview, and the description used
+    // to call `diff` the diff of the first match in every case.
+    let d = tool_registry()
+        .into_iter()
+        .find(|t| t.name == "stream_edit")
+        .unwrap()
+        .description;
+    assert!(
+        d.contains(
+            "applied: true, an empty `diff` and `candidates` null (its editId names no preview)"
+        ),
+        "{d}"
+    );
+    let docs = include_str!("../../../../docs/AGENTS.md");
+    assert!(
+        docs.contains("an empty `diff`, `candidates: null` and an `editId` that names no preview")
+    );
 }
 
 /// `stream_edit` read a `preview_lines` above 20 as 20 in silence, and its
