@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Lint heading rules read setext headings.** `single-h1`, `max-heading-depth`,
+  `no-empty-headings` and `orphaned-heading` read only `#` headings, so `Title`
+  underlined with `===` and then `# Other` was not flagged as two H1s, and a
+  setext heading right before another heading was not orphaned. They now read the
+  setext headings the Outline counts, outside list items and blockquotes as for
+  `#` headings, and a duplicate setext H1 is marked at its underline.
 - **`export_text` keeps brackets that are not task checkboxes.** Any `[ ]`
   read as a link with the text ` `, so `[ ] not a task` came out as
   `  not a task` and `- [ ]` alone (text on the page) lost its brackets. Only
