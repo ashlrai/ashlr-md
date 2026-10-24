@@ -849,3 +849,27 @@ describe("heading rules skip fenced code and front matter", () => {
     expect(applyFix(d, v[0])).toBe("```\n#### code\n```\n\n### Real\n");
   });
 });
+
+describe("heading rules skip headings in list items and blockquotes", () => {
+  // `- x`, a blank line, then `  # Sub` is a heading in the list item, as
+  // the Outline and atxHeadings read it, not a document heading.
+  const doc = "# Title\n\nBody.\n\n- x\n\n  # Sub\n\n  #### Deep\n\n  #\n";
+
+  it("single-h1 does not count an item's continuation heading", () => {
+    expect(lintDocument(doc, { rules: [ruleSingleH1] })).toHaveLength(0);
+  });
+
+  it("max-heading-depth and no-empty-headings skip contained headings", () => {
+    expect(lintDocument(doc, { rules: [ruleMaxHeadingDepth] })).toHaveLength(0);
+    expect(lintDocument(doc, { rules: [ruleNoEmptyHeadings] })).toHaveLength(0);
+  });
+
+  it("orphaned-heading reads a contained heading as body text", () => {
+    const d = "# A\n\n- x\n\n  ## B\n\n## C\n\ntext\n";
+    expect(lintDocument(d, { rules: [ruleOrphanedHeading] })).toHaveLength(0);
+    const q = "# A\n\n> # Quote\n\ntext\n";
+    expect(
+      lintDocument(q, { rules: [ruleOrphanedHeading, ruleSingleH1] }),
+    ).toHaveLength(0);
+  });
+});

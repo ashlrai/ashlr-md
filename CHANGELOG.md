@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Lint no longer reads a list item's heading as a document heading.**
+  A heading on a list item's continuation line (`- x`, a blank line, then
+  `  # Sub`) was counted by the heading rules, so a second `# ` there was
+  flagged as a duplicate H1, a deep one as too deep, and the heading
+  before it as orphaned. The heading rules now skip headings in list items
+  and blockquotes, as the Outline does.
 - **A failed inline AI edit no longer doubles the selected text.** When
   an inline AI action failed or was cancelled before any output arrived
   (a refused key, an empty account, a network error), both editors put
