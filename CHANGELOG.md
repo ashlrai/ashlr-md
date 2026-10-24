@@ -96,6 +96,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Edits to a symlinked note's real file are noticed.** The window watched
+  only the folder of the path it opened, so when that path was a link (or
+  ran through a linked folder, as `/tmp` does on macOS, where events name
+  the real path) a change made by another app or an agent made no event: the
+  window kept the old text, and its next save wrote over the change. The
+  real file's folder is now watched too.
 - **Saving a symlinked note writes the note it links to.** The window reads
   a document through a symbolic link, but a save renamed the new text over
   the link, so the real file (in a dotfiles repository or a synced folder)
