@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A canvas card whose file is gone keeps the canvas in view.** Clicking the
+  title of a file card whose file was deleted or moved since the card found
+  it replaced the canvas with "Could not read …". The canvas now stays, and a
+  toast says why, as for a link in a note.
 - **A Markdown link to a note with a dot in its name opens it.**
   `[x](v1.2%20plan)` or `[x](2024.01.05)` was taken to name a file with the
   extension `2 plan` or `05`, so it was refused as not a Markdown document.
