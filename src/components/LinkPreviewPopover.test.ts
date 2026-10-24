@@ -370,6 +370,15 @@ describe("resolveLinkPreview — internal .md links", () => {
     expect(resolveWikilinkMock).toHaveBeenCalledWith("note.md");
   });
 
+  it("percent-decodes a Markdown link's path before resolving it", async () => {
+    resolveWikilinkMock.mockResolvedValueOnce("/vault/My Note.md");
+    invokeMock.mockResolvedValueOnce({ content: "# My Note" });
+
+    await resolveLinkPreview("My%20Note.md#Part%202", "/vault/current.md");
+
+    expect(resolveWikilinkMock).toHaveBeenCalledWith("My Note.md");
+  });
+
   it("returns snippet extracted from file content", async () => {
     resolveWikilinkMock.mockResolvedValueOnce("/vault/doc.md");
     invokeMock.mockResolvedValueOnce({
