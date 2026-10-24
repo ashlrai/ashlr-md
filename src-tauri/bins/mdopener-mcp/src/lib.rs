@@ -7903,6 +7903,9 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 ///   `===` line with no paragraph before it, after definitions or lazily
 ///   after a list item is text on the page and is kept; every line of only
 ///   `=` or `-` used to be dropped.
+/// - Inline Markdown is read per paragraph (a text line and the lines that
+///   go on with it), so a code span or a link may run over its line breaks;
+///   it used to be read one line at a time.
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 ///   Inline math (`$…$`, `$$…$$`), which the page renders with remark-math,
@@ -7963,11 +7966,13 @@ pub fn strip_markdown(content: &str) -> String {
     // The label of the footnote definition each line opens, and whether
     // it is a setext heading underline, past the front matter the lines
     // below leave out.
-    let (footnotes, underlines): (Vec<Option<String>>, Vec<bool>) =
-        markdown_lines::item_starts(content)
-            .skip(markdown_lines::front_matter_len(content))
-            .map(|s| (s.footnote, s.underline))
-            .unzip();
+    // ... and whether it goes on with the paragraph of the line before.
+    let starts: Vec<_> = markdown_lines::item_starts(content)
+        .skip(markdown_lines::front_matter_len(content))
+        .collect();
+    let footnotes: Vec<Option<String>> = starts.iter().map(|s| s.footnote.clone()).collect();
+    let underlines: Vec<bool> = starts.iter().map(|s| s.underline).collect();
+    let continues: Vec<bool> = starts.iter().map(|s| s.continues).collect();
     let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, (tasks, definitions)): (Vec<Line>, (Vec<bool>, Vec<bool>)) =
         markdown_lines::with_indented_code(content)
@@ -7986,23 +7991,36 @@ pub fn strip_markdown(content: &str) -> String {
     let mut in_table = false;
     // The HTML block being read, past its containers.
     let mut html = String::new();
+    // What each line reads, in order: text as it is (code, an HTML block, a
+    // table row), a paragraph line whose inline Markdown is read with the
+    // lines of its paragraph, or a break between paragraphs (a line that
+    // reads nothing).
+    enum Read {
+        Text(String),
+        Paragraph {
+            line: String,
+            footnote: Option<String>,
+            joins: bool,
+        },
+        Break,
+    }
+    let mut reads: Vec<Read> = Vec::with_capacity(lines.len());
 
     for (idx, ((kind, line), (code, text))) in lines.iter().enumerate() {
         match kind {
             // Drop the fence line itself; preserve the code inside.
             LineKind::Fence => {
                 in_table = false;
+                reads.push(Read::Break);
                 continue;
             }
             LineKind::Code => {
-                out.push_str(code.as_deref().unwrap_or(line));
-                out.push('\n');
+                reads.push(Read::Text(format!("{}\n", code.as_deref().unwrap_or(line))));
                 continue;
             }
             LineKind::IndentedCode => {
                 in_table = false;
-                out.push_str(code.as_deref().unwrap_or(line));
-                out.push('\n');
+                reads.push(Read::Text(format!("{}\n", code.as_deref().unwrap_or(line))));
                 continue;
             }
             LineKind::Html => {
@@ -8013,13 +8031,16 @@ pub fn strip_markdown(content: &str) -> String {
                 html.push_str(code.as_deref().unwrap_or(line));
                 html.push('\n');
                 if !matches!(lines.get(idx + 1), Some(((LineKind::Html, _), _))) {
-                    out.push_str(&strip_html(&std::mem::take(&mut html)));
+                    reads.push(Read::Text(strip_html(&std::mem::take(&mut html))));
+                } else {
+                    reads.push(Read::Break);
                 }
                 continue;
             }
             LineKind::FrontMatter | LineKind::Text => {}
         }
         let Some((text, item)) = text else {
+            reads.push(Read::Break);
             continue;
         };
         let item = *item;
@@ -8038,24 +8059,27 @@ pub fn strip_markdown(content: &str) -> String {
             in_table = row_of(idx + 1).is_some_and(is_table_delimiter);
         }
         if in_table {
-            if !is_table_delimiter(row) {
+            if is_table_delimiter(row) {
+                reads.push(Read::Break);
+            } else {
                 let cells: Vec<String> = table_cells(row)
                     .iter()
                     .map(|c| strip_inline_markdown(c).trim().to_string())
                     .collect();
-                out.push_str(&cells.join("\t"));
-                out.push('\n');
+                reads.push(Read::Text(format!("{}\n", cells.join("\t"))));
             }
             continue;
         }
 
         // A link reference definition shows nothing on the page.
         if definitions[idx] {
+            reads.push(Read::Break);
             continue;
         }
 
         // A list item with nothing after its marker reads nothing.
         if item && trimmed.is_empty() {
+            reads.push(Read::Break);
             continue;
         }
 
@@ -8064,6 +8088,7 @@ pub fn strip_markdown(content: &str) -> String {
         // a definition, or with no paragraph before it, is text on the
         // page. Every line of only `=` or `-` used to be dropped.
         if underlines[idx] {
+            reads.push(Read::Break);
             continue;
         }
 
@@ -8075,6 +8100,7 @@ pub fn strip_markdown(content: &str) -> String {
                     || no_space.chars().all(|c| c == '*')
                     || no_space.chars().all(|c| c == '_'))
             {
+                reads.push(Read::Break);
                 continue;
             }
         }
@@ -8099,16 +8125,52 @@ pub fn strip_markdown(content: &str) -> String {
             line
         };
 
-        // Now process inline Markdown on the remaining text. A footnote
-        // definition `[^1]: text` reads `[1] text`; its text is read past
-        // the definition, as a container, so `[^1]: # H` reads `[1] H`.
-        let plain = strip_inline_markdown(line);
-        if let Some(label) = &footnotes[idx] {
-            out.push_str(format!("[{label}] {plain}").trim_end());
-        } else {
-            out.push_str(&plain);
+        // The inline Markdown of the remaining text is read with the
+        // lines of its paragraph, below.
+        reads.push(Read::Paragraph {
+            line: line.to_string(),
+            footnote: footnotes[idx].clone(),
+            joins: continues[idx] && footnotes[idx].is_none(),
+        });
+    }
+
+    // Inline Markdown is read per paragraph: a paragraph line and the lines
+    // that go on with it together, so a code span, inline math, emphasis
+    // or a link may run over its line breaks, as on the page. It used to
+    // be read one line at a time, so `` `a `` then `` b` `` lost no
+    // backticks and read the `*`s of the code as emphasis. A footnote
+    // definition `[^1]: text` reads `[1] text`; its text is read past the
+    // definition, as a container, so `[^1]: # H` reads `[1] H`.
+    let mut k = 0;
+    while k < reads.len() {
+        match &reads[k] {
+            Read::Text(text) => {
+                out.push_str(text);
+                k += 1;
+            }
+            Read::Break => k += 1,
+            Read::Paragraph { line, footnote, .. } => {
+                let mut paragraph = line.clone();
+                k += 1;
+                while let Some(Read::Paragraph {
+                    line, joins: true, ..
+                }) = reads.get(k)
+                {
+                    paragraph.push('\n');
+                    paragraph.push_str(line);
+                    k += 1;
+                }
+                for (n, plain) in strip_inline_markdown(&paragraph).split('\n').enumerate() {
+                    match footnote {
+                        Some(label) if n == 0 => {
+                            out.push_str(format!("[{label}] {plain}").trim_end());
+                        }
+                        _ => out.push_str(plain),
+                    }
+                    out.push('\n');
+                }
+            }
         }
-        out.push('\n');
     }
 
     // Collapse runs of more than one blank line into a single blank line.

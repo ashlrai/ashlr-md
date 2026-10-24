@@ -14510,3 +14510,19 @@ fn inline_math_is_read_as_remark_math_reads_it() {
     assert_eq!(extract_wikilinks("$[[Gone]]$ and [[Real]]\n"), ["Real"]);
     assert_eq!(count_embedded_images("$![](m.png)$ ![](a.png)\n"), 1);
 }
+
+/// Inline Markdown is read per paragraph, as the page reads it, so a code
+/// span, inline math, emphasis or a link may run over the line breaks of
+/// its paragraph. export_text read it one line at a time, so a code span
+/// over two lines kept its backticks and its `*`s were read as emphasis.
+#[test]
+fn export_text_reads_inline_markdown_per_paragraph() {
+    assert_eq!(strip_markdown("a `b\nc*d*` e\n"), "a b\nc*d* e");
+    assert_eq!(strip_markdown("x $a\n*b*$ y\n"), "x a\n*b* y");
+    assert_eq!(strip_markdown("- a `b\nc` d\n"), "a b\nc d");
+    assert_eq!(strip_markdown("[a\nb](u) c\n"), "a\nb c");
+    assert_eq!(strip_markdown("[^1]: a `x\n    y` b\n"), "[1] a x\ny b");
+    // A span is read in its paragraph only.
+    assert_eq!(strip_markdown("a `b\n\nc` d\n"), "a `b\n\nc` d");
+    assert_eq!(strip_markdown("# a `b\nc` d\n"), "a `b\nc` d");
+}

@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` reads inline Markdown per paragraph.** It read a line at a
+  time, so a code span, inline math or a link over two lines of a paragraph
+  kept its backticks or brackets, and the `*` and `_` in that code were taken
+  off as emphasis. A paragraph's lines are now read together.
 - **Inline math is read as the page renders it.** The read view renders `$x$`
   and `$$x$$` with remark-math, but the Outline, the lint rules,
   `export_text` and `export_metadata` read the formula as Markdown. A
