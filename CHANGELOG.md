@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A refused key or an empty account no longer offers a Retry.** After
+  Anthropic refused the key (or the cloud token) or said the account was
+  out of credit, the sidebar's toast offered Retry, which failed the same
+  way. It now offers Open Preferences or Add credit instead.
 - **The AI sidebar says when a long document is cut.** Only the first
   8,000 characters of the document go to the AI, and that was silent, so
   questions about the rest got guesses. A short note under the quick

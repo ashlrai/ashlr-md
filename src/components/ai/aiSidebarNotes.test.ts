@@ -1,7 +1,8 @@
 /**
  * The AI sidebar's quick actions, context and failures say what is going
  * on: a disabled quick action names its reason in its tooltip, and a
- * document cut to the context limit says so.
+ * document cut to the context limit says so, and a refused key or an
+ * empty account offers its fix instead of a Retry that fails again.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,6 +42,7 @@ vi.mock("../../ai/registry", async (importOriginal) => {
 
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
+import { useUiStore } from "../../store/uiStore";
 import { AISidebar, MAX_CONTEXT_CHARS } from "./AISidebar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,5 +104,51 @@ describe("AI sidebar notes", () => {
     const note = host.querySelector(".ai-context-note")?.textContent ?? "";
     expect(note).toContain("first 8,000");
     expect(note).toContain("8,500 characters");
+  });
+  async function failQuickAction(error: Error) {
+    fail.error = error;
+    await mount("# Doc\n\nSome text.");
+    await act(async () => quickButtons()[0].click());
+    return host.querySelector(".ai-retry-toast");
+  }
+
+  it("a refused key offers Preferences, not Retry", async () => {
+    useUiStore.setState({ settingsOpen: false });
+    const toast = await failQuickAction(
+      new Error('Anthropic error 401 Unauthorized: {"type":"authentication_error"}'),
+    );
+    expect(
+      toast?.querySelector("[aria-label='Retry failed AI generation']"),
+    ).toBeNull();
+    const open = [...(toast?.querySelectorAll("button") ?? [])].find(
+      (b) => b.textContent === "Open Preferences",
+    );
+    expect(open).toBeDefined();
+    await act(async () => open!.click());
+    expect(useUiStore.getState().settingsOpen).toBe(true);
+    expect(host.querySelector(".ai-retry-toast")).toBeNull();
+  });
+
+  it("an empty account offers to add credit, not Retry", async () => {
+    const toast = await failQuickAction(
+      new Error(
+        'Anthropic error 400 Bad Request: {"message":"Your credit balance is too low"}',
+      ),
+    );
+    expect(
+      toast?.querySelector("[aria-label='Retry failed AI generation']"),
+    ).toBeNull();
+    const link = toast?.querySelector<HTMLAnchorElement>("a.ai-retry-btn");
+    expect(link?.textContent).toBe("Add credit");
+    expect(link?.href).toContain("console.anthropic.com");
+  });
+
+  it("any other failure still offers Retry", async () => {
+    const toast = await failQuickAction(
+      new Error("Anthropic error 529: overloaded_error"),
+    );
+    expect(
+      toast?.querySelector("[aria-label='Retry failed AI generation']"),
+    ).not.toBeNull();
   });
 });

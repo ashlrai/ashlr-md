@@ -69,6 +69,9 @@ function DocTypeHint({ docType }: { docType: DocType }) {
 /** Maximum number of retry attempts after an initial failure. */
 export const MAX_RETRIES = 3;
 
+/** Where an Anthropic account adds credit, for an out-of-credit failure. */
+const ANTHROPIC_BILLING_URL = "https://console.anthropic.com/settings/billing";
+
 // ---------------------------------------------------------------------------
 // Max characters of document content we include as system context (~2000 tok)
 // ---------------------------------------------------------------------------
@@ -338,7 +341,12 @@ export function AISidebar() {
     retryCount: number;
     /** Re-run the last failed generation. */
     retry: () => void;
+    /** The failure needs a new key or credit first, so a retry would fail
+     *  the same way: offer that step instead of Retry. */
+    setup?: AIErrorInfo["setup"];
   } | null>(null);
+  // How the last generation failed, for the retry toast.
+  const lastErrorRef = useRef<AIErrorInfo | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -477,7 +485,9 @@ export function AISidebar() {
           stopLast();
         } else {
           recordFailure(resolvedProvider.id, resolvedProvider.capabilities.tier);
-          failLast(describeAIError(e));
+          const info = describeAIError(e);
+          lastErrorRef.current = info;
+          failLast(info);
         }
         return false;
       }
@@ -551,6 +561,7 @@ export function AISidebar() {
         ...history.slice(-20), // Keep last 20 to stay within context windows
       ];
 
+      lastErrorRef.current = null;
       const succeeded = await runGeneration(allMessages, citations, controller);
 
       finalizeLast();
@@ -567,6 +578,8 @@ export function AISidebar() {
               setRetryState(null);
               void send(text, nextRetryCount);
             },
+            // Set by runGeneration, which TS cannot see through the await.
+            setup: (lastErrorRef.current as AIErrorInfo | null)?.setup,
           });
         } else {
           // Exceeded max retries — clear retry state.
@@ -617,6 +630,7 @@ export function AISidebar() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      lastErrorRef.current = null;
       const succeeded = await runGeneration(msgs, [], controller);
 
       finalizeLast();
@@ -633,6 +647,8 @@ export function AISidebar() {
               setRetryState(null);
               void runDocAction(actionId, nextRetryCount);
             },
+            // Set by runGeneration, which TS cannot see through the await.
+            setup: (lastErrorRef.current as AIErrorInfo | null)?.setup,
           });
         } else {
           setRetryState(null);
@@ -772,24 +788,52 @@ export function AISidebar() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Retry toast — shown after a failed generation (non-abort). */}
+          {/* Retry toast — shown after a failed generation (non-abort). A
+              refused key or an empty account fails every retry the same way,
+              so those offer the step that fixes them instead of Retry. */}
           {retryState && (
             <div className="ai-retry-toast" role="alert" aria-live="assertive">
               <span className="ai-retry-toast__msg">
                 Generation failed.{" "}
-                {retryState.retryCount <= MAX_RETRIES
-                  ? `Retry ${retryState.retryCount} of ${MAX_RETRIES}?`
-                  : "No more retries."}
+                {retryState.setup === "key"
+                  ? "Replace the key or token in Preferences, then send again."
+                  : retryState.setup === "credit"
+                    ? "Add credit, then send again."
+                    : retryState.retryCount <= MAX_RETRIES
+                      ? `Retry ${retryState.retryCount} of ${MAX_RETRIES}?`
+                      : "No more retries."}
               </span>
-              {retryState.retryCount <= MAX_RETRIES && (
+              {retryState.setup === "key" ? (
                 <button
                   type="button"
                   className="ai-retry-btn"
-                  onClick={retryState.retry}
-                  aria-label="Retry failed AI generation"
+                  onClick={() => {
+                    setRetryState(null);
+                    useUiStore.getState().openSettings();
+                  }}
                 >
-                  Retry
+                  Open Preferences
                 </button>
+              ) : retryState.setup === "credit" ? (
+                <a
+                  className="ai-retry-btn"
+                  href={ANTHROPIC_BILLING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Add credit
+                </a>
+              ) : (
+                retryState.retryCount <= MAX_RETRIES && (
+                  <button
+                    type="button"
+                    className="ai-retry-btn"
+                    onClick={retryState.retry}
+                    aria-label="Retry failed AI generation"
+                  >
+                    Retry
+                  </button>
+                )
               )}
               <button
                 type="button"
