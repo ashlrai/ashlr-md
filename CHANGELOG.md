@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen: `~/` is the home folder, even quoted.** `mdopen "~/notes.md"`,
+  or a script's `FILE="~/notes.md"`, reaches mdopen unexpanded, and it
+  looked for a folder named `~` in the working directory ("does not exist").
+  A leading `~` (alone or before `/`) is now the home folder, as it is for
+  the MCP server's paths; a file that is really there by that name still
+  wins, and `~user/` is left as it is.
 - **mdopen: a path that resolves to a non-UTF-8 name is refused.** `mdopen
   notes.md`, where `notes.md` links into a folder whose name is not UTF-8,
   handed the app the lossy spelling of the target, a path that names no

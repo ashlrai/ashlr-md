@@ -359,7 +359,20 @@ fn version_line() -> String {
 /// Markdown document and not a dotfile (checked after resolving symlinks),
 /// the only files the app opens.
 fn resolve_file(target: &str) -> Result<PathBuf, String> {
-    let p = std::fs::canonicalize(target).map_err(|e| missing_or_unresolved(target, &e))?;
+    resolve_file_in(target, ipc::home_dir().as_deref())
+}
+
+/// [`resolve_file`] with `home` as the home directory.
+fn resolve_file_in(target: &str, home: Option<&Path>) -> Result<PathBuf, String> {
+    // `~/notes.md` in quotes (or from a script's `FILE="~/notes.md"`) reaches
+    // mdopen unexpanded, and was looked for in a folder named `~` under the
+    // working directory. A file that is really there by that name still wins.
+    let looked_up = match home_relative(target, home) {
+        Some(home) if std::fs::symlink_metadata(target).is_err() => home,
+        _ => PathBuf::from(target),
+    };
+    let p = std::fs::canonicalize(&looked_up)
+        .map_err(|e| missing_or_unresolved(target, &looked_up, &e))?;
     // A link into a folder whose name is not UTF-8: the app was handed the
     // lossy spelling of the target, a path that names no file.
     if p.to_str().is_none() {
@@ -406,16 +419,35 @@ fn resolve_file(target: &str) -> Result<PathBuf, String> {
 /// `cannot resolve path "nope.md": No such file or directory (os error 2)`,
 /// which did not say where mdopen looked; it now says the file does not exist
 /// and names the absolute path. Other failures keep the OS reason.
-fn missing_or_unresolved(target: &str, e: &std::io::Error) -> String {
+fn missing_or_unresolved(target: &str, looked_up: &Path, e: &std::io::Error) -> String {
     if e.kind() != std::io::ErrorKind::NotFound {
         return format!("cannot resolve path {target:?}: {e}");
     }
-    match std::path::absolute(target) {
+    match std::path::absolute(looked_up) {
         Ok(abs) if abs.as_os_str() != target => {
             format!("{target:?} does not exist (looked for {})", abs.display())
         }
         _ => format!("{target:?} does not exist"),
     }
+}
+
+/// `target` with a leading `~` (alone, or before `/`, or `\` on Windows) as
+/// `home`, as a shell would have expanded it; `None` for any other path
+/// (`~user/x.md` and a `~` later in the path are left as they are) or when
+/// there is no home directory. The MCP server expands `~` the same way.
+fn home_relative(target: &str, home: Option<&Path>) -> Option<PathBuf> {
+    let rest = target.strip_prefix('~')?;
+    let sep = rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\'));
+    if !rest.is_empty() && !sep {
+        return None;
+    }
+    let rest = rest.trim_start_matches(['/', '\\']);
+    let home = home?;
+    Some(if rest.is_empty() {
+        home.to_path_buf()
+    } else {
+        home.join(rest)
+    })
 }
 
 /// Whether the (resolved) path's file name is one the app opens: a Markdown
@@ -818,9 +850,11 @@ EXAMPLES:
     mdopen --edit notes/todo.md
     echo '# Hello' | mdopen -
 
-The tool resolves the file path to absolute and asks the running Ashlr MD
-app to open it (over its loopback IPC channel). If the app is not running it
-opens mdopener://open?path=<encoded-path>, which launches it.
+The tool resolves the file path to absolute (a leading `~/` is the home
+folder, even quoted, unless a file is there by that name) and asks the
+running Ashlr MD app to open it (over its loopback IPC channel). If the app
+is not running it opens mdopener://open?path=<encoded-path>, which launches
+it.
 
 EXIT STATUS:
     0  the running app accepted the file, or the URL was handed to the OS
@@ -1182,6 +1216,37 @@ mod tests {
         assert_eq!(
             err,
             format!("{name:?} does not exist (looked for {})", abs.display())
+        );
+    }
+
+    /// `mdopen "~/notes.md"` (a quoted or scripted path the shell did not
+    /// expand) looked for a folder named `~` in the working directory.
+    #[test]
+    fn a_leading_tilde_is_the_home_directory() {
+        let home = Path::new("/home/me");
+        assert_eq!(
+            home_relative("~/notes/a.md", Some(home)),
+            Some(home.join("notes/a.md"))
+        );
+        assert_eq!(home_relative("~", Some(home)), Some(home.to_path_buf()));
+        for kept in ["~user/a.md", "a/~/b.md", "notes.md", "/abs/a.md", "~a.md"] {
+            assert_eq!(home_relative(kept, Some(home)), None, "{kept}");
+        }
+        assert_eq!(home_relative("~/a.md", None), None);
+        // Through resolve_file, with a scratch folder as the home.
+        let s = Scratch::new("tilde");
+        let file = s.file("plan.md");
+        assert_eq!(
+            resolve_file_in("~/plan.md", Some(&s.0)),
+            Ok(std::fs::canonicalize(&file).unwrap())
+        );
+        let err = resolve_file_in("~/nope.md", Some(&s.0)).unwrap_err();
+        assert_eq!(
+            err,
+            format!(
+                "\"~/nope.md\" does not exist (looked for {})",
+                s.0.join("nope.md").display()
+            )
         );
     }
 
