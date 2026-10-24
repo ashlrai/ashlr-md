@@ -10,10 +10,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type FileSearchResult, searchFilesOrThrow } from "../../lib/crossSearch";
 import { isDismissEscape } from "../../lib/keymap";
+import { openKeepingView } from "../../lib/openKeepingView";
 import { revealLine } from "../../lib/revealLine";
 import { useReturnFocus } from "../../lib/useReturnFocus";
 import { useActivityStore } from "../../store/activityStore";
-import { useDocumentStore } from "../../store/documentStore";
 import { useRecentStore } from "../../store/recentStore";
 import { useUiStore } from "../../store/uiStore";
 import "../../styles/search.css";
@@ -23,7 +23,6 @@ export function SearchPanel() {
   const close = useUiStore((s) => s.closeSearch);
   const recents = useRecentStore((s) => s.recents);
   const activityFiles = useActivityStore((s) => s.files);
-  const openPath = useDocumentStore((s) => s.openPath);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FileSearchResult[]>([]);
@@ -153,7 +152,7 @@ export function SearchPanel() {
                 className="search-match"
                 onClick={() => {
                   // Open the file at the line the hit names, not at its top.
-                  void openPath(file.path).then((err) => {
+                  void openKeepingView(file.path).then((err) => {
                     if (err === null) revealLine(m.lineNo);
                   });
                   close();

@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { type LibraryCitation, retrieveLibraryContext } from "../../lib/libraryContext";
+import { openKeepingView } from "../../lib/openKeepingView";
 import { atxHeadings } from "../../lib/outline";
 import { useDocumentStore } from "../../store/documentStore";
 
@@ -29,7 +30,6 @@ export function queryFromDoc(fileName: string, content: string): string {
 export function RelatedNotes() {
   const path = useDocumentStore((s) => s.path);
   const fileName = useDocumentStore((s) => s.fileName);
-  const openPath = useDocumentStore((s) => s.openPath);
   const [related, setRelated] = useState<LibraryCitation[]>([]);
 
   // Compute once per document open (not per keystroke — read content lazily).
@@ -59,7 +59,7 @@ export function RelatedNotes() {
             key={c.path}
             type="button"
             className="ai-related__chip"
-            onClick={() => openPath(c.path)}
+            onClick={() => void openKeepingView(c.path)}
             title={c.path}
           >
             {c.fileName}

@@ -42,7 +42,7 @@ describe("clicking a search hit", () => {
   let host: HTMLDivElement;
   let root: Root;
   const scrolled: Element[] = [];
-  const openPath = vi.fn(async (_path: string) => null);
+  const openPath = vi.fn(async (_path: string, _opts?: unknown) => null);
 
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -134,7 +134,7 @@ describe("clicking a search hit", () => {
   it("scrolls the read view to the block holding the hit's line", async () => {
     await search("needle");
     await clickHit(7);
-    expect(openPath).toHaveBeenCalledWith("/notes/plan.md");
+    expect(openPath).toHaveBeenCalledWith("/notes/plan.md", { keepViewOnError: true });
     expect(scrolled.map((el) => el.textContent)).toEqual([
       "Ship the needle fix.\nSecond line of it.",
     ]);

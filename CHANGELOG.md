@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Opening a recent, search hit or related note that is gone keeps the
+  document in view.** A file deleted or moved since the command palette's
+  recents, the file search or the AI sidebar's related notes listed it put
+  "Could not read …" in place of the open document, and with one tab open
+  (no tab bar) the document could not be got back without opening another
+  file. The document now stays and a toast says why.
 - **An Agent Activity entry whose file is gone keeps the document in view.**
   The folder watcher reports no deletions, so a file deleted or moved since it
   was listed stayed in the drawer, and clicking it replaced the open document
