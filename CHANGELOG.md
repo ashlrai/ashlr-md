@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A link's hover preview shows for every link a click opens.** The preview
+  sorted links by a test of its own (a path ending in `.md`, or a name with
+  no `/`), so `notes/plan.md#Goals`, `notes/Plan`, `Plan.MD` and
+  `x.markdown` opened on a click but showed no preview. It now goes by the
+  click's rule.
 - **`[[#Heading]]` links to a heading of the same note.** A wikilink with no
   note name before the `#` (Obsidian's link to a heading or `^block` of the
   same note) was not recognised and showed as the text `[[#Heading]]`. It is
