@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A read-only file is no longer overwritten.** A save (or an export over
+  an existing file) wrote a new file and renamed it into place, which needs
+  only the folder to be writable, so a note with no write permission
+  (`chmod 444`) was replaced with the new text. The save now fails with
+  "it is read-only" and leaves the file as it was.
 - **Changes made to a background tab's file are noticed, and unchanged files
   raise no conflict.** Only the active tab's file is watched, and switching
   back to a tab did not read its file again, so a change another app or an

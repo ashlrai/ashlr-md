@@ -97,12 +97,23 @@ fn write_document(path: &str, content: String) -> Result<(), String> {
 /// byte is written: a fresh temp file gets the default mode (`0644` under the
 /// usual umask), so saving a private `0600` note used to leave it readable by
 /// every user on the machine.
+///
+/// A file with no write permission is refused, not replaced: the rename needs
+/// only the folder to be writable, so saving a read-only (`0444`) note, or
+/// exporting over a read-only file, used to replace it with a new read-only
+/// file holding the new text, as if it had been writable.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     let keep = std::fs::metadata(path)
         .ok()
         .filter(|m| m.is_file())
         .map(|m| m.permissions());
+    if keep.as_ref().is_some_and(std::fs::Permissions::readonly) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "it is read-only (make it writable to save it)",
+        ));
+    }
     let (tmp, mut file) = create_temp_sibling(path)?;
     let written = keep
         .map_or(Ok(()), |p| file.set_permissions(p))
@@ -1033,6 +1044,36 @@ mod tests {
         let err = write_markdown_file(s(&sneaky), "x".into()).unwrap_err();
         assert!(err.contains(".obsidian"), "{err}");
         assert_eq!(std::fs::read_to_string(cfg.join("app.json")).unwrap(), "{}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A read-only file was replaced by the rename, which needs only the
+    /// folder to be writable.
+    #[test]
+    fn saves_refuse_a_read_only_file() {
+        let root = make_tree();
+        let doc = root.join("locked.md");
+        std::fs::write(&doc, "old").unwrap();
+        let mut perms = std::fs::metadata(&doc).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&doc, perms).unwrap();
+        let err = write_markdown_file(s(&doc), "new".into()).unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
+        let err = crate::export::write_file_bytes(s(&doc), b"PK".to_vec()).unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "old");
+        // No temp file is left.
+        let left = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".mdopener.tmp"))
+            .count();
+        assert_eq!(left, 0);
+        let mut perms = std::fs::metadata(&doc).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        std::fs::set_permissions(&doc, perms).unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }
 
