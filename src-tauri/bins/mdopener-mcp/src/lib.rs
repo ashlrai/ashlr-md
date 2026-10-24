@@ -7894,7 +7894,11 @@ pub fn tool_stream_edit_apply(id: Value, args: &Value, ipc: &dyn IpcClient) -> R
 /// - Inline bold/italic: `***`, `**`, `__`, `*`, `_` markers are removed.
 /// - Inline code spans (`` `…` ``, ` ``…`` `) — backticks stripped, content kept.
 /// - Images `![alt](url)` and `![[wikilink]]` → alt text only (or empty).
-/// - Links `[text](url)` and `[text][ref]` → link text only.
+/// - Links `[text](url)` and `[text][ref]` → link text only. A reference
+///   link (`[text][ref]`, `[text][]` or `[text]` alone) is a link only when
+///   the document defines its label (`[ref]: /url`), as CommonMark reads it
+///   ([`reference_labels`]); any other `[text]` keeps its brackets, as on
+///   the page. Every `[text]` with no `(url)` after it used to lose them.
 /// - Wikilinks `[[target]]` → target, `[[target|alias]]` → alias. The
 ///   `[text]` link rule ran first, so `[[Real]]` read `[Real]`.
 /// - Blockquote `>` leaders are removed, before the ATX rule is applied,
@@ -7920,6 +7924,8 @@ pub fn strip_markdown(content: &str) -> String {
         ),
     );
     let tasks = task_list::task_marks(content);
+    let refs = reference_labels(content);
+    let strip_inline_markdown = |s: &str| strip_inline_with(s, &refs);
     let (lines, tasks): (Vec<Line>, Vec<bool>) = markdown_lines::with_indented_code(content)
         .zip(markdown_lines::line_code(content).zip(markdown_lines::line_text(content)))
         .zip(tasks.iter().map(Option::is_some))
@@ -8097,11 +8103,132 @@ fn table_cells(row: &str) -> Vec<String> {
     cells
 }
 
+/// A reference link label as CommonMark matches it: inner whitespace runs
+/// collapsed to one space, trimmed, and case-folded.
+fn normalize_label(label: &str) -> String {
+    label
+        .split([' ', '\t', '\n', '\r'])
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .to_uppercase()
+}
+
+/// The label of the link reference definition that `text` (a text line
+/// past its containers) starts, when it is one: at most three spaces,
+/// `[label]:` (a label with some text, no unescaped bracket, and not a
+/// `^` footnote), then a destination (`<...>`, or text with no space) on
+/// the line or, with nothing after the colon, on the line after
+/// (`next_blank` says whether that line is blank or missing), then
+/// optionally a title in quotes or parentheses and nothing else.
+fn definition_label(text: &str, next_blank: bool) -> Option<String> {
+    let body = text.trim_start_matches(' ');
+    if text.len() - body.len() > 3 {
+        return None;
+    }
+    let inner = body.strip_prefix('[')?;
+    let mut end = None;
+    let mut escaped = false;
+    for (i, c) in inner.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '[' => return None,
+            ']' => {
+                end = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let end = end?;
+    let label = &inner[..end];
+    if label.trim().is_empty() || label.starts_with('^') || label.chars().count() > 999 {
+        return None;
+    }
+    let rest = inner[end + 1..].strip_prefix(':')?.trim();
+    if rest.is_empty() {
+        return (!next_blank).then(|| normalize_label(label));
+    }
+    let after = if let Some(dest) = rest.strip_prefix('<') {
+        let close = dest.find('>')?;
+        &dest[close + 1..]
+    } else {
+        &rest[rest.find([' ', '\t']).unwrap_or(rest.len())..]
+    };
+    let title = after.trim();
+    let titled = title.is_empty()
+        || (after.starts_with([' ', '\t'])
+            && match title.chars().next() {
+                Some('"') => title.len() > 1 && title.ends_with('"'),
+                Some('\'') => title.len() > 1 && title.ends_with('\''),
+                Some('(') => title.ends_with(')'),
+                _ => false,
+            });
+    titled.then(|| normalize_label(label))
+}
+
+/// The labels of the link reference definitions of `content`
+/// ([`definition_label`]), normalized ([`normalize_label`]): text lines,
+/// past their blockquote markers and list markers, that do not go on with
+/// a paragraph (a definition cannot interrupt one), or that follow another
+/// definition. The links of [`strip_markdown`] are read against them.
+fn reference_labels(content: &str) -> std::collections::HashSet<String> {
+    let texts: Vec<Option<String>> = markdown_lines::line_text(content)
+        .map(|t| t.map(|(text, _)| text.into_owned()))
+        .collect();
+    let mut labels = std::collections::HashSet::new();
+    let mut after_definition = false;
+    for (i, start) in markdown_lines::item_starts(content).enumerate() {
+        let Some(text) = &texts[i] else {
+            after_definition = false;
+            continue;
+        };
+        let next_blank = texts
+            .get(i + 1)
+            .and_then(|t| t.as_deref())
+            .is_none_or(|t| t.trim().is_empty());
+        let label = (!start.continues || after_definition)
+            .then(|| definition_label(text, next_blank))
+            .flatten();
+        after_definition = label.is_some();
+        labels.extend(label);
+    }
+    labels
+}
+
 /// Strip inline Markdown from a single (already block-processed) line.
 ///
 /// Handles: images, links, wikilinks, footnote references, bold/italic,
-/// strikethrough, inline code, HTML tags.
+/// strikethrough, inline code, HTML tags. With no document around the line
+/// no reference is defined, so only an inline link (`[text](url)`) loses its
+/// brackets; [`strip_markdown`] reads a document's reference links too.
 pub fn strip_inline_markdown(s: &str) -> String {
+    strip_inline_with(s, &std::collections::HashSet::new())
+}
+
+/// The end of the reference link whose text `[...]` ends at `end` (just past
+/// its `]`), when `refs` defines its label, as CommonMark reads one: a full
+/// reference `[text][ref]` by `ref`, a collapsed `[text][]` or a shortcut
+/// `[text]` (not followed by a `[...]` label) by `text`.
+fn reference_end(
+    chars: &[char],
+    text: &str,
+    end: usize,
+    refs: &std::collections::HashSet<String>,
+) -> Option<usize> {
+    let defined = |label: &str| refs.contains(&normalize_label(label));
+    match parse_bracket_content(chars, end) {
+        Some((label, after)) if label.is_empty() => defined(text).then_some(after),
+        Some((label, after)) => defined(&label).then_some(after),
+        None => defined(text).then_some(end),
+    }
+}
+
+/// [`strip_inline_markdown`], with `refs` the labels the document defines
+/// ([`reference_labels`]).
+fn strip_inline_with(s: &str, refs: &std::collections::HashSet<String>) -> String {
     let mut out = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
@@ -8116,14 +8243,21 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Inline image: ![alt](url) or ![alt][ref] → alt text only
+        // Inline image: ![alt](url), or a reference ![alt][ref] whose label
+        // is defined → alt text only. Any other `![alt]` is text.
         if chars[i] == '!' && i + 1 < n && chars[i + 1] == '[' {
             if let Some((alt, end)) = parse_bracket_content(&chars, i + 1) {
-                // skip the trailing (url) or [ref] if present
-                let after = skip_link_tail(&chars, end);
-                out.push_str(&alt);
-                i = after;
-                continue;
+                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
+                let after = if inline {
+                    Some(skip_link_tail(&chars, end))
+                } else {
+                    reference_end(&chars, &alt, end, refs)
+                };
+                if let Some(after) = after {
+                    out.push_str(&alt);
+                    i = after;
+                    continue;
+                }
             }
         }
         // Wikilink [[target]] → target, [[target|alias]] → alias and
@@ -8155,19 +8289,27 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Link: [text](url) or [text][ref] → text only. A checkbox-like
-        // `[ ]`, `[x]` or `[X]` with no link after it is text: strip_markdown
-        // drops a task checkbox before this, so `[ ] not a task` keeps its
-        // brackets where it used to read `  not a task`.
+        // Link: [text](url), or a reference link whose label the document
+        // defines ([`reference_end`]) → text only. Any other `[text]` is
+        // text: its `[` is kept and the text after it is read on, so
+        // `[**b**]` reads `[b]`. strip_markdown drops a task checkbox before
+        // this, so `[ ] not a task` keeps its brackets, and so does
+        // `[label]` with no `[label]: /url` in the document.
         if chars[i] == '[' {
             if let Some((text, end)) = parse_bracket_content(&chars, i) {
-                let after = skip_link_tail(&chars, end);
-                if after == end && matches!(text.as_str(), " " | "x" | "X") {
-                    out.extend(&chars[i..end]);
+                let inline = chars.get(end) == Some(&'(') && skip_link_tail(&chars, end) > end;
+                let after = if inline {
+                    Some(skip_link_tail(&chars, end))
                 } else {
+                    reference_end(&chars, &text, end, refs)
+                };
+                if let Some(after) = after {
                     out.push_str(&text);
+                    i = after;
+                    continue;
                 }
-                i = after;
+                out.push('[');
+                i += 1;
                 continue;
             }
         }

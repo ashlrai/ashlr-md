@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` keeps brackets that are not reference links.** Any `[text]`
+  with no `(url)` after it lost its brackets, so `[sic]`, `[TODO]` or `[1]` in
+  prose read `sic`, `TODO` and `1`, where the page shows the brackets. A
+  reference link (`[text]`, `[text][]` or `[text][ref]`) now loses them only
+  when the document defines its label (`[ref]: /url`, in any container), as
+  CommonMark reads it, and the same holds for `![alt]` images. Checked against
+  the renderer.
 - **Clicking a task checkbox in the read view toggles it again.** The checkbox
   input that remark-rehype creates has no source position (rehype-raw keeps
   none), so the checkbox read line 0 and every click was a no-op. A rehype step
