@@ -34,12 +34,9 @@ import {
 import { formatShortcut, isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { reorderImageInMarkdown } from "../../lib/milkdownImageDragDrop";
 import { insertImageMarkdown } from "../../lib/milkdownPasteImage";
+import { tableOffsetAt } from "../../lib/milkdownTable";
 import { clipboardHasImage, handleImagePasteWithSettings } from "../../lib/pasteImage";
-import {
-  applyTableEdit,
-  type ColAlignment,
-  isInsideTable,
-} from "../../lib/tableEditor";
+import { applyTableEdit, type ColAlignment } from "../../lib/tableEditor";
 import { useAIStore } from "../../store/aiStore";
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -122,7 +119,7 @@ interface LinkSuggestion {
 interface TableMenuAnchor {
   top: number;
   left: number;
-  /** Approximate cursor offset in the body Markdown string at menu-open time. */
+  /** Offset in the body Markdown of the cursor's table at menu-open time. */
   cursorOffset: number;
   /** 0-based data-row index near the cursor (best-effort from DOM heuristic). */
   rowIndex: number;
@@ -297,16 +294,21 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
   // ── Table helpers ────────────────────────────────────────────────────────
 
   /**
-   * Return the approximate character offset in the body Markdown for the
-   * current ProseMirror cursor position. We use the raw Markdown string kept
-   * in lastBodyRef because Crepe does not expose a direct pos→source map.
-   * Heuristic: treat the ProseMirror text offset as a char offset into the
-   * body (works well for plain prose; good enough for table cell detection).
+   * The offset in the body Markdown of the table that holds the cursor
+   * (the start of its header row), or `null` when the cursor is in none.
+   * A ProseMirror position counts node boundaries, not Markdown
+   * characters, so the table is found by its index among the document's
+   * tables (tableOffsetAt). The position used to be read as the offset,
+   * so after a few lines of text the menu found another table, or none.
    */
-  const getBodyCursorOffset = useCallback((): number => {
+  const getBodyCursorOffset = useCallback((): number | null => {
     const view = proseRef.current;
-    if (!view) return 0;
-    return view.state.selection.from;
+    if (!view) return null;
+    return tableOffsetAt(
+      view.state.doc,
+      view.state.selection.from,
+      lastBodyRef.current,
+    );
   }, []);
 
   /**
@@ -380,9 +382,8 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
 
     const onContextMenu = (e: MouseEvent) => {
       // Only show table menu when cursor is inside a table cell.
-      const body = lastBodyRef.current;
       const offset = getBodyCursorOffset();
-      if (!isInsideTable(body, offset)) return;
+      if (offset === null) return;
 
       e.preventDefault();
       const target = e.target as Element | null;
@@ -442,11 +443,10 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
 
       // ── Table wizard / table menu (⌘⇧T) ────────────────────────────────────
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
-        const body = lastBodyRef.current;
         const offset = getBodyCursorOffset();
         e.preventDefault();
         const coords = view.coordsAtPos(view.state.selection.from);
-        if (isInsideTable(body, offset)) {
+        if (offset !== null) {
           // Inside an existing table → open the table context-menu.
           setTableMenu({
             top: coords.top,
@@ -463,7 +463,7 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
             left: Math.max(8, coords.left),
             rows: 3,
             cols: 3,
-            cursorOffset: offset,
+            cursorOffset: view.state.selection.from,
           });
         }
       }
@@ -475,9 +475,8 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
       if (!target) return;
       const cell = target.closest("td, th");
       if (!cell) return;
-      const body = lastBodyRef.current;
       const offset = getBodyCursorOffset();
-      if (!isInsideTable(body, offset)) return;
+      if (offset === null) return;
       const { col } = cellIndicesFromTarget(target);
       const rect = cell.getBoundingClientRect();
       const TOOLBAR_H = 38;

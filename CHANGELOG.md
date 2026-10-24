@@ -96,6 +96,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The visual editor's table menu edits the table under the cursor.** It read
+  the cursor's ProseMirror position as an offset into the Markdown, though a
+  position counts node boundaries, so after a few lines of text the menu,
+  `⌘⇧T` and the cell toolbar found another table, or none. The table is now
+  found by its index among the document's tables.
 - **The visual editor keeps a CRLF file's line breaks.** It writes Markdown
   with LF, so a CRLF file edited there was saved with CRLF front matter and an
   LF body, and every line of the body showed as changed. The body now keeps
