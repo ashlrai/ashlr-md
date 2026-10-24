@@ -128,6 +128,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Recreate never writes over a file that came back.** Saving a tab whose
+  file was deleted or moved asks before writing it again, and that write went
+  ahead whatever was there by then, so a file back in a form the app cannot
+  read (not UTF-8, too large, not a regular file) was replaced by the tab's
+  text. A recreate is now refused when anything is at the path: a readable
+  file is offered in the banner as a change on disk, and an unreadable one is
+  refused with the reason ("a file is there again but cannot be read"),
+  pointing to Save As.
 - **A recovered tab is watched.** Unsaved text reopened for a file that could
   not be opened at launch was never watched, so when the file came back (a
   sync client caught up, a drive was mounted again) the tab still read as

@@ -1121,6 +1121,54 @@ describe("documentStore — a file deleted or moved while open", () => {
     expect(s.isDirty).toBe(false);
   });
 
+  it("a confirmed recreate never writes over a file that is there but unreadable", async () => {
+    // The recreate wrote whatever was there: a file back in a form the app
+    // cannot read (not UTF-8, too large) was replaced by the tab's text.
+    const disk: Record<string, string> = { "/a.md": "v0" };
+    const writes: Record<string, unknown>[] = [];
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      const p = String(args?.path ?? "");
+      if (cmd === "read_markdown_file") {
+        if (!(p in disk))
+          return Promise.reject("No such file or directory (os error 2)");
+        if (disk[p] === "BINARY")
+          return Promise.reject(`Could not read ${p}: not UTF-8`);
+        return Promise.resolve({
+          path: p,
+          file_name: "a.md",
+          content: disk[p],
+          size: 2,
+        });
+      }
+      if (cmd === "write_markdown_file") {
+        writes.push(args ?? {});
+        if (args?.recreate && p in disk) {
+          return Promise.reject(
+            `Could not save ${p}: a file is there again but cannot be read (not UTF-8), so it was not overwritten.`,
+          );
+        }
+        disk[p] = String(args?.content ?? "");
+        return Promise.resolve("v");
+      }
+      return Promise.resolve();
+    });
+    await useDocumentStore.getState().openPath("/a.md");
+    useDocumentStore.getState().setContent("mine");
+    delete disk["/a.md"];
+    await useDocumentStore.getState().refreshFromDisk("/a.md");
+    expect(useDocumentStore.getState().missing).toBe(true);
+    // Back, unreadable, before the save.
+    disk["/a.md"] = "BINARY";
+    askMock.mockResolvedValueOnce(true);
+    const error = await useDocumentStore.getState().save();
+    expect(error).toMatch(/cannot be read/);
+    expect(writes.at(-1)).toMatchObject({ path: "/a.md", recreate: true });
+    expect(disk["/a.md"]).toBe("BINARY");
+    const s = useDocumentStore.getState();
+    expect(s.isDirty).toBe(true);
+    expect(s.content).toBe("mine");
+  });
+
   it("asks even when the save is what finds the file gone", async () => {
     const files: Record<string, string> = { "/a.md": "v0" };
     const writes = versionedDisk(files);

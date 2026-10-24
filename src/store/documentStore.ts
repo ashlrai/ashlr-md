@@ -782,8 +782,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         path,
         content,
         // Refused when the file changed on disk since this text's read, or
-        // is gone. A recreate the user confirmed is not checked.
+        // is gone. A recreate the user confirmed is refused when a file is
+        // there again (one that cannot be read was written over).
         expected: recreate ? undefined : (diskVersion ?? undefined),
+        ...(recreate ? { recreate: true } : {}),
       });
       const version = typeof written === "string" ? written : null;
       set((s) => {
