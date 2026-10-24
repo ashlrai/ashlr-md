@@ -43,6 +43,8 @@
  * ```
  */
 
+import { markdownLines } from "./outline";
+
 // ── Component types ───────────────────────────────────────────────────────────
 
 export type RetainComponent = { type: "retain"; count: number };
@@ -578,28 +580,19 @@ export type SectionType = "frontmatter" | "code" | "prose";
 export function classifySection(doc: string, offset: number): SectionType {
   // Clamp offset to valid range.
   const pos = Math.max(0, Math.min(offset, doc.length));
-  const before = doc.slice(0, pos);
-
-  // ── Frontmatter: starts at char 0 with "---\n" and ends at next "---\n" ──
-  if (doc.startsWith("---\n") || doc.startsWith("---\r\n")) {
-    const fmEnd = doc.indexOf("\n---", 3);
-    if (fmEnd !== -1 && pos < fmEnd + 4) {
-      return "frontmatter";
-    }
+  // The line holding `pos`, read by the Outline's rule (markdownLines):
+  // front matter is a first `---` line closed by `---` or `...`, and a
+  // fence is closed only by the same character at least as long with
+  // nothing after it, also in blockquotes and list items. Front matter
+  // used to end at any later line starting with `---` (`----`, `--- x`),
+  // and every line starting with three backticks or tildes toggled code,
+  // so a ```` block holding ``` or a `~~~` line in a ``` block flipped it.
+  for (const l of markdownLines(doc)) {
+    if (pos > l.start + l.text.length) continue;
+    if (l.kind === "frontmatter") return "frontmatter";
+    if (l.kind === "fence" || l.kind === "code") return "code";
+    return "prose";
   }
-
-  // ── Code fence: count ``` occurrences before pos ──
-  // A position is inside a code fence if there is an odd number of opening
-  // fences before it (each fence is a line starting with ``` or ~~~).
-  const fenceRe = /^(`{3,}|~{3,})/gm;
-  let fenceCount = 0;
-  while (fenceRe.exec(before) !== null) {
-    fenceCount++;
-  }
-  if (fenceCount % 2 === 1) {
-    return "code";
-  }
-
   return "prose";
 }
 

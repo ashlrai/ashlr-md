@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Agent edit sections read code and front matter by the page's rule.** The
+  section an agent edit lands in (front matter, code or prose, which decides
+  the side that wins a conflict) toggled code on every line starting with
+  three backticks or tildes and ended front matter at any later line starting
+  with `---`, so a ```` ```` ```` block holding ```` ``` ````, a `~~~` line
+  in a backtick block or a `----` line in front matter misread the rest of
+  the document. It now reads lines by the Outline's rule.
 - **Dragging an image moves the image dropped.** The visual editor matches
   the images it renders to the image references in the Markdown by their
   order, but it counted references in code blocks, code spans, indented code
