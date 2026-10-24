@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A wikilink to a note deleted or renamed since shows as broken.** A
+  resolved link was cached for the whole session, so it kept looking like a
+  working link and a click failed. A file change, rename or new note seen by
+  the open file's or the watched folder's watcher now drops the cache, and the
+  links on screen resolve again. A note deleted elsewhere in the vault, which
+  no watcher reports, is still seen only when the link is clicked.
 - **A canvas card whose file is gone keeps the canvas in view.** Clicking the
   title of a file card whose file was deleted or moved since the card found
   it replaced the canvas with "Could not read …". The canvas now stays, and a
