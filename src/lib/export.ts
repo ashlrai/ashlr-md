@@ -630,8 +630,9 @@ export async function exportPdf(_title: string): Promise<void> {
 
     iframe.onload = () => {
       try {
-        // Wait one tick for images/fonts inside the iframe to settle.
-        setTimeout(() => {
+        // Wait one tick for the frame to lay out, then for its fonts.
+        setTimeout(async () => {
+          await framesFontsLoaded(iframe.contentDocument);
           try {
             iframe.contentWindow?.print();
             toast.success("Opened print dialog");
@@ -670,6 +671,28 @@ export async function exportPdf(_title: string): Promise<void> {
     doc.write(html);
     doc.close();
   });
+}
+
+/** How long the PDF's print frame waits for its fonts before printing. */
+export const PRINT_FONT_WAIT_MS = 3000;
+
+/**
+ * Resolves once `doc`'s fonts have loaded (KaTeX's, which a page with math
+ * carries as `data:` URLs and the browser decodes as it lays the page out),
+ * or after {@link PRINT_FONT_WAIT_MS}. The frame was printed 150 ms after it
+ * loaded, whatever was still loading, so the PDF's math could come out in
+ * fallback fonts.
+ */
+function framesFontsLoaded(doc: Document | null): Promise<void> {
+  const ready = doc?.fonts?.ready;
+  if (!ready) return Promise.resolve();
+  return Promise.race([
+    ready.then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((r) => setTimeout(r, PRINT_FONT_WAIT_MS)),
+  ]);
 }
 
 // ─── buildEpubChapters ────────────────────────────────────────────────────────

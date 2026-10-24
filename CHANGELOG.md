@@ -128,6 +128,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The PDF waits for its fonts.** The print frame was printed 150 ms after
+  it loaded, whatever was still loading, so a PDF's math could come out in
+  fallback fonts. It now waits for the frame's fonts (up to 3 seconds).
 - **An export picked without an extension gets one.** The Linux save dialogs
   do not add the extension, so an export saved as `report` was a file named
   `report` that no app opened as HTML, Word or EPUB. The format's extension

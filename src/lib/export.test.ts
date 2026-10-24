@@ -698,14 +698,17 @@ describe("exportPdf", () => {
    * simulate the iframe load + print flow by patching createElement to intercept
    * the iframe and immediately fire its onload with a mock print function.
    */
-  function patchIframe(printFn: () => void = vi.fn()) {
+  function patchIframe(
+    printFn: () => void = vi.fn(),
+    fonts?: { ready: Promise<unknown> },
+  ) {
     const origCreate = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       if (tag !== "iframe") return origCreate(tag);
       const iframe = origCreate("iframe") as HTMLIFrameElement;
 
       // Stub contentDocument with open/write/close + contentWindow.print.
-      const mockDoc = { open: vi.fn(), write: vi.fn(), close: vi.fn() };
+      const mockDoc = { open: vi.fn(), write: vi.fn(), close: vi.fn(), fonts };
       const mockWin = { print: printFn };
       Object.defineProperty(iframe, "contentDocument", {
         get: () => mockDoc,
@@ -733,6 +736,21 @@ describe("exportPdf", () => {
       return iframe;
     });
   }
+
+  it("prints once the frame's fonts have loaded", async () => {
+    // It printed 150 ms after the frame loaded, so KaTeX's fonts (data: URLs
+    // the browser is still decoding) could be missing from the PDF.
+    let fontsLoaded: () => void = () => {};
+    const ready = new Promise<void>((r) => (fontsLoaded = r));
+    const print = vi.fn();
+    patchIframe(print, { ready });
+    const done = exportPdf("Fonts");
+    await new Promise((r) => setTimeout(r, 250));
+    expect(print).not.toHaveBeenCalled();
+    fontsLoaded();
+    await done;
+    expect(print).toHaveBeenCalled();
+  });
 
   it("throws a user-visible error when not in Read view", async () => {
     teardownDom();
