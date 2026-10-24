@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Adding or removing a table column keeps the table's layout.** A column
+  added or removed in the WYSIWYG editor saved the whole table re-padded,
+  every column to its widest cell, so the change showed as every row of the
+  table. The other columns now keep their padding and delimiter cells, and
+  only the new column's cells are written.
 - **Exports with math carry only the fonts they use.** An HTML or PDF export
   with math put all 20 KaTeX fonts in the page (about 300 KB), most of them
   for symbols the page never shows. It now puts in the faces the read view
