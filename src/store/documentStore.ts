@@ -404,6 +404,34 @@ function nextDiskRead(): number {
 
 type SetState = (partial: Partial<DocumentState>) => void;
 
+/** The path a watch last failed for, so switching back to it says so once. */
+let unwatchedPath: string | null = null;
+
+/**
+ * Watch `path` for changes made outside the app (the one watch, which
+ * replaces the last). A watch that cannot start is said in a toast: it
+ * used to fail without a word, so changes on disk went unnoticed and the
+ * next save was refused or wrote over them.
+ */
+function watchFile(path: string): void {
+  let watching: Promise<unknown>;
+  try {
+    watching = Promise.resolve(invoke("watch_file", { path }));
+  } catch (e) {
+    watching = Promise.reject(e);
+  }
+  void watching.then(
+    () => {
+      if (unwatchedPath === path) unwatchedPath = null;
+    },
+    (e) => {
+      if (unwatchedPath === path) return;
+      unwatchedPath = path;
+      toast.error(untagged(String(e)));
+    },
+  );
+}
+
 /**
  * Flag the active tab's file (`path`) as gone: the window used to show
  * nothing, and the next save silently wrote the file again.
@@ -562,8 +590,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       if (opts?.addRecent !== false) {
         useRecentStore.getState().add(file.path, file.file_name, Date.now());
       }
-      // Begin watching for external changes; failure is non-fatal.
-      invoke("watch_file", { path: file.path }).catch(() => {});
+      // Begin watching for external changes; a failure is shown, not fatal.
+      watchFile(file.path);
       return null;
     } catch (e) {
       const error = String(e);
@@ -909,7 +937,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
-        invoke("watch_file", { path: dest }).catch(() => {});
+        watchFile(dest);
       }
       toast.success(`Saved as ${fileName}`);
       return null;
@@ -1163,7 +1191,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       tabs: synced,
     });
     // Re-issue the watch so the active doc is the one being watched.
-    invoke("watch_file", { path: target.path }).catch(() => {});
+    watchFile(target.path);
     recheckDisk(get, set, id, target.path);
   },
 
@@ -1209,7 +1237,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isLoading: false,
         error: null,
       });
-      invoke("watch_file", { path: neighbor.path }).catch(() => {});
+      watchFile(neighbor.path);
       recheckDisk(get, set, neighbor.id, neighbor.path);
     };
 

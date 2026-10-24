@@ -128,6 +128,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A file that cannot be watched is said so.** When watching the open file
+  for changes made in other apps failed (its folder gone, the system's watch
+  limit reached), the watch of the file shown before was kept and the
+  failure was dropped, so changes on disk went unnoticed without a word. The
+  old watch is now dropped first, and the window shows "Changes made to ...
+  outside Ashlr MD will not be noticed" with the reason.
 - **The table wizard inserts a table.** Insert in the WYSIWYG table wizard
   (⌘⇧T outside a table) typed the table's Markdown into the document as
   text, so it showed as a paragraph of pipes and was saved with every pipe

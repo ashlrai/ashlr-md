@@ -27,10 +27,35 @@ pub fn watch_file(
     path: String,
     state: tauri::State<FileWatcher>,
 ) -> Result<(), String> {
-    let (dirs, targets) = watch_plan(Path::new(&path))?;
     let app_for_cb = app.clone();
     let reported = path.clone();
+    start_watch(&state.0, Path::new(&path), move || {
+        let _ = app_for_cb.emit("file-changed", reported.clone());
+    })
+}
 
+/// Watch `path` into `slot`, calling `changed` on each event for it. The
+/// watch held before is dropped first, whether or not this one starts: a
+/// failure used to leave it running, so the window went on hearing about
+/// the file it showed before (or about nothing it showed) while nothing
+/// watched the file it shows now, and nobody was told. The error says so.
+fn start_watch<F>(
+    slot: &Mutex<Option<RecommendedWatcher>>,
+    path: &Path,
+    changed: F,
+) -> Result<(), String>
+where
+    F: Fn() + Send + 'static,
+{
+    let mut held = slot.lock().unwrap_or_else(|e| e.into_inner());
+    *held = None;
+    let not_watched = |e: String| {
+        format!(
+            "Changes made to {} outside Ashlr MD will not be noticed: {e}",
+            path.display()
+        )
+    };
+    let (dirs, targets) = watch_plan(path).map_err(not_watched)?;
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
         if matches!(
@@ -38,18 +63,18 @@ pub fn watch_file(
             EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
         ) && event.paths.iter().any(|p| targets.contains(p))
         {
-            let _ = app_for_cb.emit("file-changed", reported.clone());
+            changed();
         }
     })
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| not_watched(e.to_string()))?;
 
     for dir in &dirs {
         watcher
             .watch(dir, RecursiveMode::NonRecursive)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| not_watched(e.to_string()))?;
     }
 
-    *state.0.lock().unwrap() = Some(watcher);
+    *held = Some(watcher);
     Ok(())
 }
 
@@ -85,7 +110,29 @@ pub fn unwatch_file(state: tauri::State<FileWatcher>) {
 
 #[cfg(test)]
 mod tests {
-    use super::watch_plan;
+    use super::{start_watch, watch_plan};
+    use std::sync::Mutex;
+
+    /// A watch that cannot start drops the one held before and says why:
+    /// the old one stayed, watching the file the window showed before.
+    #[test]
+    fn a_watch_that_fails_drops_the_one_before() {
+        let root = std::env::temp_dir().join(format!("md-watch-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let first = root.join("a.md");
+        std::fs::write(&first, "a").unwrap();
+        let slot = Mutex::new(None);
+        start_watch(&slot, &first, || {}).unwrap();
+        assert!(slot.lock().unwrap().is_some());
+
+        let gone = root.join("no such folder").join("b.md");
+        let err = start_watch(&slot, &gone, || {}).unwrap_err();
+        assert!(err.contains("will not be noticed"), "{err}");
+        assert!(err.contains("b.md"), "{err}");
+        assert!(slot.lock().unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[cfg(unix)]
     #[test]

@@ -30,6 +30,7 @@ import {
   CLOSE_MISSING_SAVE_AS,
   useDocumentStore,
 } from "./documentStore";
+import { useToastStore } from "./toastStore";
 
 function reset() {
   useDocumentStore.setState({
@@ -284,6 +285,26 @@ describe("documentStore", () => {
     invokeMock.mockClear();
     useDocumentStore.getState().switchTab(aId);
     expect(invokeMock).toHaveBeenCalledWith("watch_file", { path: "/a.md" });
+  });
+
+  it("says so when a file cannot be watched", async () => {
+    // The failure was dropped: changes on disk went unnoticed, unsaid.
+    useToastStore.getState().clear();
+    readReturnsByPath();
+    const read = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "watch_file"
+        ? Promise.reject(
+            "Changes made to /w/a.md outside Ashlr MD will not be noticed: x",
+          )
+        : read?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("/w/a.md");
+    await new Promise((r) => setTimeout(r, 0));
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.map((t) => [t.kind, t.message])).toEqual([
+      ["error", "Changes made to /w/a.md outside Ashlr MD will not be noticed: x"],
+    ]);
   });
 
   it("closeTab activates the nearest neighbor (right, else left)", async () => {
