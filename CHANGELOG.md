@@ -96,6 +96,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Spec and review renderers read headings and list items as the page does.**
+  Their section headings were matched on raw lines, so a `# comment` in a code
+  block ended a spec section (or became the title) and a `## Notes` line in one
+  opened a review section; a review's changed files were any `- x` or `1. x`
+  line, in code too, and not a quoted item. Front matter was opened by any
+  trimmed `---` first line, also an unclosed one, which hid the document. They
+  now read lines, list items and front matter by the rules of the runbook fix.
 - **Semantic search chunks begin only at headings.** The index cut a document
   into chunks at every line starting with `#`, so the `# comment` lines of a code
   block (and `#tag` lines) cut it into pieces too small to keep, and that code

@@ -18,7 +18,7 @@
  *   - `**Step N:**` bold leads
  */
 
-import { type MarkdownLine, markdownLines } from "../outline";
+import { listItem, markdownLines } from "../outline";
 import { taskMarks } from "../tasklist";
 
 // ---------------------------------------------------------------------------
@@ -106,29 +106,6 @@ const VERIFICATION_TITLES = new Set([
 const HEADING_RE = /^(#{1,6})\s+(.+)/;
 const BOLD_STEP_RE = /^\*\*[Ss]tep\s+(\d+)[:.]\*\*\s*(.*)/;
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})(\w*)/;
-
-/**
- * The list item line `l` opens, by the page's list rule
- * ({@link markdownLines}): whether its marker is ordered (`1.`, `2)`) and
- * its text, or null for any other line. A `- x` or `1. x` line in fenced
- * or indented code, `-x` (no item) and an item's continuation are none;
- * one in a blockquote (`> - x`) is one. These were matched on raw lines.
- */
-function listItem(
-  l: MarkdownLine | undefined,
-): { ordered: boolean; text: string } | null {
-  if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
-  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
-  let expanded = "";
-  for (const ch of raw)
-    expanded += ch === "\t" ? " ".repeat(4 - (expanded.length % 4)) : ch;
-  const prefix = expanded.slice(0, expanded.length - l.content.length);
-  // The marker right before the text; a line after a bare marker (`-`,
-  // then `  x`) has none and continues the item opened before it.
-  const marker = /(?:^|[ >])(?:(\d{1,9})[.)]|[-*+]) *$/.exec(prefix);
-  if (!marker) return null;
-  return { ordered: marker[1] !== undefined, text: l.content.trim() };
-}
 
 function normaliseTitle(text: string): string {
   return text.toLowerCase().replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();

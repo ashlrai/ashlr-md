@@ -676,6 +676,28 @@ export function markdownLines(markdown: string): MarkdownLine[] {
 }
 
 /**
+ * The list item line `l` opens, by the page's list rule
+ * ({@link markdownLines}): whether its marker is ordered (`1.`, `2)`) and
+ * its text, or null for any other line. A `- x` or `1. x` line in fenced
+ * or indented code, `-x` (no item) and an item's continuation are none;
+ * one in a blockquote (`> - x`) is one. The runbook and review renderers
+ * read their list items by it; they used to match them on raw lines.
+ */
+export function listItem(
+  l: MarkdownLine | undefined,
+): { ordered: boolean; text: string } | null {
+  if (!l || l.kind !== "text" || !l.first || l.content.trim() === "") return null;
+  const raw = l.text.endsWith("\r") ? l.text.slice(0, -1) : l.text;
+  const expanded = expandTabs(raw);
+  const prefix = expanded.slice(0, expanded.length - l.content.length);
+  // The marker right before the text; a line after a bare marker (`-`,
+  // then `  x`) has none and continues the item opened before it.
+  const marker = /(?:^|[ >])(?:(\d{1,9})[.)]|[-*+]) *$/.exec(prefix);
+  if (!marker) return null;
+  return { ordered: marker[1] !== undefined, text: l.content.trim() };
+}
+
+/**
  * The ATX headings of `markdown` outside a leading YAML front matter block,
  * fenced code ({@link markdownLines}) and containers, with their source
  * text and 1-based line, empty headings included. A heading in a
