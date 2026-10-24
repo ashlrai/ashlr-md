@@ -550,6 +550,108 @@ export function buildEpubChapters(bodyHtml: string, title: string): EpubChapter[
   return chapters.length > 0 ? chapters : [{ title, content: bodyHtml }];
 }
 
+// ─── EPUB images ─────────────────────────────────────────────────────────────
+
+/** Where an EPUB's images are named for epub-gen-memory, which fetches them. */
+const EPUB_IMAGE_ORIGIN = "https://ashlr-md.invalid/";
+
+const EPUB_IMAGE_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+};
+
+/** The bytes of a `data:image/...` URL, or null for any other URL or type. */
+function dataUrlImage(src: string): { type: string; bytes: Uint8Array } | null {
+  const m = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/is.exec(src.trim());
+  if (!m) return null;
+  const type = m[1].toLowerCase();
+  if (!EPUB_IMAGE_TYPES[type]) return null;
+  try {
+    if (/;base64$/i.test(m[2])) {
+      const bin = atob(m[3].replace(/\s+/g, ""));
+      return { type, bytes: Uint8Array.from(bin, (c) => c.charCodeAt(0)) };
+    }
+    return { type, bytes: new TextEncoder().encode(decodeURIComponent(m[3])) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gets a rendered body's images ready for epub-gen-memory. The library
+ * fetches every `<img src>`, and the app's CSP (`connect-src`) refuses a
+ * `data:` URL and the web alike, so one image failed the whole export; it
+ * also takes the media type from the URL's extension, which a `data:` URL
+ * has none of. A local image is a `data:` URL in the rendered view
+ * (`read_image_data_url`), so each one gets a placeholder URL with the right
+ * extension and its bytes are served from the returned map
+ * (`withEpubImages`). A web image becomes a link to it, as an e-reader shows
+ * no remote image, and anything else becomes its alt text.
+ */
+export function prepareEpubImages(bodyHtml: string): {
+  html: string;
+  images: Map<string, Blob>;
+} {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = bodyHtml;
+  const images = new Map<string, Blob>();
+  const bySrc = new Map<string, string>();
+  for (const img of Array.from(tpl.content.querySelectorAll("img"))) {
+    const src = img.getAttribute("src") ?? "";
+    img.removeAttribute("srcset");
+    const known = bySrc.get(src);
+    if (known) {
+      img.setAttribute("src", known);
+      continue;
+    }
+    const data = dataUrlImage(src);
+    if (data) {
+      const url = `${EPUB_IMAGE_ORIGIN}image-${images.size + 1}.${EPUB_IMAGE_TYPES[data.type]}`;
+      images.set(url, new Blob([data.bytes], { type: data.type }));
+      bySrc.set(src, url);
+      img.setAttribute("src", url);
+      continue;
+    }
+    const alt = img.getAttribute("alt") ?? "";
+    if (/^https?:\/\//i.test(src)) {
+      const a = document.createElement("a");
+      a.setAttribute("href", src);
+      a.textContent = alt || src;
+      img.replaceWith(a);
+    } else {
+      img.replaceWith(document.createTextNode(alt));
+    }
+  }
+  return { html: tpl.innerHTML, images };
+}
+
+/**
+ * Runs `fn` with `fetch` answering the URLs in `images` from memory. Every
+ * other request goes to the real `fetch`, and it is restored afterwards.
+ */
+async function withEpubImages<T>(
+  images: Map<string, Blob>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (images.size === 0) return fn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const blob = images.get(url);
+    return blob ? Promise.resolve(new Response(blob)) : realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 /**
  * Export as an EPUB file.
  *
@@ -578,7 +680,9 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   if (!el) {
     throw READ_VIEW_REQUIRED;
   }
-  const bodyHtml = cloneWithoutInjectedChrome(el).innerHTML;
+  const { html: bodyHtml, images } = prepareEpubImages(
+    cloneWithoutInjectedChrome(el).innerHTML,
+  );
 
   let epubGen: (
     options: Record<string, unknown>,
@@ -604,19 +708,21 @@ export async function exportEpub(title: string, outputPath?: string): Promise<vo
   const css = buildEpubThemeCss(theme);
   const chapters = buildEpubChapters(bodyHtml, title);
 
-  const result = await epubGen(
-    {
-      title,
-      // Author from document store if available, otherwise blank.
-      author: "",
-      // Use the theme-aware chapter CSS as the stylesheet.
-      css,
-      // EPUB 3 for widest modern reader support.
-      version: 3,
-      // Suppress verbose internal logging in production.
-      verbose: false,
-    },
-    chapters,
+  const result = await withEpubImages(images, () =>
+    epubGen(
+      {
+        title,
+        // Author from document store if available, otherwise blank.
+        author: "",
+        // Use the theme-aware chapter CSS as the stylesheet.
+        css,
+        // EPUB 3 for widest modern reader support.
+        version: 3,
+        // Suppress verbose internal logging in production.
+        verbose: false,
+      },
+      chapters,
+    ),
   );
 
   // Normalise to Uint8Array regardless of whether we got a Blob or ArrayBuffer.

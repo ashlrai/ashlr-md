@@ -1749,6 +1749,54 @@ describe("exportEpub", () => {
     );
   });
 
+  it("hands epub-gen-memory images it can fetch under the app's CSP", async () => {
+    // The app's connect-src refuses data: URLs and the web, as here.
+    const realFetch = globalThis.fetch;
+    const blocked = vi.fn(() => Promise.reject(new TypeError("CSP: connect-src")));
+    globalThis.fetch = blocked as unknown as typeof fetch;
+    document.body.innerHTML = "";
+    setupEpubDom(
+      `<h1>Pictures</h1>
+<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="local">
+<img src="data:image/png;base64,iVBORw0KGgo=" alt="again">
+<img src="data:image/svg+xml,%3Csvg%2F%3E" alt="vector">
+<img src="https://example.com/cat.jpg" alt="cat">
+<img src="data:text/html,%3Cb%3E" alt="not an image"></p>`,
+    );
+    // Like the real library: fetch every src, type it by its extension.
+    const fetched: { url: string; text: string }[] = [];
+    const gen = vi.fn(async (_o: unknown, content: { content: string }[]) => {
+      const doc = new DOMParser().parseFromString(content[0].content, "text/html");
+      for (const img of Array.from(doc.querySelectorAll("img"))) {
+        const url = img.getAttribute("src") ?? "";
+        const res = await fetch(url);
+        fetched.push({ url, text: await (await res.blob()).text() });
+      }
+      return new Blob(["EPUB"]);
+    });
+    vi.doMock("epub-gen-memory", () => ({ default: gen }));
+    try {
+      const { exportEpub: fresh } = await import("./export");
+      await fresh("Pictures");
+      const page = gen.mock.calls[0][1][0].content;
+      expect(fetched.map((f) => f.url)).toEqual([
+        "https://ashlr-md.invalid/image-1.png",
+        "https://ashlr-md.invalid/image-1.png",
+        "https://ashlr-md.invalid/image-2.svg",
+      ]);
+      expect(fetched[0].text.slice(1, 4)).toBe("PNG");
+      expect(fetched[2].text).toBe("<svg/>");
+      expect(page).toContain('<a href="https://example.com/cat.jpg">cat</a>');
+      expect(page).toContain("not an image");
+      expect(page).not.toContain("data:");
+      expect(blocked).not.toHaveBeenCalled();
+      expect(globalThis.fetch).toBe(blocked);
+      expect(invokeMock).toHaveBeenCalledWith("write_file_bytes", expect.anything());
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("throws when epub-gen-memory is not installed", async () => {
     vi.doMock("epub-gen-memory", () => {
       throw new Error("module not found");
@@ -1896,7 +1944,7 @@ describe("exportEpub", () => {
     expect(allContent).toContain("Opening paragraph");
   });
 
-  it("chapter content preserves embedded image data URIs", async () => {
+  it("chapter content keeps an embedded image, under a URL the library can fetch", async () => {
     document.body.innerHTML = "";
     setupEpubDom();
     const epubFn = vi.fn().mockResolvedValue(new Blob(["x"]));
@@ -1907,7 +1955,10 @@ describe("exportEpub", () => {
 
     const [, chapters] = epubFn.mock.calls[0] as [unknown, EpubChapter[]];
     const allContent = chapters.map((c) => c.content).join(" ");
-    expect(allContent).toContain("data:image/png;base64");
+    // epub-gen-memory fetches each src and types it by extension, so a
+    // data: URL is renamed and its bytes served from memory.
+    expect(allContent).toContain('src="https://ashlr-md.invalid/image-1.png"');
+    expect(allContent).not.toContain("data:image/png;base64");
   });
 
   it("chapter content preserves code blocks with syntax highlighting", async () => {

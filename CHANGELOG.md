@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **EPUB export works with images.** The EPUB library fetches every image,
+  and the app's content policy refuses a `data:` URL (how a local image is
+  shown) and the web alike, so a document with any image failed to export;
+  a `data:` image also went in with no media type. Images are now handed to
+  it from memory, and a web image becomes a link to it.
 - **Export file names are always valid.** The suggested name cut long titles
   by UTF-16 units, which could split an emoji into half a surrogate pair that
   the save dialog rejects, and kept leading dots (a hidden `.env.html`),
