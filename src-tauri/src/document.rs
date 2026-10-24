@@ -208,13 +208,21 @@ fn link_target(path: &Path) -> std::io::Result<std::path::PathBuf> {
 /// path themselves ([`apply_file_patch`]), so a link put in its place since
 /// cannot send the write elsewhere.
 fn write_document(path: &str, content: String) -> Result<(), String> {
-    // Never write inside an Obsidian config folder — that dir is Obsidian's and
-    // a stray write there can corrupt vault settings/plugins.
+    refuse_protected_write(path)?;
+    write_atomic(Path::new(path), content.as_bytes())
+        .map_err(|e| format!("Could not save {path}: {e}"))
+}
+
+/// The folders no app write may land in, checked before every save and
+/// export: an Obsidian config folder (`.obsidian/`, also through a symlinked
+/// folder) is Obsidian's, and a stray write there can corrupt the vault's
+/// settings or plugins. Exports (`write_file_bytes`) used to skip it, so a
+/// DOCX or EPUB saved as `.obsidian/app.json` replaced the vault's settings.
+pub(crate) fn refuse_protected_write(path: &str) -> Result<(), String> {
     if path_targets_obsidian_dir(path) {
         return Err("Refusing to write inside an Obsidian .obsidian/ config folder.".into());
     }
-    write_atomic(Path::new(path), content.as_bytes())
-        .map_err(|e| format!("Could not save {path}: {e}"))
+    Ok(())
 }
 
 /// Write `bytes` to `path` atomically: into a new sibling temp file, then

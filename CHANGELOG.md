@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Exports never write into an Obsidian config folder.** A Markdown save
+  refused `.obsidian/`, but a DOCX or EPUB export (`write_file_bytes`) did
+  not, so an export saved as `.obsidian/app.json` replaced the vault's
+  settings. Both now share one guard, which also follows a folder that
+  links to `.obsidian`.
 - **EPUB export works with images.** The EPUB library fetches every image,
   and the app's content policy refuses a `data:` URL (how a local image is
   shown) and the web alike, so a document with any image failed to export;
