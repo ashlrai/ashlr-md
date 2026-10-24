@@ -17,6 +17,8 @@ import { formatShortcut } from "../lib/keymap";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
 import { useDocumentStore } from "../store/documentStore";
+import { isMissingFileError } from "../store/recentStore";
+import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ export function ActivityDrawer() {
   const loadFiles = useActivityStore((s) => s.loadFiles);
   const applyEvent = useActivityStore((s) => s.applyEvent);
   const markAllSeen = useActivityStore((s) => s.markAllSeen);
+  const removeFile = useActivityStore((s) => s.removeFile);
 
   const openPath = useDocumentStore((s) => s.openPath);
   const panelRef = useRef<HTMLElement>(null);
@@ -180,10 +183,18 @@ export function ActivityDrawer() {
 
   const handleOpen = useCallback(
     (file: MdFileInfo) => {
-      void openPath(file.path);
+      // A file deleted or moved since it was listed (the watcher reports no
+      // deletions) is said in a toast and leaves the list; the open document
+      // stays in view. Its error used to replace the document, and the entry
+      // stayed.
+      void openPath(file.path, { keepViewOnError: true }).then((error) => {
+        if (error === null) return;
+        toast.error(`Could not open ${file.name}: ${error}`);
+        if (isMissingFileError(error)) removeFile(file.path);
+      });
       markAllSeen();
     },
-    [openPath, markAllSeen],
+    [openPath, markAllSeen, removeFile],
   );
 
   return (

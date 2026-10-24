@@ -128,6 +128,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **An Agent Activity entry whose file is gone keeps the document in view.**
+  The folder watcher reports no deletions, so a file deleted or moved since it
+  was listed stayed in the drawer, and clicking it replaced the open document
+  with "Could not read …". The document now stays, a toast says why, and the
+  entry leaves the list.
 - **The read view shows a document's changes after Find was used.** Find put
   its highlights in place of the text React had rendered, and clearing them
   put new text in its place again. A later change to that text (an agent's
