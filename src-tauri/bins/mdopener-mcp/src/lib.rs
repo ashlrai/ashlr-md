@@ -7910,7 +7910,8 @@ pub fn strip_markdown(content: &str) -> String {
     // Each line with its code when it is fenced or indented code
     // ([`markdown_lines::line_code`]), and the text of a text line past the
     // blockquote markers, list markers and item indentation it sits in,
-    // with whether it opens a list item ([`markdown_lines::line_text`]).
+    // with whether it opens a list item ([`markdown_lines::line_text`]),
+    // and whether it holds a task checkbox ([`task_list::task_marks`]).
     type Line<'a> = (
         (LineKind, &'a str),
         (
@@ -7918,10 +7919,12 @@ pub fn strip_markdown(content: &str) -> String {
             Option<(std::borrow::Cow<'a, str>, bool)>,
         ),
     );
-    let lines: Vec<Line> = markdown_lines::with_indented_code(content)
+    let tasks = task_list::task_marks(content);
+    let (lines, tasks): (Vec<Line>, Vec<bool>) = markdown_lines::with_indented_code(content)
         .zip(markdown_lines::line_code(content).zip(markdown_lines::line_text(content)))
-        .filter(|((kind, _), _)| *kind != LineKind::FrontMatter)
-        .collect();
+        .zip(tasks.iter().map(Option::is_some))
+        .filter(|(((kind, _), _), _)| *kind != LineKind::FrontMatter)
+        .unzip();
     // A text line's text as a table row, trimmed.
     let row_of = |idx: usize| -> Option<&str> {
         match lines.get(idx) {
@@ -8031,12 +8034,11 @@ pub fn strip_markdown(content: &str) -> String {
             continue;
         }
 
-        // A task-list checkbox `[ ] ` / `[x] ` opening a list item.
-        let line = if item {
-            line.strip_prefix("[ ] ")
-                .or_else(|| line.strip_prefix("[x] "))
-                .or_else(|| line.strip_prefix("[X] "))
-                .unwrap_or(line)
+        // A task-list checkbox, where the renderer reads one
+        // ([`task_list::task_marks`]): `- [ ]` alone keeps its `[ ]`, and
+        // `-`, then `  [ ] t`, loses it.
+        let line = if tasks[idx] {
+            line[3..].trim_start()
         } else {
             line
         };
@@ -8153,11 +8155,18 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Link: [text](url) or [text][ref] → text only
+        // Link: [text](url) or [text][ref] → text only. A checkbox-like
+        // `[ ]`, `[x]` or `[X]` with no link after it is text: strip_markdown
+        // drops a task checkbox before this, so `[ ] not a task` keeps its
+        // brackets where it used to read `  not a task`.
         if chars[i] == '[' {
             if let Some((text, end)) = parse_bracket_content(&chars, i) {
                 let after = skip_link_tail(&chars, end);
-                out.push_str(&text);
+                if after == end && matches!(text.as_str(), " " | "x" | "X") {
+                    out.extend(&chars[i..end]);
+                } else {
+                    out.push_str(&text);
+                }
                 i = after;
                 continue;
             }

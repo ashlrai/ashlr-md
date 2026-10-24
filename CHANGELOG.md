@@ -96,6 +96,39 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Indented code that opens a blockquote after a list item.** After an item
+  with only its marker had ended, a quoted line indented as code (`-`, a blank
+  line, then `>     code`) was taken to close a container, so the next quoted
+  line could open an item that cannot interrupt the code (`> 2) ...`) and its
+  fence or heading. The page reads that line as paragraph text; the Outline and
+  mdopener-mcp now do too. Found by checking against the renderer on generated
+  documents.
+- **Lint heading rules read setext headings.** `single-h1`, `max-heading-depth`,
+  `no-empty-headings` and `orphaned-heading` read only `#` headings, so `Title`
+  underlined with `===` and then `# Other` was not flagged as two H1s, and a
+  setext heading right before another heading was not orphaned. They now read the
+  setext headings the Outline counts, outside list items and blockquotes as for
+  `#` headings, and a duplicate setext H1 is marked at its underline.
+- **`export_text` keeps brackets that are not task checkboxes.** Any `[ ]`
+  read as a link with the text ` `, so `[ ] not a task` came out as
+  `  not a task` and `- [ ]` alone (text on the page) lost its brackets. Only
+  a task checkbox, where `get_user_annotations` reads a task, is dropped now.
+- **Front matter opens only on `---` at column 0.** The Outline, the review
+  summary and mdopener-mcp trimmed the first line, so `  ---` opened front matter
+  and hid the lines up to the next `---` (their headings, tasks and text), while
+  the page shows that line as a thematic break and the lines as text. Each
+  delimiter now starts at column 0 with only spaces or tabs after it, as
+  remark-frontmatter reads it, and the Outline and the review summary share one
+  helper instead of two copies. An unclosed leading `---` stays a thematic break,
+  as on the page.
+- **Task checkboxes are read where the page shows them.** `get_user_annotations`
+  and the app's `/annotations` read `- [ ]` on raw lines, so a task in a
+  blockquote (`> - [ ] t`) or an ordered item (`1. [ ] t`) was missed, and an
+  indented `    - [ ] t` (code on the page) was listed. Tasks now follow the
+  container rule the Outline and `export_text` use: a checkbox opens a list
+  item's first content and is followed by text, as remark-gfm reads it, so
+  `- [x]` alone is text. `export_text` drops the same checkboxes. Checked
+  against the renderer on generated documents.
 - **Outline jumps land on the right heading after a setext heading.** The
   page gives a heading underlined with `===` or `---` an id, but the
   Outline did not count it, so in a document with `Title`, `=====` and

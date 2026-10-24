@@ -116,36 +116,79 @@ function range(doc: string, from: number, to: number): LintRange {
   };
 }
 
-/** A heading line of `doc`, from {@link docHeadings}. */
+/** A heading of `doc`, from {@link docHeadings}. */
 interface HeadingLine extends AtxHeading {
-  /** Offset of the heading's first `#`. */
+  /**
+   * Offset of the heading's first `#`, or of its underline's first `=` or
+   * `-` for a setext heading.
+   */
   hashes: number;
-  /** The source line it sits on. */
-  source: MarkdownLine;
-  /** Index of `source` in the document's lines. */
+  /** Whether it is a setext heading (a paragraph underlined with `===` or `---`). */
+  setext: boolean;
+  /** Offsets of the heading's source: its line, or its lines and underline. */
+  from: number;
+  to: number;
+  /** Index in the document's lines of its first line. */
+  first: number;
+  /** Index in the document's lines of its last line (a setext underline). */
   index: number;
 }
 
 /**
- * The ATX headings of `doc` by the rules of outline.ts's atxHeadings (at
- * most three spaces before the `#`s, outside front matter and fenced
- * code, and outside list items and blockquotes), with their offsets, plus
- * the document's lines. The heading rules used to test each line against a
+ * The headings of `doc`, with their offsets, plus the document's lines:
+ * the ATX headings by the rules of outline.ts's atxHeadings (at most three
+ * spaces before the `#`s, outside front matter and fenced code, and
+ * outside list items and blockquotes), and the setext headings
+ * markdownLines records (`Title`, then `===`), outside list items and
+ * blockquotes too. The heading rules used to test each line against a
  * column-0 regex, so a `# comment` in a code sample or a front matter block
  * was linted as a heading, and a heading on a list item's continuation line
  * (`- x`, a blank line, then `  # Sub`) was linted as a document heading.
+ * Setext headings used to be left out, so `Title`, `===`, then `# Other`
+ * was not two H1s and a setext heading before another heading was not
+ * orphaned.
  */
 function docHeadings(doc: string): { lines: MarkdownLine[]; headings: HeadingLine[] } {
   const lines = markdownLines(doc);
   const headings: HeadingLine[] = [];
+  const end = (l: MarkdownLine) => l.start + l.text.replace(/[ \t\r]+$/, "").length;
   lines.forEach((source, index) => {
     // A heading in a list item or a blockquote is not a document heading,
     // as atxHeadings reads it.
-    if (source.kind !== "text" || source.contained) return;
+    if (source.kind !== "text") return;
+    if (source.setext) {
+      const first = source.setext.from;
+      if (lines[first].contained || source.contained) return;
+      const text = lines
+        .slice(first, index)
+        .map((l) => l.content.trim())
+        .join(" ");
+      const hashes = source.start + source.text.search(/[=-]/);
+      headings.push({
+        depth: source.setext.depth,
+        text,
+        hashes,
+        setext: true,
+        from: lines[first].start,
+        to: end(source),
+        first,
+        index,
+      });
+      return;
+    }
+    if (source.contained) return;
     const h = atxHeading(source.text);
     if (!h) return;
     const hashes = source.start + source.text.indexOf("#");
-    headings.push({ ...h, hashes, source, index });
+    headings.push({
+      ...h,
+      hashes,
+      setext: false,
+      from: source.start,
+      to: source.start + source.text.length,
+      first: index,
+      index,
+    });
   });
   return { lines, headings };
 }
@@ -308,12 +351,11 @@ export const ruleNoEmptyHeadings: LintRule = {
     for (const h of docHeadings(doc).headings) {
       if (h.text !== "") continue;
       // `## ##` is empty too: its closing `#`s are not text.
-      const { start, text } = h.source;
       violations.push({
         ruleId: "no-empty-headings",
         message: "Empty heading.",
         severity: "error",
-        range: range(doc, start, start + text.length),
+        range: range(doc, h.from, h.to),
         fix: null,
       });
     }
@@ -375,18 +417,19 @@ export const ruleSingleH1: LintRule = {
   check({ doc }): LintViolation[] {
     const violations: LintViolation[] = [];
     // A `# comment` in fenced code or front matter is not an H1.
-    const h1Offsets = docHeadings(doc)
-      .headings.filter((h) => h.depth === 1)
-      .map((h) => h.hashes);
-    if (h1Offsets.length > 1) {
+    // A setext H1 (`Title`, then `===`) counts too.
+    const h1s = docHeadings(doc).headings.filter((h) => h.depth === 1);
+    if (h1s.length > 1) {
       // Flag every H1 after the first
-      for (let i = 1; i < h1Offsets.length; i++) {
-        const off = h1Offsets[i];
+      for (let i = 1; i < h1s.length; i++) {
+        const h = h1s[i];
+        // Just the "# " prefix, or a setext heading's underline.
+        const to = h.setext ? h.to : h.hashes + 2;
         violations.push({
           ruleId: "single-h1",
-          message: `Duplicate H1 heading (${h1Offsets.length} total).`,
+          message: `Duplicate H1 heading (${h1s.length} total).`,
           severity: "warning",
-          range: range(doc, off, off + 2), // just the "# " prefix
+          range: range(doc, h.hashes, to),
           fix: null,
         });
       }
@@ -453,18 +496,18 @@ export const ruleOrphanedHeading: LintRule = {
     // Headings by the outline's rules: a `# comment` opening a code block
     // used to make the heading before it orphaned.
     const { lines, headings } = docHeadings(doc);
-    const isHeading = new Set(headings.map((h) => h.index));
+    // A setext heading starts on its first line and ends on its underline.
+    const isHeading = new Set(headings.map((h) => h.first));
     for (const h of headings) {
       // Look for the next non-blank line
       let j = h.index + 1;
       while (j < lines.length && lines[j].text.trim() === "") j++;
       if (j < lines.length && isHeading.has(j)) {
-        const { start, text } = h.source;
         violations.push({
           ruleId: "orphaned-heading",
           message: `Orphaned heading: "${h.text.slice(0, 40)}" has no body text before the next heading.`,
           severity: "warning",
-          range: range(doc, start, start + text.length),
+          range: range(doc, h.from, h.to),
           fix: null,
         });
       }

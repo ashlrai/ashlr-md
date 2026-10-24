@@ -14,6 +14,7 @@
  */
 
 import GithubSlugger from "github-slugger";
+import { stripFrontmatter } from "./frontmatter";
 
 export interface HeadingItem {
   /** ATX heading level, 1–6. */
@@ -24,25 +25,6 @@ export interface HeadingItem {
   slug: string;
   /** 1-based source line number of the heading (within the full document). */
   line: number;
-}
-
-/**
- * Strip a leading YAML frontmatter block (`---` … `---`), if present.
- * Returns the body plus the number of lines removed, so reported line numbers
- * stay accurate against the original document.
- */
-function stripFrontmatter(markdown: string): { lines: string[]; offset: number } {
-  const lines = markdown.split("\n");
-  if (lines[0]?.trim() !== "---") return { lines, offset: 0 };
-  for (let i = 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    // Frontmatter ends on a line that is exactly `---` or `...`.
-    if (t === "---" || t === "...") {
-      return { lines: lines.slice(i + 1), offset: i + 1 };
-    }
-  }
-  // No closing fence — treat the whole thing as body (don't swallow content).
-  return { lines, offset: 0 };
 }
 
 /**
@@ -431,7 +413,11 @@ export function markdownLines(markdown: string): MarkdownLine[] {
           indented = null;
           bare = false;
         } else if (!lazy) {
-          const closed = (c.matched < open.length && !opened) || closer;
+          // Indented code that closed a container without opening one, or
+          // after a bare item's end, does not hold the next line's markers;
+          // one that opens a blockquote (`-`, a blank line, then
+          // `>     code`) does.
+          const closed = (c.matched < open.length || closer) && !opened;
           open = c.list;
           const last = c.list[c.list.length - 1];
           bare = opened && empty && !last.quote;

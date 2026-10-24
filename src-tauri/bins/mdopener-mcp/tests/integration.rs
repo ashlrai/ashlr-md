@@ -4589,6 +4589,34 @@ fn vault_search_listing_and_template_name_every_parameter() {
     );
 }
 
+/// Front matter opened on a trimmed first line, so `  ---` (a thematic
+/// break on the page, as remark-frontmatter reads only `---` at column 0)
+/// hid the lines up to the next `---`: the title, the headings and the
+/// properties came from the wrong lines. Each delimiter now starts at
+/// column 0, with only spaces and tabs after it.
+#[test]
+fn front_matter_delimiters_start_at_column_0() {
+    use mdopener_mcp::{document_title, extract_frontmatter, strip_markdown};
+    assert_eq!(
+        document_title("  ---\n# Shown\n---\n").as_deref(),
+        Some("Shown")
+    );
+    assert_eq!(
+        document_title("---\n# a\n  ---\n# b\n").as_deref(),
+        Some("a")
+    );
+    assert_eq!(
+        document_title("--- \n# fm\n---\t\n# Body\n").as_deref(),
+        Some("Body")
+    );
+    assert_eq!(extract_frontmatter("  ---\ntitle: x\n---\n"), Value::Null);
+    assert_eq!(
+        extract_frontmatter("---\t\ntitle: x\n--- \n"),
+        json!({ "title": "x" })
+    );
+    assert_eq!(strip_markdown("  ---\nkept\n\n---\n"), "kept");
+}
+
 /// The recent-documents `title` was the first line starting with `# `,
 /// even one inside YAML front matter or a fenced code block, so a front
 /// matter comment or a shell comment named the document. Those lines are
@@ -8280,7 +8308,7 @@ fn export_text_images_and_tasks_use_the_fence_rule() {
     );
     let docs = include_str!("../../../../docs/AGENTS.md");
     for said in [
-        "(a `- [ ]` line in fenced code or front matter is not a task;",
+        "a `- [ ]` line in fenced or indented code or front matter is not,",
         "(code blocks kept as written, by the fence rule of `export_metadata`;",
         "images outside fenced code and front matter",
     ] {
@@ -8520,6 +8548,57 @@ fn export_text_reads_lines_past_their_containers() {
     for (doc, want) in cases {
         assert_eq!(strip_markdown(doc), want, "{doc:?}");
     }
+}
+
+/// `export_text` took `[ ] ` off a line that opens a list item, so a
+/// checkbox on a bare item's next line (`-`, then `  [ ] t`) kept its
+/// `[ ]`. It now drops a checkbox where `get_user_annotations` reads a
+/// task, as the renderer does.
+#[test]
+fn export_text_drops_the_checkboxes_the_renderer_shows() {
+    let cases = [
+        ("-\n  [ ] next line", "next line"),
+        ("> - [x] quoted", "quoted"),
+        ("1. [X] ordered", "ordered"),
+        ("- [ ]\ttab", "tab"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// `strip_inline_markdown` read any `[ ]` as a link with the text ` `, so
+/// prose such as `[ ] not a task` and `- [ ]` alone (text on the page, no
+/// checkbox) lost their brackets. Only a task checkbox is dropped now.
+#[test]
+fn export_text_keeps_brackets_that_are_not_task_checkboxes() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(strip_inline_markdown("[ ] not a task"), "[ ] not a task");
+    assert_eq!(strip_inline_markdown("see [x] and [X]"), "see [x] and [X]");
+    assert_eq!(strip_inline_markdown("[x](https://e.x) link"), "x link");
+    assert_eq!(strip_inline_markdown("[label] ref"), "label ref");
+    let cases = [
+        ("[ ] not a task", "[ ] not a task"),
+        ("> [x] quoted prose", "[x] quoted prose"),
+        ("- [ ]", "[ ]"),
+        ("- [ ] task", "task"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
+/// After a bare item's end, indented code that opens a blockquote
+/// (`-`, a blank line, then `>     code`) was taken to close a container,
+/// so it did not hold the next line's markers: `> 2) ```` opened an item
+/// and a fence, and the quoted `[[Link]]` after it was code. The renderer
+/// reads `2) ```` as paragraph text there, since `2)` cannot interrupt
+/// the code, so the link is a link.
+#[test]
+fn indented_code_that_opens_a_quote_holds_the_next_markers() {
+    use mdopener_mcp::extract_wikilinks;
+    let doc = "-\n\n>     code\n> 2) ```\n>    [[Link]]\n";
+    assert_eq!(extract_wikilinks(doc), vec!["Link".to_string()]);
 }
 
 /// markdown_lines tracked list items only up to the first blockquote, so

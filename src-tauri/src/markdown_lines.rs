@@ -52,6 +52,8 @@ pub enum LineKind {
 /// text, so a `# comment` or a `[[link]]` in their code was read as
 /// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
 /// the same rule.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
     scan(content).map(|l| (l.kind, l.line))
 }
@@ -82,6 +84,35 @@ pub fn line_text(content: &str) -> impl Iterator<Item = Option<(Cow<'_, str>, bo
     scan(content).map(|l| l.text.map(|t| (t, l.item)))
 }
 
+/// For each line of `content`, as [`markdown_lines`] yields them, the text
+/// of a text line that is the first content of a list item ([`line_text`])
+/// and not indented code: it opens the item (`- a`, `> - a`, `1. a`), or
+/// follows a line that opened one with only its marker (`-`, then `  a`).
+/// With it, whether the line goes on with the paragraph of the line
+/// before, lazily (`- a`, then `b`) or in its containers, and whether it
+/// is a setext heading underline, which makes that paragraph a heading.
+/// Where a GFM task checkbox can be, as the renderer reads it
+/// ([`crate::task_list`]). A marker followed by a space before the line
+/// break (`- `, then `  a`) has no first content after it, as in
+/// micromark.
+pub fn item_starts(content: &str) -> impl Iterator<Item = ItemStart<'_>> {
+    scan(content).map(|l| ItemStart {
+        text: if l.first { l.text } else { None },
+        continues: l.continues,
+        underline: l.underline,
+    })
+}
+
+/// A line of [`item_starts`].
+pub struct ItemStart<'a> {
+    /// The text of the line when it is the first content of a list item.
+    pub text: Option<Cow<'a, str>>,
+    /// Whether the line goes on with the paragraph of the line before.
+    pub continues: bool,
+    /// Whether the line is a setext heading underline.
+    pub underline: bool,
+}
+
 /// The ATX headings ([`atx_heading`]) of the text lines of `content`
 /// ([`text_lines`]) that sit in no blockquote or list item, empty ones
 /// included: a document's title and `export_metadata`'s headings. A line
@@ -110,6 +141,13 @@ struct Scanned<'a> {
     text: Option<Cow<'a, str>>,
     /// Whether the line opens a list item that holds its text.
     item: bool,
+    /// Whether the line is the first content of a list item: it opens the
+    /// item, or comes right after a line that opened it with nothing.
+    first: bool,
+    /// Whether the line goes on with the paragraph of the line before.
+    continues: bool,
+    /// Whether the line is a setext heading underline.
+    underline: bool,
 }
 
 /// [`markdown_lines`], with each code line's code ([`line_code`]), whether
@@ -132,6 +170,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
     let mut indented: Option<usize> = None;
     // Whether the innermost open item has only its marker so far.
     let mut bare = false;
+    // Whether that marker has nothing after it, not even a space.
+    let mut tight = false;
     // Whether the line before was in a blockquote or ended a bare item:
     // indented code after it closes a container.
     let mut closer = false;
@@ -145,6 +185,9 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 contained: false,
                 text: None,
                 item: false,
+                first: false,
+                continues: false,
+                underline: false,
             };
         }
         let expanded = expand_tabs(line);
@@ -155,6 +198,9 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
         let mut indented_code = false;
         let mut text = None;
         let mut item = false;
+        let mut first = false;
+        let mut continues_paragraph = false;
+        let mut underline = false;
         let inside = fence
             .as_ref()
             .and_then(|(_, _, _, list)| continues(&expanded, list));
@@ -215,6 +261,7 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 let lazy = paragraph.is_some() && !heading && !opened && matched < open.len();
                 if paragraph == Some(matched) && !opened && setext_underline(rest) {
                     // A setext underline ends the paragraph as a heading.
+                    underline = true;
                     open.truncate(matched);
                     paragraph = None;
                     indented = None;
@@ -228,10 +275,20 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                 } else if !lazy {
                     // Indented code that closed a container without opening
                     // one, or after a bare item's end, does not hold the
-                    // next line's markers.
-                    let closed = (matched < open.len() && !opened) || closer;
+                    // next line's markers; one that opens a blockquote
+                    // (`-`, a blank line, then `>     code`) does.
+                    let closed = (matched < open.len() || closer) && !opened;
+                    // Only a marker with nothing after it, not even a
+                    // space, has its first content on the next line, at
+                    // its content column.
+                    let after_bare = bare
+                        && tight
+                        && !opened
+                        && matched == open.len()
+                        && spaces_before(rest) == 0;
                     open = list.clone();
                     bare = opened && empty && list.last() != Some(&Container::Quote);
+                    tight = bare && !line.ends_with([' ', '\t']);
                     let level = list.len();
                     // Four spaces past the containers is indented code, not text.
                     // A paragraph goes on unless the line opens a list
@@ -240,6 +297,10 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                         || list[matched..].iter().any(|c| *c != Container::Quote)
                         || (opened && !para_list.starts_with(&list));
                     indented_code = fresh && !empty && spaces_before(rest) >= 4;
+                    continues_paragraph = !fresh && !heading && !empty;
+                    // The first content of an item opened by a bare marker
+                    // may be on the line after it (`-`, then `  [ ] t`).
+                    first = !indented_code && !empty && (item || after_bare);
                     if indented_code {
                         let columns = expanded.len() - rest.len() + 4;
                         code = Some(past_columns(line, columns));
@@ -249,6 +310,8 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
                     // Only indented code that closed no container, as the
                     // renderer reads it.
                     indented = (indented_code && !closed).then_some(level);
+                } else {
+                    continues_paragraph = true;
                 }
             }
         }
@@ -261,6 +324,9 @@ fn scan(content: &str) -> impl Iterator<Item = Scanned<'_>> {
             contained,
             text,
             item,
+            first,
+            continues: continues_paragraph,
+            underline,
         }
     })
 }
@@ -444,6 +510,8 @@ fn continues<'a>(line: &'a str, list: &[Container]) -> Option<&'a str> {
 
 /// The lines of `content` that are Markdown text: not front matter, not a
 /// fence and not fenced code.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
 pub fn text_lines(content: &str) -> impl Iterator<Item = &str> {
     markdown_lines(content)
         .filter(|(kind, _)| *kind == LineKind::Text)
@@ -451,14 +519,21 @@ pub fn text_lines(content: &str) -> impl Iterator<Item = &str> {
 }
 
 /// How many lines a leading front matter block takes, its two delimiters
-/// included; 0 when there is none.
+/// included; 0 when there is none. Each delimiter starts at column 0 and
+/// only spaces and tabs may follow it, as remark-frontmatter reads it: the
+/// line was trimmed, so `  ---` opened front matter that the page shows as
+/// a thematic break, and the lines after it were left out of the headings,
+/// tasks and text.
 pub fn front_matter_len(content: &str) -> usize {
+    fn delimiter(line: &str) -> &str {
+        line.trim_end_matches([' ', '\t', '\r'])
+    }
     let mut lines = content.lines();
-    if lines.next().map(str::trim) != Some("---") {
+    if lines.next().map(delimiter) != Some("---") {
         return 0;
     }
     lines
-        .position(|l| matches!(l.trim(), "---" | "..."))
+        .position(|l| matches!(delimiter(l), "---" | "..."))
         .map_or(0, |i| i + 2)
 }
 

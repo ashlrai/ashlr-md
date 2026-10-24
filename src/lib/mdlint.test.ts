@@ -873,3 +873,43 @@ describe("heading rules skip headings in list items and blockquotes", () => {
     ).toHaveLength(0);
   });
 });
+
+describe("heading rules read setext headings", () => {
+  // `Title`, then `===`, is an H1 on the page, as markdownLines records it.
+  it("single-h1 counts a setext H1", () => {
+    const doc = "Title\n=====\n\ntext\n\n# Other\n\nmore\n";
+    const v = lintDocument(doc, { rules: [ruleSingleH1] });
+    expect(v).toHaveLength(1);
+    expect(v[0].range?.from.line).toBe(6);
+    // A setext H1 after an ATX one is flagged at its underline.
+    const late = lintDocument("# One\n\ntext\n\nTwo\n===\n\nmore\n", {
+      rules: [ruleSingleH1],
+    });
+    expect(late).toHaveLength(1);
+    expect(late[0].range?.from).toMatchObject({ line: 6, col: 0 });
+    // A setext H2 is no H1, and `---` after a blank line is a thematic break.
+    const h2 = "# One\n\nSub\n---\n\ntext\n\n---\n";
+    expect(lintDocument(h2, { rules: [ruleSingleH1] })).toHaveLength(0);
+  });
+
+  it("orphaned-heading reads a setext heading on both sides", () => {
+    const before = "Title\n=====\n\n## Next\n\ntext\n";
+    const v = lintDocument(before, { rules: [ruleOrphanedHeading] });
+    expect(v).toHaveLength(1);
+    expect(v[0].message).toContain('"Title"');
+    const after = "# A\n\nTwo\nlines\n---\n\ntext\n";
+    const w = lintDocument(after, { rules: [ruleOrphanedHeading] });
+    expect(w).toHaveLength(1);
+    expect(w[0].message).toContain('"A"');
+    expect(
+      lintDocument("Title\n===\n\ntext\n", { rules: [ruleOrphanedHeading] }),
+    ).toHaveLength(0);
+  });
+
+  it("skips setext headings in list items and blockquotes", () => {
+    const doc = "# One\n\n- Two\n  ===\n\n> Three\n> ===\n\ntext\n";
+    expect(
+      lintDocument(doc, { rules: [ruleSingleH1, ruleOrphanedHeading] }),
+    ).toHaveLength(0);
+  });
+});

@@ -18,6 +18,8 @@
  * mirror the approach in agent-detect.ts.
  */
 
+import { stripFrontmatter } from "./frontmatter";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -184,17 +186,6 @@ const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Strip a leading YAML frontmatter block; return body lines + line offset. */
-function stripFrontmatter(markdown: string): { lines: string[]; offset: number } {
-  const lines = markdown.split("\n");
-  if (lines[0]?.trim() !== "---") return { lines, offset: 0 };
-  for (let i = 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (t === "---" || t === "...") return { lines: lines.slice(i + 1), offset: i + 1 };
-  }
-  return { lines, offset: 0 };
-}
 
 /** Normalise a raw severity word to its canonical key. */
 function canonicalSeverity(word: string): Severity {
