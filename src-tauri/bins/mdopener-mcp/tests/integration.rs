@@ -8069,6 +8069,38 @@ fn a_fence_in_a_list_item_is_a_fence() {
     );
 }
 
+/// A fence on a list item's continuation line, in an item indented four
+/// spaces or more under its parent, after a tab after the marker, or in a
+/// quote in an item was text, so a `[[link]]` or a `# comment` in its code
+/// was read as Markdown. Each is now a fence, as the app's renderer reads
+/// it, and the block ends at a line that leaves the item or the quote.
+#[test]
+fn a_fence_in_an_item_continuation_nested_item_or_item_quote_is_a_fence() {
+    use mdopener_mcp::{extract_headings, extract_wikilinks};
+    let cases: [(&str, &[&str]); 8] = [
+        ("- a\n\n  ```\n  [[InCode]]\n  ```\n[[Real]]\n", &["Real"]),
+        ("- a\n  ~~~\n  [[InCode]]\n[[Real]]\n", &["Real"]),
+        (
+            "- a\n    - ```\n      [[InCode]]\n    [[Real]]\n",
+            &["Real"],
+        ),
+        ("-\t```\n    [[InCode]]\n  [[Real]]\n", &["Real"]),
+        ("- > ```\n  > [[InCode]]\n  > ```\n[[Real]]\n", &["Real"]),
+        ("- > ```\n  [[Real]]\n", &["Real"]),
+        // Four spaces past the item's text is indented code, not a fence.
+        ("- a\n\n      ```\n  [[Real]]\n", &["Real"]),
+        // A line less indented than the item's text after a blank ends it.
+        ("- a\n\nb\n\n  ```\nx\n[[InCode]]\n", &[]),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(extract_wikilinks(doc), want, "{doc:?}");
+    }
+    assert_eq!(
+        extract_headings("- a\n\n  ```sh\n  # comment\n  ```\n\n# Real\n"),
+        vec![json!({ "level": 1, "text": "Real" })]
+    );
+}
+
 /// A fence inside a blockquote was text, so a `[[link]]` in quoted code
 /// was a link and export_text read a quoted `# comment` as a heading. A
 /// quoted fence is now a fence; its block ends at its closing fence or at a

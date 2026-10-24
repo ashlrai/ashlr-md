@@ -96,6 +96,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **More fences in list items are read as code.** A fence on a list
+  item's continuation line (`- a`, a blank line, then the fence indented
+  to the item's text), in an item indented four spaces or more under its
+  parent, after a tab after the marker, or in a quote in an item (`- > `
+  then a fence) was read as text. A `# comment` in its code was listed in
+  the Outline, and agents' `export_metadata` and task tools read its
+  `[[links]]`, headings and `- [ ]` lines as the note's own. The app and
+  mdopener-mcp now read each as a fence, as the preview renders it.
 - **The Outline leaves out a heading on a list item's continuation line.**
   A heading indented to a list item's text after a blank line (`- x`, a
   blank line, then `  # Sub`) or after a bare `-` is part of the item, and

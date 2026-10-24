@@ -35,98 +35,302 @@ pub enum LineKind {
 /// a fence of the same character at least as long with nothing after it,
 /// and a fence left open runs to the end, as in CommonMark.
 ///
-/// A fence inside a blockquote (a `>` line whose quoted text is a fence)
-/// is a fence too: the
-/// lines after it with at least as many `>` markers are its code until a
-/// closing fence behind those markers, and a line with fewer markers (a
-/// blank line included) ends the quote and so the block, as in CommonMark.
-/// A quoted fence used to be text, so a `# comment` or a `[[link]]` in
-/// quoted code was read as Markdown.
-///
-/// A fence that opens a list item ([`list_fence`]) is a fence too: the
-/// lines after it indented at least to the item's content column (blank
-/// lines included) are its code until a closing fence at that column (up
-/// to three more spaces), and a less indented line ends the item and so
-/// the block. A list-item fence used to be text, so a `  # comment` in an
-/// item's code was read as a heading and `  - [ ] x` as a task.
+/// A fence may sit in blockquotes and list items, as in CommonMark: behind
+/// `> ` markers, after list markers (`- `, `1. - `, `-` then a tab), in a
+/// quote in an item (`- > `), or on an item's continuation line indented
+/// to its content column (`- a`, a blank line, then two spaces and a
+/// fence), nested items included however deep (`containers`). The lines
+/// after it that stay in those containers (each quote's `>`, each item's
+/// content indentation, a blank line staying in an item but ending a
+/// quote) are its code until a closing fence in them, and a line that
+/// leaves one ends the block. Open list items are tracked across text
+/// lines, a less indented line ending them unless it continues a
+/// paragraph. A quoted fence, a list-item fence and then these used to be
+/// text, so a `# comment` or a `[[link]]` in their code was read as
+/// Markdown and `- [ ] x` as a task. The app's `outline.ts` reads lines by
+/// the same rule.
 pub fn markdown_lines(content: &str) -> impl Iterator<Item = (LineKind, &str)> {
     let front_matter = front_matter_len(content);
-    let mut fence: Option<(char, usize)> = None;
-    // The fence open inside a blockquote, with its number of `>` markers.
-    let mut quote_fence: Option<(char, usize, usize)> = None;
-    // The fence open in a list item, with the item's content column.
-    let mut item_fence: Option<(char, usize, usize)> = None;
+    // The open fence, with the containers its code lines stay in.
+    let mut fence: Option<(char, usize, Vec<Container>)> = None;
+    // The widths of the open list items, outermost first.
+    let mut items: Vec<usize> = Vec::new();
+    // How many open items hold the paragraph the line before is in (-1 for
+    // one in a blockquote), or None after any other line.
+    let mut paragraph: Option<isize> = None;
+    // The same for indented code, which a blank line does not end.
+    let mut indented: Option<isize> = None;
+    // Whether the innermost open item has only its marker so far.
+    let mut bare = false;
+    // Whether the line before was in a blockquote or ended a bare item:
+    // indented code after it closes a container.
+    let mut closer = false;
     content.lines().enumerate().map(move |(i, line)| {
         if i < front_matter {
             return (LineKind::FrontMatter, line);
         }
-        if let Some((c, n, column)) = item_fence {
-            let columns = indent_columns(line);
-            let rest = line.trim_start_matches([' ', '\t']);
-            if rest.trim().is_empty() || columns >= column {
-                return match code_fence(rest) {
-                    Some((rc, rn, tail))
-                        if columns - column <= 3
-                            && rc == c
-                            && rn >= n
-                            && tail.trim().is_empty() =>
-                    {
-                        item_fence = None;
-                        (LineKind::Fence, line)
-                    }
-                    _ => (LineKind::Code, line),
-                };
-            }
-            item_fence = None;
-        }
-        if let Some((c, n, depth)) = quote_fence {
-            let (markers, inner) = strip_quote_markers(line, depth);
-            if markers == depth {
-                return match code_fence(inner) {
-                    Some((rc, rn, rest)) if rc == c && rn >= n && rest.trim().is_empty() => {
-                        quote_fence = None;
-                        (LineKind::Fence, line)
-                    }
-                    _ => (LineKind::Code, line),
-                };
-            }
-            quote_fence = None;
-        }
-        let kind = match (fence, code_fence(line)) {
-            (Some((c, n)), Some((rc, rn, rest)))
-                if rc == c && rn >= n && rest.trim().is_empty() =>
-            {
+        let expanded = expand_tabs(line);
+        let mut ends_bare = false;
+        let quoted;
+        let mut kind = LineKind::Text;
+        let inside = fence
+            .as_ref()
+            .and_then(|(_, _, list)| continues(&expanded, list));
+        if let (Some((c, n, list)), Some(inside)) = (&fence, inside) {
+            quoted = list.contains(&Container::Quote);
+            kind = match code_fence(inside) {
+                Some((rc, rn, tail)) if rc == *c && rn >= *n && tail.trim().is_empty() => {
+                    LineKind::Fence
+                }
+                _ => LineKind::Code,
+            };
+            if kind == LineKind::Fence {
                 fence = None;
-                LineKind::Fence
             }
-            (Some(_), _) => LineKind::Code,
-            (None, Some((rc, rn, _))) => {
-                fence = Some((rc, rn));
-                LineKind::Fence
-            }
-            (None, None) => {
-                let (markers, inner) = strip_quote_markers(line, usize::MAX);
-                match code_fence(inner) {
-                    Some((rc, rn, _)) if markers > 0 => {
-                        quote_fence = Some((rc, rn, markers));
-                        LineKind::Fence
-                    }
-                    _ => match list_fence(line) {
-                        Some(open) => {
-                            item_fence = Some(open);
-                            LineKind::Fence
-                        }
-                        None => LineKind::Text,
-                    },
+        } else {
+            fence = None;
+            let (list, matched, rest) = containers(&expanded, &items, paragraph.or(indented));
+            quoted = list.contains(&Container::Quote);
+            let empty = rest.trim().is_empty();
+            let opened = list.len() > matched;
+            if let Some((c, n, _)) = code_fence(rest) {
+                items = leading_items(&list);
+                fence = Some((c, n, list));
+                kind = LineKind::Fence;
+                paragraph = None;
+                indented = None;
+                bare = false;
+            } else if empty && !opened {
+                // A blank line. An item that starts with one ends at a second.
+                if bare {
+                    items.pop();
+                }
+                ends_bare = bare;
+                paragraph = None;
+                bare = false;
+            } else {
+                let heading = atx_heading(rest).is_some();
+                // A paragraph goes on in a line that leaves an item without
+                // opening one, or a blockquote (lazy continuation).
+                let lazy = paragraph.is_some()
+                    && !heading
+                    && !opened
+                    && (matched < items.len() || paragraph == Some(-1));
+                if paragraph == Some(matched as isize) && !opened && setext_underline(rest) {
+                    // A setext underline ends the paragraph as a heading.
+                    items.truncate(matched);
+                    paragraph = None;
+                    indented = None;
+                    bare = false;
+                } else if thematic_break(rest) {
+                    // A thematic break ends the items it is not indented into.
+                    items = leading_items(&list);
+                    paragraph = None;
+                    indented = None;
+                    bare = false;
+                } else if !lazy {
+                    let closed = matched < items.len() || closer;
+                    items = leading_items(&list);
+                    bare = opened && empty && list.last() != Some(&Container::Quote);
+                    let level = if quoted { -1 } else { items.len() as isize };
+                    // Four spaces past the containers is indented code, not text.
+                    let code =
+                        (opened || paragraph.is_none()) && !empty && spaces_before(rest) >= 4;
+                    paragraph = (!heading && !empty && !code).then_some(level);
+                    // Only indented code that closed no container, as the
+                    // renderer reads it.
+                    indented = (code && !closed).then_some(level);
                 }
             }
-        };
+        }
+        closer = ends_bare || quoted;
         (kind, line)
     })
 }
 
+/// A container a line can sit in, from [`containers`]: a blockquote, or a
+/// list item with how many columns its content is past the container
+/// before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Container {
+    Quote,
+    Item(usize),
+}
+
+/// `line` with each tab replaced by the spaces that reach the next multiple
+/// of four columns, as CommonMark reads indentation.
+fn expand_tabs(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.contains('\t') {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut column = 0;
+    for c in line.chars() {
+        if c == '\t' {
+            let n = 4 - column % 4;
+            out.push_str(&" ".repeat(n));
+            column += n;
+        } else {
+            out.push(c);
+            column += 1;
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// How many spaces `line` (tabs expanded) starts with.
+fn spaces_before(line: &str) -> usize {
+    line.len() - line.trim_start_matches(' ').len()
+}
+
+/// `line` (tabs expanded) without the blockquote marker that opens it (at
+/// most three spaces, `>`, then one optional space), when it has one.
+fn quote_marker(line: &str) -> Option<&str> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let after = body.strip_prefix('>')?;
+    Some(after.strip_prefix(' ').unwrap_or(after))
+}
+
+/// The content column of the list item `line` (tabs expanded) opens, past
+/// the line's start, the rest of the line, and whether the item may
+/// interrupt a paragraph by its marker (false for an ordered item that
+/// does not start at 1), when it opens one: at most three spaces, `-`,
+/// `*`, `+` or 1 to 9 digits and `.` or `)`, then one to four spaces
+/// before the text. An item with nothing after its marker, or with five or
+/// more spaces (indented code), has its content one column past the
+/// marker, as in CommonMark.
+fn list_marker(line: &str) -> Option<(usize, &str, bool)> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let digits = body.bytes().take_while(u8::is_ascii_digit).count();
+    let (after, one) = if digits == 0 {
+        (body.strip_prefix(['-', '*', '+'])?, true)
+    } else if digits <= 9 {
+        let after = body[digits..].strip_prefix(['.', ')'])?;
+        (after, body[..digits].parse::<u32>() == Ok(1))
+    } else {
+        return None;
+    };
+    let end = line.len() - after.len();
+    let spaces = spaces_before(after);
+    if after.trim().is_empty() {
+        Some((end + 1, "", one))
+    } else if spaces == 0 {
+        None
+    } else if spaces > 4 {
+        Some((end + 1, &after[1..], one))
+    } else {
+        Some((end + spaces, &after[spaces..], one))
+    }
+}
+
+/// Whether `line` (tabs expanded) is a thematic break: at most three
+/// spaces, then three or more `-`, `*` or `_`, spaces between them allowed.
+fn thematic_break(line: &str) -> bool {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return false;
+    }
+    let Some(c) = body.chars().next().filter(|c| matches!(c, '-' | '*' | '_')) else {
+        return false;
+    };
+    body.chars().all(|x| x == c || x == ' ') && body.chars().filter(|&x| x == c).count() >= 3
+}
+
+/// Whether `line` (tabs expanded) is a setext heading underline: at most
+/// three spaces, then a run of `-` or of `=`, then only spaces.
+fn setext_underline(line: &str) -> bool {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return false;
+    }
+    let body = body.trim_end_matches(' ');
+    !body.is_empty() && (body.bytes().all(|b| b == b'-') || body.bytes().all(|b| b == b'='))
+}
+
+/// The containers `line` (tabs expanded) sits in, how many of the open
+/// list items `items` (their widths, outermost first) it continues by its
+/// indentation, and the rest of the line: first those items, then the
+/// blockquote markers and list markers it opens (`> `, `- `, `1. - `,
+/// `- > `). When the line would otherwise continue a paragraph held by
+/// `held` of the items (or indented code, which the renderer treats
+/// alike), a list marker that opens no text (`-` alone) or an ordered one
+/// that does not start at 1 is text, as in CommonMark, until a blockquote
+/// opens. A thematic break (`- - -`) opens no item. The app's `outline.ts`
+/// reads containers by the same rule.
+fn containers<'a>(
+    line: &'a str,
+    items: &[usize],
+    held: Option<isize>,
+) -> (Vec<Container>, usize, &'a str) {
+    let mut list = Vec::new();
+    let mut rest = line;
+    for &width in items {
+        if spaces_before(rest) < width {
+            break;
+        }
+        rest = &rest[width..];
+        list.push(Container::Item(width));
+    }
+    let matched = list.len();
+    let mut interrupt = held == Some(matched as isize);
+    loop {
+        if let Some(after) = quote_marker(rest) {
+            list.push(Container::Quote);
+            rest = after;
+            interrupt = false;
+            continue;
+        }
+        if thematic_break(rest) {
+            break;
+        }
+        match list_marker(rest) {
+            Some((width, after, one)) if !(interrupt && (!one || after.trim().is_empty())) => {
+                list.push(Container::Item(width));
+                rest = after;
+            }
+            _ => break,
+        }
+    }
+    (list, matched, rest)
+}
+
+/// The rest of `line` (tabs expanded) inside the containers `list` of an
+/// open fence, or None when the line leaves one of them: a blockquote
+/// needs its `>` (a blank line has none), and a list item needs its
+/// content indentation unless the line is blank.
+fn continues<'a>(line: &'a str, list: &[Container]) -> Option<&'a str> {
+    let mut rest = line;
+    for c in list {
+        match *c {
+            Container::Quote => rest = quote_marker(rest)?,
+            Container::Item(_) if rest.trim().is_empty() => rest = "",
+            Container::Item(width) if spaces_before(rest) >= width => rest = &rest[width..],
+            Container::Item(_) => return None,
+        }
+    }
+    Some(rest)
+}
+
+/// The widths of the list items that open `list`, before any blockquote.
+fn leading_items(list: &[Container]) -> Vec<usize> {
+    list.iter()
+        .map_while(|c| match c {
+            Container::Item(width) => Some(*width),
+            Container::Quote => None,
+        })
+        .collect()
+}
+
 /// `line` without up to `max` leading blockquote markers (at most three
 /// spaces, `>`, then one optional space or tab), and how many it lost.
+// mdopener-mcp uses it; the app includes this file only for its tasks.
+#[allow(dead_code)]
 pub fn strip_quote_markers(line: &str, max: usize) -> (usize, &str) {
     let mut rest = line;
     let mut markers = 0;
@@ -142,47 +346,6 @@ pub fn strip_quote_markers(line: &str, max: usize) -> (usize, &str) {
         markers += 1;
     }
     (markers, rest)
-}
-
-/// The fence character, its run length and the item's content column when
-/// `line` is one or more list markers (at most three spaces, `-`, `*`, `+`
-/// or 1 to 9 digits and `.` or `)`, then one to four spaces) followed by a
-/// code fence: `- ` then three backticks, or `1. - ~~~`. The app's
-/// `outline.ts` reads a list-item fence by the same rule.
-fn list_fence(line: &str) -> Option<(char, usize, usize)> {
-    let mut rest = line;
-    let mut column = 0;
-    while let Some(len) = list_marker_len(rest) {
-        column += len;
-        rest = &rest[len..];
-    }
-    if column == 0 || rest.starts_with(' ') {
-        return None;
-    }
-    code_fence(rest).map(|(c, n, _)| (c, n, column))
-}
-
-/// The length of the list marker that opens `line` with its one to four
-/// spaces (at most three spaces, `-`, `*`, `+` or 1 to 9 digits and `.` or
-/// `)`), when it has one and no fifth space follows.
-fn list_marker_len(line: &str) -> Option<usize> {
-    let body = line.trim_start_matches(' ');
-    let indent = line.len() - body.len();
-    if indent > 3 {
-        return None;
-    }
-    let digits = body.bytes().take_while(u8::is_ascii_digit).count();
-    let after = if digits == 0 {
-        body.strip_prefix(['-', '*', '+'])?
-    } else if digits <= 9 {
-        body[digits..].strip_prefix(['.', ')'])?
-    } else {
-        return None;
-    };
-    let spaces = after.len() - after.trim_start_matches(' ').len();
-    (1..=4)
-        .contains(&spaces)
-        .then(|| line.len() - after.len() + spaces)
 }
 
 /// The lines of `content` that are Markdown text: not front matter, not a
