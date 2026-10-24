@@ -192,4 +192,27 @@ describe("parseHeadings", () => {
       "text",
     ]);
   });
+  it("leaves a list-item heading out but counts its slug as the renderer does", () => {
+    // rehype-slug gives `- # Step` (a heading in a list item) the id `step`,
+    // so the real `# Step` below it is `step-1` in the page.
+    const doc = [
+      "- # Step",
+      "1. ## Two",
+      "> - ### Quoted item",
+      "-     # indented code",
+      "- #tag",
+      "",
+      "# Step",
+      "## Two",
+      "### Quoted item",
+      "# indented code",
+    ].join("\n");
+    expect(parseHeadings(doc).map((h) => [h.text, h.slug, h.line])).toEqual([
+      ["Step", "step-1", 7],
+      ["Two", "two-1", 8],
+      ["Quoted item", "quoted-item-1", 9],
+      ["indented code", "indented-code", 10],
+    ]);
+    expect(atxHeadings(doc).map((h) => h.line)).toEqual([7, 8, 9, 10]);
+  });
 });

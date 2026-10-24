@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Outline jumps to the right heading after a list-item one.** A
+  heading in a list item (`- # Step`) is not listed, as in
+  `export_metadata`, but the page gives it an id, so a later `# Step` is
+  `step-1` there while the Outline linked `step`. Its slug now counts.
 - **Code inside a blockquote is code.** A fence behind `>` markers was
   read as text, so a `[[link]]` in quoted code was linted as a missing
   link and `export_text` dropped the `#` of a quoted `# comment`. Quoted

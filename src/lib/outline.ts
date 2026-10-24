@@ -241,11 +241,13 @@ export function atxHeadings(markdown: string): (AtxHeading & { line: number })[]
 }
 
 /**
- * The text inside the blockquote markers of `line` (`> `, `>> `, `> > `),
- * or null when `line` is not in a blockquote.
+ * The text inside the blockquote markers and list markers that open
+ * `line` (`> `, `>> `, `- `, `1. `, `- > `), or null when it has none. A
+ * list marker loses one space or tab after it, so `-     # x` (indented
+ * code in the item) is not read as a heading.
  */
-function quoteContent(line: string): string | null {
-  const marker = /^ {0,3}>[ \t]?/;
+function containerContent(line: string): string | null {
+  const marker = /^ {0,3}(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
   let rest = line.endsWith("\r") ? line.slice(0, -1) : line;
   let m = marker.exec(rest);
   if (!m) return null;
@@ -270,6 +272,10 @@ function quoteContent(line: string): string | null {
  *   it a slug id, so it takes its slug here too, and a later `# Quote` is
  *   `quote-1` as in the DOM. It used to take none, so that later heading's
  *   entry jumped into the quote.
+ * - A heading in a list item (`- # Step`) is not listed either, as
+ *   mdopener-mcp's `export_metadata` headings leave it out, but the
+ *   renderer gives it an id, so it takes its slug the same way. It used to
+ *   take none, so a later `# Step` was `step` here and `step-1` in the page.
  * - Slugs are generated with github-slugger (same as the renderer), so repeated
  *   heading text dedupes to `-1`, `-2`, … exactly as the rendered ids do.
  *
@@ -291,9 +297,9 @@ export function parseHeadings(markdown: string): HeadingItem[] {
       out.push({ depth: h.depth, text, slug: slugger.slug(text), line: l.line });
       continue;
     }
-    const quoted = quoteContent(l.text);
-    if (quoted === null) continue;
-    const qh = atxHeading(quoted);
+    const inner = containerContent(l.text);
+    if (inner === null) continue;
+    const qh = atxHeading(inner);
     const text = qh ? stripInline(qh.text) : "";
     if (text !== "") slugger.slug(text);
   }
