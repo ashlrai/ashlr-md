@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Enter in a code block adds no list marker.** In the visual editor, list
+  continuation read the text of a code block from its start, so Enter in a
+  code block whose first line was `- a` or `1. x` inserted `- ` or `2. ` into
+  the code. It now reads only the cursor's line, and never in a code block.
 - **Source editor snippets and table rows read code blocks as the page does.**
   The source editor took any later fence of the same character as the end of
   a code block, so a ```` ```` ```` block holding ```` ``` ```` or a

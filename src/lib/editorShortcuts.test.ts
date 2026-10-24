@@ -78,6 +78,15 @@ describe("detectListContext", () => {
     expect(ctx!.orderedValue).toBe(3);
   });
 
+  it("reads only the line the cursor is on", () => {
+    // The text of a code block from its start: its first line used to be
+    // read, and `\s` ran across line breaks, so Enter in a code block that
+    // starts with `- a` (or `-` then a line) added a list marker.
+    expect(detectListContext("- a\nfoo")).toBeNull();
+    expect(detectListContext("-\nfoo")).toBeNull();
+    expect(detectListContext("x\n2. b")?.orderedValue).toBe(2);
+  });
+
   it("returns null for plain text (not a list item)", () => {
     expect(detectListContext("just some text")).toBeNull();
   });

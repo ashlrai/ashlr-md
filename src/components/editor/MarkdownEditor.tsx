@@ -406,7 +406,11 @@ function CrepeInner({ initialContent }: { initialContent: string }) {
           const resolvedPos = doc.resolve(pos);
           const lineStart = resolvedPos.start();
           const lineText = doc.textBetween(lineStart, pos, "\n");
-          const listCtx = detectListContext(lineText);
+          // Not in a code block, whose `- x` lines are code: Enter there
+          // used to add a list marker to the code.
+          const listCtx = resolvedPos.parent.type.spec.code
+            ? null
+            : detectListContext(lineText);
           if (listCtx) {
             e.preventDefault();
             const continuation = continueList(listCtx);
