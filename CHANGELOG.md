@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A nested list keeps its own marker.** The list marker is one setting for
+  the whole edited list, so typing in `- a` with `* b` nested under it saved
+  the nested list as `- b`, and a `1)` list nested in a `1.` list became
+  `1.`. Each nested list is now written with the marker its source used.
 - **An edited callout stays a callout.** Typing in a GitHub callout
   (`> [!NOTE]`, `> [!WARNING] Title`) in the WYSIWYG editor saved its marker
   as `> \[!NOTE]`, so it showed as a plain quote from then on. The marker is

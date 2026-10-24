@@ -35,7 +35,9 @@
  * its fence (`~~~` or backticks, at its length) and its whole info string
  * ({@link codeBlockText}), and an indented one stays indented. An edited
  * table keeps its rows' padding and its delimiter row where they still
- * hold ({@link keepTableLayout}).
+ * hold ({@link keepTableLayout}), a callout its `[!NOTE]` marker
+ * ({@link keepCalloutMarkers}), and a nested list its own marker
+ * ({@link keepNestedMarkers}).
  */
 
 import type { Crepe } from "@milkdown/crepe";
@@ -754,6 +756,92 @@ export function keepTableLayout(written: string, source: string): string {
 }
 
 /**
+ * The marker of the list `node` and of each list in it, in document order
+ * (the list first): `-`, `+` or `*` for a bullet list, `.` or `)` for an
+ * ordered one, "" when it cannot be read.
+ */
+export function listMarkers(original: string, node: MdNode): string[] {
+  const out: string[] = [];
+  const walk = (n: MdNode) => {
+    if (n.type === "list") {
+      const first = n.children?.[0];
+      const r = first ? range(first) : null;
+      const text = r ? original.slice(r.start, r.end) : "";
+      const m = n.ordered ? /^\d{1,9}([.)])/.exec(text)?.[1] : /^[-+*]/.exec(text)?.[0];
+      out.push(m ?? "");
+    }
+    for (const kid of n.children ?? []) walk(kid);
+  };
+  walk(node);
+  return out;
+}
+
+/** The node type {@link keepNestedMarkers} wraps a nested list in. */
+const LIST_SCOPE = "mdListScope";
+
+/** The parts of mdast-util-to-markdown's state {@link writeListScope} uses. */
+interface ToMarkdownState {
+  options: Record<string, unknown>;
+  handle: (node: unknown, parent: unknown, state: unknown, info: unknown) => string;
+}
+
+/**
+ * Write a {@link LIST_SCOPE} node: its list, with its own marker as the
+ * serializer's setting while it is written.
+ */
+function writeListScope(
+  node: { marker: string; children: unknown[] },
+  parent: unknown,
+  state: ToMarkdownState,
+  info: unknown,
+): string {
+  const o = state.options;
+  const saved = {
+    bullet: o.bullet,
+    bulletOther: o.bulletOther,
+    bulletOrdered: o.bulletOrdered,
+  };
+  if (node.marker === "." || node.marker === ")") o.bulletOrdered = node.marker;
+  else {
+    o.bullet = node.marker;
+    o.bulletOther = node.marker === "-" ? "*" : "-";
+  }
+  try {
+    return state.handle(node.children[0], parent, state, info);
+  } finally {
+    Object.assign(o, saved);
+  }
+}
+
+/**
+ * Give each list nested in `tree` (one list block, as the serializer will
+ * write it) its marker from `markers` ({@link listMarkers} of its source),
+ * when the block holds as many lists as its source did: the marker is one
+ * setting for the whole block, so `- a` with `* b` nested in it was saved
+ * as `- a` with `- b`. Each nested list is wrapped in a {@link LIST_SCOPE}
+ * node that sets it while the list is written.
+ */
+export function keepNestedMarkers(tree: unknown, markers: string[]): void {
+  const lists: { parent: SpelledNode; index: number }[] = [];
+  const walk = (node: SpelledNode) => {
+    (node.children ?? []).forEach((kid, index) => {
+      if (kid.type === "list") lists.push({ parent: node, index });
+      walk(kid);
+    });
+  };
+  walk(tree as SpelledNode);
+  if (lists.length !== markers.length) return;
+  // The first is the block's own list, written with the block's style.
+  for (let i = lists.length - 1; i > 0; i--) {
+    const { parent, index } = lists[i];
+    const marker = markers[i];
+    const children = parent.children as SpelledNode[];
+    if (marker === "") continue;
+    children[index] = { type: LIST_SCOPE, marker, children: [children[index]] };
+  }
+}
+
+/**
  * Keep a GitHub callout marker (`> [!NOTE]`, `> [!WARNING] Title`) that
  * starts a blockquote in `tree` unescaped, when `source` wrote it so: the
  * serializer escaped its `[`, so an edited callout was saved as
@@ -789,6 +877,8 @@ interface SpelledNode {
   type: string;
   value?: string;
   url?: string;
+  /** A {@link LIST_SCOPE} node's. */
+  marker?: string;
   children?: SpelledNode[];
 }
 
@@ -1003,6 +1093,13 @@ function styledSerializer(
       const remark = ctx.get(remarkCtx) as unknown as Processor;
       const settings = (remark.data("settings") ?? {}) as Record<string, unknown>;
       processor = remark().data("settings", { ...settings, ...style });
+      // An extension, as the options the editor gave remark-stringify
+      // replace the settings' handlers.
+      const extensions = (remark.data("toMarkdownExtensions") ?? []) as unknown[];
+      processor.data("toMarkdownExtensions", [
+        ...extensions,
+        { handlers: { [LIST_SCOPE]: writeListScope } },
+      ]);
       copies.set(key, processor);
     }
     const state = new SerializerState(ctx.get(schemaCtx));
@@ -1013,6 +1110,8 @@ function styledSerializer(
       const text = original.slice(r.start, r.end);
       keepSpellings(tree, text);
       keepCalloutMarkers(tree, text);
+      if (source.type === "list")
+        keepNestedMarkers(tree, listMarkers(original, source));
     }
     return restyled(processor.stringify(tree), original, source);
   };
