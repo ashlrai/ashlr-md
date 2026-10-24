@@ -303,9 +303,12 @@ const LONG_FLAGS: [&str; 5] = ["--edit", "--read", "--hook", "--help", "--versio
 /// The usage error for an unknown `flag`, with the flag it was probably
 /// meant to be (`--hok`, `-edit`, `--Edit`) or, for what looks like a file
 /// name (`-notes.md`), how to pass it. A misspelled `--hook` in a hook
-/// command failed with only "unknown flag" on every tool call.
+/// command failed with only "unknown flag" on every tool call. A value
+/// given with `=` (`--edit=yes`; no flag takes one) is left out of the
+/// comparison, so it is still told the flag it meant.
 fn unknown_flag(flag: &str) -> String {
-    let norm = format!("--{}", flag.trim_start_matches('-').to_ascii_lowercase());
+    let name = flag.split_once('=').map_or(flag, |(name, _)| name);
+    let norm = format!("--{}", name.trim_start_matches('-').to_ascii_lowercase());
     let near = LONG_FLAGS
         .iter()
         .map(|f| (edit_distance(&norm, f), *f))
@@ -1047,6 +1050,9 @@ mod tests {
             ("--raed", "--read"),
             ("--verison", "--version"),
             ("--hepl", "--help"),
+            ("--edit=yes", "--edit"),
+            ("--read=true", "--read"),
+            ("--hok=1", "--hook"),
         ] {
             assert_eq!(
                 parse_args(&args(&[typo, "a.md"])).unwrap_err(),

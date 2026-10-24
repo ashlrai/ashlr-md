@@ -128,6 +128,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **mdopen: `--edit=yes` is told the flag it meant.** A flag given a value
+  with `=` (no flag takes one) was compared whole, so `--edit=yes` got only
+  "unknown flag". The part before `=` is now compared, and the error says
+  "did you mean --edit?".
 - **MCP: connecting to the app gives up after half a second.** The server's
   connection to Ashlr MD had no connect timeout, so a port whose listener took
   no more connections held a tool call for the system's own timeout, a minute
