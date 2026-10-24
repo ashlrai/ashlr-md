@@ -8567,6 +8567,27 @@ fn export_text_drops_the_checkboxes_the_renderer_shows() {
     }
 }
 
+/// `strip_inline_markdown` read any `[ ]` as a link with the text ` `, so
+/// prose such as `[ ] not a task` and `- [ ]` alone (text on the page, no
+/// checkbox) lost their brackets. Only a task checkbox is dropped now.
+#[test]
+fn export_text_keeps_brackets_that_are_not_task_checkboxes() {
+    use mdopener_mcp::strip_inline_markdown;
+    assert_eq!(strip_inline_markdown("[ ] not a task"), "[ ] not a task");
+    assert_eq!(strip_inline_markdown("see [x] and [X]"), "see [x] and [X]");
+    assert_eq!(strip_inline_markdown("[x](https://e.x) link"), "x link");
+    assert_eq!(strip_inline_markdown("[label] ref"), "label ref");
+    let cases = [
+        ("[ ] not a task", "[ ] not a task"),
+        ("> [x] quoted prose", "[x] quoted prose"),
+        ("- [ ]", "[ ]"),
+        ("- [ ] task", "task"),
+    ];
+    for (doc, want) in cases {
+        assert_eq!(strip_markdown(doc), want, "{doc:?}");
+    }
+}
+
 /// markdown_lines tracked list items only up to the first blockquote, so
 /// a quoted item's continuation was read by its indentation in the quote:
 /// `>     **b**` after `> - a` was indented code, and a `> ```` line

@@ -8155,11 +8155,18 @@ pub fn strip_inline_markdown(s: &str) -> String {
                 continue;
             }
         }
-        // Link: [text](url) or [text][ref] → text only
+        // Link: [text](url) or [text][ref] → text only. A checkbox-like
+        // `[ ]`, `[x]` or `[X]` with no link after it is text: strip_markdown
+        // drops a task checkbox before this, so `[ ] not a task` keeps its
+        // brackets where it used to read `  not a task`.
         if chars[i] == '[' {
             if let Some((text, end)) = parse_bracket_content(&chars, i) {
                 let after = skip_link_tail(&chars, end);
-                out.push_str(&text);
+                if after == end && matches!(text.as_str(), " " | "x" | "X") {
+                    out.extend(&chars[i..end]);
+                } else {
+                    out.push_str(&text);
+                }
                 i = after;
                 continue;
             }

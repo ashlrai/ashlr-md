@@ -96,6 +96,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **`export_text` keeps brackets that are not task checkboxes.** Any `[ ]`
+  read as a link with the text ` `, so `[ ] not a task` came out as
+  `  not a task` and `- [ ]` alone (text on the page) lost its brackets. Only
+  a task checkbox, where `get_user_annotations` reads a task, is dropped now.
 - **Front matter opens only on `---` at column 0.** The Outline, the review
   summary and mdopener-mcp trimmed the first line, so `  ---` opened front matter
   and hid the lines up to the next `---` (their headings, tasks and text), while
