@@ -53,6 +53,8 @@ USAGE:
     mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)
     mdopener-mcp --version     print the version
     mdopener-mcp --help        print this help
+    mdopener-mcp --ashlr-handshake [--json]
+                               print the Ashlr companion handshake (JSON)
 
 Other arguments are ignored with a warning on stderr.
 
@@ -75,6 +77,17 @@ fn main() {
     // valid UTF-8, which stopped the server before it served anything. Such
     // an argument is ignored and named (lossily) like any other.
     let mut ignored = Vec::new();
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    // Companion handshake (docs/ashlr-handshake.md): one JSON line, before stdin.
+    if mdopener_mcp::handshake::requested(&args) {
+        let app_running =
+            dirs::home_dir().is_some_and(|h| h.join(".mdopener").join("ipc-port").exists());
+        let line = mdopener_mcp::handshake::build(env!("CARGO_PKG_VERSION"), app_running);
+        std::process::exit(print_stdout(&format!("{line}\n")));
+    }
     for arg in std::env::args_os()
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())

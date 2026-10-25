@@ -446,3 +446,20 @@ fn an_argument_that_is_not_utf8_is_ignored_not_a_panic() {
     );
     assert!(!stderr.contains("panicked"), "{stderr}");
 }
+
+#[test]
+fn ashlr_handshake_prints_one_json_line_without_reading_stdin() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .args(["--ashlr-handshake", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(stdout.trim().lines().count(), 1);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["kind"], "ashlr.handshake");
+    assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["command"], "mdopener-mcp");
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+}

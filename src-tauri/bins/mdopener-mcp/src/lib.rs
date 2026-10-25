@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod handshake;
 pub mod launch;
 
 // ── JSON-RPC types ────────────────────────────────────────────────────────────
