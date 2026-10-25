@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod doctor_fix;
 pub mod handshake;
 pub mod launch;
 
