@@ -11,6 +11,7 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by
   default, remote only with `allowRemote: true` and https, default model
   `qwen3.8:27b`, abliterated models refused, and no key ever sent.
+- Handshake conformance test (`bins/mdopener-mcp/tests/handshake_conformance.rs`): validates `mdopener-mcp --ashlr-handshake --json` against the Ashlr handshake v1 contract vendored from ashlr-stack (`tests/contract/`, pinned by sha256) and runs `doctor --fix --json` for the advertised `doctor-fix` capability in a fresh HOME, checking that the preview writes nothing.
 - **`mdopener-mcp doctor --fix [--apply] [--json]`** previews, then with `--apply`
   makes, repairs to `~/.mdopener`: owner-only modes on the folder, `sessions/`,
   `reviews/`, their files and `ipc-port`, and corrupt or oversized saved reviews
