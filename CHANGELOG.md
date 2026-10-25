@@ -40,6 +40,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 - **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
   needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
   https URL; otherwise no request is made.
+  **Migration for remote Ollama users:** add
+  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
+  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
+  Plain http to a remote host is never allowed. Without this the AI sidebar
+  and embeddings show:
+  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
+  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
 - **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
   the endpoint's whole response body, so a gateway that names the rejected
   `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
