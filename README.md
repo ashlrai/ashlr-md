@@ -183,6 +183,7 @@ Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
 | Agent activity drawer | `⌘B` |
 | Outline | `⌘⇧O` |
 | Settings | `⌘,` |
+| Keyboard shortcuts (cheat sheet) | `⌘/` |
 
 ## One-click agent setup
 

@@ -5,6 +5,12 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 
 ## [0.4.1] — Unreleased
 
+### Added
+- **Keyboard shortcut cheat sheet.** Press ⌘/ (Ctrl+/ on Windows and Linux), or
+  pick Help > Keyboard shortcuts in the command palette, for every shortcut on one
+  sheet, grouped like the palette and labelled for your platform. Built from the
+  command registry, so new shortcuts appear on it automatically (#34).
+
 ### Changed
 - **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
   the endpoint's whole response body, so a gateway that names the rejected

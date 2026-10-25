@@ -18,6 +18,10 @@ interface UiState {
   settingsOpen: boolean;
   openSettings: () => void;
   closeSettings: () => void;
+  /** Keyboard shortcut cheat sheet (Help, mod+/). */
+  shortcutsOpen: boolean;
+  openShortcuts: () => void;
+  closeShortcuts: () => void;
   commandPaletteOpen: boolean;
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
@@ -75,6 +79,9 @@ export const useUiStore = create<UiState>((set) => ({
   settingsOpen: false,
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  shortcutsOpen: false,
+  openShortcuts: () => set({ shortcutsOpen: true, commandPaletteOpen: false }),
+  closeShortcuts: () => set({ shortcutsOpen: false }),
   commandPaletteOpen: false,
   openCommandPalette: () => set({ commandPaletteOpen: true }),
   closeCommandPalette: () => set({ commandPaletteOpen: false }),
