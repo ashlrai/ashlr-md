@@ -916,7 +916,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_user_annotations",
-            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, appAuthFailed?, note? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty. Works without the app: when Ashlr MD is not running the tasks are read from the file on disk, `verdict` and `comments` are null (the app holds reviews only while it runs), and the result adds `appRunning: false` and a `note` saying so. When the app refuses this server's token (HTTP 401: a stale ~/.mdopener/ipc-token, or another instance on the port), the tasks are read from disk the same way and the result has `appAuthFailed: true` and a `note` saying how to fix it.",
+            description: "Return the human's latest review verdict, comments, and task-checkbox states for a document, as { path, verdict, comments, late, tasks: [{ text, checked }], tasksNote?, appRunning?, appAuthFailed?, note? }. `verdict` and `comments` are null when no review of that file was requested; `late` is true for a verdict given after the review window closed. Tasks come from the live buffer when the file is the open document, else from the Markdown file on disk (none for other files); `tasksNote` says why the tasks of a file that could not be read are empty. Works without the app: when Ashlr MD is not running the tasks are read from the file on disk, `verdict`, `comments` and `late` come from the last review the app saved in ~/.mdopener/reviews/ (null when none was saved), and the result adds `appRunning: false` and a `note` saying so. A saved review also gives `saved: true`, `reviewId`, `reviewedAt` (ms since the epoch), `supersededBy` for a superseded review, and `stale`: true when the file changed since the review (or cannot be compared), in which case the verdict was for an earlier version and is not the human's verdict on the file now; call request_review to ask again. When the app refuses this server's token (HTTP 401: a stale ~/.mdopener/ipc-token, or another instance on the port), the tasks and saved review are read from disk the same way and the result has `appAuthFailed: true` and a `note` saying how to fix it.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -3029,16 +3029,18 @@ pub fn tool_get_annotations(id: Value, args: &Value, ipc: &dyn IpcClient) -> Res
         // The app is not running: the tasks are still in the file on disk.
         // This used to be an error telling the agent to start the app,
         // although the description said tasks fall back to the file.
-        Err(e) if app_unreachable(&e) => tool_result(id, disk_annotations(&path)),
+        Err(e) if app_unreachable(&e) => tool_result(
+            id,
+            disk_annotations(&path, ANNOTATIONS_APP_NOT_RUNNING_NOTE),
+        ),
         // Something answered on the app's port but refused the token in
         // ~/.mdopener/ipc-token. That was the bare "IPC auth failed" error,
         // with no tasks and no next step; the tasks are on disk all the same.
         Err(e) if app_auth_failed(&e) => {
-            let mut body = disk_annotations(&path);
+            let mut body = disk_annotations(&path, ANNOTATIONS_APP_AUTH_FAILED_NOTE);
             if let Some(o) = body.as_object_mut() {
                 o.remove("appRunning");
                 o.insert("appAuthFailed".into(), json!(true));
-                o.insert("note".into(), json!(ANNOTATIONS_APP_AUTH_FAILED_NOTE));
             }
             tool_result(id, body)
         }
@@ -3063,10 +3065,10 @@ mod task_list;
 
 /// The `note` of a `get_user_annotations` result read from disk.
 pub const ANNOTATIONS_APP_NOT_RUNNING_NOTE: &str = "Ashlr MD is not running, so this was \
-read from the file on disk. `verdict` and `comments` are null because the app keeps reviews \
-in memory only while it runs: a review given before it quit cannot be read, so null here \
-does not mean that no review was given. To ask for one, call request_review (open_file \
-starts the app). `tasks` are the checkboxes saved in the file.";
+read from disk. `verdict` and `comments` are the last review the app saved for this file in \
+~/.mdopener/reviews/ (null when none was saved: a review given by an older version of the app \
+was kept in memory only). To ask for a review, call request_review (open_file starts the app). \
+`tasks` are the checkboxes saved in the file.";
 
 /// Why the app answered HTTP 401, shared by [`APP_AUTH_FAILED_MSG`] and
 /// [`ANNOTATIONS_APP_AUTH_FAILED_NOTE`] so the two say it the same way.
@@ -3089,10 +3091,10 @@ macro_rules! app_auth_failed_fix {
 /// app answered HTTP 401 (`appAuthFailed: true`).
 pub const ANNOTATIONS_APP_AUTH_FAILED_NOTE: &str = concat!(
     app_auth_failed_cause!(),
-    " So this was read from the \
-file on disk, and `verdict` and `comments` are null because the review, if there is one, is \
-held by the app this server could not read: null here does not mean that no review was \
-given. To fix it, ask the user to ",
+    " So this was read from disk: \
+`verdict` and `comments` are the last review the app saved for this file in \
+~/.mdopener/reviews/ (null when none was saved), and a newer one may be held by the app this \
+server could not read. To fix it, ask the user to ",
     app_auth_failed_fix!(),
     ", then call get_user_annotations again. `tasks` are the checkboxes saved in the file."
 );
@@ -3129,7 +3131,24 @@ fn app_auth_failed(err: &str) -> bool {
 /// review (the app held them), and the task checkboxes of the Markdown file
 /// on disk, read with the same checks as the other disk tools. A file that
 /// cannot be read has no tasks and a `tasksNote` saying why.
-fn disk_annotations(path: &str) -> Value {
+// Reviews the app saved to ~/.mdopener/reviews/, read back when it is closed.
+#[path = "../../../src/review_store.rs"]
+// The writer half is the app's; this server only reads.
+#[allow(dead_code)]
+mod review_store;
+
+/// Added to the note when the saved verdict is for an earlier version.
+pub const ANNOTATIONS_STALE_REVIEW_NOTE: &str = "The saved review is `stale`: the file changed \
+since the human gave it (or its contents could not be compared), so it was for an earlier \
+version and must not be taken as their verdict on the file as it is now. Call request_review \
+to ask again.";
+
+/// The note, `verdict`, `comments`, `late` and review fields of
+/// `get_user_annotations` while the app cannot be asked, from the review the
+/// app saved for `path` (none: null verdict). `stale` is true when the file
+/// is not the one that was reviewed, so an old approval is never current.
+fn disk_annotations(path: &str, note: &str) -> Value {
+    let saved = review_store::reviews_dir().and_then(|d| review_store::load(&d, path));
     // The raw OS text ("No such file or directory (os error 2)") read like a
     // fault: it is worded as the other disk tools word it.
     let read = checked_document(path, "path").and_then(|doc| {
@@ -3147,8 +3166,24 @@ fn disk_annotations(path: &str) -> Value {
         "comments": null,
         "late": false,
         "appRunning": false,
-        "note": ANNOTATIONS_APP_NOT_RUNNING_NOTE,
+        "note": note,
     });
+    if let Some(r) = saved {
+        let stale = !review_store::is_current(&r);
+        body["verdict"] = json!(r.verdict);
+        body["comments"] = json!(r.comments);
+        body["late"] = json!(r.late);
+        body["reviewId"] = json!(r.review_id);
+        body["reviewedAt"] = json!(r.decided_at);
+        body["saved"] = json!(true);
+        body["stale"] = json!(stale);
+        if let Some(by) = r.superseded_by {
+            body["supersededBy"] = json!(by);
+        }
+        if stale {
+            body["note"] = json!(format!("{note} {ANNOTATIONS_STALE_REVIEW_NOTE}"));
+        }
+    }
     match read {
         Ok(text) => body["tasks"] = json!(task_list::parse_tasks(&text)),
         Err(e) => {

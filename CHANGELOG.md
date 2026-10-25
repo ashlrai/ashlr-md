@@ -14,6 +14,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   pick Help > Keyboard shortcuts in the command palette, for every shortcut on one
   sheet, grouped like the palette and labelled for your platform. Built from the
   command registry, so new shortcuts appear on it automatically (#34).
+- **Review verdicts survive the app quitting.** A decided or superseded review
+  of a file is saved to `~/.mdopener/reviews/` (owner-only, 256 KiB cap, newest
+  review wins, `late` and `supersededBy` kept). When the app is closed or
+  refuses the token, `get_user_annotations` returns that saved verdict and
+  comments with `appRunning: false` (or `appAuthFailed: true`) and `stale: true`
+  when the file changed since the review, so an approval of an earlier version
+  is never reported as current. Corrupt or oversized files are ignored.
 
 ### Changed
 - **AI and embedding errors no longer carry secrets.** An Anthropic error quoted

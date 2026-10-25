@@ -70,7 +70,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Publish to Homebrew cask, winget, and AUR
 
 **Make agent output come alive (the differentiator)**
-- [ ] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks)
+- [x] Live diff-review UI for ` ```diff ` blocks (apply / copy hunks): shipped in `src/components/viewer/DiffBlock.tsx` (per-hunk Copy hunk, Copy all, Apply, Reject)
 - [ ] Recognize & pretty-render more agent doc schemas (plans, reviews, specs) with bespoke renderers
 - [ ] Run buttons for more than shell (with sandboxing); inline results
 - [ ] Let agents register doc "kinds" + custom renderers (an extension API)
@@ -86,8 +86,10 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Premium hosted tier (the sustainability model), strictly opt-in, zero-retention
 
 **Polish**
-- [ ] Image paste → saved relative to the file; drag-drop ordering
-- [ ] More export themes; "copy as rich text" for email/Slack
+- [x] Image paste → saved relative to the file: shipped in `src/lib/pasteImage.ts`, used by `SourceEditor.tsx` and `MarkdownEditor.tsx`
+- [ ] Image drag-drop ordering
+- [x] "Copy as rich text" for email/Slack: shipped in `src/lib/copyRichText.ts` (`⌘⇧C`)
+- [ ] More export themes
 - [ ] Accessibility pass (full keyboard nav, screen-reader labels)
 
 ## How to shape it

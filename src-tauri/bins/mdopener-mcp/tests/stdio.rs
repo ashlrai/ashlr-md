@@ -463,3 +463,100 @@ fn ashlr_handshake_prints_one_json_line_without_reading_stdin() {
     assert_eq!(v["command"], "mdopener-mcp");
     assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
 }
+
+#[path = "../../../src/review_store.rs"]
+#[allow(dead_code)]
+mod review_store;
+
+/// Call `get_user_annotations` for `file` against the real binary with the
+/// app not running (empty HOME except what the test planted).
+fn annotations(home: &std::path::Path, file: &str) -> Value {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        for r in [
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "test", "version": "test"}}}),
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                "name":"get_user_annotations","arguments":{"path": file}}}),
+        ] {
+            writeln!(stdin, "{r}").unwrap();
+        }
+    }
+    drop(child.stdin.take());
+    let out: Vec<Value> = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map(|l| serde_json::from_str(&l.unwrap()).unwrap())
+        .collect();
+    assert!(child.wait().unwrap().success());
+    let call = out.iter().find(|r| r["id"] == 2).unwrap();
+    assert_ne!(call["result"]["isError"], true, "{call}");
+    serde_json::from_str(call["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+/// With the app closed, the review it saved in ~/.mdopener/reviews/ is
+/// reported, and once the file changes it reads `stale`, so an approval of
+/// an earlier version is never presented as current.
+#[test]
+fn get_user_annotations_reports_the_saved_review_when_the_app_is_closed() {
+    let home = tempfile::tempdir().unwrap();
+    let docs = tempfile::tempdir().unwrap();
+    let file = docs.path().join("plan.md");
+    std::fs::write(&file, "# Plan\n- [x] write it\n").unwrap();
+    let path = std::fs::canonicalize(&file).unwrap();
+    let path = path.to_str().unwrap();
+
+    // No saved review: verdict null, not stale.
+    let v = annotations(home.path(), path);
+    assert!(v["verdict"].is_null(), "{v}");
+    assert_eq!(v["appRunning"], false);
+    assert!(v.get("stale").is_none(), "{v}");
+
+    let dir = home.path().join(".mdopener").join("reviews");
+    let saved = review_store::SavedReview::new(
+        path,
+        "r1",
+        "approved",
+        Some("looks good".into()),
+        true,
+        None,
+        1_000,
+        2_000,
+    );
+    assert!(review_store::save(&dir, &saved).unwrap());
+
+    let v = annotations(home.path(), path);
+    assert_eq!(v["verdict"], "approved", "{v}");
+    assert_eq!(v["comments"], "looks good");
+    assert_eq!(v["late"], true);
+    assert_eq!(v["reviewId"], "r1");
+    assert_eq!(v["reviewedAt"], 2_000);
+    assert_eq!(v["appRunning"], false);
+    assert_eq!(v["stale"], false, "{v}");
+    assert_eq!(v["tasks"][0]["checked"], true);
+
+    std::fs::write(&file, "# Plan\n- [x] write it\n- [ ] new step\n").unwrap();
+    let v = annotations(home.path(), path);
+    assert_eq!(v["verdict"], "approved");
+    assert_eq!(v["stale"], true, "{v}");
+    assert_eq!(v["appRunning"], false);
+    let note = v["note"].as_str().unwrap();
+    assert!(
+        note.contains("earlier") && note.contains("request_review"),
+        "{note}"
+    );
+
+    // A corrupt record is ignored, not trusted.
+    std::fs::write(review_store::review_file(&dir, path), "{oops").unwrap();
+    let v = annotations(home.path(), path);
+    assert!(v["verdict"].is_null(), "{v}");
+}

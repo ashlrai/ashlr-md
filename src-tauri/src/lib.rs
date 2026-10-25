@@ -6,6 +6,7 @@ mod agent_setup;
 mod ai;
 mod base_urls;
 mod redact;
+mod review_store;
 mod cli_install;
 mod close_guard;
 mod deep_link;
