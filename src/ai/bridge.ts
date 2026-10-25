@@ -14,6 +14,7 @@ import type { AIMessage } from "./types";
 const PROVIDER_TIER: Record<string, number> = {
   "apple-fm": 0,
   ollama: 1,
+  "local-inference": 1,
   anthropic: 2,
   hosted: 3,
 };
@@ -44,6 +45,25 @@ interface ErrorPayload {
 export async function detectOllama(): Promise<string | null> {
   try {
     return await invoke<string | null>("ai_detect_ollama");
+  } catch {
+    return null;
+  }
+}
+
+/** Value-free status of a valid `localInference` block (no URL). */
+export interface LocalInferenceStatus {
+  provider: string;
+  model: string;
+  loopback: boolean;
+}
+
+/**
+ * Ask Rust for the `localInference` block in ~/.ashlr/config.json. Null when
+ * it is absent or invalid (an invalid block never routes anywhere).
+ */
+export async function detectLocalInference(): Promise<LocalInferenceStatus | null> {
+  try {
+    return await invoke<LocalInferenceStatus | null>("ai_local_inference_status");
   } catch {
     return null;
   }

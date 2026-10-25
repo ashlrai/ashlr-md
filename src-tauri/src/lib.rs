@@ -17,6 +17,7 @@ mod export_path;
 mod file_handler;
 mod ipc;
 mod line_breaks;
+mod local_inference;
 mod markdown_lines;
 mod redact;
 mod review_store;
@@ -144,6 +145,7 @@ pub fn run() {
             cli_install::install_cli,
             run::run_shell,
             ai::anthropic_env_key_status,
+            local_inference::ai_local_inference_status,
             secrets::set_ai_key,
             secrets::get_ai_key,
             secrets::delete_ai_key,

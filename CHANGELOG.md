@@ -6,6 +6,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`localInference` local models.** A `localInference` block in
+  `~/.ashlr/config.json` (same shape as Phantom #917) points the AI sidebar at
+  a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by
+  default, remote only with `allowRemote: true` and https, default model
+  `qwen3.8:27b`, abliterated models refused, and no key ever sent.
 - **`mdopener-mcp doctor --fix [--apply] [--json]`** previews, then with `--apply`
   makes, repairs to `~/.mdopener`: owner-only modes on the folder, `sessions/`,
   `reviews/`, their files and `ipc-port`, and corrupt or oversized saved reviews
@@ -31,6 +36,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   is never reported as current. Corrupt or oversized files are ignored.
 
 ### Changed
+- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
+  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
+  https URL; otherwise no request is made.
 - **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
   the endpoint's whole response body, so a gateway that names the rejected
   `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors
