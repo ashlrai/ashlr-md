@@ -98,6 +98,7 @@ export const COMMAND_GROUPS = [
   "AI",
   "Appearance",
   "App",
+  "Help",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -370,6 +371,15 @@ export function getCommands(): Command[] {
       keywords: ["settings", "preferences", "config", "options"],
       shortcut: "mod+,",
       run: () => ui().openSettings(),
+    },
+    {
+      id: "help.shortcuts",
+      title: "Keyboard shortcuts",
+      group: "Help",
+      hint: "Every shortcut on one sheet",
+      keywords: ["keyboard", "shortcuts", "keys", "hotkeys", "cheat sheet", "help"],
+      shortcut: "mod+/",
+      run: () => ui().openShortcuts(),
     },
 
     // ── Agent Activity ────────────────────────────────────────────────────

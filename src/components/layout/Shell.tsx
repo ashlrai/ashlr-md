@@ -14,6 +14,7 @@ import { DigestCard } from "../DigestCard";
 import { FindBar } from "../find/FindBar";
 import { Outline } from "../Outline";
 import { ReviewPanel } from "../review/ReviewPanel";
+import { ShortcutSheet } from "../ShortcutSheet";
 import { SearchPanel } from "../search/SearchPanel";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { Toast } from "../Toast";
@@ -62,6 +63,7 @@ export function Shell({ dragOver }: ShellProps) {
   const missing = useDocumentStore((s) => s.missing);
   const exportOpen = useUiStore((s) => s.exportOpen);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const shortcutsOpen = useUiStore((s) => s.shortcutsOpen);
   const findOpen = useUiStore((s) => s.findOpen);
   const aiOpen = useAIStore((s) => s.open);
   const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen);
@@ -218,6 +220,7 @@ export function Shell({ dragOver }: ShellProps) {
         </Suspense>
       )}
       {settingsOpen && <SettingsPanel />}
+      {shortcutsOpen && <ShortcutSheet />}
       {commandPaletteOpen && (
         <Suspense fallback={null}>
           <CommandPalette />

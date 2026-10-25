@@ -605,3 +605,40 @@
 .settings-memory-clear:hover {
   color: #d1242f;
 }
+
+/* ── Keyboard shortcut cheat sheet (ShortcutSheet.tsx) ─────────────────────── */
+.shortcut-sheet-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px 28px;
+}
+.shortcut-sheet-heading {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, inherit);
+}
+.shortcut-sheet-group dl {
+  margin: 0;
+}
+.shortcut-sheet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.shortcut-sheet-row dt {
+  margin: 0;
+}
+.shortcut-sheet-row dd {
+  margin: 0;
+  white-space: nowrap;
+}
+.shortcut-sheet-row kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+}
