@@ -60,6 +60,10 @@ jobs:
   # ---------------------------------------------------------------------------
   check-linux:
     name: Check (Linux)
+    # `needs` only to read the classifier for the clippy step. The job still
+    # runs whatever the classifier did (a failed classifier must not skip it).
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +102,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       # Caches ~/.cargo AND src-tauri/target (previously only the registry was
       # cached, so every run recompiled the whole Tauri tree).
@@ -129,6 +135,13 @@ jobs:
 
       - name: Rust check (workspace)
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
+
+      # Linux-target clippy catches non-macOS cfg rot (dead code off macOS)
+      # that the macOS clippy cannot see. Only when Rust inputs changed (the
+      # classifier's `macos` output), or when the classifier did not succeed.
+      - name: Rust clippy (workspace, Linux)
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
+        run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.

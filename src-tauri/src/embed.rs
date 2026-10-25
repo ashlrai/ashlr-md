@@ -471,8 +471,7 @@ async fn embed_index_inner(
 
     // Merge under the lock; serialize while held, write to disk after releasing.
     let keep: std::collections::HashSet<String> = md_paths.iter().cloned().collect();
-    let reembedded: std::collections::HashSet<String> =
-        new_mtimes.keys().cloned().collect();
+    let reembedded: std::collections::HashSet<String> = new_mtimes.keys().cloned().collect();
 
     let json = {
         let mut idx = state.index.lock().unwrap();
@@ -573,7 +572,11 @@ pub async fn embed_search(
                 }
             })
             .collect();
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored.truncate(top_k);
         scored
     })

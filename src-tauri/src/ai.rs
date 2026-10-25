@@ -15,8 +15,8 @@
 //!   "ai://done"   { requestId: String }                  — stream complete
 //!   "ai://error"  { requestId: String, error: String }   — hard error
 
-use futures_util::StreamExt;
 use crate::redact;
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -605,7 +605,9 @@ mod redaction_tests {
         let mut found = Vec::new();
         for (label, root) in roots() {
             let base = format!("{root}/x/_phantom/{PROXY_TOKEN}");
-            let err = send_anthropic(&client, &base, KEY, &body()).await.expect_err(label);
+            let err = send_anthropic(&client, &base, KEY, &body())
+                .await
+                .expect_err(label);
             if label.starts_with("401") {
                 assert!(err.contains("401"), "{label}: did not reach the stub");
                 reached = true;
@@ -622,9 +624,12 @@ mod redaction_tests {
         let mut reached = false;
         let mut found = Vec::new();
         for (label, root) in roots() {
-            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let with_creds =
+                root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
             let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
-            let err = send_ollama_chat(&client, &base, &body()).await.expect_err(label);
+            let err = send_ollama_chat(&client, &base, &body())
+                .await
+                .expect_err(label);
             if label.starts_with("401") {
                 assert!(err.contains("401"), "{label}: did not reach the stub");
                 reached = true;
@@ -641,12 +646,16 @@ mod redaction_tests {
         let mut cases = roots();
         cases.push(("200 with a bad body", serve(Mode::EchoBadJson)));
         for (label, root) in cases {
-            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let with_creds =
+                root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
             let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
             match detect_ollama_at(&base).await {
                 Err(err) => found.extend(leaks(label, &err)),
                 // A refused or non-2xx probe means "no Ollama", not an error.
-                Ok(v) => assert!(v.is_none() && !label.starts_with("200"), "{label}: expected a decode error"),
+                Ok(v) => assert!(
+                    v.is_none() && !label.starts_with("200"),
+                    "{label}: expected a decode error"
+                ),
             }
         }
         assert!(found.is_empty(), "{found:#?}");
@@ -659,11 +668,13 @@ mod redaction_tests {
         cases.push(("200 with a bad body", serve(Mode::EchoBadJson)));
         let mut found = Vec::new();
         for (label, root) in cases {
-            let with_creds = root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
+            let with_creds =
+                root.replace("http://", &format!("http://{OLLAMA_USER}:{OLLAMA_PASS}@"));
             let base = format!("{with_creds}/x/_phantom/{PROXY_TOKEN}");
-            let err = crate::embed::fetch_embeddings_at(&client, &base, "m", &["hello".to_string()])
-                .await
-                .expect_err(label);
+            let err =
+                crate::embed::fetch_embeddings_at(&client, &base, "m", &["hello".to_string()])
+                    .await
+                    .expect_err(label);
             found.extend(leaks(label, &err));
         }
         assert!(found.is_empty(), "{found:#?}");

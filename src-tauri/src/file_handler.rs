@@ -150,7 +150,10 @@ mod tests {
             .to_string_lossy()
             .into_owned();
 
-        assert_eq!(cli_arg_to_path(file.to_str().unwrap()), Some(canonical.clone()));
+        assert_eq!(
+            cli_arg_to_path(file.to_str().unwrap()),
+            Some(canonical.clone())
+        );
         let uri = tauri::Url::from_file_path(&file).unwrap().to_string();
         assert!(uri.contains("a%20file%20%C3%A9.md"), "{uri}");
         assert_eq!(cli_arg_to_path(&uri), Some(canonical.clone()));

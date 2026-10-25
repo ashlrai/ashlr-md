@@ -29,8 +29,10 @@ use tauri::Emitter;
 // ---------------------------------------------------------------------------
 // Re-use the DeltaPayload / DonePayload / ErrorPayload types from ai.rs.
 // They are not pub there, so we redefine the identical shapes here.
+// Only the macOS streaming path emits them, so they exist only there.
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Serialize)]
 struct DeltaPayload {
     #[serde(rename = "requestId")]
@@ -38,12 +40,14 @@ struct DeltaPayload {
     delta: String,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Serialize)]
 struct DonePayload {
     #[serde(rename = "requestId")]
     request_id: String,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Serialize)]
 struct ErrorPayload {
     #[serde(rename = "requestId")]
@@ -70,7 +74,14 @@ pub struct AfmMsg {
 ///
 /// On non-macOS platforms the inner `Option` is always `None`; the mutex is
 /// still present so the type is uniform across platforms.
-pub struct AfmState(pub std::sync::Mutex<Option<AfmStateInner>>);
+///
+/// The field is read only by the macOS sidecar code. It cannot be cfg-gated
+/// without splitting the type (lib.rs manages `AfmState` on every platform),
+/// so the unread-field lint is allowed off macOS only.
+pub struct AfmState(
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub  std::sync::Mutex<Option<AfmStateInner>>,
+);
 
 impl Default for AfmState {
     fn default() -> Self {
@@ -230,9 +241,8 @@ mod macos {
             .read_line(&mut init_line)
             .map_err(|e| format!("Failed to read sidecar init line: {e}"))?;
 
-        let init: SidecarInit = serde_json::from_str(init_line.trim()).map_err(|e| {
-            format!("Failed to parse sidecar init JSON: {e} (got: {init_line:?})")
-        })?;
+        let init: SidecarInit = serde_json::from_str(init_line.trim())
+            .map_err(|e| format!("Failed to parse sidecar init JSON: {e} (got: {init_line:?})"))?;
 
         if !init.available {
             let reason = init
@@ -414,7 +424,13 @@ pub async fn afm_generate(
     {
         tauri::async_runtime::spawn(async move {
             if let Err(e) = macos::do_generate(app.clone(), messages, request_id.clone()).await {
-                let _ = app.emit("ai://error", ErrorPayload { request_id, error: e });
+                let _ = app.emit(
+                    "ai://error",
+                    ErrorPayload {
+                        request_id,
+                        error: e,
+                    },
+                );
             }
         });
         Ok(())
