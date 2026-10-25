@@ -1127,10 +1127,7 @@ mod tests {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let mut root = std::env::temp_dir();
-        root.push(format!(
-            "mdopener-wikilink-test-{}-{n}",
-            std::process::id()
-        ));
+        root.push(format!("mdopener-wikilink-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("notes")).unwrap();
         let mut a = std::fs::File::create(root.join("Alpha.md")).unwrap();
@@ -1432,8 +1429,13 @@ mod tests {
         std::fs::write(root.join("secret.md"), "TOPSECRET").unwrap();
         let base = root.join("notes");
         // `../secret.md` escapes the doc's folder → must be refused, file untouched.
-        let err = apply_file_patch(s(&base), "../secret.md".into(), "TOPSECRET".into(), "x".into())
-            .unwrap_err();
+        let err = apply_file_patch(
+            s(&base),
+            "../secret.md".into(),
+            "TOPSECRET".into(),
+            "x".into(),
+        )
+        .unwrap_err();
         assert!(err.contains("outside"), "got: {err}");
         assert_eq!(
             std::fs::read_to_string(root.join("secret.md")).unwrap(),
@@ -1560,8 +1562,7 @@ mod tests {
         std::fs::write(&doc, "# Doc").unwrap();
         // A `../`-style extension can never match the allowlist, so the only
         // untrusted input can't escape the assets/ subtree.
-        let err =
-            save_pasted_image(s(&doc), b"x".to_vec(), "../../etc/passwd".into()).unwrap_err();
+        let err = save_pasted_image(s(&doc), b"x".to_vec(), "../../etc/passwd".into()).unwrap_err();
         assert!(err.contains("Unsupported"), "got: {err}");
     }
 

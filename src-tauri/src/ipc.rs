@@ -353,7 +353,9 @@ pub struct StreamEditApplyOutcome {
 
 /// In-flight `/stream-edit-apply` round-trips.
 #[derive(Default)]
-pub struct PendingStreamEditsApply(pub Mutex<HashMap<String, mpsc::Sender<StreamEditApplyOutcome>>>);
+pub struct PendingStreamEditsApply(
+    pub Mutex<HashMap<String, mpsc::Sender<StreamEditApplyOutcome>>>,
+);
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -471,7 +473,11 @@ pub fn mcp_edit_result(
     let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
         // The receiver may already be gone if handle_edit timed out; ignore.
-        let _ = tx.send(EditOutcome { ok, replaced, error });
+        let _ = tx.send(EditOutcome {
+            ok,
+            replaced,
+            error,
+        });
     }
 }
 
@@ -485,14 +491,19 @@ pub fn mcp_stream_edit_preview(
     diff: String,
     candidates: Option<Vec<StreamEditCandidate>>,
     match_count: Option<u32>,
-    #[allow(unused_variables)]
-    preview_lines: u32,
+    #[allow(unused_variables)] preview_lines: u32,
     error: Option<String>,
     pending: tauri::State<PendingStreamEdits>,
 ) {
     let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
-        let _ = tx.send(StreamEditPreviewOutcome { ok, diff, candidates, match_count, error });
+        let _ = tx.send(StreamEditPreviewOutcome {
+            ok,
+            diff,
+            candidates,
+            match_count,
+            error,
+        });
     }
 }
 
@@ -510,7 +521,13 @@ pub fn mcp_stream_edit_apply_result(
 ) {
     let tx = pending.0.lock_recover().remove(&edit_id);
     if let Some(tx) = tx {
-        let _ = tx.send(StreamEditApplyOutcome { ok, replaced, match_index, error, match_count });
+        let _ = tx.send(StreamEditApplyOutcome {
+            ok,
+            replaced,
+            match_index,
+            error,
+            match_count,
+        });
     }
 }
 
@@ -545,7 +562,13 @@ fn session_file_name(session_id: &str) -> String {
 fn legacy_session_file_name(session_id: &str) -> String {
     let safe: String = session_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{safe}.json")
 }
@@ -894,8 +917,7 @@ pub fn remove_port_file() {
 /// Call this once from `.setup()`.
 pub fn start(app: AppHandle) -> Result<u16, String> {
     // Bind to any free loopback port.
-    let server =
-        Server::http("127.0.0.1:0").map_err(|e| format!("IPC server bind failed: {e}"))?;
+    let server = Server::http("127.0.0.1:0").map_err(|e| format!("IPC server bind failed: {e}"))?;
 
     let port = server
         .server_addr()
@@ -982,55 +1004,63 @@ fn handle_request(req: Request, app: &AppHandle, bearer: &str) {
     }
 
     match (method, path) {
-            (Method::Post, "/review") => handle_review_post(req, app),
-            (Method::Get, "/review/result") => handle_review_result(req, query, app),
-            (Method::Get, "/annotations") => handle_annotations(req, query, app),
+        (Method::Post, "/review") => handle_review_post(req, app),
+        (Method::Get, "/review/result") => handle_review_result(req, query, app),
+        (Method::Get, "/annotations") => handle_annotations(req, query, app),
 
-            (Method::Get, "/vault") => handle_vault(req, app),
-            (Method::Get, "/search") => handle_search(req, query, app),
-            (Method::Post, "/edit") => handle_edit(req, app),
-            (Method::Post, "/stream-edit") => handle_stream_edit(req, app),
-            (Method::Post, "/stream-edit-apply") => handle_stream_edit_apply(req, app),
-            (Method::Post, "/present") => handle_present(req, app),
+        (Method::Get, "/vault") => handle_vault(req, app),
+        (Method::Get, "/search") => handle_search(req, query, app),
+        (Method::Post, "/edit") => handle_edit(req, app),
+        (Method::Post, "/stream-edit") => handle_stream_edit(req, app),
+        (Method::Post, "/stream-edit-apply") => handle_stream_edit_apply(req, app),
+        (Method::Post, "/present") => handle_present(req, app),
 
-            (Method::Get, "/content") => {
-                let mirror = app.state::<DocMirror>();
-                let inner = mirror.0.lock_recover().clone();
-                send_json(req, serde_json::json!({
+        (Method::Get, "/content") => {
+            let mirror = app.state::<DocMirror>();
+            let inner = mirror.0.lock_recover().clone();
+            send_json(
+                req,
+                serde_json::json!({
                     "path": inner.path,
                     "content": inner.content,
-                }));
-            }
-
-            // The open document's path alone: the MCP server's stream-edit
-            // tools only compare paths, and fetching `/content` for that
-            // copied the whole document (up to 16 MiB) to read one field.
-            (Method::Get, "/content/path") => {
-                let mirror = app.state::<DocMirror>();
-                let path = mirror.0.lock_recover().path.clone();
-                send_json(req, content_path_body(path));
-            }
-
-            (Method::Post, "/content") => handle_set_content(req, app),
-
-            (Method::Post, "/open") => handle_open(req, app),
-
-            (Method::Get, "/recent") => {
-                let limit = match limit_param(query, 10) {
-                    Ok(l) => l,
-                    Err(e) => return send_error(req, 400, &e),
-                };
-
-                let mirror = app.state::<RecentMirror>();
-                let recents: Vec<_> =
-                    mirror.0.lock_recover().iter().take(limit).cloned().collect();
-                send_json(req, serde_json::json!(recents));
-            }
-
-            (Method::Post, "/export") => handle_export(req, app),
-
-            (method, path) => send_not_found(req, &method, path),
+                }),
+            );
         }
+
+        // The open document's path alone: the MCP server's stream-edit
+        // tools only compare paths, and fetching `/content` for that
+        // copied the whole document (up to 16 MiB) to read one field.
+        (Method::Get, "/content/path") => {
+            let mirror = app.state::<DocMirror>();
+            let path = mirror.0.lock_recover().path.clone();
+            send_json(req, content_path_body(path));
+        }
+
+        (Method::Post, "/content") => handle_set_content(req, app),
+
+        (Method::Post, "/open") => handle_open(req, app),
+
+        (Method::Get, "/recent") => {
+            let limit = match limit_param(query, 10) {
+                Ok(l) => l,
+                Err(e) => return send_error(req, 400, &e),
+            };
+
+            let mirror = app.state::<RecentMirror>();
+            let recents: Vec<_> = mirror
+                .0
+                .lock_recover()
+                .iter()
+                .take(limit)
+                .cloned()
+                .collect();
+            send_json(req, serde_json::json!(recents));
+        }
+
+        (Method::Post, "/export") => handle_export(req, app),
+
+        (method, path) => send_not_found(req, &method, path),
+    }
 }
 
 // ── Individual handlers ───────────────────────────────────────────────────────
@@ -1127,7 +1157,14 @@ fn window_round_trip(
     event: &str,
     payload: serde_json::Value,
 ) -> Option<Result<EditOutcome, mpsc::RecvTimeoutError>> {
-    window_round_trip_within(app, prefix, event, payload, EDIT_ROUNDTRIP_TIMEOUT, &EDIT_SLOTS)
+    window_round_trip_within(
+        app,
+        prefix,
+        event,
+        payload,
+        EDIT_ROUNDTRIP_TIMEOUT,
+        &EDIT_SLOTS,
+    )
 }
 
 /// [`window_round_trip`] waiting up to `timeout` for the window's answer, in
@@ -1387,12 +1424,11 @@ fn export_refusal(format: &str, open: Option<&str>) -> Option<String> {
             "Unknown export format '{format}': use pdf, docx, html or epub."
         ));
     }
-    open.is_none()
-        .then(|| {
-            "No document is open to export. Call open_file with the document's `path` and \
+    open.is_none().then(|| {
+        "No document is open to export. Call open_file with the document's `path` and \
              mode \"read\", then retry."
-                .to_string()
-        })
+            .to_string()
+    })
 }
 
 // ── Review handlers ───────────────────────────────────────────────────────────
@@ -1606,13 +1642,16 @@ fn handle_review_result(req: Request, query: &str, app: &AppHandle) {
     };
     match record {
         None => send_json(req, serde_json::json!({ "status": "not_found" })),
-        Some((status, verdict, comments, late, superseded_by)) => send_json(req, serde_json::json!({
-            "status": status,
-            "verdict": verdict,
-            "comments": comments,
-            "late": late,
-            "supersededBy": superseded_by,
-        })),
+        Some((status, verdict, comments, late, superseded_by)) => send_json(
+            req,
+            serde_json::json!({
+                "status": status,
+                "verdict": verdict,
+                "comments": comments,
+                "late": late,
+                "supersededBy": superseded_by,
+            }),
+        ),
     }
 }
 
@@ -1727,15 +1766,18 @@ fn handle_vault(req: Request, app: &AppHandle) {
         .iter()
         .map(|r| r.path.clone())
         .collect();
-    send_json(req, serde_json::json!({
-        "watchedDir": vault.watched_dir,
-        "files": vault.files,
-        "truncated": vault.truncated,
-        "limit": vault.limit,
-        "scanCut": vault.scan_cut,
-        "depthCut": vault.depth_cut,
-        "recents": recents,
-    }));
+    send_json(
+        req,
+        serde_json::json!({
+            "watchedDir": vault.watched_dir,
+            "files": vault.files,
+            "truncated": vault.truncated,
+            "limit": vault.limit,
+            "scanCut": vault.scan_cut,
+            "depthCut": vault.depth_cut,
+            "recents": recents,
+        }),
+    );
 }
 
 /// GET /search?q=…&limit=N — full-text search across the vault + recents.
@@ -1828,8 +1870,11 @@ fn search_body(
     let mut body = serde_json::json!({ "query": q, "results": results });
     if vault_truncated || scan_cut || depth_cut {
         body["truncated"] = serde_json::json!(true);
-        body["note"] =
-            serde_json::json!(vault_truncated_note(vault_limit, scan_cut || depth_cut, depth_cut));
+        body["note"] = serde_json::json!(vault_truncated_note(
+            vault_limit,
+            scan_cut || depth_cut,
+            depth_cut
+        ));
     }
     if depth_cut {
         body["depthCut"] = serde_json::json!(true);
@@ -2144,10 +2189,13 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // frontend (or burn a round-trip) on them. An empty `find` is always invalid;
     // this also matches `apply_unique_edit`'s contract exactly.
     if body.find.is_empty() {
-        return send_json(req, serde_json::json!({
-            "ok": false,
-            "error": "`find` must not be empty.",
-        }));
+        return send_json(
+            req,
+            serde_json::json!({
+                "ok": false,
+                "error": "`find` must not be empty.",
+            }),
+        );
     }
 
     // If the caller named a path, make sure it matches the open doc so they don't
@@ -2179,12 +2227,15 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
         let pending = app.state::<PendingEdits>();
         pending.0.lock_recover().insert(edit_id.clone(), tx);
     }
-    let emitted = app.emit("mcp://edit", serde_json::json!({
-        "editId": edit_id,
-        "find": body.find,
-        "replace": body.replace,
-        "save": body.save,
-    }));
+    let emitted = app.emit(
+        "mcp://edit",
+        serde_json::json!({
+            "editId": edit_id,
+            "find": body.find,
+            "replace": body.replace,
+            "save": body.save,
+        }),
+    );
     // Nothing will report back when the window was never told: say so now
     // instead of timing out with a guess.
     if let Some(reply) = emit_failure(emitted) {
@@ -2200,7 +2251,10 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
     // no-op rather than leaking the sender.
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
-            send_json(req, serde_json::json!({ "ok": true, "replaced": outcome.replaced }));
+            send_json(
+                req,
+                serde_json::json!({ "ok": true, "replaced": outcome.replaced }),
+            );
         }
         Ok(outcome) => {
             let msg = outcome
@@ -2209,11 +2263,17 @@ fn handle_edit(mut req: Request, app: &AppHandle) {
             send_json(req, serde_json::json!({ "ok": false, "error": msg }));
         }
         Err(_) => {
-            app.state::<PendingEdits>().0.lock_recover().remove(&edit_id);
-            send_json(req, serde_json::json!({
-                "ok": false,
-                "error": window_timed_out("apply the edit", true),
-            }));
+            app.state::<PendingEdits>()
+                .0
+                .lock_recover()
+                .remove(&edit_id);
+            send_json(
+                req,
+                serde_json::json!({
+                    "ok": false,
+                    "error": window_timed_out("apply the edit", true),
+                }),
+            );
         }
     }
 }
@@ -2234,8 +2294,12 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
         preview_lines: u32,
         path: Option<String>,
     }
-    fn default_true() -> bool { true }
-    fn default_preview_lines() -> u32 { 5 }
+    fn default_true() -> bool {
+        true
+    }
+    fn default_preview_lines() -> u32 {
+        5
+    }
 
     let body = match read_json_body::<Body>(&mut req) {
         Ok(b) => b,
@@ -2243,10 +2307,13 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
     };
 
     if body.find.is_empty() {
-        return send_json(req, serde_json::json!({
-            "ok": false,
-            "error": "`find` must not be empty.",
-        }));
+        return send_json(
+            req,
+            serde_json::json!({
+                "ok": false,
+                "error": "`find` must not be empty.",
+            }),
+        );
     }
     // Same canonical path check as `/edit`. The frontend re-checks against
     // the path it knows (in case the tab changes meanwhile), so it is sent
@@ -2303,14 +2370,20 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
         }
         Ok(outcome) => send_json(req, stream_edit_refusal(outcome)),
         Err(_) => {
-            app.state::<PendingStreamEdits>().0.lock_recover().remove(&edit_id);
-            send_json(req, serde_json::json!({
-                "ok": false,
-                "error": window_timed_out(
-                    if body.preview { "preview the edit" } else { "apply the edit" },
-                    !body.preview,
-                ),
-            }));
+            app.state::<PendingStreamEdits>()
+                .0
+                .lock_recover()
+                .remove(&edit_id);
+            send_json(
+                req,
+                serde_json::json!({
+                    "ok": false,
+                    "error": window_timed_out(
+                        if body.preview { "preview the edit" } else { "apply the edit" },
+                        !body.preview,
+                    ),
+                }),
+            );
         }
     }
 }
@@ -2322,7 +2395,9 @@ fn handle_stream_edit(mut req: Request, app: &AppHandle) {
 /// document, an exception), so a count is never made up. Those refusals
 /// used to carry a `0`.
 fn stream_edit_refusal(outcome: StreamEditPreviewOutcome) -> serde_json::Value {
-    let msg = outcome.error.unwrap_or_else(|| "stream-edit preview failed.".into());
+    let msg = outcome
+        .error
+        .unwrap_or_else(|| "stream-edit preview failed.".into());
     let mut reply = serde_json::json!({ "ok": false, "error": msg });
     if let Some(n) = outcome.match_count {
         reply["matchCount"] = serde_json::json!(n);
@@ -2356,10 +2431,13 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
     };
 
     if body.find.is_empty() {
-        return send_json(req, serde_json::json!({
-            "ok": false,
-            "error": "`find` must not be empty.",
-        }));
+        return send_json(
+            req,
+            serde_json::json!({
+                "ok": false,
+                "error": "`find` must not be empty.",
+            }),
+        );
     }
     let path = match body.path.as_deref().map(|p| open_document_named(app, p)) {
         None => None,
@@ -2400,19 +2478,28 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 
     match rx.recv_timeout(EDIT_ROUNDTRIP_TIMEOUT) {
         Ok(outcome) if outcome.ok => {
-            send_json(req, serde_json::json!({
-                "ok": true,
-                "replaced": outcome.replaced,
-                "matchIndex": outcome.match_index,
-            }));
+            send_json(
+                req,
+                serde_json::json!({
+                    "ok": true,
+                    "replaced": outcome.replaced,
+                    "matchIndex": outcome.match_index,
+                }),
+            );
         }
         Ok(outcome) => send_json(req, stream_edit_apply_refusal(outcome)),
         Err(_) => {
-            app.state::<PendingStreamEditsApply>().0.lock_recover().remove(&apply_id);
-            send_json(req, serde_json::json!({
-                "ok": false,
-                "error": window_timed_out("apply the edit", true),
-            }));
+            app.state::<PendingStreamEditsApply>()
+                .0
+                .lock_recover()
+                .remove(&apply_id);
+            send_json(
+                req,
+                serde_json::json!({
+                    "ok": false,
+                    "error": window_timed_out("apply the edit", true),
+                }),
+            );
         }
     }
 }
@@ -2422,7 +2509,9 @@ fn handle_stream_edit_apply(mut req: Request, app: &AppHandle) {
 /// sent one (a refusal that searched for `find`), and no `matchCount`
 /// otherwise, so a count is never made up. It used to carry none.
 fn stream_edit_apply_refusal(outcome: StreamEditApplyOutcome) -> serde_json::Value {
-    let msg = outcome.error.unwrap_or_else(|| "stream-edit-apply failed.".into());
+    let msg = outcome
+        .error
+        .unwrap_or_else(|| "stream-edit-apply failed.".into());
     let mut reply = serde_json::json!({ "ok": false, "error": msg });
     if let Some(n) = outcome.match_count {
         reply["matchCount"] = serde_json::json!(n);
@@ -2480,9 +2569,7 @@ fn send_json(req: Request, value: serde_json::Value) {
     let body = value.to_string();
     let resp = Response::from_string(body)
         .with_status_code(200)
-        .with_header(
-            tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap(),
-        );
+        .with_header(tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap());
     let _ = req.respond(resp);
 }
 
@@ -2510,9 +2597,7 @@ fn send_not_found(req: Request, method: &Method, path: &str) {
     .to_string();
     let resp = Response::from_string(body)
         .with_status_code(405)
-        .with_header(
-            tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap(),
-        )
+        .with_header(tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap())
         .with_header(tiny_http::Header::from_bytes(b"Allow", allow.as_bytes()).unwrap());
     let _ = req.respond(resp);
 }
@@ -2542,9 +2627,7 @@ fn send_error(req: Request, code: u16, msg: &str) {
     let body = serde_json::json!({"error": msg}).to_string();
     let resp = Response::from_string(body)
         .with_status_code(code)
-        .with_header(
-            tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap(),
-        );
+        .with_header(tiny_http::Header::from_bytes(b"Content-Type", b"application/json").unwrap());
     let _ = req.respond(resp);
 }
 
@@ -2595,14 +2678,20 @@ mod tests {
             error: Some(error.into()),
             ..Default::default()
         });
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": error, "matchCount": 3 }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": error, "matchCount": 3 })
+        );
         // A real search that found nothing keeps its 0.
         let v = stream_edit_refusal(StreamEditPreviewOutcome {
             match_count: Some(0),
             error: Some("not found".into()),
             ..Default::default()
         });
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": "not found", "matchCount": 0 }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": "not found", "matchCount": 0 })
+        );
     }
 
     /// A refusal that did not search (no document open, a `path` that is not
@@ -2611,12 +2700,18 @@ mod tests {
     #[test]
     fn stream_edit_refusal_without_a_search_carries_no_count() {
         let v = stream_edit_refusal(StreamEditPreviewOutcome::default());
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": "stream-edit preview failed." }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": "stream-edit preview failed." })
+        );
         let v = stream_edit_refusal(StreamEditPreviewOutcome {
             error: Some("Path mismatch".into()),
             ..Default::default()
         });
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": "Path mismatch" }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": "Path mismatch" })
+        );
     }
 
     /// A refused stream-edit apply answered `{ ok: false, error }` with no
@@ -2630,12 +2725,18 @@ mod tests {
             match_count: Some(2),
             ..Default::default()
         });
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": error, "matchCount": 2 }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": error, "matchCount": 2 })
+        );
         let v = stream_edit_apply_refusal(StreamEditApplyOutcome {
             error: Some("Path mismatch".into()),
             ..Default::default()
         });
-        assert_eq!(v, serde_json::json!({ "ok": false, "error": "Path mismatch" }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "ok": false, "error": "Path mismatch" })
+        );
     }
 
     /// `/search` said nothing when the vault list was cut short, so an agent
@@ -2648,7 +2749,10 @@ mod tests {
         let cut = search_body("q", Vec::<String>::new(), true, Some(150), false, false);
         assert_eq!(cut["truncated"], true);
         let note = cut["note"].as_str().unwrap();
-        assert!(note.contains("its 150 most recently changed files"), "{cut}");
+        assert!(
+            note.contains("its 150 most recently changed files"),
+            "{cut}"
+        );
         // An older frontend that sends no cap: no number is claimed.
         let cut = search_body("q", Vec::<String>::new(), true, None, false, false);
         let note = cut["note"].as_str().unwrap();
@@ -2662,11 +2766,20 @@ mod tests {
     fn search_body_says_when_the_vault_walk_was_cut() {
         let cut = search_body("q", Vec::<String>::new(), false, Some(200), true, false);
         assert_eq!(cut["truncated"], true, "{cut}");
-        assert!(cut.get("depthCut").is_none(), "the entry budget, not depth: {cut}");
+        assert!(
+            cut.get("depthCut").is_none(),
+            "the entry budget, not depth: {cut}"
+        );
         let note = cut["note"].as_str().unwrap();
-        assert!(note.contains("too large for Ashlr MD to scan in full"), "{cut}");
+        assert!(
+            note.contains("too large for Ashlr MD to scan in full"),
+            "{cut}"
+        );
         assert!(!note.contains("deeply nested"), "{cut}");
-        assert!(note.contains("the 200 most recently changed of the files it scanned"), "{cut}");
+        assert!(
+            note.contains("the 200 most recently changed of the files it scanned"),
+            "{cut}"
+        );
     }
 
     /// The depth limit used to share `scanCut` (and its note) with the entry
@@ -2677,7 +2790,10 @@ mod tests {
         assert_eq!(cut["truncated"], true, "{cut}");
         assert_eq!(cut["depthCut"], true, "{cut}");
         let note = cut["note"].as_str().unwrap();
-        assert!(note.contains("too deeply nested for Ashlr MD to scan in full"), "{cut}");
+        assert!(
+            note.contains("too deeply nested for Ashlr MD to scan in full"),
+            "{cut}"
+        );
         assert!(note.contains("at most 8 levels down"), "{cut}");
     }
 
@@ -2765,7 +2881,10 @@ mod tests {
         assert_eq!(r["ok"], false);
         assert_eq!(r["path"], "/tmp/out.pdf");
         let e = r["error"].as_str().unwrap();
-        assert!(e.contains("Another headless export is still being written"), "{e}");
+        assert!(
+            e.contains("Another headless export is still being written"),
+            "{e}"
+        );
         assert!(e.contains("at most 30s"), "{e}");
     }
 
@@ -2924,10 +3043,7 @@ mod tests {
         let md = "  - [ ] indented\n- [x]\n- [x]\n  next line\n";
         assert_eq!(
             pairs(md),
-            vec![
-                ("indented".to_string(), false),
-                (String::new(), true),
-            ]
+            vec![("indented".to_string(), false), (String::new(), true),]
         );
     }
 
@@ -3205,7 +3321,10 @@ mod tests {
         assert!(e.contains("get_current_content"), "{e}");
         let reply = window_open_reply(Err(RecvTimeoutError::Timeout), "/d/a.md", "present");
         let e = reply["error"].as_str().unwrap();
-        assert!(e.contains("present /d/a.md: the window did not answer"), "{e}");
+        assert!(
+            e.contains("present /d/a.md: the window did not answer"),
+            "{e}"
+        );
     }
 
     /// `/open` and `/present` answer with what the window did, so an open
@@ -3686,7 +3805,10 @@ mod tests {
         let gone = d.0.join("gone.md");
         let gone_s = gone.to_str().unwrap();
         assert!(names_open_document(gone_s, gone_s));
-        assert!(!names_open_document(&format!("{}/./gone.md", d.0.display()), gone_s));
+        assert!(!names_open_document(
+            &format!("{}/./gone.md", d.0.display()),
+            gone_s
+        ));
     }
 
     #[test]
@@ -3907,9 +4029,13 @@ mod tests {
         super::send_not_found(req, &method, "/nope");
         let raw = client.join().unwrap();
         let (head, body) = raw.split_once("\r\n\r\n").unwrap();
-        assert!(head.starts_with("HTTP/1.0 404") || head.starts_with("HTTP/1.1 404"), "{head}");
         assert!(
-            head.to_ascii_lowercase().contains("content-type: application/json"),
+            head.starts_with("HTTP/1.0 404") || head.starts_with("HTTP/1.1 404"),
+            "{head}"
+        );
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("content-type: application/json"),
             "{head}"
         );
         let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
@@ -3941,7 +4067,10 @@ mod tests {
     fn a_known_route_under_the_wrong_method_is_a_json_405() {
         let raw = not_found_reply(b"GET /open HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", "/open");
         let (head, body) = raw.split_once("\r\n\r\n").unwrap();
-        assert!(head.starts_with("HTTP/1.0 405") || head.starts_with("HTTP/1.1 405"), "{head}");
+        assert!(
+            head.starts_with("HTTP/1.0 405") || head.starts_with("HTTP/1.1 405"),
+            "{head}"
+        );
         assert!(head.to_ascii_lowercase().contains("allow: post"), "{head}");
         let v: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
         assert_eq!(v["error"], "/open does not take GET: use POST.", "{v}");
@@ -3953,7 +4082,10 @@ mod tests {
         );
         let (head, _) = raw.split_once("\r\n\r\n").unwrap();
         assert!(head.contains(" 405"), "{head}");
-        assert!(head.to_ascii_lowercase().contains("allow: get, post"), "{head}");
+        assert!(
+            head.to_ascii_lowercase().contains("allow: get, post"),
+            "{head}"
+        );
     }
 
     /// `GET /content/path` answers the open path and nothing else, so the
@@ -3976,9 +4108,15 @@ mod tests {
         let mut found = vec![("GET".to_string(), "/health".to_string())];
         for line in router.lines() {
             let t = line.trim_start();
-            let Some(rest) = t.strip_prefix("(Method::") else { continue };
-            let Some((method, rest)) = rest.split_once(", \"") else { continue };
-            let Some((path, _)) = rest.split_once('"') else { continue };
+            let Some(rest) = t.strip_prefix("(Method::") else {
+                continue;
+            };
+            let Some((method, rest)) = rest.split_once(", \"") else {
+                continue;
+            };
+            let Some((path, _)) = rest.split_once('"') else {
+                continue;
+            };
             found.push((method.to_ascii_uppercase(), path.to_string()));
         }
         found.sort();
@@ -4005,7 +4143,9 @@ mod tests {
         assert!(err.contains("more than the 16 MiB"), "{err}");
         let err = read_session_file(&d.0, "s1").err().expect("refused");
         assert!(err.contains("more than the 16 MiB"), "{err}");
-        let err = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)]).err().expect("refused");
+        let err = write_session_file(&d.0, "s1", &[msg("m1", "s1", 1)])
+            .err()
+            .expect("refused");
         assert!(err.contains("more than the 16 MiB"), "{err}");
         assert_eq!(
             std::fs::metadata(&path).unwrap().len(),
@@ -4023,8 +4163,8 @@ mod tests {
             content: "x".repeat(6 * 1024 * 1024),
             ..msg(id, "s1", ts)
         };
-        let kept = write_session_file(&d.0, "s1", &[big("a", 1), big("b", 2), big("c", 3)])
-            .unwrap();
+        let kept =
+            write_session_file(&d.0, "s1", &[big("a", 1), big("b", 2), big("c", 3)]).unwrap();
         assert_eq!(ids(&kept), ["b", "c"]);
         let path = d.0.join(session_file_name("s1"));
         assert!(std::fs::metadata(&path).unwrap().len() <= MAX_SESSION_FILE_BYTES);
