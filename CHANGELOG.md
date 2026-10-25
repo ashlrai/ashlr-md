@@ -6,6 +6,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`mdopener-mcp --ashlr-handshake`** prints the Ashlr companion handshake v1
+  (name, version, protocols, capabilities, health, files it may edit) as one JSON
+  line, the same shape as locus, ashlr-stack, ashlr-plugin and lexicon. See
+  docs/ashlr-handshake.md.
 - **Keyboard shortcut cheat sheet.** Press ⌘/ (Ctrl+/ on Windows and Linux), or
   pick Help > Keyboard shortcuts in the command palette, for every shortcut on one
   sheet, grouped like the palette and labelled for your platform. Built from the
