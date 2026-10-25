@@ -26,7 +26,8 @@ pub fn build(version: &str, app_running: bool) -> Value {
             "document-edit",
             "export",
             "vault-search",
-            "agent-setup"
+            "agent-setup",
+            "doctor-fix"
         ],
         "health": {
             // The server runs without the app; several tools then answer from disk.

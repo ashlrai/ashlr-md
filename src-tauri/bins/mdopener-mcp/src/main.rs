@@ -55,6 +55,8 @@ USAGE:
     mdopener-mcp --help        print this help
     mdopener-mcp --ashlr-handshake [--json]
                                print the Ashlr companion handshake (JSON)
+    mdopener-mcp doctor --fix [--apply] [--json]
+                               preview (or with --apply make) repairs to ~/.mdopener
 
 Other arguments are ignored with a warning on stderr.
 
@@ -87,6 +89,16 @@ fn main() {
             dirs::home_dir().is_some_and(|h| h.join(".mdopener").join("ipc-port").exists());
         let line = mdopener_mcp::handshake::build(env!("CARGO_PKG_VERSION"), app_running);
         std::process::exit(print_stdout(&format!("{line}\n")));
+    }
+    // `doctor --fix [--apply] [--json]` (docs/doctor-fix.md), before stdin.
+    if args.first().is_some_and(|a| a == "doctor") {
+        let root = dirs::home_dir().map(|h| h.join(".mdopener"));
+        let (out, err, code) = mdopener_mcp::doctor_fix::run(&args[1..], root.as_deref());
+        if !err.is_empty() {
+            eprint!("{err}");
+        }
+        let status = print_stdout(&out);
+        std::process::exit(if code != 0 { code } else { status });
     }
     for arg in std::env::args_os()
         .skip(1)

@@ -6,6 +6,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`mdopener-mcp doctor --fix [--apply] [--json]`** previews, then with `--apply`
+  makes, repairs to `~/.mdopener`: owner-only modes on the folder, `sessions/`,
+  `reviews/`, their files and `ipc-port`, and corrupt or oversized saved reviews
+  moved aside with a byte-identical 0600 backup. Same semantics as
+  `locus doctor --fix` (preview by default, exit 1 when an applied fix was
+  skipped, `--apply` without `--fix` refused). `ipc-token` is never touched and is
+  reported as a manual item when others can read it. The handshake lists the new
+  `doctor-fix` capability for `stack doctor --fix`. See docs/doctor-fix.md.
 - **`mdopener-mcp --ashlr-handshake`** prints the Ashlr companion handshake v1
   (name, version, protocols, capabilities, health, files it may edit) as one JSON
   line, the same shape as locus, ashlr-stack, ashlr-plugin and lexicon. See
