@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::base_urls;
+use crate::local_inference;
 
 // ---------------------------------------------------------------------------
 // Tuning constants
@@ -247,7 +247,10 @@ struct TagsResponse {
 
 async fn detect_embed_model(client: &Client) -> Option<String> {
     let resp = client
-        .get(format!("{}/api/tags", base_urls::ollama_base_url()))
+        .get(format!(
+            "{}/api/tags",
+            local_inference::ollama_base_url().ok()?
+        ))
         .timeout(std::time::Duration::from_millis(800))
         .send()
         .await
@@ -280,7 +283,7 @@ async fn fetch_embeddings(
     model: &str,
     inputs: &[String],
 ) -> Result<Vec<Vec<f32>>, String> {
-    fetch_embeddings_at(client, &base_urls::ollama_base_url(), model, inputs).await
+    fetch_embeddings_at(client, &local_inference::ollama_base_url()?, model, inputs).await
 }
 
 /// [`fetch_embeddings`] against an explicit Ollama base URL.

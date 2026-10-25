@@ -383,3 +383,34 @@ describe("aiStore — hostedToken lifecycle", () => {
     expect(useAIStore.getState().hostedToken).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// localInference (explicit opt-in in ~/.ashlr/config.json)
+// ---------------------------------------------------------------------------
+
+describe("LocalInferenceProvider", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetStore();
+  });
+
+  it("is chosen first when Rust reports a valid localInference block", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "ai_local_inference_status"
+        ? { provider: "ollama", model: "qwen3.8:27b", loopback: true }
+        : null,
+    );
+    useAIStore.setState({ apiKey: "sk-ant-key" });
+    const provider = await detectProvider();
+    expect(provider.id).toBe("local-inference");
+    expect(provider.capabilities.modelName).toBe("qwen3.8:27b");
+    expect(provider.capabilities.isLocal).toBe(true);
+  });
+
+  it("is skipped when the block is absent or invalid", async () => {
+    invokeMock.mockResolvedValue(null);
+    useAIStore.setState({ apiKey: "sk-ant-key" });
+    const provider = await detectProvider();
+    expect(provider.id).toBe("anthropic");
+  });
+});

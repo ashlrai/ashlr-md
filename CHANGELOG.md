@@ -6,6 +6,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`localInference` local models.** A `localInference` block in
+  `~/.ashlr/config.json` (same shape as Phantom #917) points the AI sidebar at
+  a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by
+  default, remote only with `allowRemote: true` and https, default model
+  `qwen3.8:27b`, abliterated models refused, and no key ever sent.
 - Handshake conformance test (`bins/mdopener-mcp/tests/handshake_conformance.rs`): validates `mdopener-mcp --ashlr-handshake --json` against the Ashlr handshake v1 contract vendored from ashlr-stack (`tests/contract/`, pinned by sha256) and runs `doctor --fix --json` for the advertised `doctor-fix` capability in a fresh HOME, checking that the preview writes nothing.
 - **`mdopener-mcp doctor --fix [--apply] [--json]`** previews, then with `--apply`
   makes, repairs to `~/.mdopener`: owner-only modes on the folder, `sessions/`,
@@ -32,6 +37,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   is never reported as current. Corrupt or oversized files are ignored.
 
 ### Changed
+- **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
+  needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an
+  https URL; otherwise no request is made.
+  **Migration for remote Ollama users:** add
+  `"localInference": { "provider": "ollama", "baseUrl": "https://<host>/v1", "allowRemote": true }`
+  to `~/.ashlr/config.json` and set `OLLAMA_HOST` to the same `https://` host.
+  Plain http to a remote host is never allowed. Without this the AI sidebar
+  and embeddings show:
+  `OLLAMA_HOST refused (remote-not-allowed): a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent.`
+  (`remote-requires-https` instead when `allowRemote` is set but the URL is http).
 - **AI and embedding errors no longer carry secrets.** An Anthropic error quoted
   the endpoint's whole response body, so a gateway that names the rejected
   `x-api-key` put the key into the AI sidebar's error. Ollama and embedding errors

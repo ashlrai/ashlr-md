@@ -140,11 +140,32 @@ The AI sidebar, semantic search and the MCP sidecar read these environment varia
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | an `https://` base URL, or `http://127.0.0.1` / `http://[::1]` with optional port; the app appends `/v1/messages` |
 | `OLLAMA_HOST` | `http://localhost:11434` (MCP sidecar: `http://127.0.0.1:11434`) | `host`, `host:port`, `:port` or a full URL |
 
-**Changed from #131:** `ANTHROPIC_BASE_URL` must be `https://` (any host), or plain `http://` only for the loopback addresses `127.0.0.1` and `[::1]`. `http://localhost`, plain http to any other host, other schemes, malformed URLs, a user name or password in the URL, a query and a fragment are refused when you send a message: the sidebar shows an error, no request is made and your API key is not sent. Anthropic requests do not follow redirects, so the key goes only to that host. The error never repeats the value. `OLLAMA_HOST` is unchanged.
+**Changed from #131:** `ANTHROPIC_BASE_URL` must be `https://` (any host), or plain `http://` only for the loopback addresses `127.0.0.1` and `[::1]`. `http://localhost`, plain http to any other host, other schemes, malformed URLs, a user name or password in the URL, a query and a fragment are refused when you send a message: the sidebar shows an error, no request is made and your API key is not sent. Anthropic requests do not follow redirects, so the key goes only to that host. The error never repeats the value.
 
 Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar accepts an `https://` `OLLAMA_HOST` and applies the same rules as `ANTHROPIC_BASE_URL`: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port` means `127.0.0.1:port`, and `0.0.0.0` or `[::]` mean the matching loopback address. Any other value (for example `gpu-box:11434` or `http://localhost:11434`) is refused: no request is made and the sidecar falls back to keyword search (a search that asked for `semantic: true` says why in its note). The sidecar does not follow redirects from Ollama. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
 
 The installer also reports whether the optional Phantom CLI is installed and which version. It runs only `phantom --version` and never reads or reveals secret values. To run tools with Phantom placeholder keys and base URLs, start them with `phantom exec -- <cmd>`.
+
+### Local models (`localInference`)
+
+**Behavior change for `OLLAMA_HOST`:** the app now accepts `OLLAMA_HOST` only for a loopback host (`127.0.0.1`, `[::1]` or `localhost`; `0.0.0.0` and `[::]` mean the matching loopback address). A remote Ollama such as `gpu-box:11434` is refused (AI and embeddings report an error, no request is made) unless `~/.ashlr/config.json` sets `"localInference": { ..., "allowRemote": true }` AND the URL is `https://`. Only the config file can allow remote, never an environment variable.
+
+To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `localInference` block to `~/.ashlr/config.json`. It uses the same shape as Phantom's (ashlrai/phantom#917):
+
+```json
+"localInference": {
+  "provider": "ollama",
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "models": { "coder": "qwen3.8:27b" },
+  "allowRemote": false
+}
+```
+
+- `provider` is `ollama` (default base URL `http://127.0.0.1:11434/v1`), `omlx` (`http://127.0.0.1:8000/v1`) or `openai-compat` (`baseUrl` required).
+- The model defaults to `qwen3.8:27b`. Other options from Phantom's docs/LOCAL-INFERENCE.md: `qwen3.6:27b`, `qwen3.6:35b`, `qwen3-coder:30b` (`ollama pull qwen3.8:27b`). Abliterated or uncensored models are refused.
+- The URL must be loopback (`127.0.0.1`, `[::1]` or `localhost`, written exactly). A remote URL needs `allowRemote: true` and `https://`. Refusals use closed codes (`remote-not-allowed`, `remote-requires-https`, `host-not-canonical`, ...) and never repeat the URL.
+- No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
+- When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
 
 ## Platform support
 

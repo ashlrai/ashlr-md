@@ -214,10 +214,8 @@ pub fn anthropic_base_url_checked() -> Result<String, BaseUrlRefusal> {
     anthropic_base_url_checked_from(std::env::var("ANTHROPIC_BASE_URL").ok().as_deref())
 }
 
-/// Ollama base URL from the `OLLAMA_HOST` environment variable.
-pub fn ollama_base_url() -> String {
-    ollama_base_url_from(std::env::var("OLLAMA_HOST").ok().as_deref())
-}
+// The app reads `OLLAMA_HOST` through the loopback gate in
+// `local_inference::ollama_base_url`.
 
 /// Opt-in switch: `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` makes the app read the
 /// Anthropic key from `ANTHROPIC_API_KEY` instead of the key saved in

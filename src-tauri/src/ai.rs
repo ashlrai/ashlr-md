@@ -6,6 +6,9 @@
 //! Supported providers:
 //!   - "ollama"     — local Ollama server at http://localhost:11434
 //!   - "anthropic"  — Anthropic Messages API (SSE streaming)
+//!   - "local-inference" — the `localInference` server from
+//!     `~/.ashlr/config.json` (OpenAI-compatible, loopback only by default,
+//!     never sent a key; see `local_inference.rs`)
 //!
 //! `OLLAMA_HOST` and `ANTHROPIC_BASE_URL` override those hosts (see
 //! `base_urls.rs`), so a LiteLLM gateway or Phantom proxy can sit in front.
@@ -22,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::base_urls;
+use crate::local_inference;
 
 // ---------------------------------------------------------------------------
 // Shared message type (mirrors TypeScript AIMessage)
@@ -111,7 +115,7 @@ const OLLAMA_PREFERRED: &[&str] = &["llama3.2", "llama3.1", "qwen2.5", "mistral"
 /// (by OLLAMA_PREFERRED order, then first installed), or None.
 #[tauri::command]
 pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
-    detect_ollama_at(&base_urls::ollama_base_url()).await
+    detect_ollama_at(&local_inference::ollama_base_url()?).await
 }
 
 /// [`ai_detect_ollama`] against an explicit Ollama base URL.
@@ -180,6 +184,9 @@ pub async fn ai_generate(
     tauri::async_runtime::spawn(async move {
         let result = match provider.as_str() {
             "ollama" => stream_ollama(app.clone(), model, messages, request_id.clone()).await,
+            "local-inference" => {
+                stream_local_inference(app.clone(), messages, request_id.clone()).await
+            }
             "anthropic" => match anthropic_key(api_key) {
                 Ok(key) => {
                     stream_anthropic(app.clone(), model, key, messages, request_id.clone()).await
@@ -295,7 +302,7 @@ async fn stream_ollama(
         stream: true,
     };
 
-    let resp = send_ollama_chat(&client, &base_urls::ollama_base_url(), &body).await?;
+    let resp = send_ollama_chat(&client, &local_inference::ollama_base_url()?, &body).await?;
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
@@ -335,6 +342,53 @@ async fn stream_ollama(
     }
 
     // Stream ended without an explicit done marker — emit done anyway.
+    let _ = app.emit("ai://done", DonePayload { request_id });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// localInference (OpenAI-compatible SSE, no key)
+// ---------------------------------------------------------------------------
+
+/// Stream from the `localInference` server. The config is re-read and
+/// re-validated here, so an invalid or remote-without-opt-in block never
+/// sends a request. The model comes from the config (default qwen3.8:27b),
+/// and no key header of any kind is attached.
+async fn stream_local_inference(
+    app: AppHandle,
+    messages: Vec<Msg>,
+    request_id: String,
+) -> Result<(), String> {
+    let cfg = local_inference::load()?
+        .ok_or_else(|| "localInference is not configured in ~/.ashlr/config.json".to_string())?;
+    let client = Client::new();
+    let body = serde_json::json!({ "model": cfg.model, "messages": messages, "stream": true });
+    let resp = local_inference::send_chat(&client, &cfg.base_url, &body).await?;
+
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Stream read error: {}", e.without_url()))?;
+        buf.extend_from_slice(&chunk);
+        while let Some(line) = take_line(&mut buf) {
+            match local_inference::parse_sse_line(&line) {
+                local_inference::SseLine::Delta(delta) => {
+                    let _ = app.emit(
+                        "ai://delta",
+                        DeltaPayload {
+                            request_id: request_id.clone(),
+                            delta,
+                        },
+                    );
+                }
+                local_inference::SseLine::Done => {
+                    let _ = app.emit("ai://done", DonePayload { request_id });
+                    return Ok(());
+                }
+                local_inference::SseLine::Skip => {}
+            }
+        }
+    }
     let _ = app.emit("ai://done", DonePayload { request_id });
     Ok(())
 }

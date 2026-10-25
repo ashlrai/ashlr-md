@@ -9,6 +9,7 @@ import {
   detectAfm,
   detectAnthropicKey,
   detectHostedToken,
+  detectLocalInference,
   detectOllama,
 } from "./bridge";
 import { noProviderAnswer } from "./errors";
@@ -131,6 +132,90 @@ class OllamaProvider implements AIProvider {
 
     const streamPromise = aiGenerateStream(
       "ollama",
+      this._model,
+      null,
+      messages,
+      (delta) => {
+        deltas.push(delta);
+        flush();
+      },
+      opts.signal,
+    );
+
+    streamPromise
+      .then(() => {
+        done = true;
+        flush();
+      })
+      .catch((e) => {
+        error = e instanceof Error ? e : new Error(String(e));
+        done = true;
+        flush();
+      });
+
+    while (true) {
+      if (deltas.length > 0) {
+        yield deltas.shift()!;
+        continue;
+      }
+      if (done) break;
+      // Wait for the next delta or completion.
+      await new Promise<void>((r) => {
+        resolve = r;
+      });
+      resolve = null;
+    }
+    if (error) throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tier 1 — localInference (explicit opt-in in ~/.ashlr/config.json)
+// ---------------------------------------------------------------------------
+
+// A local OpenAI-compatible server (Ollama, oMLX, LiteLLM). Rust validates
+// the URL (loopback only unless allowRemote + https) and never sends a key.
+// Configured explicitly, so it is tried first.
+
+class LocalInferenceProvider implements AIProvider {
+  readonly id = "local-inference";
+  private _loopback = true;
+  private _model: string | null = null;
+
+  get capabilities(): AICapabilities {
+    return {
+      tier: 1,
+      modelName: this._model ?? "local model",
+      isLocal: this._loopback,
+      isFree: true,
+      streaming: true,
+    };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const status = await detectLocalInference();
+    if (status) {
+      this._model = status.model;
+      this._loopback = status.loopback;
+      return true;
+    }
+    return false;
+  }
+
+  async *generate(
+    messages: AIMessage[],
+    opts: { signal?: AbortSignal },
+  ): AsyncGenerator<string> {
+    if (!this._model) throw new Error("Local model: localInference is not configured");
+    const deltas: string[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+    let error: Error | null = null;
+
+    const flush = () => resolve?.();
+
+    const streamPromise = aiGenerateStream(
+      "local-inference",
       this._model,
       null,
       messages,
@@ -397,6 +482,7 @@ class NoOpProvider implements AIProvider {
 // ---------------------------------------------------------------------------
 
 const PROVIDERS: AIProvider[] = [
+  new LocalInferenceProvider(),
   new AppleFMProvider(),
   new OllamaProvider(),
   new AnthropicProvider(),
