@@ -135,17 +135,59 @@ pub struct ReviewRecord {
 /// verdict; resolving it now tells its agent at once instead of after its
 /// window. A review still opening its file (not yet shown) is left alone:
 /// when it is shown it supersedes `newest` in turn.
-fn supersede_shown(map: &mut HashMap<String, ReviewRecord>, newest: &str, now: u64) {
+///
+/// Returns the reviews it superseded, for [`persist_review`].
+fn supersede_shown(
+    map: &mut HashMap<String, ReviewRecord>,
+    newest: &str,
+    now: u64,
+) -> Vec<(String, ReviewRecord)> {
+    let mut superseded = Vec::new();
     for (id, r) in map.iter_mut() {
         let open = r.status == "pending" && now < r.created_at.saturating_add(r.timeout_ms);
         if id != newest && r.shown && open {
             r.status = "superseded".into();
             r.verdict = Some("superseded".into());
             r.superseded_by = Some(newest.to_string());
+            superseded.push((id.clone(), r.clone()));
         }
     }
     if let Some(r) = map.get_mut(newest) {
         r.shown = true;
+    }
+    superseded
+}
+
+/// The saved form of a decided review of a file, or None for a pending
+/// review or one of inline content (no path).
+fn saved_review(id: &str, r: &ReviewRecord, now: u64) -> Option<crate::review_store::SavedReview> {
+    let path = r.path.as_deref()?;
+    let verdict = r.verdict.as_deref()?;
+    if r.status == "pending" {
+        return None;
+    }
+    Some(crate::review_store::SavedReview::new(
+        path,
+        id,
+        verdict,
+        r.comments.clone(),
+        r.late,
+        r.superseded_by.clone(),
+        r.created_at,
+        now,
+    ))
+}
+
+/// Save a decided review to `~/.mdopener/reviews/` so `get_user_annotations`
+/// can report it while the app is closed. Best effort: a failure is logged,
+/// never surfaced to the reviewer.
+fn persist_review(id: &str, r: &ReviewRecord, now: u64) {
+    let (Some(saved), Some(dir)) = (saved_review(id, r, now), crate::review_store::reviews_dir())
+    else {
+        return;
+    };
+    if let Err(e) = crate::review_store::save(&dir, &saved) {
+        eprintln!("[mdopener] could not save review {id}: {e}");
     }
 }
 
@@ -353,14 +395,19 @@ pub fn set_review_verdict(
     if !REVIEW_VERDICTS.contains(&verdict.as_str()) {
         return Err(format!("Invalid verdict: {verdict}"));
     }
-    let mut map = state.0.lock_recover();
-    match map.get_mut(&review_id) {
-        None => Err(format!("Review {review_id} not found")),
-        Some(r) => {
-            record_verdict(r, verdict, comments, now_ms());
-            Ok(())
+    let now = now_ms();
+    let decided = {
+        let mut map = state.0.lock_recover();
+        match map.get_mut(&review_id) {
+            None => return Err(format!("Review {review_id} not found")),
+            Some(r) => {
+                record_verdict(r, verdict, comments, now);
+                r.clone()
+            }
         }
-    }
+    };
+    persist_review(&review_id, &decided, now);
+    Ok(())
 }
 
 /// Record `verdict` on `r` at `now`. A `timeout` never replaces a decision
@@ -1430,14 +1477,19 @@ fn handle_review_post(mut req: Request, app: &AppHandle) {
         emitted,
         serde_json::json!({ "ok": true, "reviewId": body.review_id }),
     );
-    {
+    let now = now_ms();
+    let superseded = {
         let state = app.state::<ReviewState>();
         let mut map = state.0.lock_recover();
         if reply["ok"] == true {
-            supersede_shown(&mut map, &body.review_id, now_ms());
+            supersede_shown(&mut map, &body.review_id, now)
         } else {
             map.remove(&body.review_id);
+            Vec::new()
         }
+    };
+    for (id, r) in &superseded {
+        persist_review(id, r, now);
     }
     drop(_panel);
     send_json(req, reply);
@@ -3330,6 +3382,61 @@ mod tests {
             shown: status == "pending",
             superseded_by: None,
         }
+    }
+
+    #[test]
+    fn decided_file_reviews_are_saved_with_late_and_superseded_flags() {
+        use super::{record_verdict, saved_review, supersede_shown};
+        let dir = std::env::temp_dir().join(format!("mdopener-ipc-reviews-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let doc = dir.join("plan.md");
+        std::fs::write(&doc, "# Plan\n").unwrap();
+        let doc = doc.to_string_lossy().into_owned();
+        let store = dir.join("reviews");
+
+        // Pending and inline-content reviews are never saved.
+        assert!(saved_review("p", &review("pending", Some(&doc), 1, 10), 2).is_none());
+        assert!(saved_review("c", &review("approved", None, 1, 10), 2).is_none());
+
+        // A decision after the window is saved as late, with its comments.
+        let mut late = review("pending", Some(&doc), 1_000, 10);
+        record_verdict(&mut late, "approved".into(), Some("lgtm".into()), 5_000);
+        assert!(late.late);
+        let saved = saved_review("late", &late, 5_000).unwrap();
+        crate::review_store::save(&store, &saved).unwrap();
+        let back = crate::review_store::load(&store, &doc).unwrap();
+        assert_eq!(back.verdict, "approved");
+        assert_eq!(back.comments.as_deref(), Some("lgtm"));
+        assert!(back.late);
+
+        // A newer review supersedes a shown one; the superseded record keeps
+        // who replaced it, and the newest review's verdict then wins.
+        let mut map = HashMap::new();
+        map.insert(
+            "a".to_string(),
+            review("pending", Some(&doc), 10_000, 60_000),
+        );
+        map.insert(
+            "b".to_string(),
+            review("pending", Some(&doc), 11_000, 60_000),
+        );
+        let out = supersede_shown(&mut map, "b", 11_000);
+        assert_eq!(out.len(), 1);
+        let s = saved_review(&out[0].0, &out[0].1, 11_000).unwrap();
+        crate::review_store::save(&store, &s).unwrap();
+        let back = crate::review_store::load(&store, &doc).unwrap();
+        assert_eq!(back.verdict, "superseded");
+        assert_eq!(back.superseded_by.as_deref(), Some("b"));
+        let b = map.get_mut("b").unwrap();
+        record_verdict(b, "changes_requested".into(), None, 12_000);
+        let s = saved_review("b", b, 12_000).unwrap();
+        crate::review_store::save(&store, &s).unwrap();
+        assert_eq!(
+            crate::review_store::load(&store, &doc).unwrap().review_id,
+            "b"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
