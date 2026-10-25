@@ -270,6 +270,21 @@ cd src-tauri/bins/mdopener-afm && ./build.sh
 See [`docs/VISION.md`](./docs/VISION.md) for the north star and
 [`docs/RELEASING.md`](./docs/RELEASING.md) for the release process.
 
+## Repair with doctor --fix
+
+`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and writes nothing (exit 0). `mdopener-mcp doctor --fix --apply` makes them. `mdopener-mcp doctor --apply` without `--fix` is refused with exit 2. Add `--json` for one `{ mode, plan, outcome }` object. This is in source (main, 0.4.1 unreleased) and not yet in a release.
+
+```console
+$ mdopener-mcp doctor --fix
+doctor --fix (dry run, nothing written):
+  would fix  make owner-only (0644 to 0600): ~/.mdopener/ipc-port
+  would fix  move aside a saved review that does not parse: ~/.mdopener/reviews/<file>.json
+Run `mdopener-mcp doctor --fix --apply` to make these changes (a file's contents are backed up before it is moved).
+  manual     ipc-token is mode 0644: other users may read the app's token. It is a secret, so doctor --fix never touches it; run: chmod 600 ~/.mdopener/ipc-token
+```
+
+What it repairs: owner-only permissions (`~/.mdopener`, `sessions/` and `reviews/` to 0700; session files, saved reviews and `ipc-port` to 0600), reporting the previous mode, and a saved review that is oversized, does not parse, has another schema or sits under another file's name, which is backed up to `<file>.bak-<UTC stamp>` and removed. What stays manual: `ipc-token` permissions (it is the app's secret, so the tool never opens or changes it; run `chmod 600 ~/.mdopener/ipc-token` yourself), symlinks and special files, and MCP client registration (Preferences > AI agents). The `manual` line still prints after `--apply`. Unix only. Details: [docs/doctor-fix.md](./docs/doctor-fix.md). To repair every Ashlr tool at once, see [Repair everything](https://github.com/ashlrai/ashlr-stack/blob/main/docs/getting-started-ecosystem.md#repair-everything) in the Ashlr Stack guide.
+
 ## Part of the Ashlr ecosystem
 
 Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Each
