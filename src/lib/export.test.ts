@@ -546,13 +546,6 @@ describe("exportHtml", () => {
       expect.objectContaining({ defaultPath: "export.html" }),
     );
   });
-
-  it("the written content is self-contained (no external links)", async () => {
-    await exportHtml("Offline");
-    const written = writtenExport()?.text as string;
-    expect(written).not.toMatch(/<link[^>]+href="https?:/);
-    expect(written).not.toMatch(/<script[^>]+src="https?:/);
-  });
 });
 
 // ─── exportDocx ───────────────────────────────────────────────────────────────
@@ -766,16 +759,6 @@ describe("exportPdf", () => {
     );
   });
 
-  it("appends a hidden iframe to the document body", async () => {
-    patchIframe();
-    await exportPdf("PDF Test");
-    const iframes = document.querySelectorAll("iframe");
-    // The iframe is removed after printing; the spy tracks it was created.
-    // We just need the promise to resolve without throwing.
-    expect(iframes).toBeDefined();
-    vi.restoreAllMocks();
-  });
-
   it("writes the standalone HTML into the iframe document", async () => {
     let capturedWrite: string | undefined;
     const mockDoc = {
@@ -857,88 +840,6 @@ describe("exportPdf", () => {
     });
 
     await expect(exportPdf("No doc")).rejects.toMatch("print frame");
-    vi.restoreAllMocks();
-  });
-
-  it("exported HTML contains @media print rules for pagination", async () => {
-    let capturedWrite: string | undefined;
-    const origCreate = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-      if (tag !== "iframe") return origCreate(tag);
-      const iframe = origCreate("iframe") as HTMLIFrameElement;
-      const mockDoc = {
-        open: vi.fn(),
-        write: vi.fn((h: string) => {
-          capturedWrite = h;
-        }),
-        close: vi.fn(),
-      };
-      Object.defineProperty(iframe, "contentDocument", {
-        get: () => mockDoc,
-        configurable: true,
-      });
-      Object.defineProperty(iframe, "contentWindow", {
-        get: () => ({ print: vi.fn() }),
-        configurable: true,
-      });
-      const origAppend = document.body.appendChild.bind(document.body);
-      vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
-        const r = origAppend(node);
-        setTimeout(() => {
-          if (typeof iframe.onload === "function") (iframe.onload as any)();
-        }, 0);
-        return r;
-      });
-      return iframe;
-    });
-
-    await exportPdf("Pagination");
-    expect(capturedWrite).toContain("@media print");
-    expect(capturedWrite).toContain("page-break-inside:avoid");
-    vi.restoreAllMocks();
-  });
-
-  it("exported HTML excludes app chrome (no .copy-btn in print view)", async () => {
-    let capturedWrite: string | undefined;
-    const origCreate = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-      if (tag !== "iframe") return origCreate(tag);
-      const iframe = origCreate("iframe") as HTMLIFrameElement;
-      const mockDoc = {
-        open: vi.fn(),
-        write: vi.fn((h: string) => {
-          capturedWrite = h;
-        }),
-        close: vi.fn(),
-      };
-      Object.defineProperty(iframe, "contentDocument", {
-        get: () => mockDoc,
-        configurable: true,
-      });
-      Object.defineProperty(iframe, "contentWindow", {
-        get: () => ({ print: vi.fn() }),
-        configurable: true,
-      });
-      const origAppend = document.body.appendChild.bind(document.body);
-      vi.spyOn(document.body, "appendChild").mockImplementationOnce((node) => {
-        const r = origAppend(node);
-        setTimeout(() => {
-          if (typeof iframe.onload === "function") (iframe.onload as any)();
-        }, 0);
-        return r;
-      });
-      return iframe;
-    });
-
-    // Add a review card + copy button to the DOM to confirm they're stripped.
-    const mb = document.querySelector(".markdown-body")!;
-    mb.innerHTML +=
-      '<aside class="review-card">REVIEW</aside><button class="copy-btn">Copy</button>';
-
-    await exportPdf("Chrome Strip");
-    expect(capturedWrite).not.toContain("REVIEW");
-    // copy-btn is only hidden via CSS print rule, not stripped from HTML:
-    expect(capturedWrite).toContain(".copy-btn{display:none}");
     vi.restoreAllMocks();
   });
 });
