@@ -190,7 +190,7 @@ jobs:
       # nightly/manual always.
       - name: Rust tests (workspace)
         if: env.PR != 'true' && env.RUST == 'true'
-        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml
+        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=2
 
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.

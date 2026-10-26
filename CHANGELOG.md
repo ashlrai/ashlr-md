@@ -14,6 +14,7 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   not-configured, config-invalid, remote-not-probed, reachable, unreachable or
   bad-response, with no URL, body or model names. The handshake advertises
   `local-inference-probe` and a config-only `local-inference-config` check.
+- `mdopener-mcp doctor --json` (the local-inference check) and `doctor --fix --json` carry the shared `ashlr.doctor` v1 wrapper (`kind`, `schema_version`, `tool`, `status`, `native_status`, `checks`): a fix skipped or refused on apply is fail, planned fixes or report-only findings are warn, nothing to do is ok. For `doctor --json` the probe status (for example `unreachable`) is kept as `native_status` on the wrapper and the check, `config-invalid` and `remote-not-probed` (the probe refuses the config or the non-loopback endpoint) are fail, `unreachable` and `bad-response` are warn, `reachable` and `not-configured` are ok; the native level in text output stays warn for those refusals; `checks[].id`, `status` and `probe` stay. Additive: `mode`, `plan`, `outcome` and the exit code are unchanged. The vendored handshake contract is re-pinned to the ashlr-stack version with the `doctor` section.
 - **`localInference` local models.** A `localInference` block in
   `~/.ashlr/config.json` (same shape as Phantom #917) points the AI sidebar at
   a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by
