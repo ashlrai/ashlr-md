@@ -297,6 +297,86 @@ describe("relocation on repetitive Markdown", () => {
   });
 });
 
+describe("bounded hunk relocation", () => {
+  it.each([
+    { hint: 1, expected: 1 },
+    { hint: 2, expected: 1 },
+    { hint: 6, expected: 7 },
+    { hint: 4, expected: null },
+  ])("preserves nearest-match and tie results at hint $hint", ({ hint, expected }) => {
+    const diff = computeAgentDiff("a\nb\nc\n", "a\nB\nc\n", { context: 1 });
+    const document = splitLines(`a\nb\nc\nq\nq\nq\na\nb\nc\n${lines(10_000)}`);
+    let reads = 0;
+    const tracked = new Proxy(document, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(locateHunk(tracked, diff.hunks[0], hint)).toBe(expected);
+    // Count reads instead of timing: the unrelated tail must never be scanned,
+    // including after discovering an equally near match on the other side.
+    expect(reads).toBeLessThan(50);
+  });
+
+  it("stops at an exact insertion anchor even when oldLines is empty", () => {
+    const diff = computeAgentDiff("a\nb\n", "a\nNEW\nb\n", { context: 1 });
+    const document = splitLines(`a\nb\n${lines(10_000)}`);
+    Object.defineProperty(document, "2", {
+      get() {
+        throw new Error("read beyond the exact insertion anchor");
+      },
+    });
+    expect(locateHunk(document, diff.hunks[0], 1)).toBe(1);
+  });
+
+  it("tries full context before an exact hint with reduced context", () => {
+    const diff = computeAgentDiff("outer\na\nb\nc\nend\n", "outer\na\nB\nc\nend\n", {
+      context: 2,
+    });
+    const document = splitLines("changed\na\nb\nc\nend\nouter\na\nb\nc\nend\n");
+    expect(locateHunk(document, diff.hunks[0], 2)).toBe(7);
+    expect(locateHunk(document, diff.hunks[0], 2, 8)).toBeNull();
+  });
+
+  it("stops at an exact match after dropping changed outer context", () => {
+    const diff = computeAgentDiff("outer\na\nb\nc\nend\n", "outer\na\nB\nc\nend\n", {
+      context: 2,
+    });
+    const document = splitLines(`changed\na\nb\nc\nchanged\n${lines(10_000)}`);
+    expect(locateHunk(document, diff.hunks[0], 2)).toBe(2);
+  });
+});
+
+describe("large agent rewrites", () => {
+  it("selects, rebases, inverts and renders hunks beyond the call argument limit", () => {
+    const base = "old\n".repeat(200_000);
+    const proposed = "new\n".repeat(200_000);
+    const diff = computeAgentDiff(base, proposed, { maxEdits: 0 });
+    const all = new Set(diff.hunks.map((hunk) => hunk.id));
+    expect(applySelectedHunks(diff, all)).toBe(proposed);
+    expect(applySelectedHunks(diff, new Set())).toBe(base);
+    expect(applyHunksTo(base, diff.hunks)).toEqual({
+      ok: true,
+      text: proposed,
+      relocated: false,
+    });
+    expect(applyHunksTo(proposed, diff.hunks.map(invertHunk))).toEqual({
+      ok: true,
+      text: base,
+      relocated: false,
+    });
+    const rendered = renderUnifiedDiff(diff, "large.md");
+    expect(
+      rendered.startsWith(
+        "--- a/large.md\n+++ b/large.md\n@@ -1,200000 +1,200000 @@\n",
+      ),
+    ).toBe(true);
+    expect(rendered.split("\n")).toHaveLength(400_004);
+    expect(rendered.endsWith("+new\n")).toBe(true);
+  });
+});
+
 describe("renderUnifiedDiff", () => {
   it("writes git-style hunks that the app's diff viewer applies back", () => {
     const base = lines(40);
