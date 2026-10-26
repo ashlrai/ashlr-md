@@ -18,12 +18,8 @@ pids=()
 ( bun run typecheck && bunx biome check src && bun run check:crypto \
   && if [ "$js" = true ]; then bunx vitest run --changed "$base"; fi ) & pids+=($!)
 if [ "$rust" = true ]; then
-<<<<<<< HEAD
   ( cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings \
     && cargo test --workspace --manifest-path src-tauri/Cargo.toml ) & pids+=($!)
-=======
-  ( cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings ) & pids+=($!)
->>>>>>> origin/main
 fi
 rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done
 [ $rc -eq 0 ] && echo "ci-local: PASS" || echo "ci-local: FAIL"
