@@ -11,7 +11,8 @@
 //! `edit_canvas`, `list_ai_actions`, the two conversation tools, and
 //! `export_text` / `export_metadata` given a `path` work without the app, and
 //! `search_vault` given a `vault` directory greps it on disk when the app is
-//! unreachable.
+//! unreachable. `get_user_annotations` reads tasks and saved review verdicts
+//! from disk when the app is unreachable.
 //!
 //! ## Protocol subset implemented
 //!   initialize      → capability handshake
@@ -23,13 +24,9 @@
 //!   prompts/list, prompts/get   (summarize, review_plan, improve_writing)
 //!
 //! ## Tools
-//! The authoritative catalog is `tool_registry()` in `lib.rs` (20 tools):
-//! open_file, get_current_content, list_recent, export, request_review,
-//! get_user_annotations, edit_document, search_vault, present_document,
-//! list_ai_actions, get_conversation_context, save_conversation_message,
-//! diff_documents, edit_canvas, stream_edit, stream_edit_apply, export_text,
-//! export_metadata, and last the two destructive ones, replace_document and
-//! set_content.
+//! The authoritative catalog and ordering come from `tool_registry()` in
+//! `lib.rs`. The user-facing table is in `docs/AGENTS.md`; run
+//! `python3 scripts/check-docs.py` from the repository root to check it.
 //!
 //! `export_markdown_archive`, `export_canvas_graph` and `batch_export_format`
 //! are no longer listed: the app never implemented them. Calling one returns
