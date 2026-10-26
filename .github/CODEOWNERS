@@ -1,0 +1,14 @@
+# Growth-only CODEOWNERS (Security Hardening Engineer, approved by the Engineering Orchestrator 2026-10-25).
+# Covers CI workflows and the files that make keyed, network or loopback requests.
+# Only add owners here; never remove or narrow an entry.
+/.github/workflows/ @masonwyatt23
+/.github/CODEOWNERS @masonwyatt23
+/src-tauri/src/ai.rs @masonwyatt23
+/src-tauri/src/embed.rs @masonwyatt23
+/src-tauri/src/base_urls.rs @masonwyatt23
+/src-tauri/src/local_inference.rs @masonwyatt23
+/src-tauri/src/local_inference_gate.rs @masonwyatt23
+/src-tauri/src/redact.rs @masonwyatt23
+/src-tauri/src/ipc.rs @masonwyatt23
+/src-tauri/bins/mdopen/src/ipc.rs @masonwyatt23
+/src-tauri/bins/mdopener-mcp/src/local_inference_probe.rs @masonwyatt23
