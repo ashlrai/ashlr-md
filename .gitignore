@@ -29,3 +29,7 @@ yarn.lock
 
 # Vercel
 .vercel
+
+# Merge-queue Codecov output
+coverage/
+junit.xml

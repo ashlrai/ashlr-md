@@ -50,6 +50,7 @@ jobs:
         if: env.SELECT == 'true'
         with:
           fetch-depth: 0
+          persist-credentials: false
       - id: classify
         env:
           EVENT: ${{ github.event_name }}
@@ -84,6 +85,10 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
     runs-on: ubuntu-22.04
+    # Runs bun install and tests (third-party code), so no id-token here.
+    # The Codecov OIDC uploads live in the merge_group-only codecov job.
+    permissions:
+      contents: read
     env:
       # Fast lane: PR events once the merge queue is on.
       PR: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
@@ -92,6 +97,8 @@ jobs:
       RUST: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -114,9 +121,33 @@ jobs:
       - name: Lint (Biome)
         run: bunx biome check src
 
+      # Same tests as before. merge_group calls vitest directly (no `--`
+      # forwarding) to add lcov and JUnit, so the suite still runs once, and
+      # fails if either report is missing. Other events stay on bun run test.
       - name: Unit tests
+        id: unit
         if: env.PR != 'true' && env.JS == 'true'
-        run: bun run test
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+            for f in coverage/lcov.info junit.xml; do
+              if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
+            done
+          else
+            bun run test
+          fi
+
+      - name: Keep coverage reports for the Codecov job
+        if: ${{ !cancelled() && github.event_name == 'merge_group' && env.JS == 'true' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-reports
+          path: |
+            coverage/lcov.info
+            junit.xml
+          if-no-files-found: ignore
+          retention-days: 1
 
       # Soft-gated so an upstream advisory annotates without blocking.
       # Always-on security check in the queue (not previously in CI).
@@ -207,6 +238,45 @@ jobs:
         continue-on-error: true
 
   # ---------------------------------------------------------------------------
+  # Codecov uploads (merge_group only). The only job with id-token: write, and
+  # it runs no repo or dependency code: it only downloads the reports from
+  # Check (Linux) and hands them to the pinned Codecov actions over OIDC.
+  # Not a required check.
+  # ---------------------------------------------------------------------------
+  codecov:
+    name: Codecov upload
+    needs: check-linux
+    if: ${{ !cancelled() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download coverage reports
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-reports
+
+      - name: Upload coverage to Codecov
+        if: steps.dl.outcome == 'success'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: false
+          files: coverage/lcov.info
+
+      - name: Upload test results to Codecov
+        if: steps.dl.outcome == 'success'
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: false
+          files: junit.xml
+
+  # ---------------------------------------------------------------------------
   # macOS: only what needs macOS — the macOS-target Rust check and clippy
   # (Swift/AFM sidecars, macOS-only cfg code). JS gates run on Linux above.
   # ---------------------------------------------------------------------------
@@ -225,6 +295,8 @@ jobs:
 
       - uses: actions/checkout@v4
         if: runner.os == 'macOS'
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         if: runner.os == 'macOS'
