@@ -10,6 +10,7 @@ import {
   detectAnthropicKey,
   detectHostedToken,
   detectLocalInference,
+  detectOfflineMode,
   detectOllama,
 } from "./bridge";
 import { noProviderAnswer } from "./errors";
@@ -195,6 +196,9 @@ class LocalInferenceProvider implements AIProvider {
   async isAvailable(): Promise<boolean> {
     const status = await detectLocalInference();
     if (status) {
+      // Offline never routes at a non-loopback server, even if a status
+      // payload claimed one. Rust already refuses that config.
+      if (status.offline && !status.loopback) return false;
       this._model = status.model;
       this._loopback = status.loopback;
       return true;
@@ -274,6 +278,7 @@ class AnthropicProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    if (await detectOfflineMode()) return false;
     // With ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1 only the environment key counts;
     // otherwise the Settings key, as always.
     const env = await anthropicEnvKeyStatus();
@@ -288,6 +293,7 @@ class AnthropicProvider implements AIProvider {
     // Re-read from the store on every request, as the hosted provider does:
     // a key replaced or removed in Preferences must win over the value cached
     // when detection ran.
+    if (await detectOfflineMode()) throw new Error(OFFLINE_MESSAGE);
     // With the environment opt-in on, send no key: Rust reads
     // ANTHROPIC_API_KEY itself and the value never enters the webview.
     const env = await anthropicEnvKeyStatus();
@@ -354,6 +360,10 @@ class AnthropicProvider implements AIProvider {
 // Protocol: standard OpenAI-compatible chat completion with SSE streaming.
 // ---------------------------------------------------------------------------
 
+/** Shown when a cloud provider is used in offline mode. */
+export const OFFLINE_MESSAGE =
+  "Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.";
+
 export const HOSTED_API_URL = "https://api.mdopener.app/v1/chat";
 
 class HostedProvider implements AIProvider {
@@ -370,6 +380,7 @@ class HostedProvider implements AIProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    if (await detectOfflineMode()) return false;
     return detectHostedToken() != null;
   }
 
@@ -380,6 +391,7 @@ class HostedProvider implements AIProvider {
     // Always re-read from the store — never use the stale instance cache.
     // This ensures that if the user removes the token after isAvailable() ran,
     // generation correctly refuses rather than using the old cached value.
+    if (await detectOfflineMode()) throw new Error(OFFLINE_MESSAGE);
     const token = detectHostedToken();
     if (!token) throw new Error("Hosted provider: no bearer token configured");
 

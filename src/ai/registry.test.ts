@@ -414,3 +414,69 @@ describe("LocalInferenceProvider", () => {
     expect(provider.id).toBe("anthropic");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Offline mode (localInference.offline): no cloud provider is ever used
+// ---------------------------------------------------------------------------
+
+describe("offline mode", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetStore();
+  });
+
+  it("skips Anthropic and hosted, and never calls fetch", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "ai_offline_mode" ? true : null,
+    );
+    useAIStore.setState({ apiKey: "sk-ant-key", hostedToken: "tok-xyz" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const provider = await detectProvider();
+    expect(provider.id).toBe(NOOP_PROVIDER_ID);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("fails closed when the offline check itself errors", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "ai_offline_mode") throw new Error("no tauri");
+      return null;
+    });
+    useAIStore.setState({ apiKey: "sk-ant-key", hostedToken: "tok-xyz" });
+    const provider = await detectProvider();
+    expect(provider.id).toBe(NOOP_PROVIDER_ID);
+  });
+
+  it("still uses a loopback localInference server offline", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "ai_offline_mode"
+        ? true
+        : cmd === "ai_local_inference_status"
+          ? { offline: true, provider: "ollama", model: "qwen3.8:27b", loopback: true }
+          : null,
+    );
+    const provider = await detectProvider();
+    expect(provider.id).toBe("local-inference");
+  });
+
+  it("does not use a non-loopback server while offline", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "ai_offline_mode"
+        ? true
+        : cmd === "ai_local_inference_status"
+          ? {
+              offline: true,
+              provider: "openai-compat",
+              model: "m",
+              loopback: false,
+            }
+          : null,
+    );
+    useAIStore.setState({ apiKey: "sk-ant-key", hostedToken: "tok-xyz" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const provider = await detectProvider();
+    expect(provider.id).toBe(NOOP_PROVIDER_ID);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});

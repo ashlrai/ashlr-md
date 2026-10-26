@@ -5023,10 +5023,17 @@ fn refusal_reason(why: base_urls::BaseUrlRefusal) -> &'static str {
 }
 
 fn ollama_base() -> Result<String, String> {
-    let allow_remote = local_inference_probe::gate::read_config_value()
-        .and_then(|r| r.get("localInference")?.get("allowRemote")?.as_bool())
-        .unwrap_or(false);
+    // allowRemote is forced false in offline mode (localInference.offline).
+    let allow_remote = local_inference_probe::gate::effective_allow_remote(
+        local_inference_probe::gate::read_config_value().as_ref(),
+    );
     ollama_base_gated(std::env::var("OLLAMA_HOST").ok().as_deref(), allow_remote)
+}
+
+/// `allowRemote` as the shared gate sees it: forced false when
+/// `localInference.offline` is set (or not a boolean: fails closed).
+pub fn local_inference_offline_allow_remote(root: Option<&Value>) -> bool {
+    local_inference_probe::gate::effective_allow_remote(root)
 }
 
 /// [`ollama_base_from`] plus the shared `localInference` gate (same rules as
@@ -5135,6 +5142,26 @@ pub fn ollama_post_json(
     body: &Value,
     read_timeout: std::time::Duration,
 ) -> Result<Value, String> {
+    ollama_post_json_offline(
+        url,
+        body,
+        read_timeout,
+        local_inference_probe::gate::offline(),
+    )
+}
+
+/// [`ollama_post_json`] with the offline flag explicit. When `offline` is
+/// set, a non-loopback URL is refused before any socket is opened. Search
+/// embeddings go through here.
+pub fn ollama_post_json_offline(
+    url: &str,
+    body: &Value,
+    read_timeout: std::time::Duration,
+    offline: bool,
+) -> Result<Value, String> {
+    if offline {
+        local_inference_probe::gate::ensure_offline_loopback(true, url)?;
+    }
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;

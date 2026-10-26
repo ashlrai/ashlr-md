@@ -31,6 +31,7 @@ const SETTINGS_KEY = "sk-ant-settings-secret-0123456789";
 function withStatus(status: unknown) {
   invokeMock.mockImplementation(async (cmd: string, args?: { requestId?: string }) => {
     if (cmd === "anthropic_env_key_status") return status;
+    if (cmd === "ai_offline_mode") return false;
     if (cmd === "ai_generate") {
       // Finish the stream the way Rust does.
       queueMicrotask(() =>
@@ -74,6 +75,7 @@ describe("Anthropic key from the environment (opt-in)", () => {
   it("outside Tauri (no status) the Settings key is used", async () => {
     invokeMock.mockImplementation(
       async (cmd: string, args?: { requestId?: string }) => {
+        if (cmd === "ai_offline_mode") return false;
         if (cmd === "ai_generate") {
           queueMicrotask(() =>
             listeners.get("ai://done")?.({

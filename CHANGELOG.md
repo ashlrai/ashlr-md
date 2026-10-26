@@ -6,6 +6,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **Opt-in offline mode** (`"offline": true` on `localInference` in
+  `~/.ashlr/config.json`, default off). Unset or `false` leaves chat,
+  embeddings, search and the MCP sidecar exactly as they are. When it is
+  on, those paths accept only `127.0.0.1`, `[::1]` and `localhost` (pinned
+  to loopback); lookalikes are refused, `allowRemote` cannot override it,
+  and no environment variable can add a host. Anthropic and the hosted
+  endpoint fail closed with a fixed error and do not fall back. A loopback
+  model server still works. See the README.
 - **`mdopener-mcp doctor [--json]` checks local inference** (mirrors Phantom
   #920/#921). It reads `localInference` from `~/.ashlr/config.json` through the
   same gate as the app, then sends one unauthenticated GET of the model list
@@ -46,6 +54,13 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   is never reported as current. Corrupt or oversized files are ignored.
 
 ### Security
+- **Offline mode fails closed on the shared client builders.** With
+  `localInference.offline` set, a non-loopback host is refused before a
+  socket exists for chat, every embedding client, search and the
+  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
+  and builds no client, including for a loopback gateway. The test-only
+  re-exports of the two client builders are behind the `test-support`
+  feature. A non-boolean `offline` value counts as on.
 - **Model, embedding and Anthropic requests never follow redirects, and
   `localhost` is pinned to loopback.** Every reqwest client in the app comes
   from one builder (`local_inference::client_builder`): a local server

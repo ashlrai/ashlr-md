@@ -120,7 +120,7 @@ pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
 
 /// [`ai_detect_ollama`] against an explicit Ollama base URL.
 async fn detect_ollama_at(base: &str) -> Result<Option<String>, String> {
-    let client = local_inference::client_builder()
+    let client = local_inference::local_client_builder_gated(local_inference::offline(), base)?
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .map_err(|e| e.to_string())?;
@@ -217,6 +217,18 @@ async fn send_ollama_chat(
     base: &str,
     body: &impl Serialize,
 ) -> Result<reqwest::Response, String> {
+    send_ollama_chat_gated(local_inference::offline(), client, base, body).await
+}
+
+/// [`send_ollama_chat`] with the offline flag explicit. A non-loopback host
+/// is refused before the request when offline.
+async fn send_ollama_chat_gated(
+    offline: bool,
+    client: &Client,
+    base: &str,
+    body: &impl Serialize,
+) -> Result<reqwest::Response, String> {
+    local_inference::ensure_offline_loopback(offline, base)?;
     let resp = client
         .post(format!("{base}/api/chat"))
         .json(body)
@@ -241,6 +253,22 @@ async fn send_anthropic(
     api_key: &str,
     body: &impl Serialize,
 ) -> Result<reqwest::Response, String> {
+    send_anthropic_unless_offline(local_inference::offline(), client, base, api_key, body).await
+}
+
+/// [`send_anthropic`] with the offline flag explicit: in offline mode the
+/// Anthropic path is unreachable, refused before any connection is made
+/// (even to a loopback gateway).
+async fn send_anthropic_unless_offline(
+    offline: bool,
+    client: &Client,
+    base: &str,
+    api_key: &str,
+    body: &impl Serialize,
+) -> Result<reqwest::Response, String> {
+    if offline {
+        return Err(local_inference::OFFLINE_REFUSAL.to_string());
+    }
     let resp = client
         .post(format!("{base}/v1/messages"))
         .header("x-api-key", api_key)
@@ -287,7 +315,8 @@ async fn stream_ollama(
     messages: Vec<Msg>,
     request_id: String,
 ) -> Result<(), String> {
-    let client = local_inference::client()?;
+    let base = local_inference::ollama_base_url()?;
+    let client = local_inference::local_client_for(&base)?;
 
     #[derive(Serialize)]
     struct OllamaChatRequest {
@@ -302,7 +331,7 @@ async fn stream_ollama(
         stream: true,
     };
 
-    let resp = send_ollama_chat(&client, &local_inference::ollama_base_url()?, &body).await?;
+    let resp = send_ollama_chat(&client, &base, &body).await?;
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
@@ -361,7 +390,7 @@ async fn stream_local_inference(
 ) -> Result<(), String> {
     let cfg = local_inference::load()?
         .ok_or_else(|| "localInference is not configured in ~/.ashlr/config.json".to_string())?;
-    let client = local_inference::client()?;
+    let client = local_inference::local_client_for(&cfg.base_url)?;
     let body = serde_json::json!({ "model": cfg.model, "messages": messages, "stream": true });
     let resp = local_inference::send_chat(&client, &cfg.base_url, &body).await?;
 
@@ -465,10 +494,13 @@ async fn stream_anthropic(
 ) -> Result<(), String> {
     // Validate the endpoint before anything else: a refused ANTHROPIC_BASE_URL
     // returns here, before a client exists, so the key is never sent.
+    if local_inference::offline() {
+        return Err(local_inference::OFFLINE_REFUSAL.to_string());
+    }
     let base = base_urls::anthropic_base_url_checked().map_err(|e| e.to_string())?;
     // No redirects: the key goes only to the validated host, never to a
     // redirect target (x-api-key is not stripped on cross-host redirects).
-    let client = local_inference::anthropic_client_builder(&base)
+    let client = local_inference::anthropic_client_builder(&base)?
         .build()
         .map_err(|e| format!("Anthropic client setup failed: {e}"))?;
 
@@ -649,9 +681,11 @@ mod redaction_tests {
 
     #[tokio::test]
     async fn anthropic_errors_never_carry_the_key_or_proxy_token() {
-        let client = crate::local_inference::anthropic_client_builder("http://127.0.0.1")
-            .build()
-            .unwrap();
+        let client =
+            crate::local_inference::anthropic_client_builder_gated(false, "http://127.0.0.1")
+                .unwrap()
+                .build()
+                .unwrap();
         let mut reached = false;
         let mut found = Vec::new();
         for (label, root) in roots() {
@@ -817,7 +851,8 @@ mod litellm_compat_tests {
     }
 
     fn client() -> Client {
-        crate::local_inference::anthropic_client_builder("http://127.0.0.1")
+        crate::local_inference::anthropic_client_builder_gated(false, "http://127.0.0.1")
+            .unwrap()
             .build()
             .unwrap()
     }
@@ -873,5 +908,87 @@ mod litellm_compat_tests {
         let stub = "http://127.0.0.1:4000";
         assert!(anthropic_env_key_from(None, Some(CANARIES[0]), Some(stub), None).is_none());
         assert!(anthropic_env_key_from(Some("0"), Some(CANARIES[0]), Some(stub), None).is_none());
+    }
+}
+
+#[cfg(test)]
+mod offline_tests {
+    use super::{send_anthropic_unless_offline, send_ollama_chat_gated};
+
+    /// Canary: in offline mode the Anthropic builder and the send path never
+    /// open a connection, not even to a loopback gateway. A second listener
+    /// on a lookalike address (127.0.0.2) stays silent too: there is no
+    /// fallback host. `offline == false` still reaches the loopback gateway.
+    #[tokio::test]
+    async fn anthropic_is_unreachable_offline() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://127.0.0.1:{}", l.local_addr().unwrap().port());
+        let canary = tokio::net::TcpListener::bind("127.0.0.2:0").await.unwrap();
+        let canary_base = format!("http://127.0.0.2:{}", canary.local_addr().unwrap().port());
+        let err = crate::local_inference::anthropic_client_builder_gated(true, &base).unwrap_err();
+        assert_eq!(err, crate::local_inference::OFFLINE_REFUSAL);
+        let err =
+            crate::local_inference::anthropic_client_builder_gated(true, &canary_base).unwrap_err();
+        assert_eq!(err, crate::local_inference::OFFLINE_REFUSAL);
+
+        let client = crate::local_inference::anthropic_client_builder_gated(false, &base)
+            .unwrap()
+            .build()
+            .unwrap();
+        let body = serde_json::json!({ "messages": [{ "role": "user", "content": "document-text-canary" }] });
+        let err = send_anthropic_unless_offline(true, &client, &base, "sk-ant-canary", &body)
+            .await
+            .unwrap_err();
+        assert_eq!(err, crate::local_inference::OFFLINE_REFUSAL);
+        let hit = tokio::time::timeout(std::time::Duration::from_millis(300), l.accept()).await;
+        assert!(
+            hit.is_err(),
+            "offline Anthropic request reached the listener"
+        );
+        let canary_hit =
+            tokio::time::timeout(std::time::Duration::from_millis(200), canary.accept()).await;
+        assert!(
+            canary_hit.is_err(),
+            "offline Anthropic request reached the lookalike"
+        );
+
+        // Sanity: the same call online does reach the loopback gateway and
+        // still does not touch the lookalike.
+        let online = tokio::spawn(async move { l.accept().await.is_ok() });
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            send_anthropic_unless_offline(false, &client, &base, "sk-ant-canary", &body),
+        )
+        .await;
+        assert!(
+            online.await.unwrap(),
+            "online request should reach the listener"
+        );
+        let canary_hit =
+            tokio::time::timeout(std::time::Duration::from_millis(200), canary.accept()).await;
+        assert!(
+            canary_hit.is_err(),
+            "online Anthropic request fell back to the lookalike"
+        );
+    }
+
+    /// Ollama chat uses the same host gate: a lookalike is not contacted.
+    #[tokio::test]
+    async fn offline_ollama_chat_never_contacts_lookalike() {
+        let l = tokio::net::TcpListener::bind("127.0.0.2:0").await.unwrap();
+        let base = format!("http://127.0.0.2:{}", l.local_addr().unwrap().port());
+        let client = crate::local_inference::client().unwrap();
+        let err = send_ollama_chat_gated(
+            true,
+            &client,
+            &base,
+            &serde_json::json!({"model": "m", "messages": []}),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("remote-not-allowed"), "{err}");
+        assert!(!err.contains("127.0.0.2"), "{err}");
+        let hit = tokio::time::timeout(std::time::Duration::from_millis(300), l.accept()).await;
+        assert!(hit.is_err(), "offline Ollama chat contacted the lookalike");
     }
 }

@@ -239,3 +239,102 @@ fn remote_ollama_needs_allow_remote_from_the_shared_gate() {
         "http://127.0.0.1:11434"
     );
 }
+
+#[test]
+fn offline_refuses_remote_ollama_even_with_allow_remote() {
+    use mdopener_mcp::ollama_base_gated;
+    use serde_json::json;
+    let root =
+        json!({ "localInference": { "provider": "ollama", "allowRemote": true, "offline": true } });
+    let allow = mdopener_mcp::local_inference_offline_allow_remote(Some(&root));
+    assert!(!allow);
+    let err = ollama_base_gated(Some("https://ollama.example.com/"), allow).unwrap_err();
+    assert!(
+        err.starts_with("OLLAMA_HOST refused: remote-not-allowed"),
+        "{err}"
+    );
+    assert_eq!(
+        ollama_base_gated(None, allow).unwrap(),
+        "http://127.0.0.1:11434"
+    );
+}
+
+/// A listener that records the first bytes it sees, or nothing if nobody
+/// connects before `wait`.
+fn quiet_for(addr: &str, wait: Duration) -> (u16, std::thread::JoinHandle<Vec<u8>>) {
+    let l = TcpListener::bind(addr).unwrap();
+    let port = l.local_addr().unwrap().port();
+    l.set_nonblocking(true).unwrap();
+    let h = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + wait;
+        let mut s = loop {
+            match l.accept() {
+                Ok((s, _)) => break s,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Err(_) => return Vec::new(),
+            }
+        };
+        s.set_nonblocking(false).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut buf = vec![0u8; 4096];
+        let n = s.read(&mut buf).unwrap_or(0);
+        buf.truncate(n);
+        buf
+    });
+    (port, h)
+}
+
+/// Search embeddings share this POST. Offline refuses a lookalike before
+/// any socket, and still reaches a real loopback Ollama.
+#[test]
+fn offline_search_embed_never_contacts_lookalike() {
+    use mdopener_mcp::ollama_post_json_offline;
+    use serde_json::json;
+    let (port, h) = quiet_for("127.0.0.2:0", Duration::from_millis(400));
+    let url = format!("http://127.0.0.2:{port}/api/embeddings");
+    let err = ollama_post_json_offline(
+        &url,
+        &json!({"model": "nomic-embed-text", "prompt": "document-text-canary"}),
+        Duration::from_secs(1),
+        true,
+    )
+    .unwrap_err();
+    assert!(err.contains("remote-not-allowed"), "{err}");
+    assert!(!err.contains("127.0.0.2"), "{err}");
+    assert!(
+        h.join().unwrap().is_empty(),
+        "offline search embed contacted the lookalike"
+    );
+
+    let (port, h) =
+        one_shot(b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{\"embedding\":[0.5]}");
+    let url = format!("http://127.0.0.1:{port}/api/embeddings");
+    let v = ollama_post_json_offline(
+        &url,
+        &json!({"model": "nomic-embed-text", "prompt": "hi"}),
+        Duration::from_secs(2),
+        true,
+    )
+    .unwrap();
+    assert_eq!(v["embedding"][0], 0.5);
+    assert!(!h.join().unwrap().is_empty());
+
+    // offline=false keeps today's loopback POST.
+    let (port, h) =
+        one_shot(b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{\"embedding\":[1.0]}");
+    let url = format!("http://127.0.0.1:{port}/api/embeddings");
+    let v = ollama_post_json_offline(
+        &url,
+        &json!({"prompt": "hi"}),
+        Duration::from_secs(2),
+        false,
+    )
+    .unwrap();
+    assert_eq!(v["embedding"][0], 1.0);
+    assert!(h
+        .join()
+        .unwrap()
+        .starts_with(b"POST /api/embeddings HTTP/1.0\r\n"));
+}
