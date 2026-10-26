@@ -25,6 +25,9 @@ urlencoding = "2"
 # Resolve ~ in paths.
 dirs = "5"
 
+# URL parsing for the shared localInference gate (already in the tree via reqwest).
+url = "2"
+
 # TLS for an https:// OLLAMA_HOST (system TLS; already in the workspace via reqwest).
 native-tls = "0.2"
 

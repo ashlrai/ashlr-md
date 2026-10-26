@@ -18,6 +18,7 @@ mod file_handler;
 mod ipc;
 mod line_breaks;
 mod local_inference;
+mod local_inference_gate;
 mod markdown_lines;
 mod redact;
 mod review_store;
