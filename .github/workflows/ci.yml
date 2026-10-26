@@ -130,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
-            bunx vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+            ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
             for f in coverage/lcov.info junit.xml; do
               if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
             done
