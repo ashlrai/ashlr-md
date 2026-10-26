@@ -7,20 +7,23 @@
  *  2. Each handler module's exported function is callable and registers the right event
  *  3. The bridge remains a thin wiring layer — no handler logic leaks back into it
  *
- * Individual handler behavior is tested exhaustively in bridge.test.ts.
- * This file focuses on integration / wiring correctness.
+ * Handler behavior is exercised here through the registered event listeners,
+ * including refusals, large documents, and preview lifecycle transitions.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── React mock — run useEffect synchronously ─────────────────────────────────
 
+const effectCleanups: Array<() => void> = [];
+
 vi.mock("react", async (importOriginal) => {
   const real = await importOriginal<typeof import("react")>();
   return {
     ...real,
     useEffect: (fn: () => unknown, _deps?: unknown[]) => {
-      fn();
+      const cleanup = fn();
+      if (typeof cleanup === "function") effectCleanups.push(cleanup as () => void);
     },
     useRef: (init: unknown) => ({ current: init }),
   };
@@ -141,6 +144,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const cleanup of effectCleanups.splice(0)) cleanup();
   vi.clearAllMocks();
 });
 
@@ -931,5 +935,320 @@ describe("handlers integration: no fallback for a document with no file", () => 
     expect(editHandlersSrc).toMatch(
       /interface StreamEditPreview \{[^}]*\bpath: string;/,
     );
+  });
+});
+
+describe("handler behavior tables", () => {
+  function result(command = "mcp_edit_result") {
+    const replies = invokeMock.mock.calls.filter(([cmd]) => cmd === command);
+    expect(replies).toHaveLength(1);
+    return replies[0][1];
+  }
+
+  beforeEach(() => {
+    mountBridge();
+    invokeMock.mockClear();
+  });
+
+  it.each([
+    ["mcp://edit", "mcp_edit_result", "", "must not be empty"],
+    ["mcp://edit", "mcp_edit_result", "absent", "not found"],
+    ["mcp://edit", "mcp_edit_result", "a", "not unique"],
+    ["mcp://stream-edit", "mcp_stream_edit_preview", "", "must not be empty"],
+    ["mcp://stream-edit", "mcp_stream_edit_preview", "absent", "not found"],
+    ["mcp://stream-edit-apply", "mcp_stream_edit_apply_result", "", "required"],
+    ["mcp://stream-edit-apply", "mcp_stream_edit_apply_result", "absent", "not found"],
+  ])("%s refuses find '%s' without changing the document", async (event, command, find, error) => {
+    useDocumentStore.setState({ content: "a b a" });
+    await fireEvent(event, { editId: "invalid", find, replace: "new" });
+    expect(result(command)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining(error),
+    });
+    expect(useDocumentStore.getState().content).toBe("a b a");
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "write_markdown_file")).toBe(
+      false,
+    );
+  });
+
+  it.each([-1, 2, 0.5])("refuses invalid occurrence index %s", async (matchIndex) => {
+    useDocumentStore.setState({ content: "a b a" });
+    await fireEvent("mcp://stream-edit-apply", {
+      editId: "index",
+      find: "a",
+      replace: "c",
+      matchIndex,
+    });
+    expect(result("mcp_stream_edit_apply_result")).toMatchObject({
+      ok: false,
+      replaced: 0,
+      matchIndex,
+    });
+    expect(useDocumentStore.getState().content).toBe("a b a");
+  });
+
+  it.each([
+    "mcp://edit",
+    "mcp://stream-edit",
+    "mcp://stream-edit-apply",
+  ])("%s catches malformed find input", async (event) => {
+    const command =
+      event === "mcp://edit"
+        ? "mcp_edit_result"
+        : event === "mcp://stream-edit"
+          ? "mcp_stream_edit_preview"
+          : "mcp_stream_edit_apply_result";
+    const before = useDocumentStore.getState().content;
+    await fireEvent(event, { editId: "malformed", find: 42, replace: "c" });
+    expect(result(command)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("failed"),
+    });
+    expect(useDocumentStore.getState().content).toBe(before);
+  });
+
+  it.each([
+    "mcp://edit",
+    "mcp://stream-edit",
+    "mcp://stream-edit-apply",
+    "mcp://set-content",
+  ])("%s preserves an oversized document", async (event) => {
+    const padding = "x".repeat(2 * 1024 * 1024);
+    useDocumentStore.setState({ content: `${padding}needle` });
+    await fireEvent(event, {
+      editId: `large-${event}`,
+      find: "needle",
+      replace: "updated",
+      content: `${padding}updated`,
+      preview: false,
+    });
+    const command =
+      event === "mcp://stream-edit"
+        ? "mcp_stream_edit_preview"
+        : event === "mcp://stream-edit-apply"
+          ? "mcp_stream_edit_apply_result"
+          : "mcp_edit_result";
+    expect(result(command)).toMatchObject({ ok: true });
+    expect(useDocumentStore.getState().content).toBe(`${padding}updated`);
+  });
+
+  it.each([
+    "missing",
+    "path",
+    "find",
+    "replace",
+    "consumed",
+  ])("refuses a %s preview", async (reason) => {
+    useDocumentStore.setState({ content: "a b a" });
+    const originalEditId = `preview-${reason}`;
+    if (reason !== "missing") {
+      await fireEvent("mcp://stream-edit", {
+        editId: originalEditId,
+        find: "a",
+        replace: "c",
+      });
+      expect(result("mcp_stream_edit_preview")).toMatchObject({
+        ok: true,
+        matchCount: 2,
+        candidates: [
+          expect.objectContaining({ matchIndex: 0, startLine: 1, rank: 1 }),
+          expect.objectContaining({ matchIndex: 1, startLine: 1, rank: 2 }),
+        ],
+      });
+    }
+    const payload = {
+      editId: "apply",
+      originalEditId,
+      find: reason === "find" ? "b" : "a",
+      replace: reason === "replace" ? "d" : "c",
+      matchIndex: 1,
+    };
+    if (reason === "path") useDocumentStore.setState({ path: "/other.md" });
+    if (reason === "consumed") {
+      invokeMock.mockClear();
+      await fireEvent("mcp://stream-edit-apply", payload);
+      expect(result("mcp_stream_edit_apply_result")).toMatchObject({
+        ok: true,
+        replaced: 1,
+      });
+      expect(useDocumentStore.getState().content).toBe("a b c");
+    }
+    const before = useDocumentStore.getState().content;
+    invokeMock.mockClear();
+    await fireEvent("mcp://stream-edit-apply", payload);
+    expect(result("mcp_stream_edit_apply_result")).toMatchObject({
+      ok: false,
+      replaced: 0,
+      error: expect.stringContaining("editId"),
+    });
+    expect(useDocumentStore.getState().content).toBe(before);
+  });
+
+  it.each([
+    "pdf",
+    "docx",
+    "html",
+    "epub",
+  ])("routes %s exports and preselects its dialog", async (format) => {
+    const exporters = await import("../lib/export");
+    const exporter = {
+      pdf: exporters.exportPdf,
+      docx: exporters.exportDocx,
+      html: exporters.exportHtml,
+      epub: exporters.exportEpub,
+    }[format];
+    await fireEvent("mcp://export", { format });
+    expect(useUiStore.getState()).toMatchObject({
+      exportOpen: true,
+      exportFormat: format,
+    });
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "mcp_edit_result")).toBe(
+      false,
+    );
+    await fireEvent("mcp://export", {
+      editId: "export",
+      format,
+      outputPath: `/out/file.${format}`,
+      overwrite: false,
+    });
+    expect(exporter).toHaveBeenCalledWith(
+      ...(format === "pdf"
+        ? ["test"]
+        : ["test", `/out/file.${format}`, { newFile: true }]),
+    );
+    expect(result()).toMatchObject({ ok: true, replaced: 1 });
+  });
+
+  it.each([
+    null,
+    "",
+    "# Review",
+    "x".repeat(2 * 1024 * 1024),
+  ])("registers review content without losing bytes (case %#)", async (content) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(123456);
+    try {
+      await fireEvent("mcp://review", {
+        reviewId: "review-table",
+        path: content === null ? "/review.md" : null,
+        content,
+        timeoutMs: 30000,
+      });
+      expect(useReviewStore.getState().pending).toEqual({
+        reviewId: "review-table",
+        path: content === null ? "/review.md" : null,
+        content,
+        timeoutMs: 30000,
+        registeredAt: 123456,
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each([
+    "read",
+    "edit",
+    "source",
+    undefined,
+  ])("open handles mode %s", async (mode) => {
+    useDocumentStore.setState({ viewMode: "edit" });
+    await fireEvent("mcp://open", { editId: "open-mode", path: "/opened.md", mode });
+    expect(result()).toMatchObject({ ok: true });
+    expect(useDocumentStore.getState().viewMode).toBe(
+      mode === "read" ? "read" : "edit",
+    );
+  });
+
+  it.each([
+    "mcp://open",
+    "mcp://present",
+  ])("%s answers once when opening throws", async (event) => {
+    const open = vi
+      .spyOn(useDocumentStore.getState(), "openPath")
+      .mockRejectedValueOnce(new Error("invalid path"));
+    try {
+      await fireEvent(event, { editId: "throw", path: "/invalid.md" });
+      expect(result()).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("invalid path"),
+      });
+      expect(useUiStore.getState().zenMode).toBe(false);
+    } finally {
+      open.mockRestore();
+    }
+  });
+});
+
+describe("handler reply and preview boundaries", () => {
+  beforeEach(() => {
+    mountBridge();
+    invokeMock.mockClear();
+  });
+
+  it.each([
+    "mcp://open",
+    "mcp://export",
+    "mcp://set-content",
+  ])("%s does not send a second reply after transport failure", async (event) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockImplementation((command: string) =>
+      command === "mcp_edit_result"
+        ? Promise.reject(new Error("transport closed"))
+        : Promise.resolve(undefined),
+    );
+    try {
+      await fireEvent(event, {
+        editId: "reply-failure",
+        path: "/test.md",
+        format: "html",
+        outputPath: "/out/test.html",
+        content: "updated",
+      });
+      expect(
+        invokeMock.mock.calls.filter(([cmd]) => cmd === "mcp_edit_result"),
+      ).toHaveLength(1);
+      expect(error).toHaveBeenCalledOnce();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("answers malformed set-content without replacing the buffer", async () => {
+    useDocumentStore.setState({ content: "original\r\n" });
+    await fireEvent("mcp://set-content", { editId: "invalid-content", content: null });
+    expect(useDocumentStore.getState().content).toBe("original\r\n");
+    expect(invokeMock).toHaveBeenCalledWith(
+      "mcp_edit_result",
+      expect.objectContaining({
+        ok: false,
+        replaced: 0,
+        error: expect.stringContaining("Replacing the content failed"),
+      }),
+    );
+  });
+
+  it("evicts the oldest preview while keeping the newest usable", async () => {
+    useDocumentStore.setState({ content: "hello" });
+    for (let index = 0; index < 65; index++) {
+      await fireEvent("mcp://stream-edit", {
+        editId: `bounded-${index}`,
+        find: "hello",
+        replace: "hi",
+      });
+    }
+    for (const index of [0, 64]) {
+      invokeMock.mockClear();
+      await fireEvent("mcp://stream-edit-apply", {
+        editId: `bounded-apply-${index}`,
+        originalEditId: `bounded-${index}`,
+        find: "hello",
+        replace: "hi",
+      });
+      expect(invokeMock).toHaveBeenCalledWith(
+        "mcp_stream_edit_apply_result",
+        expect.objectContaining({ ok: index === 64, replaced: index === 64 ? 1 : 0 }),
+      );
+      expect(useDocumentStore.getState().content).toBe(index === 64 ? "hi" : "hello");
+    }
   });
 });
