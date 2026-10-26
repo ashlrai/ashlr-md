@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
 #[path = "../../../src/local_inference_gate.rs"]
-mod gate;
+pub(crate) mod gate;
 
 pub const CAPABILITY: &str = "local-inference-probe";
 pub const CONFIG_CHECK_ID: &str = "local-inference-config";

@@ -5023,7 +5023,25 @@ fn refusal_reason(why: base_urls::BaseUrlRefusal) -> &'static str {
 }
 
 fn ollama_base() -> Result<String, String> {
-    ollama_base_from(std::env::var("OLLAMA_HOST").ok().as_deref())
+    let allow_remote = local_inference_probe::gate::read_config_value()
+        .and_then(|r| r.get("localInference")?.get("allowRemote")?.as_bool())
+        .unwrap_or(false);
+    ollama_base_gated(std::env::var("OLLAMA_HOST").ok().as_deref(), allow_remote)
+}
+
+/// [`ollama_base_from`] plus the shared `localInference` gate (same rules as
+/// the app): a non-loopback Ollama also needs `localInference.allowRemote:
+/// true` in `~/.ashlr/config.json` (it must already be https). The refusal
+/// never echoes the value.
+pub fn ollama_base_gated(raw: Option<&str>, allow_remote: bool) -> Result<String, String> {
+    let url = ollama_base_from(raw)?;
+    local_inference_probe::gate::validate_local_base_url(&url, allow_remote)
+        .map(|_| url)
+        .map_err(|why| {
+            format!(
+                "OLLAMA_HOST refused: {why}; a non-loopback Ollama needs localInference.allowRemote true in ~/.ashlr/config.json and https. No request was sent."
+            )
+        })
 }
 
 /// A parsed Ollama URL: scheme, host as written (IPv6 in brackets), port
@@ -5080,6 +5098,11 @@ pub fn parse_ollama_url(url: &str) -> Result<OllamaTarget, String> {
 fn ollama_socket_addrs(t: &OllamaTarget) -> Result<Vec<std::net::SocketAddr>, String> {
     use std::net::ToSocketAddrs;
     let bare = t.host.trim_start_matches('[').trim_end_matches(']');
+    // `localhost` is pinned to loopback without DNS (a hosts-file or
+    // resolver remap cannot send it off the machine), like the app's client.
+    if let Some(addrs) = local_inference_probe::loopback_addrs(bare, t.port) {
+        return Ok(addrs);
+    }
     (bare, t.port)
         .to_socket_addrs()
         .map(|a| a.collect())

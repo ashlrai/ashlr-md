@@ -336,7 +336,7 @@ pub(crate) async fn fetch_embeddings_at(
 /// Embed-model name if Ollama is up and an embed model is installed, else None.
 #[tauri::command]
 pub async fn embed_available() -> Result<Option<String>, String> {
-    let client = Client::new();
+    let client = local_inference::client()?;
     Ok(detect_embed_model(&client).await)
 }
 
@@ -380,7 +380,7 @@ async fn embed_index_inner(
     prune: bool,
     state: &EmbedState,
 ) -> Result<IndexResult, String> {
-    let client = Client::new();
+    let client = local_inference::client()?;
     let Some(model) = detect_embed_model(&client).await else {
         let total = state.index.lock().unwrap().chunks.len();
         return Ok(IndexResult {
@@ -548,7 +548,7 @@ pub async fn embed_search(
         return Ok(Vec::new());
     }
 
-    let client = Client::new();
+    let client = local_inference::client()?;
     let Some(model) = detect_embed_model(&client).await else {
         return Ok(Vec::new());
     };
@@ -595,7 +595,7 @@ pub async fn embed_status(
     state: tauri::State<'_, EmbedState>,
 ) -> Result<EmbedStatusPayload, String> {
     ensure_loaded(&state);
-    let client = Client::new();
+    let client = local_inference::client()?;
     let model = detect_embed_model(&client).await;
     let idx = state.index.lock().unwrap();
     let file_count = idx.file_mtimes.len();

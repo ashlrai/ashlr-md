@@ -93,6 +93,57 @@ pub fn ai_local_inference_status() -> Option<LocalInferenceStatus> {
     })
 }
 
+fn pinned_builder() -> reqwest::ClientBuilder {
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(
+            "localhost",
+            &[
+                SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                SocketAddr::from((Ipv6Addr::LOCALHOST, 0)),
+            ],
+        )
+}
+
+/// The one HTTP client builder for every local model and embedding call
+/// (security: flagship-threats HIGH #1, MEDIUM #2):
+/// - redirects are never followed, so a loopback listener answering 307/308
+///   cannot re-send a prompt, document text or key to another host;
+/// - `localhost` is pinned to 127.0.0.1 and ::1 (no DNS, so a hosts-file or
+///   resolver remap cannot send it off the machine). IP literals never use
+///   DNS, and remote hosts only pass the gate with `allowRemote` and https;
+/// - no proxy: reqwest otherwise honors HTTP_PROXY, HTTPS_PROXY, ALL_PROXY
+///   and the system proxy with no loopback bypass, which would hand local
+///   prompts and documents to the proxy.
+pub fn client_builder() -> reqwest::ClientBuilder {
+    pinned_builder().no_proxy()
+}
+
+/// The Anthropic client builder: no redirects (the key goes only to the
+/// validated host) and `localhost` pinned, like [`client_builder`]. It keeps
+/// the environment and system proxy so corporate proxies still work for the
+/// real API, except when `base` is a loopback gateway (for example LiteLLM on
+/// 127.0.0.1), where a proxy would only take the request off the machine.
+pub fn anthropic_client_builder(base: &str) -> reqwest::ClientBuilder {
+    let loopback = url::Url::parse(base)
+        .ok()
+        .and_then(|u| u.host_str().map(is_loopback_host))
+        .unwrap_or(false);
+    if loopback {
+        pinned_builder().no_proxy()
+    } else {
+        pinned_builder()
+    }
+}
+
+/// [`client_builder`] with no other settings.
+pub fn client() -> Result<reqwest::Client, String> {
+    client_builder()
+        .build()
+        .map_err(|e| format!("HTTP client setup failed: {e}"))
+}
+
 /// One parsed line of an OpenAI chat-completions SSE stream.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SseLine {
@@ -330,7 +381,7 @@ mod tests {
             String::from_utf8_lossy(&raw).to_string()
         });
         let base = validate_local_base_url(&format!("http://127.0.0.1:{port}/v1"), false).unwrap();
-        let client = reqwest::Client::new();
+        let client = client().unwrap();
         let body = json!({"model": DEFAULT_LOCAL_MODEL, "messages": [], "stream": true});
         let resp = send_chat(&client, &base.base_url, &body).await.unwrap();
         let text = resp.text().await.unwrap();
@@ -343,5 +394,144 @@ mod tests {
         assert!(text
             .lines()
             .any(|l| parse_sse_line(l) == SseLine::Delta("ok".into())));
+    }
+
+    /// Accept one connection on `l` (if any arrives within `wait`), answer
+    /// `reply`, and return the request text.
+    async fn answer_once(l: tokio::net::TcpListener, reply: String) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut sock, _) = l.accept().await.unwrap();
+        let mut raw = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            raw.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&raw).to_string();
+            let done = text.find("\r\n\r\n").is_some_and(|h| {
+                let len = text[..h]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                raw.len() >= h + 4 + len
+            });
+            if done || n == 0 {
+                break;
+            }
+        }
+        sock.write_all(reply.as_bytes()).await.unwrap();
+        String::from_utf8_lossy(&raw).to_string()
+    }
+
+    /// A second listener that must never be contacted.
+    async fn untouched_target() -> (u16, tokio::task::JoinHandle<bool>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = tokio::spawn(async move {
+            tokio::time::timeout(std::time::Duration::from_millis(300), l.accept())
+                .await
+                .is_ok()
+        });
+        (port, h)
+    }
+
+    /// 307 and 308 keep the method and body; the shared client must not
+    /// follow either, so the prompt never reaches the redirect target.
+    #[tokio::test]
+    async fn chat_redirects_with_body_are_not_followed() {
+        for code in [307u16, 308] {
+            let (tport, target) = untouched_target().await;
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = l.local_addr().unwrap().port();
+            let reply = format!(
+                "HTTP/1.1 {code} Redirect\r\nLocation: http://127.0.0.1:{tport}/v1/chat/completions\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+            );
+            let server = tokio::spawn(answer_once(l, reply));
+            let body = json!({"model": DEFAULT_LOCAL_MODEL, "messages": [{"role": "user", "content": "document-text-canary"}]});
+            let err = send_chat(
+                &client().unwrap(),
+                &format!("http://127.0.0.1:{port}/v1"),
+                &body,
+            )
+            .await
+            .unwrap_err();
+            assert!(err.contains(&code.to_string()), "{err}");
+            assert!(server.await.unwrap().contains("document-text-canary"));
+            assert!(
+                !target.await.unwrap(),
+                "{code}: redirect target was contacted"
+            );
+        }
+    }
+
+    /// Same for the Ollama embeddings path (embed.rs uses the shared client).
+    #[tokio::test]
+    async fn embed_redirect_is_not_followed() {
+        let (tport, target) = untouched_target().await;
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let reply = format!(
+            "HTTP/1.1 308 Permanent Redirect\r\nLocation: http://127.0.0.1:{tport}/api/embed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+        );
+        let server = tokio::spawn(answer_once(l, reply));
+        let r = crate::embed::fetch_embeddings_at(
+            &client().unwrap(),
+            &format!("http://127.0.0.1:{port}"),
+            "nomic-embed-text",
+            &["document-text-canary".to_string()],
+        )
+        .await;
+        assert!(r.is_err());
+        server.await.unwrap();
+        assert!(!target.await.unwrap(), "redirect target was contacted");
+    }
+
+    /// `localhost` never goes to the resolver: with a resolver that sends
+    /// every name off-box (192.0.2.1, TEST-NET-1), a request to
+    /// http://localhost:<port> still reaches the loopback server, and the
+    /// resolver is never asked.
+    #[tokio::test]
+    async fn localhost_is_pinned_even_if_dns_says_otherwise() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        struct OffBox(Arc<AtomicUsize>);
+        impl reqwest::dns::Resolve for OffBox {
+            fn resolve(&self, _name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async {
+                    let addrs: reqwest::dns::Addrs = Box::new(
+                        vec![std::net::SocketAddr::from(([192, 0, 2, 1], 80))].into_iter(),
+                    );
+                    Ok(addrs)
+                })
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let server = tokio::spawn(answer_once(
+            l,
+            "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}".into(),
+        ));
+        let c = client_builder()
+            .dns_resolver(Arc::new(OffBox(calls.clone())))
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let resp = c
+            .get(format!("http://localhost:{port}/v1/models"))
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success());
+        server.await.unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "localhost went to the resolver"
+        );
     }
 }
