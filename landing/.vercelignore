@@ -1,0 +1,5 @@
+# Build-time sources; the deployed artifact is index.html itself.
+index.template.html
+freshness.mjs
+README.md
+.vercelignore

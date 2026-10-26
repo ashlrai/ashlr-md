@@ -16,6 +16,7 @@ if printf '%s\n' "$files" | grep -Eq "$js_in"; then js=true; fi
 echo "ci-local: js=$js rust=$rust (vs $base)"
 pids=()
 ( bun run typecheck && bunx biome check src && bun run check:crypto \
+  && bun run check:site \
   && if [ "$js" = true ]; then bunx vitest run --changed "$base"; fi ) & pids+=($!)
 if [ "$rust" = true ]; then
   ( nice -n 10 cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings \

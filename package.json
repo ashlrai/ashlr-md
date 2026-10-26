@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
+    "check:site": "node landing/freshness.mjs --check",
+    "gen:site": "node landing/freshness.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
