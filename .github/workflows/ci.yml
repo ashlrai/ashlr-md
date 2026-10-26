@@ -1,11 +1,25 @@
 name: CI
 
+# Merge-queue CI (pilot). Until the repo variable MERGE_QUEUE is 'true' (set
+# when the ruleset enables the queue), PRs and main pushes run the selected
+# suite exactly as before, so nothing merges on the fast lane alone.
+# With MERGE_QUEUE=true: PR pushes, drafts included, get a fast typecheck and
+# lint under both required names. The full selected suite runs once, in the
+# merge queue (merge_group), on the batched merge commit. Nightly and manual
+# runs do everything on Linux and macOS. Main pushes run nothing: every commit
+# on main already passed its merge_group run. Run scripts/ci-local.sh before
+# pushing.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
 
-# Cancel superseded runs for the same PR; never cancel main.
+# Cancel superseded PR runs; never cancel a queue or nightly run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -15,56 +29,67 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Which jobs a PR needs. The macOS job only compiles and lints the Rust
-  # workspace against a placeholder frontend, so a PR that touches none of its
-  # inputs (frontend, landing page, most docs) has nothing for it to check and
-  # skips it instead of waiting for a shared macOS runner. Anything not on the
-  # list below counts as a Rust input. Pushes to main always run everything,
-  # and if this job fails the macOS job runs anyway.
+  # What the merge_group run needs (impact selection). PRs need no
+  # classification (fast lane only); nightly and manual runs select everything.
+  #   js:    frontend inputs changed (unit tests, build)
+  #   macos: Rust inputs changed (Linux and macOS cargo check and clippy)
+  #   docs-only merges run nothing but the always-on security checks.
+  # docs/AGENTS.md is include_str!'d by an mdopener-mcp test, so it is a Rust input.
   # ---------------------------------------------------------------------------
   changes:
     name: Classify changes
+    if: github.event_name != 'push' || vars.MERGE_QUEUE != 'true'
     runs-on: ubuntu-22.04
+    env:
+      SELECT: ${{ github.event_name == 'merge_group' || (github.event_name == 'pull_request' && vars.MERGE_QUEUE != 'true') }}
     outputs:
+      js: ${{ steps.classify.outputs.js }}
       macos: ${{ steps.classify.outputs.macos }}
     steps:
       - uses: actions/checkout@v4
+        if: env.SELECT == 'true'
         with:
           fetch-depth: 0
       - id: classify
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          FAST: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
+          BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
+          if [ "$FAST" = true ]; then echo "js=false" >> "$GITHUB_OUTPUT"; echo "macos=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          case "$EVENT" in
+            merge_group|pull_request) ;;
+            *) echo "js=true" >> "$GITHUB_OUTPUT"; echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
           files="$(git diff --name-only "$BASE...$HEAD")"
           printf '%s\n' "$files"
-          # Paths the macOS Rust check never reads. docs/AGENTS.md is
-          # include_str!'d by an mdopener-mcp test, so it stays a Rust input.
           not_rust='^(src/|landing/|samples/|integrations/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig(\.node)?\.json$|package\.json$|bun\.lockb?$|[^/]*\.md$|docs/)'
-          macos=false
+          js_in='^(src/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig(\.node)?\.json$|package\.json$|bun\.lockb?$|\.github/workflows/|scripts/)'
+          macos=false; js=false
           if printf '%s\n' "$files" | grep -v '^docs/AGENTS\.md$' | grep -Ev "$not_rust" | grep -q .; then macos=true; fi
           if printf '%s\n' "$files" | grep -qx 'docs/AGENTS.md'; then macos=true; fi
-          echo "macos=$macos" >> "$GITHUB_OUTPUT"
-          echo "macos=$macos"
+          if printf '%s\n' "$files" | grep -Eq "$js_in"; then js=true; fi
+          echo "js=$js" >> "$GITHUB_OUTPUT"; echo "macos=$macos" >> "$GITHUB_OUTPUT"
+          echo "js=$js macos=$macos"
 
   # ---------------------------------------------------------------------------
-  # Linux: the fast gate. All OS-agnostic JS quality gates (typecheck, Biome,
-  # unit tests, frontend build), dependency audits, and a Linux Rust check.
-  # Moved here from macOS: identical coverage on a runner ~10x cheaper, and
-  # lint/type errors now fail in ~2 min without waiting on a Mac.
+  # Linux. PR: typecheck + Biome only (~1 min, cached). merge_group: the
+  # selected suite plus the always-on security checks (crypto policy, audits).
+  # Nightly/manual: everything.
   # ---------------------------------------------------------------------------
   check-linux:
     name: Check (Linux)
-    # `needs` only to read the classifier for the clippy step. The job still
-    # runs whatever the classifier did (a failed classifier must not skip it).
     needs: changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
     runs-on: ubuntu-22.04
+    env:
+      # Fast lane: PR events once the merge queue is on.
+      PR: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
+      # A failed classifier selects everything.
+      JS: ${{ needs.changes.result != 'success' || needs.changes.outputs.js == 'true' }}
+      RUST: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,17 +115,26 @@ jobs:
         run: bunx biome check src
 
       - name: Unit tests
+        if: env.PR != 'true' && env.JS == 'true'
         run: bun run test
 
       # Soft-gated so an upstream advisory annotates without blocking.
+      # Always-on security check in the queue (not previously in CI).
+      - name: Crypto policy check
+        if: env.PR != 'true'
+        run: bun run check:crypto
+
       - name: Audit JS dependencies
+        if: env.PR != 'true'
         run: bun audit
         continue-on-error: true
 
       - name: Frontend build
+        if: env.PR != 'true' && env.JS == 'true'
         run: bunx vite build
 
       - name: Install Rust
+        if: env.PR != 'true' && env.RUST == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -108,11 +142,13 @@ jobs:
       # Caches ~/.cargo AND src-tauri/target (previously only the registry was
       # cached, so every run recompiled the whole Tauri tree).
       - uses: Swatinem/rust-cache@v2
+        if: env.PR != 'true' && env.RUST == 'true'
         with:
           workspaces: src-tauri
 
       # Tauri 2 Linux prerequisites — required for tauri-build to compile.
       - name: Install Linux system dependencies
+        if: env.PR != 'true' && env.RUST == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -128,30 +164,34 @@ jobs:
             patchelf
 
       - name: Stub sidecar binaries (resource existence check)
+        if: env.PR != 'true' && env.RUST == 'true'
         run: |
           mkdir -p src-tauri/target/release
           touch src-tauri/target/release/mdopen \
                 src-tauri/target/release/mdopener-mcp
 
       - name: Rust check (workspace)
+        if: env.PR != 'true' && env.RUST == 'true'
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
 
       # Linux-target clippy catches non-macOS cfg rot (dead code off macOS)
       # that the macOS clippy cannot see. Only when Rust inputs changed (the
       # classifier's `macos` output), or when the classifier did not succeed.
       - name: Rust clippy (workspace, Linux)
-        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
+        if: env.PR != 'true' && env.RUST == 'true'
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.
       - name: Install cargo-audit
+        if: env.PR != 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
         continue-on-error: true
 
       - name: Audit Rust dependencies
+        if: env.PR != 'true'
         run: cargo audit --file src-tauri/Cargo.lock
         continue-on-error: true
 
@@ -162,23 +202,33 @@ jobs:
   check-macos:
     name: Check (macOS)
     needs: changes
-    # A skipped job satisfies the required check; a failed classifier runs it.
-    if: ${{ always() && (needs.changes.result != 'success' || needs.changes.outputs.macos == 'true') }}
-    runs-on: macos-14
+    # Always reports the required name. On PRs, and in the queue when no Rust
+    # input changed, it is a seconds-long Linux stub; otherwise it runs the
+    # macOS check. A failed classifier runs it on macOS.
+    if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
+    runs-on: ${{ ((github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true') || (needs.changes.result == 'success' && needs.changes.outputs.macos != 'true')) && 'ubuntu-22.04' || 'macos-14' }}
     steps:
+      - name: Stub (no macOS inputs in this run)
+        if: runner.os != 'macOS'
+        run: echo "No Rust inputs selected; macOS check not needed for this event."
+
       - uses: actions/checkout@v4
+        if: runner.os == 'macOS'
 
       - name: Install Rust
+        if: runner.os == 'macOS'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        if: runner.os == 'macOS'
         with:
           workspaces: src-tauri
 
       # tauri-build validates bundle.resources paths exist at compile time.
       - name: Stub sidecar binaries (resource existence check)
+        if: runner.os == 'macOS'
         run: |
           mkdir -p src-tauri/target/release
           touch src-tauri/target/release/mdopen \
@@ -190,7 +240,9 @@ jobs:
           mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
 
       - name: Rust check (workspace)
+        if: runner.os == 'macOS'
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
 
       - name: Rust clippy (workspace)
+        if: runner.os == 'macOS'
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
