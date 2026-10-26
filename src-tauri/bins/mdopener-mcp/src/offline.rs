@@ -185,7 +185,7 @@ pub fn doctor_with(json: bool, tier1_json: &str, offline: bool) -> Option<String
     v["status"] = worst.into();
     Some(format!(
         "{}\n",
-        serde_json::to_string_pretty(&v).unwrap_or_default()
+        serde_json::to_string(&v).unwrap_or_default()
     ))
 }
 
@@ -500,7 +500,7 @@ pub fn render_json(r: &SetupReport) -> String {
         "config_snippet": r.config_snippet,
         "next": r.next,
     });
-    format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default())
+    format!("{}\n", serde_json::to_string(&v).unwrap_or_default())
 }
 
 pub const SETUP_HELP: &str = "USAGE:
