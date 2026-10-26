@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
+    "check:doc-links": "node --test scripts/check-doc-links.test.mjs && node scripts/check-doc-links.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
