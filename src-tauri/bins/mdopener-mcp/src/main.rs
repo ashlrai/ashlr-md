@@ -53,6 +53,8 @@ USAGE:
     mdopener-mcp               serve MCP on stdin/stdout (launched by an MCP client)
     mdopener-mcp --version     print the version
     mdopener-mcp --help        print this help
+    mdopener-mcp --export-tool-schema
+                               print tool names and input schemas as JSON, then exit
     mdopener-mcp --ashlr-handshake [--json]
                                print the Ashlr companion handshake (JSON)
     mdopener-mcp doctor [--json]
@@ -91,6 +93,11 @@ fn main() {
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    if args.as_slice() == ["--export-tool-schema"] {
+        let contract = serde_json::to_string_pretty(&mdopener_mcp::tool_contract())
+            .expect("tool contract is JSON");
+        std::process::exit(print_stdout(&format!("{contract}\n")));
+    }
     // Companion handshake (docs/ashlr-handshake.md): one JSON line, before stdin.
     if mdopener_mcp::handshake::requested(&args) {
         let app_running =

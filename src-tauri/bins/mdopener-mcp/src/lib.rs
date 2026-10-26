@@ -1549,6 +1549,17 @@ pub fn tool_list() -> Value {
     json!(tools)
 }
 
+/// Stable, offline contract for companion clients such as Phantom.
+/// Keep complete input schemas, but omit presentation text and registry order.
+pub fn tool_contract() -> Value {
+    let mut tools: Vec<Value> = tool_registry()
+        .iter()
+        .map(|tool| json!({ "name": tool.name, "inputSchema": tool.input_schema }))
+        .collect();
+    tools.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    json!({ "tools": tools })
+}
+
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
 pub fn handle_tool_call(id: Value, name: &str, args: Value, ipc: &dyn IpcClient) -> Response {
