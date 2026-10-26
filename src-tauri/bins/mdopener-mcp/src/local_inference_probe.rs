@@ -362,15 +362,6 @@ pub fn doctor(json: bool) -> (String, i32) {
         "not-configured" | "reachable" => "ok",
         _ => "warn",
     };
-    if json {
-        let v = serde_json::json!({
-            "checks": [{ "id": "local-inference", "status": level, "probe": p }]
-        });
-        return (
-            format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
-            0,
-        );
-    }
     let provider = p.provider.clone().unwrap_or_default();
     let detail = match p.status {
         "not-configured" => {
@@ -391,5 +382,37 @@ pub fn doctor(json: bool) -> (String, i32) {
                 .unwrap_or_default()
         ),
     };
+    if json {
+        let status = doctor_status(level);
+        let v = serde_json::json!({
+            "kind": "ashlr.doctor",
+            "schema_version": 1,
+            "tool": "ashlr-md",
+            "status": status,
+            "native_status": p.status,
+            "checks": [{
+                "id": "local-inference",
+                "status": status,
+                "native_status": p.status,
+                "summary": detail,
+                "probe": p,
+            }]
+        });
+        return (
+            format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
+            0,
+        );
+    }
     (format!("doctor: local-inference [{level}] {detail}\n"), 0)
+}
+
+/// Maps a native doctor level onto the shared `ashlr.doctor` v1 status
+/// (ashlr-stack contract/, "doctor"): unsafe or refusing is fail, warn is
+/// warn, ok is ok. Anything unknown is warn, never silently ok.
+pub fn doctor_status(native: &str) -> &'static str {
+    match native {
+        "ok" => "ok",
+        "unsafe" | "refusing" | "fail" => "fail",
+        _ => "warn",
+    }
 }

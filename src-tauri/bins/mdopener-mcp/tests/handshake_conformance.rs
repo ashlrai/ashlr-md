@@ -384,3 +384,68 @@ fn doctor_checker_catches_a_bad_wrapper() {
     bad.as_object_mut().unwrap().remove("native_status");
     assert!(!check_doctor(&bad, &c).is_empty());
 }
+
+/// `mdopener-mcp doctor --json` (the contract's doctor argv, the local
+/// inference check from #181) carries the ashlr.doctor v1 wrapper. The
+/// native probe status is kept as `native_status`, the check keeps `id`,
+/// `status` and `probe`, and the exit code stays 0.
+#[test]
+fn local_inference_doctor_json_carries_the_ashlr_doctor_wrapper() {
+    let run = |home: &std::path::Path| {
+        let out = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .args(["doctor", "--json"])
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        (
+            out.status.code(),
+            serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+        )
+    };
+    let c = contract();
+    let fresh = tempfile::tempdir().unwrap();
+    let (code, d) = run(fresh.path());
+    assert_eq!(code, Some(0));
+    assert_eq!(check_doctor(&d, &c), Vec::<String>::new());
+    assert_eq!(d["status"], "ok");
+    assert_eq!(d["native_status"], "not-configured");
+    let chk = &d["checks"][0];
+    assert_eq!(chk["id"], "local-inference");
+    assert_eq!(chk["native_status"], "not-configured");
+    assert!(chk["probe"].is_object(), "probe kept");
+
+    // A loopback port with nothing listening: unreachable is warn, exit 0.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join(".ashlr")).unwrap();
+    std::fs::write(
+        home.path().join(".ashlr").join("config.json"),
+        format!(
+            r#"{{"localInference":{{"provider":"ollama","baseUrl":"http://127.0.0.1:{port}"}}}}"#
+        ),
+    )
+    .unwrap();
+    let (code, d) = run(home.path());
+    assert_eq!(code, Some(0), "a warning never fails doctor");
+    assert_eq!(check_doctor(&d, &c), Vec::<String>::new());
+    assert_eq!(d["status"], "warn");
+    assert_ne!(d["native_status"], "not-configured");
+    assert_eq!(d["checks"][0]["native_status"], d["native_status"]);
+}
+
+#[test]
+fn doctor_status_mapping_follows_the_contract() {
+    use mdopener_mcp::local_inference_probe::doctor_status;
+    assert_eq!(doctor_status("ok"), "ok");
+    assert_eq!(doctor_status("warn"), "warn");
+    assert_eq!(doctor_status("unsafe"), "fail");
+    assert_eq!(doctor_status("refusing"), "fail");
+    assert_eq!(doctor_status("something-new"), "warn");
+}
