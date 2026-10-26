@@ -55,6 +55,9 @@ USAGE:
     mdopener-mcp --help        print this help
     mdopener-mcp --ashlr-handshake [--json]
                                print the Ashlr companion handshake (JSON)
+    mdopener-mcp doctor [--json]
+                               check local inference (localInference in ~/.ashlr/config.json):
+                               loopback-only GET of the model list, no key, 3 s
     mdopener-mcp doctor --fix [--apply] [--json]
                                preview (or with --apply make) repairs to ~/.mdopener
 
@@ -87,10 +90,21 @@ fn main() {
     if mdopener_mcp::handshake::requested(&args) {
         let app_running =
             dirs::home_dir().is_some_and(|h| h.join(".mdopener").join("ipc-port").exists());
-        let line = mdopener_mcp::handshake::build(env!("CARGO_PKG_VERSION"), app_running);
+        let line = mdopener_mcp::handshake::build_with(
+            env!("CARGO_PKG_VERSION"),
+            app_running,
+            mdopener_mcp::local_inference_probe::config_check(),
+        );
         std::process::exit(print_stdout(&format!("{line}\n")));
     }
     // `doctor --fix [--apply] [--json]` (docs/doctor-fix.md), before stdin.
+    // `doctor [--json]` without --fix/--apply/--help: local inference probe.
+    if args.first().is_some_and(|a| a == "doctor") && args[1..].iter().all(|a| a == "--json") {
+        let (out, code) =
+            mdopener_mcp::local_inference_probe::doctor(args[1..].iter().any(|a| a == "--json"));
+        let status = print_stdout(&out);
+        std::process::exit(if code != 0 { code } else { status });
+    }
     if args.first().is_some_and(|a| a == "doctor") {
         let root = dirs::home_dir().map(|h| h.join(".mdopener"));
         let (out, err, code) = mdopener_mcp::doctor_fix::run(&args[1..], root.as_deref());

@@ -6,6 +6,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`mdopener-mcp doctor [--json]` checks local inference** (mirrors Phantom
+  #920/#921). It reads `localInference` from `~/.ashlr/config.json` through the
+  same gate as the app, then sends one unauthenticated GET of the model list
+  (`/api/tags` for ollama, `/models` otherwise) to loopback only: 3 s deadline,
+  redirects refused, body read in chunks and dropped past 256 KiB. It reports
+  not-configured, config-invalid, remote-not-probed, reachable, unreachable or
+  bad-response, with no URL, body or model names. The handshake advertises
+  `local-inference-probe` and a config-only `local-inference-config` check.
 - **`localInference` local models.** A `localInference` block in
   `~/.ashlr/config.json` (same shape as Phantom #917) points the AI sidebar at
   a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by

@@ -166,6 +166,7 @@ To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `
 - The URL must be loopback (`127.0.0.1`, `[::1]` or `localhost`, written exactly). A remote URL needs `allowRemote: true` and `https://`. Refusals use closed codes (`remote-not-allowed`, `remote-requires-https`, `host-not-canonical`, ...) and never repeat the URL.
 - No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
 - When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
+- `mdopener-mcp doctor` checks that the server answers: one loopback-only GET of the model list, no key, 3 s timeout, redirects refused, at most 256 KiB read. It prints only a status (`reachable`, `unreachable`, `not-configured`, `config-invalid`, `remote-not-probed` or `bad-response`); `--json` for machines.
 
 ## Platform support
 

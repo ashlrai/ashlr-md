@@ -12,6 +12,13 @@ use serde_json::{json, Value};
 pub const FLAG: &str = "--ashlr-handshake";
 
 pub fn build(version: &str, app_running: bool) -> Value {
+    build_with(version, app_running, "absent")
+}
+
+/// [`build`] with the `local-inference-config` check status (`ok`, `absent`
+/// or `missing`), computed from `~/.ashlr/config.json` only, never a probe
+/// (as in phantom #920). `missing` (an invalid block) makes health `degraded`.
+pub fn build_with(version: &str, app_running: bool, local_inference_config: &str) -> Value {
     json!({
         "kind": "ashlr.handshake",
         "schema_version": 1,
@@ -27,13 +34,15 @@ pub fn build(version: &str, app_running: bool) -> Value {
             "export",
             "vault-search",
             "agent-setup",
-            "doctor-fix"
+            "doctor-fix",
+            "local-inference-probe"
         ],
         "health": {
             // The server runs without the app; several tools then answer from disk.
-            "status": "ok",
+            "status": if local_inference_config == "missing" { "degraded" } else { "ok" },
             "checks": [
-                { "id": "app-running", "status": if app_running { "ok" } else { "absent" } }
+                { "id": "app-running", "status": if app_running { "ok" } else { "absent" } },
+                { "id": "local-inference-config", "status": local_inference_config }
             ]
         },
         "edits": ["~/.mdopener/", "~/.cursor/mcp.json"],
@@ -60,6 +69,23 @@ mod tests {
         assert_eq!(h["version"], "1.2.3");
         assert_eq!(h["health"]["status"], "ok");
         assert_eq!(h["health"]["checks"][0]["status"], "ok");
+    }
+
+    #[test]
+    fn local_inference_config_check_mirrors_920() {
+        let h = build_with("1", true, "ok");
+        assert!(h["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "local-inference-probe"));
+        assert_eq!(h["health"]["checks"][1]["id"], "local-inference-config");
+        assert_eq!(h["health"]["checks"][1]["status"], "ok");
+        assert_eq!(h["health"]["status"], "ok");
+        assert_eq!(build_with("1", true, "absent")["health"]["status"], "ok");
+        let bad = build_with("1", true, "missing");
+        assert_eq!(bad["health"]["status"], "degraded");
+        assert_eq!(bad["health"]["checks"][1]["status"], "missing");
     }
 
     #[test]
