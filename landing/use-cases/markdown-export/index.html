@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Export Markdown for review and sharing | Ashlr MD</title>
+  <meta name="description" content="Choose PDF, DOCX or HTML in Ashlr MD, prepare the rendered document, and check the output before sharing.">
+  <link rel="canonical" href="https://md.ashlr.ai/use-cases/markdown-export/">
+  <meta property="og:title" content="Export Markdown for review and sharing | Ashlr MD">
+  <meta property="og:description" content="Choose PDF, DOCX or HTML in Ashlr MD, prepare the rendered document, and check the output before sharing.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://md.ashlr.ai/use-cases/markdown-export/">
+  <meta property="og:image" content="https://md.ashlr.ai/og.png">
+  <link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header><nav aria-label="Main"><a class="brand" href="/">Ashlr MD</a><a href="/docs/">Docs</a><a href="/install/">Install</a></nav></header>
+<main id="content">
+  <p class="eyebrow">Ashlr MD guides</p>
+  <h1>Export Markdown for review and sharing</h1>
+  <section data-claim><h2>Choose the format for the recipient</h2><p>Ashlr MD provides PDF, DOCX and HTML export. PDF uses the operating system print dialog, DOCX is generated in the app, and HTML includes the document styles. Use PDF for a print-oriented review, DOCX for a word-processing handoff, or HTML for a browser-readable copy.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/src/lib/export.ts">Export implementation and format handling</a></p></section>
+<section data-claim><h2>Prepare a document for export</h2><ol><li><a href="/install/">Install Ashlr MD</a> and open your Markdown file.</li><li>Switch to Read view so the rendered document is available.</li><li>Open Export, select your format, and choose the destination. For PDF, finish through the operating system print dialog.</li><li>Open the result and check headings, tables, diagrams and page breaks before sending it.</li></ol><p>The export functions require the rendered <code>.markdown-body</code> element; they report an error when Read view is absent.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/src/lib/export.ts">Read-view requirement and PDF print flow</a></p></section>
+<section data-claim><h2>Make the output fit the handoff</h2><p>The export dialog offers template and profile choices. Templates control document styling; profiles post-process HTML for specific destinations. Keep the original Markdown as your editable source and inspect the generated file in the receiving application.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/src/components/export/ExportDialog.tsx">Export dialog choices</a></p></section>
+<section data-claim><h2>Check portability rather than assuming it</h2><p>The HTML builder inlines document CSS and embeds KaTeX fonts when math is present. That does not establish that every externally referenced asset in your input is portable. Test the exported file with the assets and connectivity your recipient will have.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/src/lib/export.ts">HTML styling and math font embedding</a></p></section>
+  <aside aria-label="Related guides"><h2>Continue your workflow</h2><ul><li><a href="/use-cases/agent-markdown-review/">Review Markdown written by AI agents</a></li><li><a href="/use-cases/read-vault-notes/">Read Markdown notes from your vault</a></li><li><a href="/use-cases/markdown-export/">Export Markdown for review and sharing</a></li></ul><p><a href="/docs/">Browse documentation</a> · <a href="/install/">Install Ashlr MD</a></p></aside>
+</main>
+<footer><a href="/">Ashlr MD home</a> · <a href="https://github.com/ashlrai/ashlr-md">Source repository</a></footer>
+</body>
+</html>

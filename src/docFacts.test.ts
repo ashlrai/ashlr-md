@@ -791,7 +791,7 @@ describe("doc facts: keyboard shortcuts", () => {
   });
 
   it("the landing page's grid lists exactly the real shortcuts", () => {
-    const at = landingHtml.indexOf('<section id="shortcuts">');
+    const at = landingHtml.search(/<section\b[^>]*\bid="shortcuts"[^>]*>/);
     expect(at, "landing/index.html has no #shortcuts section").toBeGreaterThan(-1);
     const section = landingHtml.slice(at, landingHtml.indexOf("</section>", at));
     const listed = all(/<kbd[^>]*>([^<]*)<\/kbd>/g, section)
