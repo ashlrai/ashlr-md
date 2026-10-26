@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Extra reviewer. Not a required check. Do not enable auto-approval.
+reviews:
+  profile: assertive
+  high_level_summary: true
+  poem: false
+  auto_approvals:
+    enabled: false
+  auto_review:
+    enabled: true
+    drafts: false
+    # Default branch is always reviewed. This adds no other target.
+    base_branches:
+      - "^main$"
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/pnpm-lock.yaml"
+    - "!**/bun.lockb"
+    - "!**/dist/**"
+    - "!**/dist-ssr/**"
+    - "!**/gen/**"
+    - "!**/target/**"
+    - "!**/.build/**"
+    - "!**/*.tsbuildinfo"
+    - "!integrations/obsidian/main.js"
+    - "!integrations/obsidian/main.js.map"
+  path_instructions:
+    - path: "src-tauri/src/secrets.rs"
+      instructions: &secret_handling |
+        High scrutiny: secret handling. API keys stay in the OS keychain, not in localStorage, logs, error text, or the repository. Do not print, interpolate, or commit a key, an IPC token, or a signing secret.
+    - path: "src-tauri/src/redact.rs"
+      instructions: *secret_handling
+    - path: "src/store/aiStore.ts"
+      instructions: *secret_handling
+    - path: ".github/workflows/**"
+      instructions: *secret_handling
+    - path: "src-tauri/src/ipc.rs"
+      instructions: &loopback_only |
+        High scrutiny: loopback-only rules. The IPC server binds to 127.0.0.1. Plain http is allowed only for 127.0.0.1 and [::1]. A remote host needs allowRemote in the config file and https. Do not follow redirects. A refusal must not repeat the URL or a secret.
+    - path: "src-tauri/src/base_urls.rs"
+      instructions: *loopback_only
+    - path: "src-tauri/src/local_inference.rs"
+      instructions: *loopback_only
+    - path: "src-tauri/src/local_inference_gate.rs"
+      instructions: *loopback_only
+    - path: "src-tauri/bins/mdopen/src/ipc.rs"
+      instructions: *loopback_only
+    - path: "src-tauri/bins/mdopener-mcp/src/local_inference_probe.rs"
+      instructions: *loopback_only
+    - path: ".github/CODEOWNERS"
+      instructions: &tier1 |
+        High scrutiny: Tier-1 path from CODEOWNERS. These files are workflows or they make keyed, network, or loopback requests. A change that widens who can read a key, which host is contacted, or who can call IPC is a security bug. Call it out even when the diff is small.
+    - path: ".github/workflows/**"
+      instructions: *tier1
+    - path: "src-tauri/src/ai.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/embed.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/base_urls.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/local_inference.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/local_inference_gate.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/redact.rs"
+      instructions: *tier1
+    - path: "src-tauri/src/ipc.rs"
+      instructions: *tier1
+    - path: "src-tauri/bins/mdopen/src/ipc.rs"
+      instructions: *tier1
+    - path: "src-tauri/bins/mdopener-mcp/src/local_inference_probe.rs"
+      instructions: *tier1
+chat:
+  auto_reply: false

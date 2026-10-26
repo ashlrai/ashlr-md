@@ -1,0 +1,21 @@
+# Socket GitHub App. Version 2. Default issue rules.
+# https://docs.socket.dev/docs/socket-yml
+version: 2
+
+issueRules:
+  didYouMean: true
+  installScripts: true
+  telemetry: true
+  troll: true
+  malware: true
+  hasNativeCode: true
+  shellScriptOverride: true
+  gitDependency: true
+  httpDependency: true
+  invalidPackageJSON: true
+  unresolvedRequire: true
+
+# Test fixtures. Socket only ingests package manifests; these dirs have none today.
+projectIgnorePaths:
+  - "src/lib/__fixtures__/**"
+  - "src-tauri/bins/mdopener-mcp/tests/contract/**"
