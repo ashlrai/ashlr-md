@@ -96,6 +96,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # ---- Toolchain setup -------------------------------------------------
+
       # Select the latest available Xcode on macOS runners.
       # -----------------------------------------------------------------------
       # WHY: The mdopener-afm Swift sidecar requires Xcode 26 / Swift 6.2+
