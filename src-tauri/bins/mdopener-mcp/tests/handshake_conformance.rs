@@ -440,6 +440,72 @@ fn local_inference_doctor_json_carries_the_ashlr_doctor_wrapper() {
     assert_eq!(d["checks"][0]["native_status"], d["native_status"]);
 }
 
+/// The probe refusing a config is envelope fail, while the native level
+/// (shown in text output) stays warn and the exit code stays 0.
+#[test]
+fn local_inference_doctor_json_refusals_are_envelope_fail() {
+    let run = |cfg: &str| {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join(".ashlr")).unwrap();
+        std::fs::write(home.path().join(".ashlr").join("config.json"), cfg).unwrap();
+        let go = |json: bool| {
+            let mut args = vec!["doctor"];
+            if json {
+                args.push("--json");
+            }
+            Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+                .args(&args)
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("HOME", home.path())
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap()
+        };
+        let out = go(true);
+        let text = go(false);
+        assert_eq!(out.status.code(), Some(0));
+        assert_eq!(text.status.code(), Some(0));
+        (
+            serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+            String::from_utf8(text.stdout).unwrap(),
+        )
+    };
+    let c = contract();
+
+    // Invalid config: a remote base URL without allowRemote.
+    let (d, text) = run(
+        r#"{"localInference":{"provider":"openai-compat","baseUrl":"https://gpu.example.com/v1"}}"#,
+    );
+    assert_eq!(check_doctor(&d, &c), Vec::<String>::new());
+    assert_eq!(d["native_status"], "config-invalid");
+    assert_eq!(d["status"], "fail");
+    assert_eq!(d["checks"][0]["status"], "fail");
+    assert!(text.contains("[warn]"), "native level unchanged: {text}");
+
+    // Remote endpoint with allowRemote: refused by the probe, never contacted.
+    let (d, text) = run(
+        r#"{"localInference":{"provider":"openai-compat","baseUrl":"https://gpu.example.com/v1","allowRemote":true}}"#,
+    );
+    assert_eq!(check_doctor(&d, &c), Vec::<String>::new());
+    assert_eq!(d["native_status"], "remote-not-probed");
+    assert_eq!(d["checks"][0]["native_status"], "remote-not-probed");
+    assert_eq!(d["status"], "fail");
+    assert_eq!(d["checks"][0]["status"], "fail");
+    assert!(text.contains("[warn]"), "native level unchanged: {text}");
+}
+
+#[test]
+fn envelope_status_reads_the_probe_status() {
+    use mdopener_mcp::local_inference_probe::envelope_status;
+    assert_eq!(envelope_status("config-invalid", "warn"), "fail");
+    assert_eq!(envelope_status("remote-not-probed", "warn"), "fail");
+    assert_eq!(envelope_status("unreachable", "warn"), "warn");
+    assert_eq!(envelope_status("bad-response", "warn"), "warn");
+    assert_eq!(envelope_status("reachable", "ok"), "ok");
+    assert_eq!(envelope_status("not-configured", "ok"), "ok");
+}
+
 #[test]
 fn doctor_status_mapping_follows_the_contract() {
     use mdopener_mcp::local_inference_probe::doctor_status;

@@ -383,7 +383,7 @@ pub fn doctor(json: bool) -> (String, i32) {
         ),
     };
     if json {
-        let status = doctor_status(level);
+        let status = envelope_status(p.status, level);
         let v = serde_json::json!({
             "kind": "ashlr.doctor",
             "schema_version": 1,
@@ -404,6 +404,20 @@ pub fn doctor(json: bool) -> (String, i32) {
         );
     }
     (format!("doctor: local-inference [{level}] {detail}\n"), 0)
+}
+
+/// The `ashlr.doctor` v1 status for the local-inference check. The native
+/// level (`ok`/`warn`) and exit code are unchanged; the envelope reads the
+/// probe status so the probe's refusals surface as fail: `config-invalid`
+/// (the gate rejected the block, e.g. a remote or http base URL without
+/// `allowRemote`, or userinfo in the URL) and `remote-not-probed` (the probe
+/// refuses any non-loopback endpoint) are fail. Everything else follows
+/// [`doctor_status`] on the native level.
+pub fn envelope_status(probe_status: &str, level: &str) -> &'static str {
+    match probe_status {
+        "config-invalid" | "remote-not-probed" => "fail",
+        _ => doctor_status(level),
+    }
 }
 
 /// Maps a native doctor level onto the shared `ashlr.doctor` v1 status
