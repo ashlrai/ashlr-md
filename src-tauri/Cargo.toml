@@ -60,3 +60,12 @@ libc = "0.2"
 # Windows-only: read/write HKCU registry keys for default-app association.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+
+[features]
+# Exposes the HTTP client builders to integration tests only
+# (`cargo test --features test-support --test no_proxy`).
+test-support = []
+
+[[test]]
+name = "no_proxy"
+required-features = ["test-support"]

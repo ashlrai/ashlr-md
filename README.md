@@ -168,6 +168,24 @@ To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `
 - When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
 - `mdopener-mcp doctor` checks that the server answers: one loopback-only GET of the model list, no key, 3 s timeout, redirects refused, at most 256 KiB read. It prints only a status (`reachable`, `unreachable`, `not-configured`, `config-invalid`, `remote-not-probed` or `bad-response`); `--json` for machines.
 
+### Offline mode
+
+Set `"offline": true` on the same `localInference` block when this machine must not call a cloud model or a model server on another host. The default is off: leaving the key out (or setting `false`) changes nothing.
+
+```json
+"localInference": {
+  "provider": "ollama",
+  "offline": true
+}
+```
+
+While it is on:
+
+- Chat, embeddings, in-app search and `mdopener-mcp` talk only to loopback: `127.0.0.1`, `[::1]` and `localhost` (that name is pinned to loopback, with no DNS). `127.0.0.2`, `2130706433`, `localhost.evil.com` and a trailing dot are refused. A remote `baseUrl` or `OLLAMA_HOST` is refused even when `allowRemote` is true, and no environment variable can add a host.
+- Anthropic and the hosted Ashlr endpoint are not called at all, including through a loopback gateway. The error is `Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.` There is no fallback to another cloud provider.
+- A loopback Ollama or `localInference` server still works. On-device Apple Foundation Models are unchanged. Requests still send no API key or OAuth token to a local URL, follow no redirects, and do not use a proxy for loopback.
+- A value that is present but not a boolean counts as offline (a typo cannot turn the guarantee off). The `localInference` block itself must still be a boolean or it is invalid and is not used.
+
 ## Platform support
 
 | Capability | macOS | Windows | Linux |

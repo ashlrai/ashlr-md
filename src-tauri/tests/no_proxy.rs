@@ -46,6 +46,7 @@ async fn proxy_env_never_sees_local_requests() {
         (
             "anthropic loopback gateway",
             anthropic_client_builder("http://127.0.0.1:4000")
+                .expect("offline mode is off")
                 .build()
                 .unwrap(),
         ),

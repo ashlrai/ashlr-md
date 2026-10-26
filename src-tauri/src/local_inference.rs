@@ -8,7 +8,8 @@
 //!   "provider": "ollama" | "omlx" | "openai-compat",
 //!   "baseUrl": "http://127.0.0.1:11434/v1",   // optional for ollama/omlx
 //!   "models": { "coder": "qwen3.8:27b" },     // optional; default qwen3.8:27b
-//!   "allowRemote": false                      // default
+//!   "allowRemote": false,                     // default
+//!   "offline": false                          // default
 //! }
 //! ```
 //!
@@ -18,6 +19,9 @@
 //!   trailing dots are refused).
 //! - A non-loopback URL needs `allowRemote: true` in the config file AND
 //!   https. The environment can never widen this.
+//! - `offline: true` wins over `allowRemote` and over every environment
+//!   variable. Chat, embeddings, search and the sidecar stay on loopback.
+//!   The Anthropic builder refuses before a client exists.
 //! - No key is ever sent to a `localInference` endpoint: no Authorization or
 //!   x-api-key header, no Anthropic key, no `phm_` placeholder, no OAuth token.
 //! - Abliterated or uncensored models (matched by name) are refused; there is
@@ -32,11 +36,10 @@ use serde_json::Value;
 
 pub use crate::local_inference_gate::*;
 
-/// `allowRemote` from the config file only (false when absent or invalid).
+/// `allowRemote` from the config file only (false when absent or invalid,
+/// and always false in offline mode).
 fn allow_remote_from_config() -> bool {
-    read_config_value()
-        .and_then(|r| r.get("localInference")?.get("allowRemote")?.as_bool())
-        .unwrap_or(false)
+    effective_allow_remote(read_config_value().as_ref())
 }
 
 /// `http(s)://0.0.0.0` and `http(s)://[::]` (often set so `ollama serve`
@@ -77,6 +80,7 @@ pub fn ollama_base_url() -> Result<String, String> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalInferenceStatus {
+    pub offline: bool,
     pub provider: String,
     pub model: String,
     pub loopback: bool,
@@ -87,6 +91,7 @@ pub struct LocalInferenceStatus {
 #[tauri::command]
 pub fn ai_local_inference_status() -> Option<LocalInferenceStatus> {
     load().ok().flatten().map(|c| LocalInferenceStatus {
+        offline: c.offline,
         provider: c.provider,
         model: c.model,
         loopback: c.loopback,
@@ -116,8 +121,29 @@ fn pinned_builder() -> reqwest::ClientBuilder {
 /// - no proxy: reqwest otherwise honors HTTP_PROXY, HTTPS_PROXY, ALL_PROXY
 ///   and the system proxy with no loopback bypass, which would hand local
 ///   prompts and documents to the proxy.
+///
+/// This builder does not see the URL. Production calls go through
+/// [`local_client_builder_gated`], which applies the offline host gate first.
 pub fn client_builder() -> reqwest::ClientBuilder {
     pinned_builder().no_proxy()
+}
+
+/// [`client_builder`] after the offline gate. A non-loopback `base` is
+/// refused when `offline` is set, before a client exists. `offline == false`
+/// is today's builder, with no extra refusal.
+pub fn local_client_builder_gated(
+    offline: bool,
+    base: &str,
+) -> Result<reqwest::ClientBuilder, String> {
+    ensure_offline_loopback(offline, base)?;
+    Ok(client_builder())
+}
+
+/// [`local_client_builder_gated`] for the config file's offline flag.
+pub fn local_client_for(base: &str) -> Result<reqwest::Client, String> {
+    local_client_builder_gated(offline(), base)?
+        .build()
+        .map_err(|e| format!("HTTP client setup failed: {e}"))
 }
 
 /// The Anthropic client builder: no redirects (the key goes only to the
@@ -125,7 +151,27 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 /// the environment and system proxy so corporate proxies still work for the
 /// real API, except when `base` is a loopback gateway (for example LiteLLM on
 /// 127.0.0.1), where a proxy would only take the request off the machine.
-pub fn anthropic_client_builder(base: &str) -> reqwest::ClientBuilder {
+///
+/// In offline mode this is unreachable. It returns [`OFFLINE_REFUSAL`] and
+/// builds nothing, including for a loopback gateway, and does not fall back
+/// to another host. No environment variable can turn that off.
+pub fn anthropic_client_builder(base: &str) -> Result<reqwest::ClientBuilder, String> {
+    anthropic_client_builder_gated(offline(), base)
+}
+
+/// [`anthropic_client_builder`] with the offline flag explicit, so tests do
+/// not read `~/.ashlr/config.json`.
+pub fn anthropic_client_builder_gated(
+    offline: bool,
+    base: &str,
+) -> Result<reqwest::ClientBuilder, String> {
+    if offline {
+        return Err(OFFLINE_REFUSAL.to_string());
+    }
+    Ok(anthropic_client_builder_inner(base))
+}
+
+fn anthropic_client_builder_inner(base: &str) -> reqwest::ClientBuilder {
     let loopback = url::Url::parse(base)
         .ok()
         .and_then(|u| u.host_str().map(is_loopback_host))
@@ -142,6 +188,13 @@ pub fn client() -> Result<reqwest::Client, String> {
     client_builder()
         .build()
         .map_err(|e| format!("HTTP client setup failed: {e}"))
+}
+
+/// True in offline mode (`localInference.offline`). The frontend uses it to
+/// skip every cloud provider; the Rust side refuses them regardless.
+#[tauri::command]
+pub fn ai_offline_mode() -> bool {
+    offline()
 }
 
 /// One parsed line of an OpenAI chat-completions SSE stream.
@@ -172,11 +225,23 @@ pub fn parse_sse_line(line: &str) -> SseLine {
 }
 
 /// POST `{base}/chat/completions` with NO key header of any kind.
+/// In offline mode a non-loopback `base` is refused before the request.
 pub async fn send_chat(
     client: &reqwest::Client,
     base: &str,
     body: &impl Serialize,
 ) -> Result<reqwest::Response, String> {
+    send_chat_gated(offline(), client, base, body).await
+}
+
+/// [`send_chat`] with the offline flag explicit.
+pub async fn send_chat_gated(
+    offline: bool,
+    client: &reqwest::Client,
+    base: &str,
+    body: &impl Serialize,
+) -> Result<reqwest::Response, String> {
+    ensure_offline_loopback(offline, base)?;
     let resp = client
         .post(format!("{base}/chat/completions"))
         .header("content-type", "application/json")
@@ -533,5 +598,167 @@ mod tests {
             0,
             "localhost went to the resolver"
         );
+    }
+
+    #[test]
+    fn offline_forces_loopback_only_and_fails_closed() {
+        let root = json!({ "localInference": { "provider": "openai-compat", "baseUrl": "https://gpu.example.com/v1", "allowRemote": true, "offline": true } });
+        assert!(offline_from(Some(&root)));
+        assert!(!effective_allow_remote(Some(&root)));
+        let e = parse_local_inference(root.get("localInference")).unwrap_err();
+        assert_eq!(e, "localInference.baseUrl: remote-not-allowed");
+        // Same block without offline: allowed (existing behavior unchanged).
+        let mut on = root.clone();
+        on["localInference"]["offline"] = json!(false);
+        assert!(parse_local_inference(on.get("localInference"))
+            .unwrap()
+            .is_some());
+        assert!(effective_allow_remote(Some(&on)));
+        // Loopback still works offline.
+        let lo = json!({ "provider": "ollama", "offline": true });
+        let c = parse_local_inference(Some(&lo)).unwrap().unwrap();
+        assert!(c.offline && c.loopback);
+        // Default off; a non-boolean value counts as offline (fail closed).
+        assert!(!offline_from(None));
+        assert!(!offline_from(Some(
+            &json!({ "localInference": { "provider": "ollama" } })
+        )));
+        assert!(offline_from(Some(
+            &json!({ "localInference": { "offline": "yes" } })
+        )));
+        // OLLAMA_HOST: a remote https host is refused offline even with allowRemote.
+        let e = ollama_base_url_gated_from(
+            Some("https://ollama.example.com"),
+            effective_allow_remote(Some(&root)),
+        )
+        .unwrap_err();
+        assert!(
+            e.contains("remote-not-allowed") && !e.contains("example.com"),
+            "{e}"
+        );
+        // The host gate itself: absent/false is a no-op; true allows only
+        // the three loopback spellings. No environment variable is read.
+        assert!(ensure_offline_loopback(false, "https://gpu.example.com/v1").is_ok());
+        assert!(ensure_offline_loopback(true, "http://127.0.0.1:11434/v1").is_ok());
+        assert!(ensure_offline_loopback(true, "http://[::1]:11434/v1").is_ok());
+        assert!(ensure_offline_loopback(true, "http://localhost:11434").is_ok());
+        for bad in [
+            "https://gpu.example.com/v1",
+            "http://127.0.0.2:9/v1",
+            "http://localhost.evil.com/v1",
+            "http://2130706433/",
+        ] {
+            let e = ensure_offline_loopback(true, bad).unwrap_err();
+            assert!(
+                !e.contains("example.com") && !e.contains("2130706433"),
+                "{e}"
+            );
+            assert!(
+                e.contains("remote-not-allowed") || e.contains("host-not-canonical"),
+                "{bad}: {e}"
+            );
+        }
+        assert_eq!(
+            anthropic_client_builder_gated(true, "https://api.anthropic.com").unwrap_err(),
+            OFFLINE_REFUSAL
+        );
+        assert!(anthropic_client_builder_gated(false, "https://api.anthropic.com").is_ok());
+        assert!(local_client_builder_gated(true, "http://127.0.0.2:9/v1").is_err());
+        assert!(local_client_builder_gated(false, "http://127.0.0.1:9/v1").is_ok());
+    }
+
+    async fn lookalike_canary() -> (u16, tokio::task::JoinHandle<bool>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.2:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = tokio::spawn(async move {
+            tokio::time::timeout(std::time::Duration::from_millis(300), l.accept())
+                .await
+                .is_ok()
+        });
+        (port, h)
+    }
+
+    /// Canary: offline chat never opens a connection to a non-loopback host.
+    /// 127.0.0.2 is a loopback-range lookalike and must stay silent.
+    #[tokio::test]
+    async fn offline_chat_never_contacts_lookalike() {
+        let (port, canary) = lookalike_canary().await;
+        let body = json!({"model": DEFAULT_LOCAL_MODEL, "messages": [{"role": "user", "content": "document-text-canary"}]});
+        let err = send_chat_gated(
+            true,
+            &client().unwrap(),
+            &format!("http://127.0.0.2:{port}/v1"),
+            &body,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("remote-not-allowed"), "{err}");
+        assert!(!err.contains("127.0.0.2"), "{err}");
+        assert!(
+            !canary.await.unwrap(),
+            "offline chat contacted the lookalike"
+        );
+    }
+
+    /// Canary: offline embeddings never open a connection to a non-loopback host.
+    #[tokio::test]
+    async fn offline_embeddings_never_contact_lookalike() {
+        let (port, canary) = lookalike_canary().await;
+        let err = crate::embed::fetch_embeddings_at_gated(
+            true,
+            &client().unwrap(),
+            &format!("http://127.0.0.2:{port}"),
+            "nomic-embed-text",
+            &["document-text-canary".to_string()],
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("remote-not-allowed"), "{err}");
+        assert!(!err.contains("127.0.0.2"), "{err}");
+        assert!(
+            !canary.await.unwrap(),
+            "offline embeddings contacted the lookalike"
+        );
+    }
+
+    /// `offline: false` keeps today's loopback chat and embedding calls.
+    #[tokio::test]
+    async fn offline_false_keeps_todays_loopback_chat_and_embeddings() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let server = tokio::spawn(answer_once(
+            l,
+            "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}".into(),
+        ));
+        let resp = send_chat_gated(
+            false,
+            &client().unwrap(),
+            &format!("http://127.0.0.1:{port}/v1"),
+            &json!({"model": DEFAULT_LOCAL_MODEL, "messages": []}),
+        )
+        .await
+        .unwrap();
+        assert!(resp.status().is_success());
+        assert!(server.await.unwrap().contains("POST /v1/chat/completions "));
+
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let body = r#"{"embeddings":[[0.5]]}"#;
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let server = tokio::spawn(answer_once(l, reply));
+        let vecs = crate::embed::fetch_embeddings_at_gated(
+            false,
+            &client().unwrap(),
+            &format!("http://127.0.0.1:{port}"),
+            "nomic-embed-text",
+            &["hello".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(vecs, vec![vec![0.5]]);
+        assert!(server.await.unwrap().contains("POST /api/embed "));
     }
 }

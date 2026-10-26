@@ -246,11 +246,10 @@ struct TagsResponse {
 }
 
 async fn detect_embed_model(client: &Client) -> Option<String> {
+    let base = local_inference::ollama_base_url().ok()?;
+    local_inference::ensure_offline_loopback(local_inference::offline(), &base).ok()?;
     let resp = client
-        .get(format!(
-            "{}/api/tags",
-            local_inference::ollama_base_url().ok()?
-        ))
+        .get(format!("{base}/api/tags"))
         .timeout(std::time::Duration::from_millis(800))
         .send()
         .await
@@ -287,12 +286,25 @@ async fn fetch_embeddings(
 }
 
 /// [`fetch_embeddings`] against an explicit Ollama base URL.
+/// Uses the config file's offline flag.
 pub(crate) async fn fetch_embeddings_at(
     client: &Client,
     base: &str,
     model: &str,
     inputs: &[String],
 ) -> Result<Vec<Vec<f32>>, String> {
+    fetch_embeddings_at_gated(local_inference::offline(), client, base, model, inputs).await
+}
+
+/// [`fetch_embeddings_at`] with the offline flag explicit.
+pub(crate) async fn fetch_embeddings_at_gated(
+    offline: bool,
+    client: &Client,
+    base: &str,
+    model: &str,
+    inputs: &[String],
+) -> Result<Vec<Vec<f32>>, String> {
+    local_inference::ensure_offline_loopback(offline, base)?;
     let resp = client
         .post(format!("{base}/api/embed"))
         .json(&serde_json::json!({ "model": model, "input": inputs }))
