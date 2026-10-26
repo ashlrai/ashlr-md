@@ -468,7 +468,7 @@ async fn stream_anthropic(
     let base = base_urls::anthropic_base_url_checked().map_err(|e| e.to_string())?;
     // No redirects: the key goes only to the validated host, never to a
     // redirect target (x-api-key is not stripped on cross-host redirects).
-    let client = local_inference::client_builder()
+    let client = local_inference::anthropic_client_builder(&base)
         .build()
         .map_err(|e| format!("Anthropic client setup failed: {e}"))?;
 
@@ -606,7 +606,6 @@ mod tests {
 mod redaction_tests {
     use super::{detect_ollama_at, send_anthropic, send_ollama_chat};
     use crate::test_stub::{closed, leaked_windows, serve, Mode};
-    use reqwest::Client;
 
     const KEY: &str = "sk-ant-CANARYq7X2w9Z4k3M8vB";
     const PROXY_TOKEN: &str = "ptokCANARYh8J3k6L1z4X7cVb";
@@ -650,8 +649,7 @@ mod redaction_tests {
 
     #[tokio::test]
     async fn anthropic_errors_never_carry_the_key_or_proxy_token() {
-        let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
+        let client = crate::local_inference::anthropic_client_builder("http://127.0.0.1")
             .build()
             .unwrap();
         let mut reached = false;
@@ -673,7 +671,7 @@ mod redaction_tests {
 
     #[tokio::test]
     async fn ollama_errors_never_carry_url_credentials_or_tokens() {
-        let client = Client::new();
+        let client = crate::local_inference::client().unwrap();
         let mut reached = false;
         let mut found = Vec::new();
         for (label, root) in roots() {
@@ -716,7 +714,7 @@ mod redaction_tests {
 
     #[tokio::test]
     async fn embedding_errors_never_carry_url_credentials_or_tokens() {
-        let client = Client::new();
+        let client = crate::local_inference::client().unwrap();
         let mut cases = roots();
         cases.push(("200 with a bad body", serve(Mode::EchoBadJson)));
         let mut found = Vec::new();
@@ -819,8 +817,7 @@ mod litellm_compat_tests {
     }
 
     fn client() -> Client {
-        Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
+        crate::local_inference::anthropic_client_builder("http://127.0.0.1")
             .build()
             .unwrap()
     }

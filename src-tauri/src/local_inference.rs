@@ -93,14 +93,7 @@ pub fn ai_local_inference_status() -> Option<LocalInferenceStatus> {
     })
 }
 
-/// The one HTTP client builder for every model, embedding and Anthropic
-/// call (security: flagship-threats HIGH #1, MEDIUM #2):
-/// - redirects are never followed, so a loopback listener answering 307/308
-///   cannot re-send a prompt, document text or key to another host;
-/// - `localhost` is pinned to 127.0.0.1 and ::1 (no DNS, so a hosts-file or
-///   resolver remap cannot send it off the machine). IP literals never use
-///   DNS, and remote hosts only pass the gate with `allowRemote` and https.
-pub fn client_builder() -> reqwest::ClientBuilder {
+fn pinned_builder() -> reqwest::ClientBuilder {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -111,6 +104,37 @@ pub fn client_builder() -> reqwest::ClientBuilder {
                 SocketAddr::from((Ipv6Addr::LOCALHOST, 0)),
             ],
         )
+}
+
+/// The one HTTP client builder for every local model and embedding call
+/// (security: flagship-threats HIGH #1, MEDIUM #2):
+/// - redirects are never followed, so a loopback listener answering 307/308
+///   cannot re-send a prompt, document text or key to another host;
+/// - `localhost` is pinned to 127.0.0.1 and ::1 (no DNS, so a hosts-file or
+///   resolver remap cannot send it off the machine). IP literals never use
+///   DNS, and remote hosts only pass the gate with `allowRemote` and https;
+/// - no proxy: reqwest otherwise honors HTTP_PROXY, HTTPS_PROXY, ALL_PROXY
+///   and the system proxy with no loopback bypass, which would hand local
+///   prompts and documents to the proxy.
+pub fn client_builder() -> reqwest::ClientBuilder {
+    pinned_builder().no_proxy()
+}
+
+/// The Anthropic client builder: no redirects (the key goes only to the
+/// validated host) and `localhost` pinned, like [`client_builder`]. It keeps
+/// the environment and system proxy so corporate proxies still work for the
+/// real API, except when `base` is a loopback gateway (for example LiteLLM on
+/// 127.0.0.1), where a proxy would only take the request off the machine.
+pub fn anthropic_client_builder(base: &str) -> reqwest::ClientBuilder {
+    let loopback = url::Url::parse(base)
+        .ok()
+        .and_then(|u| u.host_str().map(is_loopback_host))
+        .unwrap_or(false);
+    if loopback {
+        pinned_builder().no_proxy()
+    } else {
+        pinned_builder()
+    }
 }
 
 /// [`client_builder`] with no other settings.
@@ -357,7 +381,7 @@ mod tests {
             String::from_utf8_lossy(&raw).to_string()
         });
         let base = validate_local_base_url(&format!("http://127.0.0.1:{port}/v1"), false).unwrap();
-        let client = reqwest::Client::new();
+        let client = client().unwrap();
         let body = json!({"model": DEFAULT_LOCAL_MODEL, "messages": [], "stream": true});
         let resp = send_chat(&client, &base.base_url, &body).await.unwrap();
         let text = resp.text().await.unwrap();

@@ -19,6 +19,10 @@ mod ipc;
 mod line_breaks;
 mod local_inference;
 mod local_inference_gate;
+
+/// Client builders, public only for the `tests/no_proxy.rs` integration test.
+#[doc(hidden)]
+pub use local_inference::{anthropic_client_builder, client_builder as local_client_builder};
 mod markdown_lines;
 mod redact;
 mod review_store;
