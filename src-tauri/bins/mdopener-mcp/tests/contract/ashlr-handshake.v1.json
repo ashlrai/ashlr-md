@@ -84,5 +84,38 @@
         "lexicon doctor"
       ]
     }
+  },
+  "doctor": {
+    "kind": "ashlr.doctor",
+    "schema_version": 1,
+    "required": [
+      "kind",
+      "schema_version",
+      "tool",
+      "status",
+      "native_status",
+      "checks"
+    ],
+    "status": [
+      "ok",
+      "warn",
+      "fail"
+    ],
+    "check_status": [
+      "ok",
+      "warn",
+      "fail",
+      "info"
+    ],
+    "check_required": [
+      "status",
+      "summary"
+    ],
+    "check_id_pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+    "argv": [
+      "doctor",
+      "--json"
+    ],
+    "additive": true
   }
 }
