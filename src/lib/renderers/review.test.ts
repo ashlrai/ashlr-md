@@ -142,6 +142,21 @@ describe("parseReview — feedback section", () => {
     expect(r.feedback[1].label).toBe("Unused import in header");
   });
 
+  it("records 1-based line numbers for feedback annotations", () => {
+    const doc = [
+      "# Review",
+      "",
+      "## Feedback",
+      "### First issue", // line 4
+      "Body.",
+      "",
+      "### Second issue", // line 7
+      "More.",
+    ].join("\n");
+    const r = parseReview(doc);
+    expect(r.feedback.map((f) => f.line)).toEqual([4, 7]);
+  });
+
   it("captures **bold lead** annotation as first unlabelled entry", () => {
     // The bold-lead branch fires only when annotLabel is empty. The regex
     // `^\*\*([^*]+)\*\*:?` captures the text inside ** including any trailing
