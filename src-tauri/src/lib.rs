@@ -19,6 +19,12 @@ mod ipc;
 mod line_breaks;
 mod local_inference;
 mod local_inference_gate;
+
+/// Client builders, public only for integration tests
+/// (`cargo test --features test-support`).
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use local_inference::{anthropic_client_builder, client_builder as local_client_builder};
 mod markdown_lines;
 mod redact;
 mod review_store;
@@ -147,6 +153,7 @@ pub fn run() {
             run::run_shell,
             ai::anthropic_env_key_status,
             local_inference::ai_local_inference_status,
+            local_inference::ai_offline_mode,
             secrets::set_ai_key,
             secrets::get_ai_key,
             secrets::delete_ai_key,

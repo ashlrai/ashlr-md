@@ -6,6 +6,14 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **Opt-in offline mode** (`"offline": true` on `localInference` in
+  `~/.ashlr/config.json`, default off). Unset or `false` leaves chat,
+  embeddings, search and the MCP sidecar exactly as they are. When it is
+  on, those paths accept only `127.0.0.1`, `[::1]` and `localhost` (pinned
+  to loopback); lookalikes are refused, `allowRemote` cannot override it,
+  and no environment variable can add a host. Anthropic and the hosted
+  endpoint fail closed with a fixed error and do not fall back. A loopback
+  model server still works. See the README.
 - **`mdopener-mcp doctor [--json]` checks local inference** (mirrors Phantom
   #920/#921). It reads `localInference` from `~/.ashlr/config.json` through the
   same gate as the app, then sends one unauthenticated GET of the model list
@@ -14,6 +22,7 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   not-configured, config-invalid, remote-not-probed, reachable, unreachable or
   bad-response, with no URL, body or model names. The handshake advertises
   `local-inference-probe` and a config-only `local-inference-config` check.
+- `mdopener-mcp doctor --json` (the local-inference check) and `doctor --fix --json` carry the shared `ashlr.doctor` v1 wrapper (`kind`, `schema_version`, `tool`, `status`, `native_status`, `checks`): a fix skipped or refused on apply is fail, planned fixes or report-only findings are warn, nothing to do is ok. For `doctor --json` the probe status (for example `unreachable`) is kept as `native_status` on the wrapper and the check, `config-invalid` and `remote-not-probed` (the probe refuses the config or the non-loopback endpoint) are fail, `unreachable` and `bad-response` are warn, `reachable` and `not-configured` are ok; the native level in text output stays warn for those refusals; `checks[].id`, `status` and `probe` stay. Additive: `mode`, `plan`, `outcome` and the exit code are unchanged. The vendored handshake contract is re-pinned to the ashlr-stack version with the `doctor` section.
 - **`localInference` local models.** A `localInference` block in
   `~/.ashlr/config.json` (same shape as Phantom #917) points the AI sidebar at
   a local OpenAI-compatible server (Ollama, oMLX, LiteLLM): loopback only by
@@ -43,6 +52,22 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   comments with `appRunning: false` (or `appAuthFailed: true`) and `stale: true`
   when the file changed since the review, so an approval of an earlier version
   is never reported as current. Corrupt or oversized files are ignored.
+
+### Security
+- **Offline mode fails closed on the shared client builders.** With
+  `localInference.offline` set, a non-loopback host is refused before a
+  socket exists for chat, every embedding client, search and the
+  `mdopener-mcp` sidecar. `anthropic_client_builder` returns that refusal
+  and builds no client, including for a loopback gateway. The test-only
+  re-exports of the two client builders are behind the `test-support`
+  feature. A non-boolean `offline` value counts as on.
+- **Model, embedding and Anthropic requests never follow redirects, and
+  `localhost` is pinned to loopback.** Every reqwest client in the app comes
+  from one builder (`local_inference::client_builder`): a local server
+  answering 307/308 can no longer re-send a prompt or document text to
+  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
+  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
+  `localInference.allowRemote: true` for a non-loopback (https) host.
 
 ### Changed
 - **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now

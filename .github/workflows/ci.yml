@@ -200,6 +200,9 @@ jobs:
           mkdir -p src-tauri/target/release
           touch src-tauri/target/release/mdopen \
                 src-tauri/target/release/mdopener-mcp
+          # tauri's context codegen needs frontendDist; the vite build only runs
+          # when frontend inputs changed, so keep a placeholder like macOS does.
+          mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
 
       - name: Rust check (workspace)
         if: env.PR != 'true' && env.RUST == 'true'
@@ -211,6 +214,14 @@ jobs:
       - name: Rust clippy (workspace, Linux)
         if: env.PR != 'true' && env.RUST == 'true'
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # Full workspace tests (Linux): md-opener lib incl. local_inference gate
+      # tests, mdopener-mcp local_inference_probe, handshake_conformance (#178
+      # kit) and doctor_fix. Queue and pre-flip PRs when Rust inputs changed;
+      # nightly/manual always.
+      - name: Rust tests (workspace)
+        if: env.PR != 'true' && env.RUST == 'true'
+        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=2
 
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.

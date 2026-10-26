@@ -197,6 +197,7 @@ pub struct LocalInferenceConfig {
     pub loopback: bool,
     pub model: String,
     pub allow_remote: bool,
+    pub offline: bool,
 }
 
 /// Parse a raw `localInference` value. `Ok(None)` means off. Problems are
@@ -225,6 +226,13 @@ pub fn parse_local_inference(
         Some(Value::Bool(b)) => *b,
         Some(_) => return Err("localInference.allowRemote: must be a boolean".into()),
     };
+    let offline = match obj.get("offline") {
+        None => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("localInference.offline: must be a boolean".into()),
+    };
+    // Offline wins over allowRemote: only loopback is ever allowed.
+    let allow_remote = allow_remote && !offline;
     let raw_url = match obj.get("baseUrl") {
         Some(Value::String(s)) => s.clone(),
         Some(_) => return Err("localInference.baseUrl: base-url-invalid".into()),
@@ -251,6 +259,7 @@ pub fn parse_local_inference(
         loopback: url.loopback,
         model,
         allow_remote,
+        offline,
     }))
 }
 
@@ -267,4 +276,48 @@ pub fn read_config_value() -> Option<Value> {
 pub fn load() -> Result<Option<LocalInferenceConfig>, String> {
     let root = read_config_value();
     parse_local_inference(root.as_ref().and_then(|r| r.get("localInference")))
+}
+
+/// `localInference.offline` from the parsed config root. Fails closed: any
+/// non-boolean value present counts as offline, so a typo never turns the
+/// guarantee off. Absent means false (no change for existing users).
+pub fn offline_from(root: Option<&Value>) -> bool {
+    match root.and_then(|r| r.get("localInference")?.get("offline")) {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => true,
+    }
+}
+
+/// `localInference.allowRemote`, forced false when offline.
+pub fn effective_allow_remote(root: Option<&Value>) -> bool {
+    !offline_from(root)
+        && root
+            .and_then(|r| r.get("localInference")?.get("allowRemote")?.as_bool())
+            .unwrap_or(false)
+}
+
+/// Offline mode from `~/.ashlr/config.json`.
+pub fn offline() -> bool {
+    offline_from(read_config_value().as_ref())
+}
+
+/// The refusal for any cloud call in offline mode. Value-free.
+pub const OFFLINE_REFUSAL: &str = "Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.";
+
+/// When `offline` is set, `base` must already be an exact loopback URL
+/// (`127.0.0.1`, `[::1]`, or `localhost`). Lookalikes are refused. Nothing
+/// in the environment is consulted, so no variable can widen the set.
+/// When `offline` is false this is a no-op: callers keep today's checks.
+pub fn ensure_offline_loopback(offline: bool, base: &str) -> Result<(), String> {
+    if !offline {
+        return Ok(());
+    }
+    validate_local_base_url(base, false)
+        .map(|_| ())
+        .map_err(|why| {
+            format!(
+                "Offline mode (localInference.offline): host refused ({why}). No request was sent."
+            )
+        })
 }

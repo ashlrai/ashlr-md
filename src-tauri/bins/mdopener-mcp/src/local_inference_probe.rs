@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
 #[path = "../../../src/local_inference_gate.rs"]
-mod gate;
+pub(crate) mod gate;
 
 pub const CAPABILITY: &str = "local-inference-probe";
 pub const CONFIG_CHECK_ID: &str = "local-inference-config";
@@ -362,15 +362,6 @@ pub fn doctor(json: bool) -> (String, i32) {
         "not-configured" | "reachable" => "ok",
         _ => "warn",
     };
-    if json {
-        let v = serde_json::json!({
-            "checks": [{ "id": "local-inference", "status": level, "probe": p }]
-        });
-        return (
-            format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
-            0,
-        );
-    }
     let provider = p.provider.clone().unwrap_or_default();
     let detail = match p.status {
         "not-configured" => {
@@ -391,5 +382,51 @@ pub fn doctor(json: bool) -> (String, i32) {
                 .unwrap_or_default()
         ),
     };
+    if json {
+        let status = envelope_status(p.status, level);
+        let v = serde_json::json!({
+            "kind": "ashlr.doctor",
+            "schema_version": 1,
+            "tool": "ashlr-md",
+            "status": status,
+            "native_status": p.status,
+            "checks": [{
+                "id": "local-inference",
+                "status": status,
+                "native_status": p.status,
+                "summary": detail,
+                "probe": p,
+            }]
+        });
+        return (
+            format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
+            0,
+        );
+    }
     (format!("doctor: local-inference [{level}] {detail}\n"), 0)
+}
+
+/// The `ashlr.doctor` v1 status for the local-inference check. The native
+/// level (`ok`/`warn`) and exit code are unchanged; the envelope reads the
+/// probe status so the probe's refusals surface as fail: `config-invalid`
+/// (the gate rejected the block, e.g. a remote or http base URL without
+/// `allowRemote`, or userinfo in the URL) and `remote-not-probed` (the probe
+/// refuses any non-loopback endpoint) are fail. Everything else follows
+/// [`doctor_status`] on the native level.
+pub fn envelope_status(probe_status: &str, level: &str) -> &'static str {
+    match probe_status {
+        "config-invalid" | "remote-not-probed" => "fail",
+        _ => doctor_status(level),
+    }
+}
+
+/// Maps a native doctor level onto the shared `ashlr.doctor` v1 status
+/// (ashlr-stack contract/, "doctor"): unsafe or refusing is fail, warn is
+/// warn, ok is ok. Anything unknown is warn, never silently ok.
+pub fn doctor_status(native: &str) -> &'static str {
+    match native {
+        "ok" => "ok",
+        "unsafe" | "refusing" | "fail" => "fail",
+        _ => "warn",
+    }
 }

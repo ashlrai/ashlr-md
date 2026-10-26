@@ -353,6 +353,71 @@ pub fn apply_fixes(root: &Path, plan: &FixPlan, now: std::time::SystemTime) -> F
 /// The `--apply` refusal: it only means something with `--fix`.
 pub const APPLY_WITHOUT_FIX: &str = "mdopener-mcp doctor: --apply needs --fix (doctor --fix previews, doctor --fix --apply repairs)";
 
+/// Adds the shared `ashlr.doctor` v1 wrapper (ashlr-stack
+/// docs/ashlr-handshake.md, "Doctor JSON") to `doctor --fix --json`.
+/// Additive: `mode`, `plan` and `outcome` stay, and the exit code does not
+/// change. Mapping: a fix skipped or refused on apply is fail; planned fixes
+/// (dry run) or report-only findings are warn; nothing to do is ok.
+fn add_doctor_envelope(
+    v: &mut serde_json::Value,
+    apply: bool,
+    plan: &FixPlan,
+    outcome: Option<&FixOutcome>,
+) {
+    let mut checks = Vec::new();
+    match outcome {
+        Some(o) => {
+            for r in &o.results {
+                checks.push(serde_json::json!({
+                    "id": "fix",
+                    "status": if r.applied { "ok" } else { "fail" },
+                    "summary": r.fix.describe(),
+                }));
+            }
+        }
+        None => {
+            for f in &plan.fixes {
+                checks.push(serde_json::json!({
+                    "id": "fix",
+                    "status": "warn",
+                    "summary": f.describe(),
+                }));
+            }
+        }
+    }
+    for r in &plan.report_only {
+        let id: String = r
+            .code
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        checks.push(serde_json::json!({
+            "id": id.trim_matches('-'),
+            "status": "warn",
+            "summary": r.message,
+        }));
+    }
+    let status = if checks.iter().any(|c| c["status"] == "fail") {
+        "fail"
+    } else if checks.iter().any(|c| c["status"] == "warn") {
+        "warn"
+    } else {
+        "ok"
+    };
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("kind".into(), "ashlr.doctor".into());
+        obj.insert("schema_version".into(), 1.into());
+        obj.insert("tool".into(), "ashlr-md".into());
+        obj.insert("status".into(), status.into());
+        obj.insert(
+            "native_status".into(),
+            (if apply { "apply" } else { "dry_run" }).into(),
+        );
+        obj.insert("checks".into(), checks.into());
+    }
+}
+
 /// Run `mdopener-mcp doctor <args>` and return (stdout text, exit code).
 /// `args` are the arguments after `doctor`.
 pub fn run(args: &[String], root: Option<&Path>) -> (String, String, i32) {
@@ -393,11 +458,12 @@ pub fn run(args: &[String], root: Option<&Path>) -> (String, String, i32) {
     let failed = outcome.as_ref().is_some_and(|o| !o.all_applied());
     let code = i32::from(failed);
     if json {
-        let v = serde_json::json!({
+        let mut v = serde_json::json!({
             "mode": if apply { "apply" } else { "dry_run" },
             "plan": plan,
             "outcome": outcome,
         });
+        add_doctor_envelope(&mut v, apply, &plan, outcome.as_ref());
         return (
             format!("{}\n", serde_json::to_string_pretty(&v).unwrap_or_default()),
             String::new(),

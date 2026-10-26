@@ -50,8 +50,23 @@ export async function detectOllama(): Promise<string | null> {
   }
 }
 
+/**
+ * True in offline mode (`localInference.offline` in ~/.ashlr/config.json):
+ * every cloud provider is skipped. Fails closed: if the check itself fails,
+ * report offline so a cloud request is never made by mistake.
+ */
+export async function detectOfflineMode(): Promise<boolean> {
+  try {
+    return (await invoke<boolean>("ai_offline_mode")) === true;
+  } catch {
+    return true;
+  }
+}
+
 /** Value-free status of a valid `localInference` block (no URL). */
 export interface LocalInferenceStatus {
+  /** True when `localInference.offline` is set. Absent means not offline. */
+  offline?: boolean;
   provider: string;
   model: string;
   loopback: boolean;
