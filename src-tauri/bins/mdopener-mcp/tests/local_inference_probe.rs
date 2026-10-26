@@ -3,7 +3,7 @@
 //! config never probed, no auth header, redirect refused without contacting
 //! the target, and a streamed 256 KiB body cap that aborts an endless reply.
 use mdopener_mcp::local_inference_probe::{
-    probe_config, CHUNK_BYTES, MAX_BODY_BYTES, PROBE_TIMEOUT,
+    loopback_addrs, probe_config, CHUNK_BYTES, MAX_BODY_BYTES, PROBE_TIMEOUT,
 };
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -278,4 +278,28 @@ fn error_status_and_html_are_bad_response_without_body_text() {
     );
     h.join().unwrap();
     assert_eq!(p.status, "bad-response");
+}
+
+#[test]
+fn localhost_is_pinned_to_loopback_without_dns() {
+    let a = loopback_addrs("localhost", 11434).unwrap();
+    assert!(a.iter().all(|x| x.ip().is_loopback()) && a.len() == 2);
+    assert_eq!(a[0].to_string(), "127.0.0.1:11434");
+    // Names are never resolved: a host that DNS or /etc/hosts could point
+    // anywhere is refused, and so is a non-loopback literal.
+    assert!(loopback_addrs("localhost.evil.com", 80).is_none());
+    assert!(loopback_addrs("example.com", 80).is_none());
+    assert!(loopback_addrs("10.0.0.1", 80).is_none());
+    assert!(loopback_addrs("::1", 80).unwrap()[0].ip().is_loopback());
+}
+
+#[test]
+fn reachable_via_localhost_name() {
+    let (port, h) = serve_once(ok_reply(r#"{"data":[]}"#));
+    let p = probe_config(
+        Some(&cfg("omlx", &format!("http://localhost:{port}/v1"))),
+        PROBE_TIMEOUT,
+    );
+    h.join().unwrap();
+    assert_eq!(p.status, "reachable");
 }

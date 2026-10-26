@@ -18,7 +18,7 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
@@ -126,6 +126,20 @@ pub fn probe() -> ProbeResult {
     probe_config(gate::read_config_value().as_ref(), PROBE_TIMEOUT)
 }
 
+/// Socket addresses for a gated host, pinned without DNS: `localhost` is
+/// 127.0.0.1 then ::1 (never whatever the resolver or /etc/hosts says), and
+/// an IP literal must itself be loopback. Anything else is `None`.
+pub fn loopback_addrs(host: &str, port: u16) -> Option<Vec<SocketAddr>> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some(vec![
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),
+        ]);
+    }
+    let ip: IpAddr = host.parse().ok()?;
+    ip.is_loopback().then(|| vec![SocketAddr::new(ip, port)])
+}
+
 fn remaining(deadline: Instant) -> Option<Duration> {
     deadline
         .checked_duration_since(Instant::now())
@@ -147,11 +161,9 @@ fn get_capped(url: &str, provider: &str, timeout: Duration, r: &mut ProbeResult)
         .trim_start_matches('[')
         .trim_end_matches(']')
         .to_string();
-    // The gate already allowed only 127.0.0.1, [::1] and localhost; still
-    // connect only to loopback addresses.
-    let addrs: Vec<_> = match (bare.as_str(), port).to_socket_addrs() {
-        Ok(a) => a.filter(|a| a.ip().is_loopback()).collect(),
-        Err(_) => Vec::new(),
+    let Some(addrs) = loopback_addrs(&bare, port) else {
+        r.reason = Some("host-not-loopback".into());
+        return;
     };
     let mut tcp = None;
     for addr in addrs {
