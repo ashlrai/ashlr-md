@@ -9,6 +9,15 @@
 > [!TIP]
 > Run the tests after each phase.
 
+<!-- fresh:begin example-version-pin -->
+Example release pin for automation (update with `bun run fresh:sync`):
+
+```sh
+ASHLR_MD_VERSION='0.4.0'
+ASHLR_MD_RELEASE='https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0'
+```
+<!-- fresh:end -->
+
 ## Phase 1: Core
 
 - [x] Scaffold project
