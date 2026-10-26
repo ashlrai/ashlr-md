@@ -8,6 +8,7 @@ pub mod doctor_fix;
 pub mod handshake;
 pub mod launch;
 pub mod local_inference_probe;
+pub mod offline;
 
 // ── JSON-RPC types ────────────────────────────────────────────────────────────
 
