@@ -1,6 +1,9 @@
-//! Offline flagship end to end, against the real binary with HOME in a temp
-//! dir and a fake OpenAI-compatible server on a 127.0.0.1 port-0 listener
-//! (plain std TCP: runs the same on Linux, macOS and CI with no Ollama):
+//! Offline flagship integration tests with HOME in a temp dir and a fake
+//! OpenAI-compatible server on a 127.0.0.1 port-0 listener (plain std TCP:
+//! runs the same on Linux, macOS and CI with no Ollama). Doctor and CLI
+//! argument checks run against the real binary. Setup reports use `build`
+//! with injected default-server findings, so no test probes live services
+//! on 11434 or 8000; the configured fake server still gets a real probe.
 //!
 //! - `doctor` reports `offline [ok] verified` when `localInference.offline`
 //!   is on and the loopback server answers, `unverified` when it does not,
@@ -11,6 +14,8 @@
 //!   sees only the probe's GET of the model list (no key), HOME is byte for
 //!   byte unchanged, and no model is fetched.
 
+use mdopener_mcp::local_inference_probe::{probe_config, ProbeResult, PROBE_TIMEOUT};
+use mdopener_mcp::offline::{self, ConfigFinding, ServerFinding, DEFAULT_SERVERS};
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -19,7 +24,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A fake OpenAI-compatible server: answers `GET /v1/models` with one model,
 /// anything else with 404, and records every request's head (request line
@@ -175,6 +180,35 @@ fn assert_doctor_envelope(d: &Value) {
     assert_eq!(checks[1]["id"], "offline");
 }
 
+/// Inject findings rather than let a developer's Ollama/oMLX decide the report.
+/// The order and URLs still come from the production default-server list.
+fn default_servers(reachable: &[&str]) -> Vec<ServerFinding> {
+    DEFAULT_SERVERS
+        .iter()
+        .map(|d| {
+            let reachable = reachable.contains(&d.provider);
+            ServerFinding {
+                provider: d.provider.into(),
+                base_url: d.base_url.into(),
+                probe: ProbeResult {
+                    status: if reachable {
+                        "reachable"
+                    } else {
+                        "unreachable"
+                    },
+                    provider: Some(d.provider.into()),
+                    loopback: true,
+                    reachable,
+                    http_status: reachable.then_some(200),
+                    model_count: usize::from(reachable),
+                    reason: (!reachable).then(|| "connect-failed".into()),
+                    bytes_read: 0,
+                },
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn doctor_reports_offline_verified_when_the_loopback_server_answers() {
     let server = FakeServer::start();
@@ -301,23 +335,35 @@ fn doctor_reports_offline_not_enabled_when_the_flag_is_off() {
 }
 
 #[test]
-fn setup_local_finds_the_configured_server_and_downloads_nothing() {
+fn setup_report_finds_the_configured_server_and_downloads_nothing() {
     let server = FakeServer::start();
     let home = home_with(server.port, Some(false));
     let before = snapshot(home.path());
 
-    let t = Instant::now();
-    let (code, text, err) = run(home.path(), &["setup", "--local"]);
-    assert_eq!(code, 0, "{err}");
-    assert!(err.is_empty(), "{err}");
+    let root: Value =
+        serde_json::from_slice(&std::fs::read(home.path().join(".ashlr/config.json")).unwrap())
+            .unwrap();
+    let report = || {
+        offline::build(
+            // Both defaults answer: the configured provider must still win.
+            default_servers(&["ollama", "omlx"]),
+            ConfigFinding {
+                status: "ok",
+                offline: false,
+                provider: Some("openai-compat".into()),
+                probe: Some(probe_config(Some(&root), PROBE_TIMEOUT)),
+            },
+            "qwen3.8:27b".into(),
+        )
+    };
+    let text = offline::render_text(&report());
     assert!(
         text.starts_with(
             "setup --local: local model servers on loopback (downloads nothing, writes nothing)\n"
         ),
         "{text}"
     );
-    // The default servers are reported with a status from the closed set
-    // (whatever this machine runs on 11434 and 8000).
+    // The default-server results are exact, independent of local services.
     for (provider, url) in [
         ("ollama", "http://127.0.0.1:11434/v1"),
         ("omlx", "http://127.0.0.1:8000/v1"),
@@ -326,12 +372,7 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
             .lines()
             .find(|l| l.trim_start().starts_with(provider) && l.contains(url))
             .unwrap_or_else(|| panic!("no {provider} line in {text}"));
-        assert!(
-            line.contains("reachable, ")
-                || line.contains("not running (")
-                || line.contains("bad response ("),
-            "{line}"
-        );
+        assert!(line.ends_with("reachable, 1 model(s)"), "{line}");
     }
     assert!(
         text.contains("config   ~/.ashlr/config.json       openai-compat: reachable, 1 model(s); offline: off\n"),
@@ -349,14 +390,11 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     assert!(text.contains("       mdopener-mcp doctor\n"), "{text}");
     // Value-free: the configured server's port never appears.
     assert!(!text.contains(&format!(":{}", server.port)), "{text}");
-    // Three probes at most, each bounded, with nothing slow in between.
-    assert!(t.elapsed() < Duration::from_secs(12), "{:?}", t.elapsed());
-
-    let (code, json, _) = run(home.path(), &["setup", "--local", "--json"]);
-    assert_eq!(code, 0);
+    let json = offline::render_json(&report());
     let v: Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["kind"], "ashlr.setup-local");
     assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["tool"], "ashlr-md");
     assert_eq!(v["downloads"], false);
     assert_eq!(v["writes"], false);
     let servers = v["servers"].as_array().unwrap();
@@ -364,11 +402,8 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     assert_eq!(servers[0]["provider"], "ollama");
     assert_eq!(servers[1]["provider"], "omlx");
     for s in servers {
-        let status = s["probe"]["status"].as_str().unwrap();
-        assert!(
-            ["reachable", "unreachable", "bad-response"].contains(&status),
-            "{status}"
-        );
+        assert_eq!(s["probe"]["status"], "reachable");
+        assert_eq!(s["probe"]["modelCount"], 1);
     }
     assert_eq!(v["config"]["status"], "ok");
     assert_eq!(v["config"]["offline"], false);
@@ -387,23 +422,42 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     // probe's GET of the model list: no pull, no key, nothing else.
     assert_eq!(snapshot(home.path()), before, "setup wrote into HOME");
     let requests = server.stop();
-    assert_eq!(requests.len(), 2, "one probe per setup run: {requests:?}");
+    assert_eq!(requests.len(), 2, "one probe per report: {requests:?}");
     assert_only_model_list_gets(&requests);
 }
 
 #[test]
-fn setup_local_on_a_fresh_machine_prints_the_ollama_pull_and_block() {
+fn setup_report_on_a_fresh_machine_prints_the_ollama_pull_and_block() {
     let home = tempfile::tempdir().unwrap();
-    let (code, text, _) = run(home.path(), &["setup", "--local"]);
-    assert_eq!(code, 0);
+    let report = offline::build(
+        default_servers(&[]),
+        ConfigFinding {
+            status: "absent",
+            offline: false,
+            provider: None,
+            probe: None,
+        },
+        "qwen3.8:27b".into(),
+    );
+    let text = offline::render_text(&report);
     assert!(
         text.contains("config   ~/.ashlr/config.json       no localInference block\n"),
         "{text}"
     );
-    // Whichever default server answers (or none), the next steps name the
-    // exact commands and the pull is for the user to run.
+    for (provider, url) in [
+        ("ollama", "http://127.0.0.1:11434/v1"),
+        ("omlx", "http://127.0.0.1:8000/v1"),
+    ] {
+        assert!(
+            text.contains(&format!(
+                "{provider:<8} {url:<26} not running (connect-failed)\n"
+            )),
+            "{text}"
+        );
+    }
+    // Neither default answers: recommend the exact Ollama pull and block.
     assert!(text.contains("next:\n  1. "), "{text}");
-    assert!(text.contains("  2. Add to ~/.ashlr/config.json (setup writes nothing):\n       \"localInference\": { \"provider\": \""), "{text}");
+    assert!(text.contains("  2. Add to ~/.ashlr/config.json (setup writes nothing):\n       \"localInference\": { \"provider\": \"ollama\", \"offline\": true }\n"), "{text}");
     assert!(text.contains("\", \"offline\": true }\n"), "{text}");
     assert!(
         text.contains(
@@ -411,26 +465,70 @@ fn setup_local_on_a_fresh_machine_prints_the_ollama_pull_and_block() {
         ),
         "{text}"
     );
-    let (_, json, _) = run(home.path(), &["setup", "--local", "--json"]);
+    let json = offline::render_json(&report);
     let v: Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["config"]["status"], "absent");
-    let provider = v["recommended"]["provider"].as_str().unwrap();
-    if provider == "ollama" {
-        assert_eq!(v["recommended"]["pullCommand"], "ollama pull qwen3.8:27b");
-        assert!(
-            text.contains("\n       ollama pull qwen3.8:27b\n"),
-            "{text}"
-        );
-        assert!(text.contains("setup never starts it"), "{text}");
-    } else {
-        assert_eq!(provider, "omlx");
-        assert!(v["recommended"]["pullCommand"].is_null());
+    assert_eq!(v["servers"].as_array().unwrap().len(), 2);
+    for s in v["servers"].as_array().unwrap() {
+        assert_eq!(s["probe"]["status"], "unreachable");
+        assert_eq!(s["probe"]["reason"], "connect-failed");
     }
+    assert_eq!(v["recommended"]["provider"], "ollama");
+    assert_eq!(v["recommended"]["reachable"], false);
+    assert_eq!(v["recommended"]["pullCommand"], "ollama pull qwen3.8:27b");
+    assert!(
+        text.contains("\n       ollama pull qwen3.8:27b\n"),
+        "{text}"
+    );
+    assert!(text.contains("setup never starts it"), "{text}");
     assert_eq!(v["config_snippet"]["localInference"]["offline"], true);
     assert!(
         std::fs::read_dir(home.path()).unwrap().next().is_none(),
         "setup created something in a fresh HOME"
     );
+}
+
+#[test]
+fn setup_report_selects_the_first_reachable_default_server() {
+    for (reachable, expected) in [
+        (vec!["omlx"], "omlx"),
+        (vec!["ollama"], "ollama"),
+        (vec!["ollama", "omlx"], "ollama"),
+    ] {
+        let report = offline::build(
+            default_servers(&reachable),
+            ConfigFinding {
+                status: "absent",
+                offline: false,
+                provider: None,
+                probe: None,
+            },
+            "qwen3.8:27b".into(),
+        );
+        let text = offline::render_text(&report);
+        let v: Value = serde_json::from_str(&offline::render_json(&report)).unwrap();
+        assert_eq!(v["recommended"]["provider"], expected, "{reachable:?}");
+        assert_eq!(v["recommended"]["reachable"], true);
+        assert_eq!(
+            v["config_snippet"],
+            serde_json::json!({"localInference": {"provider": expected, "offline": true}})
+        );
+        assert!(
+            text.contains(&format!("\"provider\": \"{expected}\", \"offline\": true")),
+            "{text}"
+        );
+        if expected == "ollama" {
+            assert_eq!(v["recommended"]["pullCommand"], "ollama pull qwen3.8:27b");
+            assert!(
+                text.contains("\n       ollama pull qwen3.8:27b\n"),
+                "{text}"
+            );
+        } else {
+            assert!(v["recommended"]["pullCommand"].is_null());
+            assert!(text.contains("oMLX has no pull command"), "{text}");
+            assert!(!text.contains("ollama pull"), "{text}");
+        }
+    }
 }
 
 #[test]
