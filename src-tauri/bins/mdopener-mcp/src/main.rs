@@ -57,9 +57,14 @@ USAGE:
                                print the Ashlr companion handshake (JSON)
     mdopener-mcp doctor [--json]
                                check local inference (localInference in ~/.ashlr/config.json):
-                               loopback-only GET of the model list, no key, 3 s
+                               loopback-only GET of the model list, no key, 3 s; and the
+                               offline check (verified when offline is on and a loopback
+                               server answered)
     mdopener-mcp doctor --fix [--apply] [--json]
                                preview (or with --apply make) repairs to ~/.mdopener
+    mdopener-mcp setup --local [--json]
+                               find Ollama and oMLX on loopback and print the exact model
+                               pull command and config block; downloads and writes nothing
 
 Other arguments are ignored with a warning on stderr.
 
@@ -97,11 +102,21 @@ fn main() {
         );
         std::process::exit(print_stdout(&format!("{line}\n")));
     }
+    // `setup --local [--json]`: find local model servers, print the commands
+    // to finish (downloads and writes nothing), before stdin.
+    if args.first().is_some_and(|a| a == "setup") {
+        let (out, err, code) = mdopener_mcp::offline::setup(&args[1..]);
+        if !err.is_empty() {
+            eprint!("{err}");
+        }
+        let status = print_stdout(&out);
+        std::process::exit(if code != 0 { code } else { status });
+    }
     // `doctor --fix [--apply] [--json]` (docs/doctor-fix.md), before stdin.
-    // `doctor [--json]` without --fix/--apply/--help: local inference probe.
+    // `doctor [--json]` without --fix/--apply/--help: the local inference
+    // probe and the offline check.
     if args.first().is_some_and(|a| a == "doctor") && args[1..].iter().all(|a| a == "--json") {
-        let (out, code) =
-            mdopener_mcp::local_inference_probe::doctor(args[1..].iter().any(|a| a == "--json"));
+        let (out, code) = mdopener_mcp::offline::doctor(args[1..].iter().any(|a| a == "--json"));
         let status = print_stdout(&out);
         std::process::exit(if code != 0 { code } else { status });
     }

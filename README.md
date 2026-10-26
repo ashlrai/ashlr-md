@@ -167,6 +167,7 @@ To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `
 - No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
 - When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
 - `mdopener-mcp doctor` checks that the server answers: one loopback-only GET of the model list, no key, 3 s timeout, redirects refused, at most 256 KiB read. It prints only a status (`reachable`, `unreachable`, `not-configured`, `config-invalid`, `remote-not-probed` or `bad-response`); `--json` for machines.
+- `mdopener-mcp setup --local` gets you from nothing to a working local server. It looks for Ollama on `127.0.0.1:11434` and oMLX on `127.0.0.1:8000` (the same probe as `doctor`: loopback only, no key, 3 s each), probes the `localInference` block when there is one, and prints the exact next steps: the model pull command (`ollama pull qwen3.8:27b`, or the configured model), the `localInference` block to add with `"offline": true`, and the `doctor` check. It downloads nothing and writes nothing: a model is several GB, so you run the pull yourself. Add `--json` for machines (`kind: ashlr.setup-local`, with `downloads: false` and `writes: false`). oMLX has no pull command; it loads models from its dashboard or the folder given to `omlx serve --model-dir`.
 
 ### Offline mode
 
@@ -185,6 +186,7 @@ While it is on:
 - Anthropic and the hosted Ashlr endpoint are not called at all, including through a loopback gateway. The error is `Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.` There is no fallback to another cloud provider.
 - A loopback Ollama or `localInference` server still works. On-device Apple Foundation Models are unchanged. Requests still send no API key or OAuth token to a local URL, follow no redirects, and do not use a proxy for loopback.
 - A value that is present but not a boolean counts as offline (a typo cannot turn the guarantee off). The `localInference` block itself must still be a boolean or it is invalid and is not used.
+- `mdopener-mcp doctor` reports it: a second line, `doctor: offline [ok] verified`, when `offline` is on, the configured server is loopback and it answered the model-list probe, so no remote endpoint is in use and cloud AI is refused. `offline [warn] unverified` means `offline` is on but no loopback server answered (AI is unavailable until one does; `mdopener-mcp setup --local` says what to run). `offline [info] not enabled` means the flag is off. `doctor --json` adds the same as an `offline` check (`native_status` `verified`, `unverified` or `not-enabled`) to the `ashlr.doctor` envelope, after the `local-inference` check; `info` never raises the top-level status.
 
 ## Platform support
 

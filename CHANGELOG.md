@@ -6,6 +6,23 @@ All notable changes to Ashlr MD are documented here. This project adheres to
 ## [0.4.1] — Unreleased
 
 ### Added
+- **`mdopener-mcp setup --local [--json]`** finds Ollama (`127.0.0.1:11434`)
+  and oMLX (`127.0.0.1:8000`) with the same loopback-only, key-free probe as
+  `doctor`, probes the configured `localInference` block when there is one,
+  and prints the exact next steps: the model pull command (`ollama pull
+  qwen3.8:27b` or the configured model; oMLX has no pull command and is told
+  so), the `localInference` block to add with `"offline": true`, and the
+  `doctor` check. It downloads nothing and writes nothing. The JSON form is
+  `kind: ashlr.setup-local` with `downloads: false` and `writes: false`.
+- **`mdopener-mcp doctor` reports `offline: verified`.** A second check,
+  `offline`, is `verified` when `localInference.offline` is on, the configured
+  server is loopback and it answered the probe (no remote endpoint is used and
+  cloud AI is refused), `unverified` (warn) when offline is on but no loopback
+  server answered, and `not-enabled` (info) when the flag is off. Text output
+  adds one `doctor: offline [...]` line; `--json` appends the check to the
+  `ashlr.doctor` v1 envelope after `local-inference`, additive, exit code
+  unchanged. End-to-end test against a fake loopback OpenAI-compatible server
+  (`bins/mdopener-mcp/tests/offline_e2e.rs`, plain std TCP, runs on Linux).
 - **Opt-in offline mode** (`"offline": true` on `localInference` in
   `~/.ashlr/config.json`, default off). Unset or `false` leaves chat,
   embeddings, search and the MCP sidecar exactly as they are. When it is
