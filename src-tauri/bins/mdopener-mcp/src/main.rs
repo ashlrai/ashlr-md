@@ -175,6 +175,11 @@ fn print_stdout(text: &str) -> i32 {
 /// read whole into memory, however long it grew.
 const MAX_REQUEST_LINE_BYTES: usize = 4 * MAX_DOCUMENT_BYTES as usize;
 
+/// A line buffer up to this size is reused for the next request; a larger
+/// one is dropped after the line is answered so one big request does not
+/// stay allocated for the life of the session.
+const LINE_BUF_KEEP_BYTES: usize = 1024 * 1024;
+
 /// Answer each newline-delimited JSON-RPC message read from `input` on
 /// `output`, until `input` ends or cannot be read.
 ///
@@ -197,6 +202,9 @@ fn serve_bounded(
 ) {
     let mut buf = Vec::new();
     loop {
+        if buf.capacity() > LINE_BUF_KEEP_BYTES {
+            buf = Vec::new();
+        }
         buf.clear();
         let reply = match read_line_bounded(&mut input, &mut buf, limit) {
             Ok(Line::End) | Err(_) => break,
