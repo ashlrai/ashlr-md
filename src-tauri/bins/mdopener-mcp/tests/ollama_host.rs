@@ -212,3 +212,30 @@ fn refused_host_gets_no_connection() {
         mdopener_mcp::ollama_available
     ));
 }
+
+#[test]
+fn remote_ollama_needs_allow_remote_from_the_shared_gate() {
+    use mdopener_mcp::ollama_base_gated;
+    let err = ollama_base_gated(Some("https://ollama.example.com/"), false).unwrap_err();
+    assert!(
+        err.starts_with("OLLAMA_HOST refused: remote-not-allowed"),
+        "{err}"
+    );
+    assert!(!err.contains("example.com"), "{err}");
+    assert_eq!(
+        ollama_base_gated(Some("https://ollama.example.com/"), true).unwrap(),
+        "https://ollama.example.com"
+    );
+    assert_eq!(
+        ollama_base_gated(None, false).unwrap(),
+        "http://127.0.0.1:11434"
+    );
+    assert_eq!(
+        ollama_base_gated(Some(":9999"), false).unwrap(),
+        "http://127.0.0.1:9999"
+    );
+    assert_eq!(
+        ollama_base_gated(Some("0.0.0.0"), false).unwrap(),
+        "http://127.0.0.1:11434"
+    );
+}

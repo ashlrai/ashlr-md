@@ -44,6 +44,15 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   when the file changed since the review, so an approval of an earlier version
   is never reported as current. Corrupt or oversized files are ignored.
 
+### Security
+- **Model, embedding and Anthropic requests never follow redirects, and
+  `localhost` is pinned to loopback.** Every reqwest client in the app comes
+  from one builder (`local_inference::client_builder`): a local server
+  answering 307/308 can no longer re-send a prompt or document text to
+  another host, and `localhost` is 127.0.0.1/::1 without DNS. The MCP
+  sidecar pins `localhost` the same way, and its `OLLAMA_HOST` now also needs
+  `localInference.allowRemote: true` for a non-loopback (https) host.
+
 ### Changed
 - **`OLLAMA_HOST` is loopback-gated in the app.** A non-loopback Ollama now
   needs `localInference.allowRemote: true` in `~/.ashlr/config.json` and an

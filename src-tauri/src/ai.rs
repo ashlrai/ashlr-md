@@ -120,7 +120,7 @@ pub async fn ai_detect_ollama() -> Result<Option<String>, String> {
 
 /// [`ai_detect_ollama`] against an explicit Ollama base URL.
 async fn detect_ollama_at(base: &str) -> Result<Option<String>, String> {
-    let client = Client::builder()
+    let client = local_inference::client_builder()
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .map_err(|e| e.to_string())?;
@@ -287,7 +287,7 @@ async fn stream_ollama(
     messages: Vec<Msg>,
     request_id: String,
 ) -> Result<(), String> {
-    let client = Client::new();
+    let client = local_inference::client()?;
 
     #[derive(Serialize)]
     struct OllamaChatRequest {
@@ -361,7 +361,7 @@ async fn stream_local_inference(
 ) -> Result<(), String> {
     let cfg = local_inference::load()?
         .ok_or_else(|| "localInference is not configured in ~/.ashlr/config.json".to_string())?;
-    let client = Client::new();
+    let client = local_inference::client()?;
     let body = serde_json::json!({ "model": cfg.model, "messages": messages, "stream": true });
     let resp = local_inference::send_chat(&client, &cfg.base_url, &body).await?;
 
@@ -468,8 +468,7 @@ async fn stream_anthropic(
     let base = base_urls::anthropic_base_url_checked().map_err(|e| e.to_string())?;
     // No redirects: the key goes only to the validated host, never to a
     // redirect target (x-api-key is not stripped on cross-host redirects).
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+    let client = local_inference::client_builder()
         .build()
         .map_err(|e| format!("Anthropic client setup failed: {e}"))?;
 
