@@ -84,6 +84,11 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
     runs-on: ubuntu-22.04
+    # Job permissions replace the workflow permissions. contents stays read.
+    # id-token is only for the Codecov OIDC upload on merge_group.
+    permissions:
+      contents: read
+      id-token: write
     env:
       # Fast lane: PR events once the merge queue is on.
       PR: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
@@ -114,9 +119,34 @@ jobs:
       - name: Lint (Biome)
         run: bunx biome check src
 
+      # Same tests as before. merge_group adds lcov and JUnit in this
+      # command so the suite still runs once. Other events stay on bun run test.
       - name: Unit tests
+        id: unit
         if: env.PR != 'true' && env.JS == 'true'
-        run: bun run test
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            bun run test -- --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+          else
+            bun run test
+          fi
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && github.event_name == 'merge_group' && env.JS == 'true' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: false
+          files: coverage/lcov.info
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name == 'merge_group' && env.JS == 'true' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: false
+          files: junit.xml
 
       # Soft-gated so an upstream advisory annotates without blocking.
       # Always-on security check in the queue (not previously in CI).

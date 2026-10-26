@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["* 0-3 * * 1"],
+  "automerge": false,
+  "separateMajorMinor": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 0-3 1 * *"]
+  },
+  "packageRules": [
+    {
+      "description": "One pull request for non-major dev dependency updates",
+      "matchDepTypes": ["devDependencies", "dev-dependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "non-major dev dependencies"
+    },
+    {
+      "description": "One pull request for non-major production dependency updates",
+      "matchDepTypes": [
+        "dependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "build-dependencies"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "non-major prod dependencies"
+    }
+  ]
+}

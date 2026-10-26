@@ -13,6 +13,7 @@ free, private, **on-device AI** built in.
 *Think Preview.app, but Markdown-aware, editable, and AI-native, and cross-platform.*
 
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ashlrai/ashlr-md/badge)](https://scorecard.dev/viewer/?uri=github.com/ashlrai/ashlr-md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
 [![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
