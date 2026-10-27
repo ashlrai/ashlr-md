@@ -262,6 +262,26 @@ describe("activityStore", () => {
     ]);
   });
 
+  it("a note the listing read later than an event heard keeps the listing's time", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("note.md", "modified", 5));
+    resolveScan([makeFile("note.md", 40), makeFile("other.md", 20)]);
+    await pending;
+    const files = useActivityStore.getState().files;
+    expect(files.map((f) => [f.name, f.mtimeMs])).toEqual([
+      ["note.md", 40],
+      ["other.md", 20],
+    ]);
+  });
+
   it("a removal heard during a listing cut short lists the folder again", async () => {
     let resolveScan: (f: MdFileInfo[]) => void = () => {};
     listMock.mockImplementationOnce(
@@ -432,6 +452,22 @@ describe("activityStore", () => {
       // Not busy: nothing more is sent.
       await vi.advanceTimersByTimeAsync(5000);
       expect(embedIndex).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops a busy batch when the setting was turned off meanwhile", async () => {
+      autoEmbedIndex = true;
+      vi.mocked(embedIndex).mockImplementationOnce(async () => {
+        autoEmbedIndex = false;
+        return { indexed: 0, skipped: 0, removed: 0, total: 0, busy: true };
+      });
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      // Turned on again: the dropped batch is not sent with the next one.
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 2));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(vi.mocked(embedIndex).mock.calls[1]).toEqual([["/watch/b.md"], false]);
     });
 
     it("drops a queued batch if the setting is turned off before it fires", async () => {

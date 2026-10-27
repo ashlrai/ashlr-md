@@ -92,7 +92,7 @@ function scheduleEmbedIndex(path?: string) {
       // Another run held the index and may have looked for removed notes
       // before these changed: the batch waits for the next turn, so a
       // deleted note does not stay searchable.
-      if (result?.busy) {
+      if (result?.busy && useSettingsStore.getState().autoEmbedIndex) {
         for (const p of paths) pendingEmbedPaths.add(p);
         scheduleEmbedIndex();
       }
@@ -260,7 +260,12 @@ export const useActivityStore = create<ActivityState>()(
               dropped ||= kept.length < listed.length;
               listed = kept;
             } else {
-              listed = placeByTime(listed, toFileInfo(ev));
+              // The walk may have read a later write than this event (the
+              // watcher drops a second write close behind the first).
+              const walked = listed.find((f) => f.path === ev.path);
+              if (!walked || walked.mtimeMs <= ev.mtimeMs) {
+                listed = placeByTime(listed, toFileInfo(ev));
+              }
             }
           }
           heard = null;
