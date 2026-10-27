@@ -75,10 +75,10 @@ const EMBED_DEBOUNCE_MS = 2000;
 const pendingEmbedPaths = new Set<string>();
 let embedTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleEmbedIndex(path: string) {
+function scheduleEmbedIndex(path?: string) {
   // Opt-in (Settings > Semantic search). Off: nothing is queued.
   if (!useSettingsStore.getState().autoEmbedIndex) return;
-  pendingEmbedPaths.add(path);
+  if (path !== undefined) pendingEmbedPaths.add(path);
   if (embedTimer) clearTimeout(embedTimer);
   embedTimer = setTimeout(() => {
     embedTimer = null;
@@ -86,8 +86,16 @@ function scheduleEmbedIndex(path: string) {
     pendingEmbedPaths.clear();
     // Turned off while the debounce was pending: drop the batch.
     if (!useSettingsStore.getState().autoEmbedIndex) return;
-    import("../lib/embedSearch").then(({ embedIndex }) => {
-      void embedIndex(paths, false); // incremental: drops only files gone from disk
+    void import("../lib/embedSearch").then(async ({ embedIndex }) => {
+      // Incremental: drops only files gone from disk.
+      const result = await embedIndex(paths, false);
+      // Another run held the index and may have looked for removed notes
+      // before these changed: the batch waits for the next turn, so a
+      // deleted note does not stay searchable.
+      if (result?.busy) {
+        for (const p of paths) pendingEmbedPaths.add(p);
+        scheduleEmbedIndex();
+      }
     });
   }, EMBED_DEBOUNCE_MS);
 }
@@ -169,17 +177,21 @@ function isAtOrUnder(path: string, removed: string): boolean {
   );
 }
 
-/** Upsert `file` to the front, de-duping by path, capped at MAX_FILES. */
 /**
- * `files` (newest first) with `file` in its place by modification time. It
- * was put on top: the older notes of a folder moved in pushed newer ones out
- * of a full list.
+ * `files` (newest first) with `file` in its place by modification time, not
+ * capped. It was put on top: the older notes of a folder moved in pushed
+ * newer ones out of a full list.
  */
-function upsert(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
+function placeByTime(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
   const rest = files.filter((f) => f.path !== file.path);
   const at = rest.findIndex((f) => f.mtimeMs <= file.mtimeMs);
   rest.splice(at < 0 ? rest.length : at, 0, file);
-  return rest.slice(0, MAX_FILES);
+  return rest;
+}
+
+/** {@link placeByTime}, capped at MAX_FILES. */
+function upsert(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
+  return placeByTime(files, file).slice(0, MAX_FILES);
 }
 
 export const useActivityStore = create<ActivityState>()(
@@ -248,7 +260,7 @@ export const useActivityStore = create<ActivityState>()(
               dropped ||= kept.length < listed.length;
               listed = kept;
             } else {
-              listed = [toFileInfo(ev), ...listed.filter((f) => f.path !== ev.path)];
+              listed = placeByTime(listed, toFileInfo(ev));
             }
           }
           heard = null;

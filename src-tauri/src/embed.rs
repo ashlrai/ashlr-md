@@ -211,14 +211,16 @@ fn mtime_ms(path: &std::path::Path) -> u64 {
 }
 
 /// The indexed `paths` whose file is gone: deleted, or renamed or moved away.
-/// Only "not found" counts, so a file the app cannot stat for another reason
-/// (a permission error) keeps its entries.
+/// Only "not found" counts, or "not a directory" (a folder above it replaced
+/// by a file), so a file the app cannot stat for another reason (a permission
+/// error) keeps its entries.
 fn missing_files<'a>(paths: impl IntoIterator<Item = &'a String>) -> HashSet<String> {
+    use std::io::ErrorKind::{NotADirectory, NotFound};
     paths
         .into_iter()
-        .filter(
-            |p| matches!(std::fs::metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
-        )
+        .filter(|p| {
+            matches!(std::fs::metadata(p), Err(e) if matches!(e.kind(), NotFound | NotADirectory))
+        })
         .cloned()
         .collect()
 }
@@ -761,6 +763,25 @@ mod tests {
         assert!(idx.chunks.iter().all(|c| c.path == kept));
         assert_eq!(idx.chunks.len(), 1);
         assert_eq!(idx.file_mtimes.keys().collect::<Vec<_>>(), vec![&kept]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder replaced by a file: its notes' paths now fail with "not a
+    /// directory", not "not found", and they are gone all the same.
+    #[cfg(unix)]
+    #[test]
+    fn notes_under_a_folder_replaced_by_a_file_are_missing() {
+        let dir =
+            std::env::temp_dir().join(format!("mdopener-embed-notdir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("folder"), "now a file").unwrap();
+        let under = dir
+            .join("folder")
+            .join("note.md")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(missing_files([&under]), HashSet::from([under.clone()]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

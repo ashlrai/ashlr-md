@@ -179,7 +179,8 @@ impl EventRouter {
             if should_skip_path(path) {
                 continue;
             }
-            if !is_markdown(path) {
+            // A folder named like a note (`notes.md`) is still a folder.
+            if !is_markdown(path) || path.is_dir() {
                 // A folder deleted, or renamed or moved away, sends no event
                 // for the notes inside it on every platform: its own removal
                 // is sent (after the same settle check), and the listing
@@ -818,6 +819,21 @@ mod tests {
                 ("modified".to_string(), "new.md".to_string()),
                 ("created".to_string(), "made.md".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn a_folder_named_like_a_note_sends_its_notes() {
+        use notify::event::{CreateKind, EventKind};
+        let dir = TempDir::new("mdnamed");
+        let folder = dir.0.join("notes.md");
+        std::fs::create_dir(&folder).unwrap();
+        write_md(&folder, "inside.md", 1_000);
+        let (router, seen) = recording_router();
+        router.handle(&notify::Event::new(EventKind::Create(CreateKind::Folder)).add_path(folder));
+        assert_eq!(
+            kinds(&seen),
+            vec![("created".to_string(), "inside.md".to_string())]
         );
     }
 

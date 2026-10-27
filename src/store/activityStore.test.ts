@@ -240,6 +240,28 @@ describe("activityStore", () => {
     ]);
   });
 
+  it("an older note heard during a listing keeps its place by time", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "modified", 1));
+    useActivityStore.getState().applyEvent(makeEvent("mid.md", "modified", 15));
+    resolveScan([makeFile("new.md", 30), makeFile("low.md", 10)]);
+    await pending;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "new.md",
+      "mid.md",
+      "low.md",
+      "old.md",
+    ]);
+  });
+
   it("a removal heard during a listing cut short lists the folder again", async () => {
     let resolveScan: (f: MdFileInfo[]) => void = () => {};
     listMock.mockImplementationOnce(
@@ -390,6 +412,26 @@ describe("activityStore", () => {
       useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
       await vi.advanceTimersByTimeAsync(2500);
       expect(embedIndex).toHaveBeenCalledWith(["/watch/gone.md"], false);
+    });
+
+    it("keeps a batch that met a busy index and sends it again", async () => {
+      autoEmbedIndex = true;
+      vi.mocked(embedIndex).mockResolvedValueOnce({
+        indexed: 0,
+        skipped: 0,
+        removed: 0,
+        total: 0,
+        busy: true,
+      });
+      useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(embedIndex).mock.calls[1]).toEqual([["/watch/gone.md"], false]);
+      // Not busy: nothing more is sent.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(embedIndex).toHaveBeenCalledTimes(2);
     });
 
     it("drops a queued batch if the setting is turned off before it fires", async () => {
