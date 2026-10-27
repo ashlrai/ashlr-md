@@ -219,6 +219,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
+  nothing focusable, so with focus on the close button the arrow and Page
+  keys could not scroll it to the shortcuts below the fold. The list is now
+  a named region with a Tab stop of its own.
 - **Export no longer closes a dialog you just opened again.** After a
   successful export the dialog closes itself after a short pause; closing it
   first and opening Export again within that pause (or while a slow export
