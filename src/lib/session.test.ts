@@ -202,6 +202,24 @@ describe("openAtLaunch", () => {
     expect(s.path).toBe("/v/a.md");
   });
 
+  it("runs afterRestore between the saved tabs and the launch files", async () => {
+    disk({ "/v/a.md": "A", "/v/c.md": "C" });
+    useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");
+    const order: string[] = [];
+    await openAtLaunch(
+      ["/v/c.md"],
+      async (paths) => {
+        order.push(`open ${paths.join(",")}`);
+        await openAll(paths);
+      },
+      async () => {
+        order.push(`after restore: ${useDocumentStore.getState().path}`);
+      },
+    );
+    expect(order).toEqual(["after restore: /v/a.md", "open /v/c.md"]);
+    expect(useDocumentStore.getState().path).toBe("/v/c.md");
+  });
+
   it("restores the session as before when the app is opened without a file", async () => {
     disk({ "/v/a.md": "A", "/v/b.md": "B" });
     useSessionStore.getState().save(

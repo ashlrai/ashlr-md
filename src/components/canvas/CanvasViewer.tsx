@@ -376,7 +376,12 @@ function CanvasFileNodeView({
     (async () => {
       const path = await resolveWikilink(node.file);
       if (!path) {
-        if (!cancelled) setResolved(null);
+        // No title action for a file that no longer resolves: the path
+        // resolved for the node's previous file is not this one.
+        if (!cancelled) {
+          setAbsPath(null);
+          setResolved(null);
+        }
         return;
       }
       if (!cancelled) setAbsPath(path);

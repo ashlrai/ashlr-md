@@ -162,13 +162,18 @@ export async function restoreSession(): Promise<SessionRestore> {
  * files it was opened with: a double-click, `mdopen`, a link) through
  * `openFiles`, the last of them active. A launch with a file used to skip
  * the restore, and the session saved from then on (the open tabs) replaced
- * the saved tabs with that file alone.
+ * the saved tabs with that file alone. `afterRestore` runs between the two
+ * (the app puts back unsaved text there), so a restored tab cannot be edited
+ * while a slow launch file opens and then have its edits replaced, and a
+ * launch file stays the active tab.
  */
 export async function openAtLaunch(
   pending: string[],
   openFiles: (paths: string[]) => Promise<void>,
+  afterRestore: () => Promise<void> = async () => {},
 ): Promise<SessionRestore> {
   const restored = await restoreSession();
+  await afterRestore();
   if (pending.length > 0) await openFiles(pending);
   return restored;
 }

@@ -15,6 +15,7 @@ import {
 } from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
+  type RestoreResult,
   restoreBuffers,
   restoreMessage,
   startKeepingBuffers,
@@ -42,7 +43,7 @@ const MD_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
 // The launch open runs once per app start. React.StrictMode runs the effect
 // below twice in development; a second restore finishing after the first run
 // opened the launch file would make the saved active tab active again.
-let launchOpen: Promise<SessionRestore> | undefined;
+let launchOpen: Promise<{ restored: SessionRestore; kept: RestoreResult }> | undefined;
 
 export default function App() {
   const openPath = useDocumentStore((s) => s.openPath);
@@ -78,18 +79,26 @@ export default function App() {
         const pending = await invoke<string[]>("take_pending_files").catch(
           () => [] as string[],
         );
-        return openAtLaunch(pending, (paths) => openOpenedFiles(paths, openPath));
+        // Put back the unsaved text a crash or forced quit left before the
+        // launch files open (see lib/unsavedBuffers.ts), then keep it from
+        // here on.
+        let kept: RestoreResult = { restored: [], recovered: [] };
+        const restored = await openAtLaunch(
+          pending,
+          (paths) => openOpenedFiles(paths, openPath),
+          async () => {
+            kept = await restoreBuffers(openPath);
+          },
+        );
+        return { restored, kept };
       })();
-      const restored = await launchOpen;
+      const { restored, kept } = await launchOpen;
       if (gone) return;
       const said = sessionRestoreMessage(restored);
       if (said) {
         if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
         else toast.info(said);
       }
-      // Put back the unsaved text a crash or forced quit left, then keep
-      // it from here on (see lib/unsavedBuffers.ts).
-      const kept = await restoreBuffers(openPath);
       const keptNote = restoreMessage(kept);
       if (keptNote) toast[keptNote.kind](keptNote.text);
       if (!gone) keeping = startKeepingBuffers();
