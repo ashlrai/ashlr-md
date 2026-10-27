@@ -239,6 +239,8 @@ same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch
 agent's output folder and open new `.md` files the moment they appear. Full guide
 + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
 
+MCP discovery metadata and offline validation: [docs/mcp-registry.md](./docs/mcp-registry.md).
+
 ## Download & install
 
 Downloads are on the [GitHub Releases page](https://github.com/ashlrai/ashlr-md/releases).
