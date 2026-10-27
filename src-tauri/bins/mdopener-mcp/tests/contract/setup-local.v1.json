@@ -1,0 +1,68 @@
+{
+  "config": {
+    "offline": false,
+    "probe": null,
+    "provider": null,
+    "status": "absent"
+  },
+  "config_snippet": {
+    "localInference": {
+      "offline": true,
+      "provider": "ollama"
+    }
+  },
+  "downloads": false,
+  "kind": "ashlr.setup-local",
+  "next": [
+    {
+      "command": "ollama pull qwen3.8:27b",
+      "text": "Pull the model yourself (a download of several GB; setup never starts it). Skip this if `ollama list` already shows qwen3.8:27b:"
+    },
+    {
+      "command": "\"localInference\": { \"provider\": \"ollama\", \"offline\": true }",
+      "text": "Add to ~/.ashlr/config.json (setup writes nothing):"
+    },
+    {
+      "command": "mdopener-mcp doctor",
+      "text": "Check it (expect `doctor: offline [ok] verified`):"
+    }
+  ],
+  "recommended": {
+    "model": "qwen3.8:27b",
+    "notes": [],
+    "provider": "ollama",
+    "pullCommand": "ollama pull qwen3.8:27b",
+    "reachable": true
+  },
+  "schema_version": 1,
+  "servers": [
+    {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "probe": {
+        "httpStatus": 200,
+        "loopback": true,
+        "modelCount": 4,
+        "provider": "ollama",
+        "reachable": true,
+        "reason": null,
+        "status": "reachable"
+      },
+      "provider": "ollama"
+    },
+    {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "probe": {
+        "httpStatus": null,
+        "loopback": true,
+        "modelCount": 0,
+        "provider": "omlx",
+        "reachable": false,
+        "reason": "connect-failed",
+        "status": "unreachable"
+      },
+      "provider": "omlx"
+    }
+  ],
+  "tool": "ashlr-md",
+  "writes": false
+}
