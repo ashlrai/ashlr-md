@@ -72,6 +72,17 @@
   white-space: nowrap;
 }
 
+/* The folder shown beside a file name another tab shares. */
+.tab-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
 .tab-dirty {
   width: 6px;
   height: 6px;

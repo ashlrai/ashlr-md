@@ -219,6 +219,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Tabs with the same file name can be told apart.** Two `README.md` tabs
+  from different folders looked identical. A tab whose file name another tab
+  shares now shows the fewest parent folders that tell it apart (also read
+  out by screen readers); other tabs are unchanged.
 - **The Activity list marks the open note under any spelling.** Its entry
   was marked only when the document's path matched the listed path exactly,
   so a note opened through a link to the watched folder (or in other case
