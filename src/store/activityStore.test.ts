@@ -158,6 +158,32 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().truncated).toBe(true);
   });
 
+  it("a removed event drops the file and its badge, without a toast or re-index", () => {
+    autoEmbedIndex = true;
+    vi.mocked(embedIndex).mockClear();
+    try {
+      const a = makeFile("a.md", 1000);
+      const b = makeFile("b.md", 2000);
+      useActivityStore.setState({ files: [b, a], unseen: ["/watch/a.md"] });
+      useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+      const s = useActivityStore.getState();
+      expect(s.files.map((f) => f.name)).toEqual(["b.md"]);
+      expect(s.unseen).toEqual([]);
+      vi.advanceTimersByTime(5000);
+      expect(toastInfoMock).not.toHaveBeenCalled();
+      expect(embedIndex).not.toHaveBeenCalled();
+    } finally {
+      autoEmbedIndex = false;
+    }
+  });
+
+  it("a rename inside the folder replaces the old entry with the new one", () => {
+    useActivityStore.setState({ files: [makeFile("old.md", 1000)] });
+    useActivityStore.getState().applyEvent(makeEvent("new.md", "modified", 2000));
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["new.md"]);
+  });
+
   // ── Unseen badge ────────────────────────────────────────────────────────
 
   it("applyEvent adds path to unseen when the drawer is closed", () => {

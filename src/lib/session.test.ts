@@ -16,6 +16,7 @@ import { useSessionStore } from "../store/sessionStore";
 import {
   capRestoredTabs,
   MAX_RESTORED_TABS,
+  openAtLaunch,
   restoreSession,
   sessionRestoreMessage,
 } from "./session";
@@ -153,6 +154,85 @@ describe("restoreSession", () => {
     useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");
     expect(await restoreSession()).toEqual({ opened: 0, gone: [], capped: 0 });
     expect(useSessionStore.getState().savedTabs).toHaveLength(1);
+  });
+});
+
+describe("openAtLaunch", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    useDocumentStore.setState({ tabs: [], activeId: null, path: null, error: null });
+    useSessionStore.getState().clear();
+  });
+
+  const openAll = async (paths: string[]) => {
+    for (const p of paths) await useDocumentStore.getState().openPath(p);
+  };
+
+  it("reopens the saved tabs when the app is opened with a file, which stays active", async () => {
+    // A launch with a file skipped the restore, and the first save then
+    // replaced the saved tabs with that file alone.
+    disk({ "/v/a.md": "A", "/v/b.md": "B", "/v/c.md": "C" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "edit" },
+      ],
+      "/v/a.md",
+    );
+    const r = await openAtLaunch(["/v/c.md"], openAll);
+    expect(r.opened).toBe(2);
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md", "/v/c.md"]);
+    expect(s.path).toBe("/v/c.md");
+    expect(s.tabs[1].viewMode).toBe("edit");
+  });
+
+  it("does not open a launch file twice when it was in the session", async () => {
+    disk({ "/v/a.md": "A", "/v/b.md": "B" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/b.md",
+    );
+    await openAtLaunch(["/v/a.md"], openAll);
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md"]);
+    expect(s.path).toBe("/v/a.md");
+  });
+
+  it("runs afterRestore between the saved tabs and the launch files", async () => {
+    disk({ "/v/a.md": "A", "/v/c.md": "C" });
+    useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");
+    const order: string[] = [];
+    await openAtLaunch(
+      ["/v/c.md"],
+      async (paths) => {
+        order.push(`open ${paths.join(",")}`);
+        await openAll(paths);
+      },
+      async () => {
+        order.push(`after restore: ${useDocumentStore.getState().path}`);
+      },
+    );
+    expect(order).toEqual(["after restore: /v/a.md", "open /v/c.md"]);
+    expect(useDocumentStore.getState().path).toBe("/v/c.md");
+  });
+
+  it("restores the session as before when the app is opened without a file", async () => {
+    disk({ "/v/a.md": "A", "/v/b.md": "B" });
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/a.md",
+    );
+    const openFiles = vi.fn(openAll);
+    await openAtLaunch([], openFiles);
+    expect(openFiles).not.toHaveBeenCalled();
+    expect(useDocumentStore.getState().path).toBe("/v/a.md");
   });
 });
 

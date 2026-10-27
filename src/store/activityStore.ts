@@ -125,11 +125,14 @@ interface ActivityState {
   setWatchedDir: (dir: string | null) => void;
   /** Load the file listing for the current watched folder. */
   loadFiles: () => Promise<void>;
-  /** Apply a live event: upsert to top, mark unseen when the drawer is closed. */
+  /**
+   * Apply a live event: upsert to top, mark unseen when the drawer is closed;
+   * a `"removed"` event drops the file instead.
+   */
   applyEvent: (ev: ActivityEvent) => void;
   /**
-   * Drop `path` from the list: a file found gone when opened (the watcher
-   * reports no deletions, so it stayed listed).
+   * Drop `path` from the list: a file the watcher saw go, or one found gone
+   * when opened (a removal the watcher missed).
    */
   removeFile: (path: string) => void;
   /** Clear the unseen badge (drawer viewed). */
@@ -221,6 +224,11 @@ export const useActivityStore = create<ActivityState>()(
       },
 
       applyEvent: (ev) => {
+        // Deleted, or renamed or moved away: the file leaves the list.
+        if (ev.kind === "removed") {
+          get().removeFile(ev.path);
+          return;
+        }
         // When the drawer is open the user is actively watching, so nothing is
         // "unseen". Otherwise track the path so the toggle can show a count.
         const drawerOpen = useUiStore.getState().activityOpen;

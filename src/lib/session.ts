@@ -4,6 +4,7 @@
  * Reopens the saved tabs (at most {@link MAX_RESTORED_TABS}; files that no
  * longer exist on disk are skipped and named), restores each tab's view
  * mode, and re-activates the last-active document. Recents keep their order.
+ * A file the app is launched with opens after them ({@link openAtLaunch}).
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -154,4 +155,25 @@ export async function restoreSession(): Promise<SessionRestore> {
     useDocumentStore.setState({ error: null });
   }
   return { opened, gone, capped: present.length - toOpen.length };
+}
+
+/**
+ * Open what the app launches with: the saved session, then `pending` (the
+ * files it was opened with: a double-click, `mdopen`, a link) through
+ * `openFiles`, the last of them active. A launch with a file used to skip
+ * the restore, and the session saved from then on (the open tabs) replaced
+ * the saved tabs with that file alone. `afterRestore` runs between the two
+ * (the app puts back unsaved text there), so a restored tab cannot be edited
+ * while a slow launch file opens and then have its edits replaced, and a
+ * launch file stays the active tab.
+ */
+export async function openAtLaunch(
+  pending: string[],
+  openFiles: (paths: string[]) => Promise<void>,
+  afterRestore: () => Promise<void> = async () => {},
+): Promise<SessionRestore> {
+  const restored = await restoreSession();
+  await afterRestore();
+  if (pending.length > 0) await openFiles(pending);
+  return restored;
 }

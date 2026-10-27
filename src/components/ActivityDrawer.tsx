@@ -183,8 +183,8 @@ export function ActivityDrawer() {
 
   const handleOpen = useCallback(
     (file: MdFileInfo) => {
-      // A file deleted or moved since it was listed (the watcher reports no
-      // deletions) is said in a toast and leaves the list; the open document
+      // A file deleted or moved since it was listed (a removal the watcher
+      // missed) is said in a toast and leaves the list; the open document
       // stays in view. Its error used to replace the document, and the entry
       // stayed.
       void openPath(file.path, { keepViewOnError: true }).then((error) => {
