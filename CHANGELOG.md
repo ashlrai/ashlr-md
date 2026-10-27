@@ -219,6 +219,8 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The command palette highlight goes back to the first row when the recent
+  files change while it is open.** It stayed on the old index, on another row.
 - **A folder moved into the watched folder lists its notes in Activity at
   once.** They used to appear only after the next full scan.
 - **The open note's Activity entry is marked when the watched folder is a

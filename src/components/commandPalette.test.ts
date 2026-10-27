@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { useRecentStore } from "../store/recentStore";
 import { useUiStore } from "../store/uiStore";
 import { CommandPalette } from "./CommandPalette";
 
@@ -67,6 +68,35 @@ describe("command palette focus", () => {
     const list = host.querySelector('[role="listbox"]');
     expect(input?.getAttribute("aria-controls")).toBe(list?.id);
     expect(list?.getAttribute("aria-label")).toBe("Commands");
+  });
+
+  it("moves the highlight back to the first row when the recents change", () => {
+    useRecentStore.setState({
+      recents: [
+        { path: "/a.md", fileName: "a.md", openedAt: 2 },
+        { path: "/b.md", fileName: "b.md", openedAt: 1 },
+      ],
+    });
+    act(() => root.render(createElement(CommandPalette)));
+    act(() => useUiStore.setState({ commandPaletteOpen: true }));
+    const input = host.querySelector<HTMLInputElement>(".cmdk-input");
+    const down = () =>
+      input?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    act(() => {
+      down();
+      down();
+    });
+    expect(input?.getAttribute("aria-activedescendant")).toBe("cmdk-row-2");
+    act(() => useRecentStore.setState({ recents: [] }));
+    expect(input?.getAttribute("aria-activedescendant")).toBe("cmdk-row-0");
+    expect(host.querySelector(".cmdk-row.is-active")?.id).toBe("cmdk-row-0");
+    useRecentStore.setState({ recents: [] });
   });
 
   it("puts each group's options in a role=group labelled by its header", () => {
