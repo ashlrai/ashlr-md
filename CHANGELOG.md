@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The Activity list marks the open note under any spelling.** Its entry
+  was marked only when the document's path matched the listed path exactly,
+  so a note opened through a link to the watched folder (or in other case
+  where case is ignored) had no marked entry, and opening the drawer focused
+  the newest entry instead of it. Entries are now matched by file identity.
 - **The last-active document is active again after a restore, under any
   spelling.** The saved active path was matched to a tab by its exact path,
   so one that opened as another spelling of a file already open (other case
