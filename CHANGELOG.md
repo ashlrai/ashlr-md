@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Export no longer closes a dialog you just opened again.** After a
+  successful export the dialog closes itself after a short pause; closing it
+  first and opening Export again within that pause (or while a slow export
+  was still finishing) shut the new dialog on its own. The pause now belongs
+  to the dialog that started it.
 - **A folder deleted or moved inside the watched folder takes its notes off
   the Activity list.** The watcher sent removals only for Markdown paths, and
   a folder's removal reports the folder alone, so the notes in it stayed
