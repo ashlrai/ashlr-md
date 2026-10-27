@@ -8,7 +8,11 @@ import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { openAtLaunch, sessionRestoreMessage } from "./lib/session";
+import {
+  openAtLaunch,
+  type SessionRestore,
+  sessionRestoreMessage,
+} from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
   restoreBuffers,
@@ -34,6 +38,11 @@ import "./styles/command-palette.css";
 import "./styles/diff.css";
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
+
+// The launch open runs once per app start. React.StrictMode runs the effect
+// below twice in development; a second restore finishing after the first run
+// opened the launch file would make the saved active tab active again.
+let launchOpen: Promise<SessionRestore> | undefined;
 
 export default function App() {
   const openPath = useDocumentStore((s) => s.openPath);
@@ -63,14 +72,16 @@ export default function App() {
     let keeping: { stop: () => void } | undefined;
     let gone = false;
     (async () => {
-      const pending = await invoke<string[]>("take_pending_files").catch(
-        () => [] as string[],
-      );
       // The saved tabs, then every queued file (openPath dedupes); the last
       // stays active.
-      const restored = await openAtLaunch(pending, (paths) =>
-        openOpenedFiles(paths, openPath),
-      );
+      launchOpen ??= (async () => {
+        const pending = await invoke<string[]>("take_pending_files").catch(
+          () => [] as string[],
+        );
+        return openAtLaunch(pending, (paths) => openOpenedFiles(paths, openPath));
+      })();
+      const restored = await launchOpen;
+      if (gone) return;
       const said = sessionRestoreMessage(restored);
       if (said) {
         if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });

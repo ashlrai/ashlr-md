@@ -148,9 +148,9 @@ type EmitFn = std::sync::Arc<dyn Fn(ActivityFilePayload) + Send + Sync>;
 /// or moved elsewhere stayed in the Activity list and in the wikilink cache.
 struct EventRouter {
     debounce: std::sync::Arc<Mutex<HashMap<String, Instant>>>,
-    /// Paths seen removed, sent once [`EventRouter::settle`] has passed and
-    /// they are still gone. Non-empty means a flush is scheduled.
-    removals: Mutex<Vec<PathBuf>>,
+    /// Paths seen removed, each with the time it is checked again: sent then
+    /// if it is still gone. Non-empty means a flush thread is running.
+    removals: Mutex<Vec<(PathBuf, Instant)>>,
     emit: EmitFn,
     settle: Duration,
 }
@@ -215,24 +215,42 @@ impl EventRouter {
     }
 
     fn gone(self: &std::sync::Arc<Self>, path: &Path) {
+        let due = Instant::now() + self.settle;
         let mut pending = self.removals.lock().unwrap();
         let schedule = pending.is_empty();
-        if !pending.iter().any(|p| p == path) {
-            pending.push(path.to_path_buf());
+        // Each path gets its own full settle period, counted from its latest
+        // removal, however late it is queued behind another.
+        match pending.iter_mut().find(|(p, _)| p == path) {
+            Some(entry) => entry.1 = due,
+            None => pending.push((path.to_path_buf(), due)),
         }
         drop(pending);
         if schedule {
             let router = self.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(router.settle);
-                router.flush_removals();
+                while let Some(wait) = router.flush_removals() {
+                    std::thread::sleep(wait);
+                }
             });
         }
     }
 
-    fn flush_removals(&self) {
-        let paths = std::mem::take(&mut *self.removals.lock().unwrap());
-        for path in paths {
+    /// Sends the removals whose settle period has passed. Returns how long to
+    /// wait for the next one, or `None` once the queue is empty; that is seen
+    /// under the same lock [`EventRouter::gone`] checks before it starts a
+    /// flush thread, so a later removal always gets one.
+    fn flush_removals(&self) -> Option<Duration> {
+        let now = Instant::now();
+        let (paths, wait) = {
+            let mut pending = self.removals.lock().unwrap();
+            let (due, waiting): (Vec<_>, Vec<_>) =
+                pending.drain(..).partition(|(_, at)| *at <= now);
+            *pending = waiting;
+            let wait = pending.iter().map(|(_, at)| *at - now).min();
+            (due, wait)
+        };
+        for (path, _) in paths {
             if path.exists() {
                 continue;
             }
@@ -241,6 +259,7 @@ impl EventRouter {
             self.debounce.lock().unwrap().remove(&path_str);
             (self.emit)(payload_for(&path, path_str, "removed", 0, 0));
         }
+        wait
     }
 }
 
@@ -569,12 +588,21 @@ mod tests {
         std::sync::Arc<EventRouter>,
         std::sync::Arc<std::sync::Mutex<Vec<ActivityFilePayload>>>,
     ) {
+        router_settling_after(Duration::from_millis(30))
+    }
+
+    fn router_settling_after(
+        settle: Duration,
+    ) -> (
+        std::sync::Arc<EventRouter>,
+        std::sync::Arc<std::sync::Mutex<Vec<ActivityFilePayload>>>,
+    ) {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = seen.clone();
         let router = std::sync::Arc::new(EventRouter::new(
             Default::default(),
             std::sync::Arc::new(move |p| sink.lock().unwrap().push(p)),
-            Duration::from_millis(30),
+            settle,
         ));
         (router, seen)
     }
@@ -652,6 +680,32 @@ mod tests {
         std::fs::write(&note, "# x\n").unwrap();
         std::thread::sleep(Duration::from_millis(120));
         assert!(kinds(&seen).is_empty(), "{:?}", kinds(&seen));
+    }
+
+    #[test]
+    fn a_removal_queued_behind_another_gets_its_own_settle_period() {
+        use notify::event::{EventKind, RemoveKind};
+        let dir = TempDir::new("late");
+        let first = dir.0.join("first.md");
+        let late = dir.0.join("late.md");
+        let (router, seen) = router_settling_after(Duration::from_millis(300));
+        let remove = |p: &Path| {
+            router.handle(
+                &notify::Event::new(EventKind::Remove(RemoveKind::File)).add_path(p.to_path_buf()),
+            )
+        };
+        remove(&first);
+        std::thread::sleep(Duration::from_millis(200));
+        // Removed late in the first one's window, then written again after
+        // that window closed but well inside its own.
+        remove(&late);
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::write(&late, "# x\n").unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(
+            kinds(&seen),
+            vec![("removed".to_string(), "first.md".to_string())]
+        );
     }
 
     #[test]

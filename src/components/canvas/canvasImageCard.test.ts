@@ -15,12 +15,12 @@ const CANVAS = JSON.stringify({
 });
 
 const invoke = vi.hoisted(() => vi.fn());
-const revealItemInDir = vi.hoisted(() => vi.fn());
+const REVEAL = "plugin:opener|reveal_item_in_dir";
+let revealError: string | null = null;
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
-vi.mock("@tauri-apps/plugin-opener", () => ({ revealItemInDir }));
 
 import { useDocumentStore } from "../../store/documentStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -34,10 +34,14 @@ describe("a canvas image card's title", () => {
   let root: Root;
 
   beforeEach(async () => {
-    revealItemInDir.mockReset().mockResolvedValue(undefined);
+    revealError = null;
     invoke
       .mockReset()
       .mockImplementation(async (cmd: string, args?: { path?: string }) => {
+        if (cmd === REVEAL) {
+          if (revealError !== null) throw revealError;
+          return undefined;
+        }
         if (cmd === "resolve_wikilink") return "/v/pic.png";
         if (cmd === "read_image_data_url") return "data:image/png;base64,AAAA";
         if (cmd === "read_markdown_file") {
@@ -83,7 +87,9 @@ describe("a canvas image card's title", () => {
     const button = await titleButton();
     expect(button.title).toBe("Show pic.png in its folder");
     await act(async () => button.click());
-    await vi.waitFor(() => expect(revealItemInDir).toHaveBeenCalledWith("/v/pic.png"));
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(REVEAL, { paths: ["/v/pic.png"] }),
+    );
     expect(invoke).not.toHaveBeenCalledWith("read_markdown_file", {
       path: "/v/pic.png",
     });
@@ -94,7 +100,7 @@ describe("a canvas image card's title", () => {
   });
 
   it("says why in a toast when the folder cannot be shown", async () => {
-    revealItemInDir.mockRejectedValue("No such file or directory (os error 2)");
+    revealError = "No such file or directory (os error 2)";
     const button = await titleButton();
     await act(async () => button.click());
     await vi.waitFor(() => expect(useToastStore.getState().toasts.length).toBe(1));

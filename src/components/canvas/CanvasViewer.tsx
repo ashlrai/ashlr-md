@@ -13,7 +13,6 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CanvasBounds,
@@ -422,9 +421,15 @@ function CanvasFileNodeView({
             // text failed with a toast): its title shows it in its folder.
             onClick={() => {
               if (isImage) {
-                revealItemInDir(absPath).catch((e: unknown) => {
-                  toast.error(`Could not show ${fileName} in its folder: ${String(e)}`);
-                });
+                // The opener plugin's own command (allowed by opener:default);
+                // its JS wrapper is only this call, so it is not a dependency.
+                invoke("plugin:opener|reveal_item_in_dir", { paths: [absPath] }).catch(
+                  (e: unknown) => {
+                    toast.error(
+                      `Could not show ${fileName} in its folder: ${String(e)}`,
+                    );
+                  },
+                );
                 return;
               }
               void useDocumentStore
