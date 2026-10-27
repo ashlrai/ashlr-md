@@ -87,7 +87,7 @@ function scheduleEmbedIndex(path: string) {
     // Turned off while the debounce was pending: drop the batch.
     if (!useSettingsStore.getState().autoEmbedIndex) return;
     import("../lib/embedSearch").then(({ embedIndex }) => {
-      void embedIndex(paths, false); // incremental — additive, never prunes
+      void embedIndex(paths, false); // incremental: drops only files gone from disk
     });
   }, EMBED_DEBOUNCE_MS);
 }
@@ -268,6 +268,8 @@ export const useActivityStore = create<ActivityState>()(
         // Deleted, or renamed or moved away: the file leaves the list.
         if (ev.kind === "removed") {
           get().removeFile(ev.path);
+          // An incremental run drops the gone notes from the semantic index.
+          scheduleEmbedIndex(ev.path);
           return;
         }
         // When the drawer is open the user is actively watching, so nothing is

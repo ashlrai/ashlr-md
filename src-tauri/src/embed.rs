@@ -11,7 +11,7 @@
 //! search. No data ever leaves the machine unless `OLLAMA_HOST` points the
 //! app at another Ollama server.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -210,6 +210,27 @@ fn mtime_ms(path: &std::path::Path) -> u64 {
         .unwrap_or(0)
 }
 
+/// The indexed `paths` whose file is gone: deleted, or renamed or moved away.
+/// Only "not found" counts, so a file the app cannot stat for another reason
+/// (a permission error) keeps its entries.
+fn missing_files<'a>(paths: impl IntoIterator<Item = &'a String>) -> HashSet<String> {
+    paths
+        .into_iter()
+        .filter(|p| {
+            matches!(std::fs::metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Drop every chunk and mtime of the `gone` paths; returns how many files.
+fn forget_files(idx: &mut EmbedIndex, gone: &HashSet<String>) -> usize {
+    let before = idx.file_mtimes.len();
+    idx.chunks.retain(|c| !gone.contains(&c.path));
+    idx.file_mtimes.retain(|p, _| !gone.contains(p));
+    before - idx.file_mtimes.len()
+}
+
 // ---------------------------------------------------------------------------
 // Cosine similarity
 // ---------------------------------------------------------------------------
@@ -386,7 +407,8 @@ pub async fn embed_index(
 
 /// `prune` = true on a FULL-library reindex (drop chunks for files no longer in
 /// `paths`). `prune` = false for an INCREMENTAL call (a single/batched file
-/// event) — purely additive so it never touches the rest of the index.
+/// event): it re-embeds only `paths`, and drops only files gone from disk, so a
+/// deleted or moved-away note leaves search before the next full reindex.
 async fn embed_index_inner(
     paths: Vec<String>,
     prune: bool,
@@ -412,6 +434,14 @@ async fn embed_index_inner(
             idx.model.as_deref() != Some(model.as_str()),
             idx.file_mtimes.clone(),
         )
+    };
+
+    // An incremental run never hears of a note deleted or moved away (a folder
+    // moved away is one event), so it stats the indexed files for the gone ones.
+    let gone = if prune {
+        HashSet::new()
+    } else {
+        missing_files(prior_mtimes.keys())
     };
 
     let md_paths: Vec<String> = paths
@@ -485,8 +515,8 @@ async fn embed_index_inner(
     }
 
     // Merge under the lock; serialize while held, write to disk after releasing.
-    let keep: std::collections::HashSet<String> = md_paths.iter().cloned().collect();
-    let reembedded: std::collections::HashSet<String> = new_mtimes.keys().cloned().collect();
+    let keep: HashSet<String> = md_paths.iter().cloned().collect();
+    let reembedded: HashSet<String> = new_mtimes.keys().cloned().collect();
 
     let json = {
         let mut idx = state.index.lock().unwrap();
@@ -496,19 +526,20 @@ async fn embed_index_inner(
         }
         // Replace chunks for the files we just re-embedded.
         idx.chunks.retain(|c| !reembedded.contains(&c.path));
-        let mut removed = 0usize;
-        if prune {
+        let removed = if prune {
             // Full reindex: also drop files no longer present in the library.
-            let gone: Vec<String> = idx
+            let dropped: Vec<String> = idx
                 .file_mtimes
                 .keys()
                 .filter(|p| !keep.contains(*p) && !reembedded.contains(*p))
                 .cloned()
                 .collect();
-            removed = gone.len();
             idx.chunks.retain(|c| keep.contains(&c.path));
             idx.file_mtimes.retain(|p, _| keep.contains(p));
-        }
+            dropped.len()
+        } else {
+            forget_files(&mut idx, &gone)
+        };
         idx.chunks.extend(fresh_chunks);
         for (p, mt) in new_mtimes {
             idx.file_mtimes.insert(p, mt);
@@ -670,6 +701,36 @@ mod tests {
             ]
         );
         assert_eq!(got[3].as_deref(), Ok("# ok"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An incremental run left a deleted or moved-away note in the index (and
+    /// in semantic search) until a full reindex.
+    #[test]
+    fn incremental_run_forgets_files_gone_from_disk() {
+        let dir = std::env::temp_dir().join(format!("mdopener-embed-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = dir.join("kept.md").to_string_lossy().into_owned();
+        let gone = dir.join("gone.md").to_string_lossy().into_owned();
+        std::fs::write(&kept, "# kept").unwrap();
+        let entry = |path: &str| ChunkEntry {
+            path: path.to_string(),
+            file_name: "x.md".to_string(),
+            text: "text".to_string(),
+            embedding: vec![1.0],
+        };
+        let mut idx = EmbedIndex {
+            chunks: vec![entry(&kept), entry(&gone), entry(&gone)],
+            file_mtimes: HashMap::from([(kept.clone(), 1), (gone.clone(), 1)]),
+            ..EmbedIndex::default()
+        };
+        let missing = missing_files(idx.file_mtimes.keys());
+        assert_eq!(missing, HashSet::from([gone.clone()]));
+        assert_eq!(forget_files(&mut idx, &missing), 1);
+        assert!(idx.chunks.iter().all(|c| c.path == kept));
+        assert_eq!(idx.chunks.len(), 1);
+        assert_eq!(idx.file_mtimes.keys().collect::<Vec<_>>(), vec![&kept]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

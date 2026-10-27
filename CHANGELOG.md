@@ -219,6 +219,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A deleted or moved-away note leaves semantic search without a full
+  reindex.** The per-file re-index now drops indexed notes no longer on disk,
+  and a removal in the watched folder starts one.
 - **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
   nothing focusable, so with focus on the close button the arrow and Page
   keys could not scroll it to the shortcuts below the fold. The list is now

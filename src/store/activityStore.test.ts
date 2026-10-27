@@ -362,6 +362,13 @@ describe("activityStore", () => {
       ]);
     });
 
+    it("runs an incremental re-index on a removal, so the gone note leaves the index", async () => {
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledWith(["/watch/gone.md"], false);
+    });
+
     it("drops a queued batch if the setting is turned off before it fires", async () => {
       autoEmbedIndex = true;
       useActivityStore.getState().applyEvent(makeEvent("a.md", "modified", 1));
