@@ -216,9 +216,9 @@ fn mtime_ms(path: &std::path::Path) -> u64 {
 fn missing_files<'a>(paths: impl IntoIterator<Item = &'a String>) -> HashSet<String> {
     paths
         .into_iter()
-        .filter(|p| {
-            matches!(std::fs::metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
-        })
+        .filter(
+            |p| matches!(std::fs::metadata(p), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
+        )
         .cloned()
         .collect()
 }
