@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
+import { useSettingsStore } from "../../../store/settingsStore";
 import {
   ContentWidthStepper,
   FontSizeStepper,
@@ -49,5 +50,50 @@ describe("Appearance controls have accessible names", () => {
   ])("%o is named", (component, selector, name) => {
     act(() => root.render(createElement(component)));
     expect(host.querySelector(selector)?.getAttribute("aria-label")).toBe(name);
+  });
+});
+
+describe("the theme radio group", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    useSettingsStore.setState({ theme: "paper" });
+    act(() => root.render(createElement(ThemePicker)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  const radios = () => Array.from(host.querySelectorAll<HTMLElement>('[role="radio"]'));
+  const press = (el: HTMLElement, key: string) =>
+    act(() => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+
+  it("is one Tab stop, the chosen theme", () => {
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it("moves to and chooses a theme with the arrow keys, wrapping", () => {
+    radios()[0].focus();
+    press(radios()[0], "ArrowRight");
+    expect(useSettingsStore.getState().theme).toBe("sepia");
+    expect(document.activeElement).toBe(radios()[1]);
+    expect(radios().map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    press(radios()[1], "ArrowDown");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    press(radios()[2], "ArrowRight");
+    expect(useSettingsStore.getState().theme).toBe("paper");
+    press(radios()[0], "ArrowLeft");
+    expect(useSettingsStore.getState().theme).toBe("midnight");
+    press(radios()[2], "Home");
+    expect(useSettingsStore.getState().theme).toBe("paper");
+    expect(document.activeElement).toBe(radios()[0]);
   });
 });

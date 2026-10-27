@@ -219,6 +219,10 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The theme picker in Settings answers the arrow keys.** It is announced
+  as a radio group but every swatch was its own Tab stop and the arrow keys
+  did nothing. It is now one Tab stop (the chosen theme), and the arrow keys
+  (and Home/End) move to and choose the next or previous theme.
 - **Tabs with the same file name can be told apart.** Two `README.md` tabs
   from different folders looked identical. A tab whose file name another tab
   shares now shows the fewest parent folders that tell it apart (also read
