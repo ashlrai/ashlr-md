@@ -260,6 +260,12 @@ describe("activityStore", () => {
     );
     await pending;
     await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    // The second listing's older note takes the removed one's place.
+    await vi.waitFor(() => {
+      const paths = useActivityStore.getState().files.map((f) => f.path);
+      expect(paths).toContain("/watch/older.md");
+      expect(paths).not.toContain("/watch/gone.md");
+    });
   });
 
   it("a removal from a whole list does not list the folder again", () => {
