@@ -8,7 +8,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { useDocumentStore, type ViewMode } from "../store/documentStore";
+import { tabHoldsPath, useDocumentStore, type ViewMode } from "../store/documentStore";
 import { type SavedTab, useSessionStore } from "../store/sessionStore";
 
 const VIEW_MODES: readonly ViewMode[] = ["read", "edit", "source"];
@@ -145,7 +145,11 @@ export async function restoreSession(): Promise<SessionRestore> {
 
   // Re-activate the last-active document.
   if (typeof activePath === "string" && existing.has(activePath)) {
-    const tab = useDocumentStore.getState().tabs.find((t) => t.path === activePath);
+    // By file identity: the active path may have opened as another spelling
+    // of a file already open (other case, a link), so no tab has its path.
+    const tab = useDocumentStore
+      .getState()
+      .tabs.find((t) => tabHoldsPath(t, activePath));
     if (tab) useDocumentStore.getState().switchTab(tab.id);
   }
 

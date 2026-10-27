@@ -49,6 +49,21 @@ export function fileKey(file: MarkdownFile): string {
 }
 
 /**
+ * Whether `tab` holds the file `path` names: its own path, its key (the
+ * canonical path, as a read names it) or a path that opened it as the same
+ * file ({@link fileKey}). Matching the path as given missed a file opened
+ * under another spelling: a link, other case where case is ignored.
+ */
+export function tabHoldsPath(
+  tab: Pick<Tab, "path" | "key" | "aliases">,
+  path: string,
+): boolean {
+  return (
+    tab.path === path || tab.key === path || (tab.aliases?.includes(path) ?? false)
+  );
+}
+
+/**
  * Tags in a `write_markdown_file` error (src-tauri/src/document.rs): the
  * file changed on disk since it was read, or is gone. Either way nothing
  * was written.
@@ -73,6 +88,11 @@ export interface Tab {
   id: string;
   /** Which file the tab holds, whatever path opened it ({@link fileKey}). */
   key: string;
+  /**
+   * Other paths that opened this tab's file (another case, a link, `..`),
+   * found as the same file by {@link fileKey}. See {@link tabHoldsPath}.
+   */
+  aliases?: string[];
   path: string;
   fileName: string;
   content: string;
@@ -569,7 +589,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // filesystem that ignores it): switch to its tab, as for its own path.
       const same = get().tabs.find((t) => t.key === key);
       if (same) {
-        set({ isLoading: false });
+        set((s) => ({
+          isLoading: false,
+          // Remembered, so the tab is found by this path too (tabHoldsPath).
+          tabs: tabHoldsPath(same, path)
+            ? s.tabs
+            : s.tabs.map((t) =>
+                t.id === same.id ? { ...t, aliases: [...(t.aliases ?? []), path] } : t,
+              ),
+        }));
         get().switchTab(same.id);
         return null;
       }
@@ -949,7 +977,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       set((s) => ({
         tabs: s.tabs
           .filter((t) => !stale.has(t.id) || t.id === s.activeId)
-          .map((t) => (t.id === activeId ? { ...t, key } : t)),
+          .map((t) => (t.id === activeId ? { ...t, key, aliases: undefined } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
@@ -1015,7 +1043,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       path: to,
       fileName,
       tabs: syncActiveTab(next).map((t) =>
-        t.id === s.activeId ? { ...t, key: to } : t,
+        t.id === s.activeId ? { ...t, key: to, aliases: undefined } : t,
       ),
     });
     toast.info(
@@ -1031,7 +1059,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       );
       set((now) => ({
         tabs: now.tabs.map((t) =>
-          t.id === s.activeId && t.path === to ? { ...t, key } : t,
+          t.id === s.activeId && t.path === to ? { ...t, key, aliases: undefined } : t,
         ),
       }));
     } catch {

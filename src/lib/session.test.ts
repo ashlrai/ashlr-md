@@ -149,6 +149,42 @@ describe("restoreSession", () => {
     );
   });
 
+  it("re-activates the saved active path when it opened as another spelling of an open file", async () => {
+    // A filesystem that ignores case: /v/A.md is /v/a.md, so it opens into
+    // a.md's tab, and no tab has the path /v/A.md. The last tab opened
+    // (b.md) used to stay active.
+    invokeMock.mockImplementation(
+      (cmd: string, args?: { path?: string; paths?: string[] }) => {
+        if (cmd === "filter_existing") return Promise.resolve(args?.paths ?? []);
+        if (cmd === "read_markdown_file") {
+          const p = args?.path ?? "";
+          return Promise.resolve({
+            path: p,
+            file_name: p.split("/").pop(),
+            content: p.toLowerCase(),
+            size: 1,
+            version: "v",
+            canonical_path: p.toLowerCase(),
+            case_insensitive: true,
+          });
+        }
+        return Promise.resolve();
+      },
+    );
+    useSessionStore.getState().save(
+      [
+        { path: "/v/a.md", viewMode: "read" },
+        { path: "/v/A.md", viewMode: "read" },
+        { path: "/v/b.md", viewMode: "read" },
+      ],
+      "/v/A.md",
+    );
+    await restoreSession();
+    const s = useDocumentStore.getState();
+    expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md"]);
+    expect(s.path).toBe("/v/a.md");
+  });
+
   it("keeps the session when the existence check fails", async () => {
     invokeMock.mockRejectedValue(new Error("ipc down"));
     useSessionStore.getState().save([{ path: "/v/a.md", viewMode: "read" }], "/v/a.md");

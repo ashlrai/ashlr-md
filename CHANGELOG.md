@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The last-active document is active again after a restore, under any
+  spelling.** The saved active path was matched to a tab by its exact path,
+  so one that opened as another spelling of a file already open (other case
+  where case is ignored, a link) had no tab and the last tab reopened stayed
+  active. Tabs are now found by file identity, as opening a file finds them.
 - **Opening the app with a file keeps your last session.** A launch with a
   file (a double-click, `mdopen`, a link) skipped the session restore, and the
   first save of the session then replaced the saved tabs with that file alone,
