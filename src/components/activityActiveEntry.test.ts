@@ -86,6 +86,27 @@ describe("the Agent Activity entry of the open document", () => {
     expect(marked()).toEqual(["/w/b.md"]);
   });
 
+  it("is marked when it is listed through a link to the open document's folder", async () => {
+    // The watched folder is /link (a link to /w), and the document was opened
+    // by its own path: the entry's path is one the tab never opened.
+    invoke.mockClear();
+    await act(async () => {
+      useActivityStore.setState({
+        files: [
+          { ...file("a.md"), path: "/link/a.md", dir: "/link" },
+          { ...file("b.md"), path: "/link/b.md", dir: "/link" },
+        ],
+      });
+      await useDocumentStore.getState().openPath("/w/b.md");
+    });
+    await vi.waitFor(() => expect(marked()).toEqual(["/link/b.md"]));
+    // Only the same-named entry was read to learn which file it is.
+    const reads = invoke.mock.calls
+      .filter(([cmd]) => cmd === "read_markdown_file")
+      .map(([, args]) => (args as { path: string }).path);
+    expect(reads).toEqual(["/w/b.md", "/link/b.md"]);
+  });
+
   it("is marked by its own path, and only it", async () => {
     await act(async () => {
       await useDocumentStore.getState().openPath("/w/a.md");

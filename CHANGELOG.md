@@ -219,6 +219,16 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The command palette highlight goes back to the first row when the recent
+  files change while it is open.** It stayed on the old index, on another row.
+- **A folder moved into the watched folder lists its notes in Activity at
+  once.** They used to appear only after the next full scan.
+- **The open note's Activity entry is marked when the watched folder is a
+  link.** An entry listed under a path the tab never opened (through a folder
+  link) is now read once to learn whether it is the open file.
+- **A deleted or moved-away note leaves semantic search without a full
+  reindex.** The per-file re-index now drops indexed notes no longer on disk,
+  and a removal in the watched folder starts one.
 - **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
   nothing focusable, so with focus on the close button the arrow and Page
   keys could not scroll it to the shortcuts below the fold. The list is now

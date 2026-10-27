@@ -16,7 +16,7 @@ import {
 import { formatShortcut } from "../lib/keymap";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
-import { tabHoldsPath, useDocumentStore } from "../store/documentStore";
+import { pathNamesFile, tabHoldsPath, useDocumentStore } from "../store/documentStore";
 import { isMissingFileError } from "../store/recentStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
@@ -133,6 +133,39 @@ export function ActivityDrawer() {
   // listed under another spelling than the tab's (a link, other case where
   // case is ignored) is still marked.
   const activeTab = useDocumentStore((s) => s.tabs.find((t) => t.id === s.activeId));
+  // Entries the tab never opened that may still be its file: listed through a
+  // folder link, they are under another path than any the tab knows. Only
+  // those of the same name are read, once each, to learn which file they are.
+  const activeKey = activeTab?.key;
+  const activeName = activeTab?.fileName.toLowerCase();
+  const unknown = JSON.stringify(
+    open && activeTab
+      ? files
+          .filter(
+            (f) =>
+              f.name.toLowerCase() === activeName && !tabHoldsPath(activeTab, f.path),
+          )
+          .map((f) => f.path)
+      : [],
+  );
+  const [linked, setLinked] = useState<{ key: string; paths: string[] } | null>(null);
+  useEffect(() => {
+    const paths: string[] = JSON.parse(unknown);
+    if (!activeKey || paths.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      paths.map(async (p) => ((await pathNamesFile(activeKey, p)) ? p : null)),
+    ).then((found) => {
+      if (cancelled) return;
+      setLinked({
+        key: activeKey,
+        paths: found.filter((p): p is string => p !== null),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKey, unknown]);
 
   // A ticking clock so relative timestamps stay fresh while the drawer is open.
   const [now, setNow] = useState(() => Date.now());
@@ -283,7 +316,10 @@ export function ActivityDrawer() {
           ) : null}
           <ul className="activity-list">
             {files.map((file) => {
-              const isActive = activeTab ? tabHoldsPath(activeTab, file.path) : false;
+              const isActive = activeTab
+                ? tabHoldsPath(activeTab, file.path) ||
+                  (linked?.key === activeTab.key && linked.paths.includes(file.path))
+                : false;
               const isNew = unseen.includes(file.path);
               return (
                 <li key={file.path}>

@@ -87,7 +87,7 @@ function scheduleEmbedIndex(path: string) {
     // Turned off while the debounce was pending: drop the batch.
     if (!useSettingsStore.getState().autoEmbedIndex) return;
     import("../lib/embedSearch").then(({ embedIndex }) => {
-      void embedIndex(paths, false); // incremental — additive, never prunes
+      void embedIndex(paths, false); // incremental: drops only files gone from disk
     });
   }, EMBED_DEBOUNCE_MS);
 }
@@ -170,8 +170,16 @@ function isAtOrUnder(path: string, removed: string): boolean {
 }
 
 /** Upsert `file` to the front, de-duping by path, capped at MAX_FILES. */
+/**
+ * `files` (newest first) with `file` in its place by modification time. It
+ * was put on top: the older notes of a folder moved in pushed newer ones out
+ * of a full list.
+ */
 function upsert(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
-  return [file, ...files.filter((f) => f.path !== file.path)].slice(0, MAX_FILES);
+  const rest = files.filter((f) => f.path !== file.path);
+  const at = rest.findIndex((f) => f.mtimeMs <= file.mtimeMs);
+  rest.splice(at < 0 ? rest.length : at, 0, file);
+  return rest.slice(0, MAX_FILES);
 }
 
 export const useActivityStore = create<ActivityState>()(
@@ -268,6 +276,8 @@ export const useActivityStore = create<ActivityState>()(
         // Deleted, or renamed or moved away: the file leaves the list.
         if (ev.kind === "removed") {
           get().removeFile(ev.path);
+          // An incremental run drops the gone notes from the semantic index.
+          scheduleEmbedIndex(ev.path);
           return;
         }
         // When the drawer is open the user is actively watching, so nothing is

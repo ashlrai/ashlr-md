@@ -94,6 +94,19 @@ export function tabHoldsPath(
 }
 
 /**
+ * Whether `path` names the file a tab's `key` identifies ({@link fileKey}),
+ * learned by reading it: a path the tab never opened (a note listed through a
+ * folder link) is not among its aliases. A path that cannot be read is not.
+ */
+export async function pathNamesFile(key: string, path: string): Promise<boolean> {
+  try {
+    return fileKey(await invoke<MarkdownFile>("read_markdown_file", { path })) === key;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Tags in a `write_markdown_file` error (src-tauri/src/document.rs): the
  * file changed on disk since it was read, or is gone. Either way nothing
  * was written.

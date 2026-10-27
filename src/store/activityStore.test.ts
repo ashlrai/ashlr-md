@@ -260,6 +260,29 @@ describe("activityStore", () => {
     );
     await pending;
     await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    // The second listing's older note takes the removed one's place.
+    await vi.waitFor(() => {
+      const paths = useActivityStore.getState().files.map((f) => f.path);
+      expect(paths).toContain("/watch/older.md");
+      expect(paths).not.toContain("/watch/gone.md");
+    });
+  });
+
+  it("an older note heard keeps its place by time, never pushing newer ones out", () => {
+    // The notes of a folder moved in are sent with their own (older) times.
+    const newer = Array.from({ length: MAX_FILES }, (_, i) =>
+      makeFile(`n${i}.md`, 10_000 - i),
+    );
+    useActivityStore.setState({ watchedDir: "/watch", files: newer });
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "modified", 1));
+    let s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(newer.map((f) => f.name));
+    expect(s.truncated).toBe(true);
+    // One between two listed notes goes between them.
+    useActivityStore.setState({ files: [makeFile("a.md", 30), makeFile("c.md", 10)] });
+    useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 20));
+    s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(["a.md", "b.md", "c.md"]);
   });
 
   it("a removal from a whole list does not list the folder again", () => {
@@ -360,6 +383,13 @@ describe("activityStore", () => {
         "/watch/a.md",
         "/watch/b.md",
       ]);
+    });
+
+    it("runs an incremental re-index on a removal, so the gone note leaves the index", async () => {
+      autoEmbedIndex = true;
+      useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 1));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(embedIndex).toHaveBeenCalledWith(["/watch/gone.md"], false);
     });
 
     it("drops a queued batch if the setting is turned off before it fires", async () => {
