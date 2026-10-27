@@ -13,7 +13,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
-    "format": "biome format --write src"
+    "format": "biome format --write src",
+    "fresh:sync": "node scripts/freshness/sync.mjs",
+    "fresh:check": "node scripts/freshness/check.mjs",
+    "test:freshness": "node --test scripts/freshness/freshness.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
