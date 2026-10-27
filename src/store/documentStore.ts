@@ -84,8 +84,12 @@ export function tabHoldsPath(
   tab: Pick<Tab, "path" | "key" | "aliases">,
   path: string,
 ): boolean {
+  // Aliases are kept without a Windows verbatim prefix (see addAliases).
+  const bare = withoutVerbatimPrefix(path);
   return (
-    tab.path === path || tab.key === path || (tab.aliases?.includes(path) ?? false)
+    tab.path === path ||
+    tab.key === path ||
+    (tab.aliases?.some((a) => a === path || a === bare) ?? false)
   );
 }
 

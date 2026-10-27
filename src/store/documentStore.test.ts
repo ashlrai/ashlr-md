@@ -1406,6 +1406,9 @@ describe("documentStore — one file opened by two paths is one tab", () => {
       "\\\\host\\share\\a.md",
     );
     expect(withoutVerbatimPrefix("/v/a.md")).toBe("/v/a.md");
+    // A tab holding the bare spelling holds the prefixed one too.
+    const tab = { path: "C:\\v\\a.md", key: "c:\\v\\a.md", aliases: ["D:\\r\\a.md"] };
+    expect(tabHoldsPath(tab, "\\\\?\\D:\\r\\a.md")).toBe(true);
   });
 
   it("Save As keeps a Windows canonical spelling as Activity lists it", async () => {

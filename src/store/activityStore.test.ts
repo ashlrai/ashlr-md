@@ -51,7 +51,7 @@ vi.mock("./uiStore", () => ({
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
 import { listMarkdownFiles, scanMarkdownFiles } from "../lib/activity";
 import { embedIndex } from "../lib/embedSearch";
-import { useActivityStore } from "./activityStore";
+import { MAX_FILES, useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
 const scanMock = scanMarkdownFiles as ReturnType<typeof vi.fn>;
@@ -238,6 +238,28 @@ describe("activityStore", () => {
       "fresh.md",
       "kept.md",
     ]);
+  });
+
+  it("a removal heard during a listing cut short lists the folder again", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("older.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 0));
+    // One more than the list keeps: the folder has more than it shows.
+    resolveScan(
+      Array.from({ length: MAX_FILES + 1 }, (_, i) =>
+        i === 0 ? makeFile("gone.md", 9999) : makeFile(`n${i}.md`, 9000 - i),
+      ),
+    );
+    await pending;
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
   });
 
   it("a removal from a whole list does not list the folder again", () => {

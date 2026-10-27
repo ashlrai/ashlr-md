@@ -229,25 +229,33 @@ export const useActivityStore = create<ActivityState>()(
           if (generation !== scans) return;
           // A file written or removed while the folder was walked may be
           // missing from (or still in) the listing: what was heard wins.
-          let listed = scan.files;
-          for (const ev of heard ?? []) {
-            listed =
-              ev.kind === "removed"
-                ? listed.filter((f) => !isAtOrUnder(f.path, ev.path))
-                : [toFileInfo(ev), ...listed.filter((f) => f.path !== ev.path)];
-          }
-          heard = null;
           const depthCut = scan.depthCut === true;
           const scanCut = scan.scanCut || depthCut;
+          let listed = scan.files;
+          const cut = scanCut || listed.length > MAX_FILES;
+          let dropped = false;
+          for (const ev of heard ?? []) {
+            if (ev.kind === "removed") {
+              const kept = listed.filter((f) => !isAtOrUnder(f.path, ev.path));
+              dropped ||= kept.length < listed.length;
+              listed = kept;
+            } else {
+              listed = [toFileInfo(ev), ...listed.filter((f) => f.path !== ev.path)];
+            }
+          }
+          heard = null;
           // The folder changed while this listing ran: it is not this one's.
           if (get().watchedDir !== dir) return;
           set({
             files: listed.slice(0, MAX_FILES),
-            truncated: scanCut || listed.length > MAX_FILES,
+            truncated: cut || listed.length > MAX_FILES,
             scanCut,
             depthCut,
             lastError: null,
           });
+          // A removal heard meanwhile shortened a listing cut short: list
+          // again, so older notes take the removed ones' places.
+          if (cut && dropped) void get().loadFiles();
         } catch (e) {
           if (generation === scans) heard = null;
           if (get().watchedDir !== dir || generation !== scans) return;
