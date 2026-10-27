@@ -231,6 +231,26 @@ fn forget_files(idx: &mut EmbedIndex, gone: &HashSet<String>) -> usize {
     before - idx.file_mtimes.len()
 }
 
+/// Forgets the indexed files gone from disk ([`missing_files`]), stat'ing them
+/// outside the lock. Returns how many, and the index to save when any went.
+fn forget_missing(state: &EmbedState) -> (usize, Option<String>) {
+    let known: Vec<String> = state
+        .index
+        .lock()
+        .unwrap()
+        .file_mtimes
+        .keys()
+        .cloned()
+        .collect();
+    let gone = missing_files(known.iter());
+    if gone.is_empty() {
+        return (0, None);
+    }
+    let mut idx = state.index.lock().unwrap();
+    let removed = forget_files(&mut idx, &gone);
+    (removed, serde_json::to_string(&*idx).ok())
+}
+
 // ---------------------------------------------------------------------------
 // Cosine similarity
 // ---------------------------------------------------------------------------
@@ -416,11 +436,21 @@ async fn embed_index_inner(
 ) -> Result<IndexResult, String> {
     let client = local_inference::client()?;
     let Some(model) = detect_embed_model(&client).await else {
+        // No model to embed with, but a deleted note still leaves the index:
+        // kept, it would be found again once a model is back.
+        let (removed, json) = if prune {
+            (0, None)
+        } else {
+            forget_missing(state)
+        };
+        if let Some(j) = json {
+            write_index_json(j);
+        }
         let total = state.index.lock().unwrap().chunks.len();
         return Ok(IndexResult {
             indexed: 0,
             skipped: 0,
-            removed: 0,
+            removed,
             total,
             busy: false,
             unread: Vec::new(),
@@ -731,6 +761,27 @@ mod tests {
         assert!(idx.chunks.iter().all(|c| c.path == kept));
         assert_eq!(idx.chunks.len(), 1);
         assert_eq!(idx.file_mtimes.keys().collect::<Vec<_>>(), vec![&kept]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn notes_gone_from_disk_are_forgotten_without_a_model() {
+        let dir =
+            std::env::temp_dir().join(format!("mdopener-embed-nomodel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let kept = dir.join("kept.md").to_string_lossy().into_owned();
+        let gone = dir.join("gone.md").to_string_lossy().into_owned();
+        std::fs::write(&kept, "# kept").unwrap();
+        let state = EmbedState::default();
+        state.index.lock().unwrap().file_mtimes =
+            HashMap::from([(kept.clone(), 1), (gone.clone(), 1)]);
+        let (removed, json) = forget_missing(&state);
+        assert_eq!(removed, 1);
+        assert!(json.is_some_and(|j| !j.contains("gone.md")));
+        assert_eq!(state.index.lock().unwrap().file_mtimes.len(), 1);
+        // Nothing gone: nothing to save.
+        assert_eq!(forget_missing(&state), (0, None));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

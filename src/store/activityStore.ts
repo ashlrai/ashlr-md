@@ -170,8 +170,16 @@ function isAtOrUnder(path: string, removed: string): boolean {
 }
 
 /** Upsert `file` to the front, de-duping by path, capped at MAX_FILES. */
+/**
+ * `files` (newest first) with `file` in its place by modification time. It
+ * was put on top: the older notes of a folder moved in pushed newer ones out
+ * of a full list.
+ */
 function upsert(files: MdFileInfo[], file: MdFileInfo): MdFileInfo[] {
-  return [file, ...files.filter((f) => f.path !== file.path)].slice(0, MAX_FILES);
+  const rest = files.filter((f) => f.path !== file.path);
+  const at = rest.findIndex((f) => f.mtimeMs <= file.mtimeMs);
+  rest.splice(at < 0 ? rest.length : at, 0, file);
+  return rest.slice(0, MAX_FILES);
 }
 
 export const useActivityStore = create<ActivityState>()(

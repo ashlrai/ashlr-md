@@ -237,10 +237,13 @@ impl EventRouter {
     }
 
     /// Sends the notes in a folder made or moved into the watched one, at most
-    /// [`FOLDER_ADDED_LIMIT`] of the newest, oldest first so the newest ends
-    /// up on top of the list. They were listed only by the next full scan.
+    /// [`FOLDER_ADDED_LIMIT`] of the newest, oldest first (the list places
+    /// each by its time). They were listed only by the next full scan.
     fn folder_added(&self, path: &Path, kind: &'static str) {
-        if !path.is_dir() {
+        // A link to a folder is not followed (nor are links inside it: the
+        // walk reads entries without following them), so no note from
+        // outside the watched folder is listed or indexed.
+        if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) {
             return;
         }
         let scan = scan_newest(path, FOLDER_ADDED_LIMIT, MAX_SCAN_ENTRIES);
@@ -816,6 +819,23 @@ mod tests {
                 ("created".to_string(), "made.md".to_string()),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_folder_made_in_sends_nothing() {
+        use notify::event::{CreateKind, EventKind};
+        let dir = TempDir::new("linked");
+        let outside = dir.0.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        write_md(&outside, "secret.md", 1_000);
+        let watched = dir.0.join("watched");
+        std::fs::create_dir(&watched).unwrap();
+        let link = watched.join("link");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let (router, seen) = recording_router();
+        router.handle(&notify::Event::new(EventKind::Create(CreateKind::Folder)).add_path(link));
+        assert!(kinds(&seen).is_empty());
     }
 
     #[test]

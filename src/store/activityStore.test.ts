@@ -268,6 +268,23 @@ describe("activityStore", () => {
     });
   });
 
+  it("an older note heard keeps its place by time, never pushing newer ones out", () => {
+    // The notes of a folder moved in are sent with their own (older) times.
+    const newer = Array.from({ length: MAX_FILES }, (_, i) =>
+      makeFile(`n${i}.md`, 10_000 - i),
+    );
+    useActivityStore.setState({ watchedDir: "/watch", files: newer });
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "modified", 1));
+    let s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(newer.map((f) => f.name));
+    expect(s.truncated).toBe(true);
+    // One between two listed notes goes between them.
+    useActivityStore.setState({ files: [makeFile("a.md", 30), makeFile("c.md", 10)] });
+    useActivityStore.getState().applyEvent(makeEvent("b.md", "modified", 20));
+    s = useActivityStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
   it("a removal from a whole list does not list the folder again", () => {
     useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
     useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
