@@ -271,11 +271,16 @@ export const useActivityStore = create<ActivityState>()(
         }
       },
 
-      removeFile: (path) =>
+      removeFile: (path) => {
+        const before = get().files.length;
         set((s) => ({
           files: s.files.filter((f) => !isAtOrUnder(f.path, path)),
           unseen: s.unseen.filter((p) => !isAtOrUnder(p, path)),
-        })),
+        }));
+        // A list cut short has older notes it did not show: list again so
+        // they take the removed ones' places (a removed folder could empty it).
+        if (get().truncated && get().files.length < before) void get().loadFiles();
+      },
 
       markAllSeen: () => set({ unseen: [] }),
 

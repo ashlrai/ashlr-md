@@ -76,6 +76,21 @@ describe("the theme radio group", () => {
       el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
     });
 
+  it("leaves modified keys such as Ctrl+End alone", () => {
+    radios()[0].focus();
+    const e = new KeyboardEvent("keydown", {
+      key: "End",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      radios()[0].dispatchEvent(e);
+    });
+    expect(e.defaultPrevented).toBe(false);
+    expect(useSettingsStore.getState().theme).toBe("paper");
+  });
+
   it("is one Tab stop, the chosen theme", () => {
     expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
   });

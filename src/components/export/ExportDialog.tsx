@@ -258,6 +258,10 @@ export function ExportDialog() {
   // (src/lib/export.ts) so the command-palette export paths get them too; the
   // dialog just drives its own inline status + auto-close.
   async function run(label: string, fn: () => Promise<unknown>): Promise<void> {
+    // An earlier export's success pause is over: its timer must not close
+    // the dialog after this one (or a later reopening).
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
     setStatus({ kind: "busy", label: `Exporting ${label}…` });
     try {
       // False: the save dialog was cancelled, and nothing was exported. It

@@ -11,7 +11,7 @@ vi.mock("../store/recentStore", () => ({
   useRecentStore: { getState: () => ({ add: recentAdd, remove: vi.fn() }) },
 }));
 
-import { useDocumentStore } from "../store/documentStore";
+import { tabHoldsPath, useDocumentStore } from "../store/documentStore";
 import { useSessionStore } from "../store/sessionStore";
 import {
   capRestoredTabs,
@@ -183,6 +183,35 @@ describe("restoreSession", () => {
     const s = useDocumentStore.getState();
     expect(s.tabs.map((t) => t.path)).toEqual(["/v/a.md", "/v/b.md"]);
     expect(s.path).toBe("/v/a.md");
+  });
+
+  it("remembers the on-disk spelling of a file whose key is lowercased", async () => {
+    // Opened as /v/README.md; the disk (and the Activity list) say Readme.md.
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) => {
+      if (cmd === "read_markdown_file") {
+        const p = args?.path ?? "";
+        return Promise.resolve({
+          path: p,
+          file_name: p.split("/").pop(),
+          content: "x",
+          size: 1,
+          version: "v",
+          canonical_path: "/v/Readme.md",
+          case_insensitive: true,
+        });
+      }
+      return Promise.resolve();
+    });
+    useDocumentStore.setState({ tabs: [], activeId: null, path: null });
+    await useDocumentStore.getState().openPath("/v/README.md");
+    const tab = useDocumentStore.getState().tabs[0];
+    expect(tab.key).toBe("/v/readme.md");
+    expect(tabHoldsPath(tab, "/v/Readme.md")).toBe(true);
+    // A second spelling joins the same tab.
+    await useDocumentStore.getState().openPath("/v/readme.MD");
+    const again = useDocumentStore.getState().tabs;
+    expect(again).toHaveLength(1);
+    expect(tabHoldsPath(again[0], "/v/readme.MD")).toBe(true);
   });
 
   it("keeps the session when the existence check fails", async () => {

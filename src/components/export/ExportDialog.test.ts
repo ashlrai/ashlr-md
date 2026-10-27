@@ -133,6 +133,19 @@ describe("ExportDialog", () => {
     expect(useUiStore.getState().exportOpen).toBe(true);
   });
 
+  it("does not close a dialog opened again after two exports in one pause", async () => {
+    exportHtml.mockResolvedValue(true);
+    await clickHtml();
+    act(() => vi.advanceTimersByTime(600));
+    await clickHtml();
+    expect(exportHtml).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(createElement(ExportDialog)));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(useUiStore.getState().exportOpen).toBe(true);
+  });
+
   it("does not close a dialog opened again when an export finishes late", async () => {
     let finishExport!: (written: boolean) => void;
     exportHtml.mockReturnValue(

@@ -40,6 +40,8 @@ export function ThemePicker() {
     const radios = Array.from(
       e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
     );
+    // Ctrl+End and the like keep their own meaning.
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const from = radios.indexOf(e.target as HTMLElement);
     if (from === -1) return;
     const to = themeKeyTarget(e.key, from, radios.length);

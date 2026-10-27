@@ -54,6 +54,19 @@ export function fileKey(file: MarkdownFile): string {
  * file ({@link fileKey}). Matching the path as given missed a file opened
  * under another spelling: a link, other case where case is ignored.
  */
+/**
+ * `tab.aliases` with each of `paths` the tab does not already hold. The
+ * canonical spelling is kept as read: on a filesystem that ignores case the
+ * key is lowercased, and the Activity list names the file as it is on disk.
+ */
+function addAliases(tab: Tab, paths: (string | undefined)[]): string[] | undefined {
+  const added = [...(tab.aliases ?? [])];
+  for (const p of paths) {
+    if (p && !tabHoldsPath({ ...tab, aliases: added }, p)) added.push(p);
+  }
+  return added.length > 0 ? added : undefined;
+}
+
 export function tabHoldsPath(
   tab: Pick<Tab, "path" | "key" | "aliases">,
   path: string,
@@ -592,11 +605,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         set((s) => ({
           isLoading: false,
           // Remembered, so the tab is found by this path too (tabHoldsPath).
-          tabs: tabHoldsPath(same, path)
-            ? s.tabs
-            : s.tabs.map((t) =>
-                t.id === same.id ? { ...t, aliases: [...(t.aliases ?? []), path] } : t,
-              ),
+          tabs: s.tabs.map((t) =>
+            t.id === same.id
+              ? { ...t, aliases: addAliases(t, [path, file.canonical_path]) }
+              : t,
+          ),
         }));
         get().switchTab(same.id);
         return null;
@@ -621,6 +634,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         reloadNonce: get().reloadNonce + 1,
         splitView: false,
       };
+      tab.aliases = addAliases(tab, [file.canonical_path]);
       set((s) => ({
         // Mirror the new tab into the top-level active fields.
         ...tabFieldsToTop(tab),

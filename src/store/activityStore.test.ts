@@ -184,6 +184,28 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["new.md"]);
   });
 
+  it("a removal from a list cut short lists the folder again", async () => {
+    listMock.mockResolvedValue([makeFile("older.md", 1)]);
+    useActivityStore.setState({
+      watchedDir: "/watch",
+      files: [makeFile("a.md", 2)],
+      truncated: true,
+    });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    await vi.waitFor(() =>
+      expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+        "older.md",
+      ]),
+    );
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a removal from a whole list does not list the folder again", () => {
+    useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
   it("a removed folder drops every file under it, and nothing beside it", () => {
     const under = (path: string, mtimeMs: number): MdFileInfo => ({
       path,
