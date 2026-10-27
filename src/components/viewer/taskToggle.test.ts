@@ -125,6 +125,20 @@ describe("task checkboxes in the read view", () => {
     expect(content()).toBe("-\n  [x] next line\n-\t[ ] tabbed\n");
   });
 
+  it("toggles the correct source line in cached chunks after a line insertion", async () => {
+    const prefix = Array.from({ length: 120 }, (_, n) => `Paragraph ${n}.\n\n`).join(
+      "",
+    );
+    await open(`${prefix}- [ ] first\n- [ ] second\n`);
+    await click(1);
+    expect(content()).toBe(`${prefix}- [ ] first\n- [x] second\n`);
+    await act(async () => {
+      useDocumentStore.setState({ content: `Inserted\n\n${content()}` });
+    });
+    await click(0);
+    expect(content()).toBe(`Inserted\n\n${prefix}- [x] first\n- [x] second\n`);
+  });
+
   it("leaves raw HTML checkboxes and embedded text alone", async () => {
     const doc = '- [ ] real\n\n<input type="checkbox" data-task-line="1">\n';
     await open(doc);
