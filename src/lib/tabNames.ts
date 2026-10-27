@@ -47,10 +47,9 @@ export function tabFolderHints(tabs: readonly NamedTab[]): Map<string, string> {
         // Out of folders: its whole folder still tells it from a deeper
         // one ("x" beside "a/x"), unless another tab is in that same folder.
         if (!shared || depth >= own.length) {
-          const same = dirs.some(
-            (d, j) =>
-              j !== i && d.join("/").toLowerCase() === own.join("/").toLowerCase(),
-          );
+          // Exact: "Foo" and "foo" are two folders where case counts, and
+          // the hint is all that tells their tabs apart.
+          const same = dirs.some((d, j) => j !== i && d.join("/") === own.join("/"));
           if (own.length > 0 && !same) hints.set(t.id, own.slice(-depth).join("/"));
           break;
         }

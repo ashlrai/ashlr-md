@@ -31,6 +31,8 @@ export const MAX_FILES = 200;
 const TOAST_COALESCE_MS = 700;
 let pendingNew: MdFileInfo[] = [];
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+/** Counts `loadFiles` calls: only the latest one's listing is kept. */
+let scans = 0;
 
 function flushNewFileToast() {
   pendingTimer = null;
@@ -206,6 +208,7 @@ export const useActivityStore = create<ActivityState>()(
 
       loadFiles: async () => {
         const dir = get().watchedDir;
+        const generation = ++scans;
         if (!dir) {
           set({ files: [] });
           return;
@@ -218,6 +221,9 @@ export const useActivityStore = create<ActivityState>()(
           // The walk keeps the newest files of the whole folder, but stops in a
           // very large one; it says so, and the list is then not all of them.
           const scan = await scanMarkdownFiles(dir, MAX_FILES + 1);
+          // A later listing started meanwhile (a refill after a removal):
+          // this older one may still name what it no longer lists.
+          if (generation !== scans) return;
           const listed = scan.files;
           const depthCut = scan.depthCut === true;
           const scanCut = scan.scanCut || depthCut;
@@ -231,7 +237,7 @@ export const useActivityStore = create<ActivityState>()(
             lastError: null,
           });
         } catch (e) {
-          if (get().watchedDir !== dir) return;
+          if (get().watchedDir !== dir || generation !== scans) return;
           set({ lastError: e instanceof Error ? e.message : String(e) });
         }
       },

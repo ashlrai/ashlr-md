@@ -36,6 +36,15 @@ describe("tabFolderHints", () => {
     });
   });
 
+  it("tells folders apart that differ only in case", () => {
+    // Two folders where case counts: their tabs need the hint.
+    const hints = tabFolderHints([
+      tab("1", "/w/Foo/note.md"),
+      tab("2", "/w/foo/note.md"),
+    ]);
+    expect(Object.fromEntries(hints)).toEqual({ "1": "w/Foo", "2": "w/foo" });
+  });
+
   it("gives no hint where no folder tells tabs apart", () => {
     expect(
       tabFolderHints([tab("1", "/v/a.md"), tab("2", "/v/a.md"), tab("3", "")]).size,

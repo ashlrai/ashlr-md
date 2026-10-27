@@ -28,6 +28,7 @@ vi.mock("./recentStore", async (importOriginal) => ({
 import {
   CLOSE_MISSING_DISCARD,
   CLOSE_MISSING_SAVE_AS,
+  tabHoldsPath,
   useDocumentStore,
 } from "./documentStore";
 import { useToastStore } from "./toastStore";
@@ -1378,6 +1379,24 @@ describe("documentStore — one file opened by two paths is one tab", () => {
     s = useDocumentStore.getState();
     expect(s.tabs).toHaveLength(1);
     expect(s.path).toBe("/vault/link/b.md");
+  });
+
+  it("Save As keeps the new file's on-disk spelling where case is ignored", async () => {
+    // The key is lower-cased; the Activity list names the file as on disk.
+    sameFile((p) => (p.toLowerCase() === "/v/notes.md" ? "/v/Notes.md" : p), {
+      case_insensitive: true,
+    });
+    const base = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "write_markdown_file" ? Promise.resolve("v2") : base?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("/v/old.md");
+    pickMock.mockResolvedValueOnce("/v/NOTES.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    const tab = useDocumentStore.getState().tabs[0];
+    expect(tab.key).toBe("/v/notes.md");
+    expect(tabHoldsPath(tab, "/v/Notes.md")).toBe(true);
+    expect(tabHoldsPath(tab, "/v/old.md")).toBe(false);
   });
 
   /** A disk of `files`, each its own canonical path, saves written into it. */

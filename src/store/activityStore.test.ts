@@ -200,6 +200,25 @@ describe("activityStore", () => {
     expect(listMock).toHaveBeenCalledTimes(1);
   });
 
+  it("an older listing that finishes last does not overwrite a newer one", async () => {
+    // The first listing still names a file a later removal dropped; a
+    // refill started meanwhile lists the folder as it is now.
+    let resolveOld: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveOld = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("b.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const older = useActivityStore.getState().loadFiles();
+    await useActivityStore.getState().loadFiles();
+    resolveOld([makeFile("a.md", 2), makeFile("b.md", 1)]);
+    await older;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["b.md"]);
+  });
+
   it("a removal from a whole list does not list the folder again", () => {
     useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
     useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));

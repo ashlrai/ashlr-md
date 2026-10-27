@@ -918,15 +918,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     // (or as the only copy of a file gone from disk), the user is asked
     // first, as the dialog only asked about the file on disk.
     const destPath = dest;
-    const fileKeyOf = async () => {
+    const readDest = async (): Promise<MarkdownFile | null> => {
       try {
-        return fileKey(
-          await invoke<MarkdownFile>("read_markdown_file", { path: destPath }),
-        );
+        return await invoke<MarkdownFile>("read_markdown_file", { path: destPath });
       } catch {
         // Not there yet (or unreadable): the path as given will do.
-        return destPath;
+        return null;
       }
+    };
+    const fileKeyOf = async () => {
+      const file = await readDest();
+      return file ? fileKey(file) : destPath;
     };
     const others = (key: string) =>
       get().tabs.filter(
@@ -984,14 +986,21 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // so opening the new file by another path (a symbolic link to its
       // folder, other case where case is ignored) opened it in a second
       // tab, whose saves overwrote this one's.
-      const key = await fileKeyOf();
+      const file = await readDest();
+      const key = file ? fileKey(file) : destPath;
       // The other tabs on this file held the text just replaced: closed,
       // so one tab holds it (unless the user switched to one meanwhile).
       const stale = new Set([...open, ...others(key)].map((t) => t.id));
+      // The old file's spellings go; the new one's canonical spelling, as
+      // it is on disk, stays (the key is lower-cased where case is ignored).
+      const aliases = (t: Tab) =>
+        addAliases({ ...t, path: dest, key, aliases: undefined }, [
+          file?.canonical_path,
+        ]);
       set((s) => ({
         tabs: s.tabs
           .filter((t) => !stale.has(t.id) || t.id === s.activeId)
-          .map((t) => (t.id === activeId ? { ...t, key, aliases: undefined } : t)),
+          .map((t) => (t.id === activeId ? { ...t, key, aliases: aliases(t) } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
@@ -1068,12 +1077,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     await get().refreshFromDisk(to);
     // Found again by its canonical path, as a read names it (see fileKey).
     try {
-      const key = fileKey(
-        await invoke<MarkdownFile>("read_markdown_file", { path: to }),
-      );
+      const file = await invoke<MarkdownFile>("read_markdown_file", { path: to });
+      const key = fileKey(file);
       set((now) => ({
         tabs: now.tabs.map((t) =>
-          t.id === s.activeId && t.path === to ? { ...t, key, aliases: undefined } : t,
+          t.id === s.activeId && t.path === to
+            ? {
+                ...t,
+                key,
+                aliases: addAliases({ ...t, key, aliases: undefined }, [
+                  file.canonical_path,
+                ]),
+              }
+            : t,
         ),
       }));
     } catch {
