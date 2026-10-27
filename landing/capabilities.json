@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "name": "Ashlr MD",
+  "version": "0.4.0",
+  "description": "Ashlr MD is an open-source Markdown desktop app for macOS, Windows, and Linux, with editing, export, local AI, and a bundled MCP server.",
+  "license": "MIT",
+  "url": "https://md.ashlr.ai/",
+  "repository": "https://github.com/ashlrai/ashlr-md",
+  "operatingSystem": [
+    "macOS",
+    "Windows",
+    "Linux"
+  ],
+  "documentation": [
+    {
+      "path": "README.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/README.md"
+    },
+    {
+      "path": "docs/AGENTS.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
+    },
+    {
+      "path": "docs/INSTALL.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md"
+    },
+    {
+      "path": "docs/OBSIDIAN.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md"
+    },
+    {
+      "path": "docs/PHANTOM.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md"
+    },
+    {
+      "path": "docs/PQ-READINESS.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md"
+    },
+    {
+      "path": "docs/RELEASING.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md"
+    },
+    {
+      "path": "docs/VISION.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md"
+    },
+    {
+      "path": "docs/ashlr-handshake.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md"
+    },
+    {
+      "path": "docs/doctor-fix.md",
+      "url": "https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md"
+    }
+  ],
+  "discovery": {
+    "index": "https://md.ashlr.ai/llms.txt",
+    "fullText": "https://md.ashlr.ai/llms-full.txt",
+    "sitemap": "https://md.ashlr.ai/sitemap.xml"
+  },
+  "capabilities": [
+    "markdown-reading",
+    "markdown-editing",
+    "document-export",
+    "local-ai",
+    "mcp",
+    "command-line"
+  ],
+  "interfaces": [
+    {
+      "name": "mdopener-mcp",
+      "transport": "stdio",
+      "documentation": "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
+    },
+    {
+      "name": "mdopen",
+      "transport": "command-line",
+      "documentation": "https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md"
+    }
+  ],
+  "limitations": [
+    "The website is documentation, not a hosted MCP or inference endpoint.",
+    "Most MCP tools require the installed desktop app. See the agent guide for exceptions.",
+    "Local AI requires Apple Intelligence or Ollama; optional cloud providers may charge fees."
+  ]
+}

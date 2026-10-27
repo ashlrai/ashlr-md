@@ -9,10 +9,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run",
+    "test": "node --test scripts/discovery.test.mjs && vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
-    "format": "biome format --write src"
+    "format": "biome format --write src",
+    "discovery:generate": "node scripts/generate-discovery.mjs",
+    "discovery:check": "node scripts/generate-discovery.mjs --check",
+    "test:discovery": "node --test scripts/discovery.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

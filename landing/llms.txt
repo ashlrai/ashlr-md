@@ -1,0 +1,94 @@
+# Ashlr MD
+
+> Ashlr MD is an open-source Markdown desktop app for macOS, Windows, and Linux, with editing, export, local AI, and a bundled MCP server.
+
+Version: 0.4.0. License: MIT. The desktop app is free; optional cloud AI providers may charge fees.
+
+## Documentation
+
+- [Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/README.md): README.md
+  - [30-second start](https://github.com/ashlrai/ashlr-md/blob/main/README.md#30-second-start)
+  - [Connect your agent (MCP)](https://github.com/ashlrai/ashlr-md/blob/main/README.md#connect-your-agent-mcp)
+  - [Why](https://github.com/ashlrai/ashlr-md/blob/main/README.md#why)
+  - [Features](https://github.com/ashlrai/ashlr-md/blob/main/README.md#features)
+  - [Custom AI endpoints](https://github.com/ashlrai/ashlr-md/blob/main/README.md#custom-ai-endpoints)
+  - [Platform support](https://github.com/ashlrai/ashlr-md/blob/main/README.md#platform-support)
+  - [Keyboard shortcuts](https://github.com/ashlrai/ashlr-md/blob/main/README.md#keyboard-shortcuts)
+  - [One-click agent setup](https://github.com/ashlrai/ashlr-md/blob/main/README.md#one-click-agent-setup)
+  - [Download & install](https://github.com/ashlrai/ashlr-md/blob/main/README.md#download--install)
+  - [Develop](https://github.com/ashlrai/ashlr-md/blob/main/README.md#develop)
+  - [Architecture](https://github.com/ashlrai/ashlr-md/blob/main/README.md#architecture)
+  - [Repair with doctor --fix](https://github.com/ashlrai/ashlr-md/blob/main/README.md#repair-with-doctor---fix)
+  - [Part of the Ashlr ecosystem](https://github.com/ashlrai/ashlr-md/blob/main/README.md#part-of-the-ashlr-ecosystem)
+  - [Contributing](https://github.com/ashlrai/ashlr-md/blob/main/README.md#contributing)
+  - [License](https://github.com/ashlrai/ashlr-md/blob/main/README.md#license)
+- [Using Ashlr MD with AI Coding Agents](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md): docs/AGENTS.md
+  - [What the integration is](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#what-the-integration-is)
+  - [Quick start: one-click setup (in-app)](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#quick-start-one-click-setup-in-app)
+  - [Claude Code](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#claude-code)
+  - [Codex (OpenAI Codex CLI)](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#codex-openai-codex-cli)
+  - [Cursor](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#cursor)
+  - [MCP tool reference](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#mcp-tool-reference)
+  - [Resources reference](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#resources-reference)
+  - [Prompts reference](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#prompts-reference)
+  - [Human review loop](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#human-review-loop)
+  - [Auto-open hook](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#auto-open-hook)
+  - [The mdopen CLI](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#the-mdopen-cli)
+  - [The mdopener:// URL scheme](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#the-mdopener-url-scheme)
+  - [How it works: the IPC model](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#how-it-works-the-ipc-model)
+  - [Security](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#security)
+  - [Dev / build-from-source](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#dev--build-from-source)
+  - [Troubleshooting](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#troubleshooting)
+- [Installing Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md): docs/INSTALL.md
+  - [macOS](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md#macos)
+  - [Windows](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md#windows)
+  - [Linux](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md#linux)
+  - [Auto-Updates](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md#auto-updates)
+  - [Uninstalling](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md#uninstalling)
+- [Obsidian compatibility](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md): docs/OBSIDIAN.md
+  - [Vault setup](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#vault-setup)
+  - [Wikilinks](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#wikilinks)
+  - [Embeds & transclusion](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#embeds--transclusion)
+  - [Highlights, comments & math](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#highlights-comments--math)
+  - [Canvas (.canvas)](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#canvas-canvas)
+  - [Round-trip: Open in Obsidian](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#round-trip-open-in-obsidian)
+  - [What's not supported yet](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#whats-not-supported-yet)
+- [Ashlr MD in Phantom](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md): docs/PHANTOM.md
+  - [Integration contract (stable hooks Phantom relies on)](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md#integration-contract-stable-hooks-phantom-relies-on)
+  - [Detection paths](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md#detection-paths)
+  - [Opting out (Phantom side)](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md#opting-out-phantom-side)
+  - [Running under phantom exec (Phantom Secrets)](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md#running-under-phantom-exec-phantom-secrets)
+- [Post-quantum readiness](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md): docs/PQ-READINESS.md
+  - [Background (verified against NIST pages)](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md#background-verified-against-nist-pages)
+  - [What ashlr-md uses today](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md#what-ashlr-md-uses-today)
+  - [The check](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md#the-check)
+  - [Library note](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md#library-note)
+  - [If a migration is needed](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md#if-a-migration-is-needed)
+- [Releasing Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md): docs/RELEASING.md
+  - [1. Pre-release Checklist](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#1-pre-release-checklist)
+  - [2. Cutting the Tag](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#2-cutting-the-tag)
+  - [3. What the Workflow Produces](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#3-what-the-workflow-produces)
+  - [4. Assembling & Publishing the GitHub Release](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#4-assembling--publishing-the-github-release)
+  - [5. Post-release: Update the Homebrew Cask](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#5-post-release-update-the-homebrew-cask)
+  - [6. Post-release: Update the winget Manifest](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#6-post-release-update-the-winget-manifest)
+  - [7. Post-release: Update the AUR Package](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#7-post-release-update-the-aur-package)
+  - [8. GitHub Secrets Reference](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#8-github-secrets-reference)
+  - [9. Icon Generation](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#9-icon-generation)
+  - [10. Release Checklist Summary](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md#10-release-checklist-summary)
+- [Ashlr MD: North Star & Goal Loop](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md): docs/VISION.md
+  - [The goal (end state)](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#the-goal-end-state)
+  - [Who it's for](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#who-its-for)
+  - [Experience pillars (the feel)](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#experience-pillars-the-feel)
+  - [Definition of excellent (the bar every feature clears)](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#definition-of-excellent-the-bar-every-feature-clears)
+  - [The goal loop](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#the-goal-loop)
+  - [Milestone map → end state](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#milestone-map--end-state)
+  - [Non-goals (so we stay sharp)](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md#non-goals-so-we-stay-sharp)
+- [Ashlr companion handshake (v1)](https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md): docs/ashlr-handshake.md
+- [mdopener-mcp doctor --fix](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md): docs/doctor-fix.md
+  - [Repairs (macOS and Linux)](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md#repairs-macos-and-linux)
+  - [Manual items (report only)](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md#manual-items-report-only)
+
+## Discovery
+
+- [Full documentation](https://md.ashlr.ai/llms-full.txt): Combined source documents.
+- [Capabilities](https://md.ashlr.ai/capabilities.json): Machine-readable interfaces and limitations.

@@ -1,28 +1,46 @@
 # Ashlr MD landing page
 
-A self-contained, dependency-free marketing page (`index.html`). Editorial
-"paper" aesthetic: Fraunces display + Hanken Grotesk body + JetBrains Mono,
-warm neutrals with a sharp blue accent, a live theme-cycling app mockup, and
-scroll-reveal animations. No build step.
+The public site at https://md.ashlr.ai/ is a self-contained static page. It
+requires no build step. Keep deployment on the existing merge-to-main path;
+no deployment configuration changes are needed for these static files.
 
 ## Preview locally
 
-```bash
-open index.html          # just open it in a browser
-# or serve it:
-python3 -m http.server 8899   # then visit http://localhost:8899
+From this directory, run `python3 -m http.server 8899` and open
+http://localhost:8899/. Fonts load from Google Fonts. Content and discovery
+files remain readable without JavaScript.
+
+## Agent discovery
+
+From the repository root:
+
+```sh
+bun install --frozen-lockfile
+bun run discovery:generate
+bun run discovery:check
+HOME=$(mktemp -d) bun run test:discovery
 ```
 
-## Deploy
+Commit the generated files with source changes. Generation is deterministic
+and requires no network access. The existing `bun run test` command also runs
+the discovery tests, including a drift check, before the app tests. Tests use
+Python 3's standard XML parser for strict sitemap validation.
 
-It's a single static file; host it anywhere:
+- `llms.txt`: index generated from README and all `docs/*.md` headings. Each
+  document has one canonical GitHub URL, with section links using GitHub slugs.
+- `llms-full.txt`: combined source documents with relative Markdown links
+  resolved against their canonical source URLs.
+- `capabilities.json`: versioned manifest describing the desktop app's local
+  interfaces, platform support, documentation, and limitations.
+- `sitemap.xml`: canonical HTML pages on this site only. GitHub docs and text
+  discovery files are not separate HTML pages on this origin.
+- `robots.txt`: allows crawling and advertises the sitemap.
+- `index.html`: generated SoftwareApplication JSON-LD between discovery
+  markers. Version comes from `package.json`; licensing and platform support
+  reflect LICENSE and README. The free offer applies to the app, not optional
+  cloud AI services.
 
-- **Vercel:** `vercel deploy` from this `landing/` folder (or set the project
-  root to `landing/`). No framework, no config needed.
-- **GitHub Pages / Netlify / Cloudflare Pages:** point at this folder.
-
-## Notes
-
-- Replace the placeholder repo URL `github.com/ashlrai/ashlr-md` and the
-  download link (`/releases`) once the repo + first release exist.
-- Fonts load from Google Fonts; for a fully offline page, self-host them.
+When adding HTML pages, give each exactly one canonical URL and one h1, retain
+semantic heading order, add metadata, and extend the sitemap generator. The
+page tests recursively check all HTML files. Do not edit generated discovery
+content by hand; update its source or `scripts/generate-discovery.mjs`.

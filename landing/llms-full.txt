@@ -1,0 +1,2506 @@
+# Ashlr MD
+
+> Ashlr MD is an open-source Markdown desktop app for macOS, Windows, and Linux, with editing, export, local AI, and a bundled MCP server.
+
+Version: 0.4.0. License: MIT. The desktop app is free; optional cloud AI providers may charge fees.
+
+## Source: README.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/README.md
+
+<div align="center">
+
+<img src="./src-tauri/icons/128x128@2x.png" width="84" height="84" alt="Ashlr MD" />
+
+# Ashlr MD
+
+### Markdown, finally beautiful.
+
+**An open-source, AI-native Markdown app for macOS, Windows, and Linux.** Double-click any `.md` and
+it's instantly beautiful: read it, edit it, export it, and understand it with
+free, private, **on-device AI** built in.
+
+*Think Preview.app, but Markdown-aware, editable, and AI-native, and cross-platform.*
+
+[![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
+[![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://tauri.app)
+
+[**Website**](https://md.ashlr.ai) ·
+[Download](https://github.com/ashlrai/ashlr-md/releases) ·
+[Contributing](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md) ·
+[Roadmap](https://github.com/ashlrai/ashlr-md/blob/main/ROADMAP.md) ·
+[Vision](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md)
+
+<img src="./docs/og.png" width="820" alt="Ashlr MD: a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
+
+</div>
+
+---
+
+## 30-second start
+
+1. Download v0.4.0 for your OS from [Releases](https://github.com/ashlrai/ashlr-md/releases/latest): `.dmg` (Apple Silicon), `.msi`/`-setup.exe` (Windows), `.deb`/`.rpm`/`.AppImage` (Linux).
+2. Double-click any `.md` file, or run `mdopen notes.md` after **Preferences → Command-line tool → Install mdopen** (the app's installers leave `mdopen` off your `PATH`; see [docs/AGENTS.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#install)).
+3. Ask the AI sidebar about it. On a Mac with Apple Silicon and macOS 26 or later, the built-in on-device model needs no account and no API key: turn on Apple Intelligence in System Settings, then restart Ashlr MD. On Windows and Linux, install [Ollama](https://ollama.com) for free local AI, or add an Anthropic API key in Preferences.
+
+## Connect your agent (MCP)
+
+Easiest: **Preferences → AI agents (MCP) → Connect to Claude Code / Cursor**. By hand, with the bundled `mdopener-mcp`:
+
+```bash
+# Claude Code (macOS path shown; Linux: "/usr/lib/Ashlr MD/mdopener-mcp")
+claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+# Codex
+codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+```
+
+Cursor (`~/.cursor/mcp.json`):
+
+```json
+{ "mcpServers": { "ashlr-md": { "command": "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp" } } }
+```
+
+Windows path: `%LOCALAPPDATA%\Ashlr MD\mdopener-mcp.exe`. More in [docs/AGENTS.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md).
+The Settings copy command targets a Unix shell on macOS/Linux and PowerShell on
+Windows; its quoting is not intended for Windows Command Prompt (`cmd.exe`).
+
+
+## Why
+
+Your AI agents write Markdown all day: `README.md`, `PLAN.md`, research dumps.
+On most systems those open as a wall of raw syntax (TextEdit, Notepad) or a blank
+page (Preview). No app owns the simple job of making them *look right* instantly,
+especially for non-technical people. Ashlr MD does exactly that, on every platform.
+
+## Features
+
+- **Instant, beautiful rendering**: GFM, Shiki-highlighted code, Mermaid
+  diagrams, KaTeX math, GitHub-style callouts, tables, footnotes.
+- **Edit without the syntax**: Typora-style WYSIWYG (Milkdown) + a lossless
+  source mode (CodeMirror) + a clean Read view. Atomic save; external-change
+  detection with a conflict banner.
+- **Export anywhere**: one-click **PDF / DOCX / HTML**, fully offline, no Pandoc.
+- **⌘K command palette**: fuzzy, keyboard-first access to every action and your
+  recent files.
+- **Free, private, on-device AI**: summarize / explain / rewrite / translate.
+  On **macOS 26+ (Apple Silicon)**: zero-install via **Apple Foundation Models**
+  (macOS only). On **Windows & Linux** (and as a fallback on Mac): local
+  **Ollama** → your own cloud key → optional hosted. Nothing leaves your device
+  unless you opt in.
+- **AI superpowers**: select text to Explain / Summarize / Rewrite / Translate;
+  **inline AI rewrite in the editor (⌘I)** with Rewrite / Fix grammar / Make
+  concise / Expand; **"Explain changes"** when a file changes on disk; and
+  chat-with-document.
+- **Agent activity drawer (⌘B)**: watch the folder your AI agent writes to and
+  new Markdown files appear live; click to open instantly. The answer to "buried
+  in agent `.md` files."
+- **Outline navigation (⌘⇧O)**: an auto table-of-contents with scrollspy for
+  long docs.
+- **Tabs**: open several documents at once; the tab bar appears only when more
+  than one is open, so the single-file view stays clean. `⌘⇧]` / `⌘⇧[` to switch,
+  `⌘W` to close.
+- **Find & search**: find-in-document (`⌘F`) in both rendered and source views,
+  find-and-replace in source (`⌘⌥F`), and full-text **search across your recent &
+  watched files** (`⌘⇧F`).
+- **Split view & Zen mode**: edit with a live preview side-by-side (`⌘\`, synced
+  scrolling), or go distraction-free with **Zen mode** (`⌘⇧Z`, `Esc` to exit).
+- **Obsidian-compatible**: reads your vault natively, with `[[wikilinks]]` (with
+  `#heading` / `#^block` anchors and `|aliases`) that resolve vault-wide and open,
+  `![[embeds]]` and partial transclusion, sized `![[image.png|300]]` embeds,
+  `==highlights==`, hidden `%%comments%%`, and KaTeX math. Read-only **JSON
+  Canvas** (`.canvas`) viewing with pan/zoom, plus an **Open in Obsidian** command
+  to hand a note back. Never writes to your `.obsidian/` config. Details:
+  [**docs/OBSIDIAN.md**](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md).
+- **Reading polish**: word count & reading time, footnote hover previews,
+  a path breadcrumb, and copy-link-to-heading on hover.
+- **Secure by default**: malicious Markdown is sanitized (no script/HTML
+  injection), API keys live in the OS keychain (never plaintext), and a strict
+  CSP is enforced. See [SECURITY.md](https://github.com/ashlrai/ashlr-md/blob/main/SECURITY.md).
+- **Agent-native review loop**: `mdopen file.md`, the `mdopener://` URL scheme,
+  and an **MCP server** so Claude Code / Codex / Cursor can open, read, edit, and
+  export the live doc; the **activity drawer (⌘B)** surfaces new agent `.md` files
+  the instant they land and **"Explain changes"** narrates each on-disk edit.
+  One-click MCP setup in Settings. Full guide: [**docs/AGENTS.md**](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md).
+- **Phantom's Markdown viewer**: when Ashlr MD is installed, [Phantom](https://github.com/ashlrai/phantom)
+  hands its inbox and digest Markdown (`phm inbox show --open`, `phm digest --open`)
+  to `mdopen`. The broader "open any `.md`" opener is not on Phantom's `master` yet.
+  See [**docs/PHANTOM.md**](https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md).
+- **Obsidian integration**: the [Open in Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/integrations/obsidian/)
+  plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
+  right-click) via the `mdopener://` scheme.
+- **VS Code integration**: the [Open in Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/integrations/vscode/)
+  extension opens the active `.md` file in Ashlr MD from an editor title-bar
+  button (or the command palette) via the `mdopener://` scheme, with a `mdopen`
+  CLI fallback.
+- **Smart agent output**: callouts, interactive checkboxes that save back to the
+  file, and automatic plan / diff / multi-file detection with badges.
+- **Three themes**: Paper, Sepia, Midnight (light + dark), switch live.
+- **Native & instant**: built on [Tauri 2](https://tauri.app); a tiny native binary
+  on every OS, no Electron bloat. MIT, local-first, no telemetry.
+
+
+## Custom AI endpoints
+
+The AI sidebar, semantic search and the MCP sidecar read these environment variables at call time. Unset or blank means the defaults below, which are what the app always used.
+
+| Variable | Default | Accepts |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | an `https://` base URL, or `http://127.0.0.1` / `http://[::1]` with optional port; the app appends `/v1/messages` |
+| `OLLAMA_HOST` | `http://localhost:11434` (MCP sidecar: `http://127.0.0.1:11434`) | `host`, `host:port`, `:port` or a full URL |
+
+**Changed from #131:** `ANTHROPIC_BASE_URL` must be `https://` (any host), or plain `http://` only for the loopback addresses `127.0.0.1` and `[::1]`. `http://localhost`, plain http to any other host, other schemes, malformed URLs, a user name or password in the URL, a query and a fragment are refused when you send a message: the sidebar shows an error, no request is made and your API key is not sent. Anthropic requests do not follow redirects, so the key goes only to that host. The error never repeats the value.
+
+Trailing slashes are trimmed. This lets a gateway such as a LiteLLM proxy or a Phantom proxy sit in front of Anthropic, or points the app at Ollama on another machine. Only the URL handling is covered by tests; the app has not been tested against a specific gateway. The MCP sidecar accepts an `https://` `OLLAMA_HOST` and applies the same rules as `ANTHROPIC_BASE_URL`: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port` means `127.0.0.1:port`, and `0.0.0.0` or `[::]` mean the matching loopback address. Any other value (for example `gpu-box:11434` or `http://localhost:11434`) is refused: no request is made and the sidecar falls back to keyword search (a search that asked for `semantic: true` says why in its note). The sidecar does not follow redirects from Ollama. A desktop app launched from the Dock or Start menu may not see variables set in your shell profile.
+
+The installer also reports whether the optional Phantom CLI is installed and which version. It runs only `phantom --version` and never reads or reveals secret values. To run tools with Phantom placeholder keys and base URLs, start them with `phantom exec -- <cmd>`.
+
+### Local models (`localInference`)
+
+**Behavior change for `OLLAMA_HOST`:** the app now accepts `OLLAMA_HOST` only for a loopback host (`127.0.0.1`, `[::1]` or `localhost`; `0.0.0.0` and `[::]` mean the matching loopback address). A remote Ollama such as `gpu-box:11434` is refused (AI and embeddings report an error, no request is made) unless `~/.ashlr/config.json` sets `"localInference": { ..., "allowRemote": true }` AND the URL is `https://`. Only the config file can allow remote, never an environment variable.
+
+To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `localInference` block to `~/.ashlr/config.json`. It uses the same shape as Phantom's (ashlrai/phantom#917):
+
+```json
+"localInference": {
+  "provider": "ollama",
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "models": { "coder": "qwen3.8:27b" },
+  "allowRemote": false
+}
+```
+
+- `provider` is `ollama` (default base URL `http://127.0.0.1:11434/v1`), `omlx` (`http://127.0.0.1:8000/v1`) or `openai-compat` (`baseUrl` required).
+- The model defaults to `qwen3.8:27b`. Other options from Phantom's docs/LOCAL-INFERENCE.md: `qwen3.6:27b`, `qwen3.6:35b`, `qwen3-coder:30b` (`ollama pull qwen3.8:27b`). Abliterated or uncensored models are refused.
+- The URL must be loopback (`127.0.0.1`, `[::1]` or `localhost`, written exactly). A remote URL needs `allowRemote: true` and `https://`. Refusals use closed codes (`remote-not-allowed`, `remote-requires-https`, `host-not-canonical`, ...) and never repeat the URL.
+- No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
+- When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
+- `mdopener-mcp doctor` checks that the server answers: one loopback-only GET of the model list, no key, 3 s timeout, redirects refused, at most 256 KiB read. It prints only a status (`reachable`, `unreachable`, `not-configured`, `config-invalid`, `remote-not-probed` or `bad-response`); `--json` for machines.
+- `mdopener-mcp setup --local` gets you from nothing to a working local server. It looks for Ollama on `127.0.0.1:11434` and oMLX on `127.0.0.1:8000` (the same probe as `doctor`: loopback only, no key, 3 s each), probes the `localInference` block when there is one, and prints the exact next steps: the model pull command (`ollama pull qwen3.8:27b`, or the configured model), the `localInference` block to add with `"offline": true`, and the `doctor` check. It downloads nothing and writes nothing: a model is several GB, so you run the pull yourself. Add `--json` for machines (`kind: ashlr.setup-local`, with `downloads: false` and `writes: false`). oMLX has no pull command; it loads models from its dashboard or the folder given to `omlx serve --model-dir`.
+
+### Offline mode
+
+Set `"offline": true` on the same `localInference` block when this machine must not call a cloud model or a model server on another host. The default is off: leaving the key out (or setting `false`) changes nothing.
+
+```json
+"localInference": {
+  "provider": "ollama",
+  "offline": true
+}
+```
+
+While it is on:
+
+- Chat, embeddings, in-app search and `mdopener-mcp` talk only to loopback: `127.0.0.1`, `[::1]` and `localhost` (that name is pinned to loopback, with no DNS). `127.0.0.2`, `2130706433`, `localhost.evil.com` and a trailing dot are refused. A remote `baseUrl` or `OLLAMA_HOST` is refused even when `allowRemote` is true, and no environment variable can add a host.
+- Anthropic and the hosted Ashlr endpoint are not called at all, including through a loopback gateway. The error is `Offline mode (localInference.offline in ~/.ashlr/config.json): cloud AI is disabled. No request was sent.` There is no fallback to another cloud provider.
+- A loopback Ollama or `localInference` server still works. On-device Apple Foundation Models are unchanged. Requests still send no API key or OAuth token to a local URL, follow no redirects, and do not use a proxy for loopback.
+- A value that is present but not a boolean counts as offline (a typo cannot turn the guarantee off). The `localInference` block itself must still be a boolean or it is invalid and is not used.
+- `mdopener-mcp doctor` reports it: a second line, `doctor: offline [ok] verified`, when `offline` is on, the configured server is loopback and it answered the model-list probe, so no remote endpoint is in use and cloud AI is refused. `offline [warn] unverified` means `offline` is on but no loopback server answered (AI is unavailable until one does; `mdopener-mcp setup --local` says what to run). `offline [info] not enabled` means the flag is off. `doctor --json` adds the same as an `offline` check (`native_status` `verified`, `unverified` or `not-enabled`) to the `ashlr.doctor` envelope, after the `local-inference` check; `info` never raises the top-level status.
+
+## Platform support
+
+| Capability | macOS | Windows | Linux |
+|---|---|---|---|
+| Core (render · edit · export · themes) | ✅ | ✅ | ✅ |
+| Default `.md` handler | ✅ one-click (Launch Services) | ✅ registers association (opens Settings to confirm) | ✅ via `xdg-mime` |
+| Free local AI (zero-install) | ✅ Apple Foundation Models (macOS 26+, Apple Silicon) | Ollama (install separately) | Ollama (install separately) |
+| `mdopen` CLI & `mdopener://` deep link | ✅ | ✅ | ✅ |
+| MCP server | ✅ | ✅ | ✅ |
+| Command palette · activity drawer · inline AI · outline | ✅ | ✅ | ✅ |
+
+## Keyboard shortcuts
+
+Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
+
+| Action | Shortcut |
+|---|---|
+| Command palette | `⌘K` |
+| AI assistant | `⌘L` |
+| Inline AI rewrite (in editor) | `⌘I` |
+| Cycle theme | `⌘⇧L` |
+| Open file | `⌘O` |
+| Save | `⌘S` |
+| Export | `⌘E` |
+| Copy as rich text | `⌘⇧C` |
+| Insert table | `⌘⇧T` |
+| Read / Edit / Source view | `⌘1` / `⌘2` / `⌘3` |
+| Find in document | `⌘F` |
+| Find & replace (source) | `⌘⌥F` |
+| Search across files | `⌘⇧F` |
+| Split preview | `⌘\` |
+| Zen mode | `⌘⇧Z` |
+| Next / Previous tab | `⌘⇧]` / `⌘⇧[` |
+| Close tab | `⌘W` |
+| Agent activity drawer | `⌘B` |
+| Outline | `⌘⇧O` |
+| Settings | `⌘,` |
+| Keyboard shortcuts (cheat sheet) | `⌘/` |
+
+## One-click agent setup
+
+Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
+**Connect to Cursor**; no terminal required. For Codex, copy the command from the
+same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch an
+agent's output folder and open new `.md` files the moment they appear. Full guide
++ config snippets: [**docs/AGENTS.md**](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md).
+
+## Download & install
+
+Downloads are on the [GitHub Releases page](https://github.com/ashlrai/ashlr-md/releases).
+Full, per-OS instructions live in [**docs/INSTALL.md**](https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md).
+
+| Platform | Download (latest release) |
+|---|---|
+| macOS (Apple Silicon only) | `.dmg` (drag to `/Applications`) |
+| Windows (x64) | `.msi` or NSIS `-setup.exe` installer |
+| Linux (x86_64) | `.deb` · `.rpm` · `.AppImage` |
+
+Auto-update is built in on every platform. Intel Macs aren't covered by the
+current release; build from source (below).
+
+> **Note:** Release builds aren't code-signed yet. On macOS the app isn't
+> notarized, so right-click the app and choose **Open** the first time. On
+> Windows you may see a SmartScreen warning ("More info → Run anyway"). There
+> are no Homebrew, winget or AUR packages yet; use the release downloads. See
+> [docs/RELEASING.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md).
+
+There's also a one-shot installer that builds from source, installs the `mdopen`
+CLI, and wires up Claude Code:
+
+```bash
+bash scripts/install.sh
+```
+
+The full macOS source installer builds the Swift sidecars declared in the app's
+bundle configuration. It needs Xcode 26 / Swift 6.2+ with the macOS 26 SDK for
+`mdopener-afm`; a missing sidecar stops packaging with its build instructions.
+For the Rust CLI and MCP server only, use `SKIP_APP_BUILD=1 bash scripts/install.sh`;
+on Linux that is all the script installs (get the app from the release packages).
+
+## Develop
+
+Prerequisites: [Rust](https://rustup.rs) and [Bun](https://bun.sh).
+On macOS, also install Xcode Command Line Tools (`xcode-select --install`).
+On Windows, install the [MSVC build tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+On Linux, install `build-essential` (Debian/Ubuntu) or equivalent, plus the
+[Tauri Linux dependencies](https://tauri.app/start/prerequisites/#linux).
+
+```bash
+bun install
+bun run tauri dev        # hot-reloading desktop app
+bun run tauri dev -- -- file.md   # open a file on launch
+```
+
+Quality gates (all green in CI):
+
+```bash
+bun run typecheck        # tsc --noEmit
+bunx biome check src     # lint + format
+bun run test             # Vitest unit tests
+cargo check --workspace --manifest-path src-tauri/Cargo.toml
+```
+
+Source-only MCP setup checks (Python 3, Rust, and Bash; no installer or agent
+CLI execution): `python3 scripts/test-mcp-setup.py`.
+
+The on-device AI sidecar (optional, macOS 26+) builds separately:
+
+```bash
+cd src-tauri/bins/mdopener-afm && ./build.sh
+```
+
+## Architecture
+
+| Layer | What |
+|---|---|
+| `src/` | React 19 + TS frontend: renderer (remark/rehype + Shiki/Mermaid/KaTeX), Milkdown & CodeMirror editors, AI sidebar, export, Zustand stores |
+| `src-tauri/src/` | Rust core: file I/O, watcher, deep links, AI proxy (reqwest), loopback IPC, on-device AI bridge |
+| `src-tauri/bins/` | `mdopen` CLI · `mdopener-mcp` MCP server · `mdopener-afm` Swift on-device AI sidecar |
+| `landing/` | The marketing site (static, deploy-anywhere) |
+
+See [`docs/VISION.md`](https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md) for the north star and
+[`docs/RELEASING.md`](https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md) for the release process.
+
+## Repair with doctor --fix
+
+`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and writes nothing (exit 0). `mdopener-mcp doctor --fix --apply` makes them. `mdopener-mcp doctor --apply` without `--fix` is refused with exit 2. Add `--json` for one `{ mode, plan, outcome }` object. This is in source (main, 0.4.1 unreleased) and not yet in a release.
+
+```console
+$ mdopener-mcp doctor --fix
+doctor --fix (dry run, nothing written):
+  would fix  make owner-only (0644 to 0600): ~/.mdopener/ipc-port
+  would fix  move aside a saved review that does not parse: ~/.mdopener/reviews/<file>.json
+Run `mdopener-mcp doctor --fix --apply` to make these changes (a file's contents are backed up before it is moved).
+  manual     ipc-token is mode 0644: other users may read the app's token. It is a secret, so doctor --fix never touches it; run: chmod 600 ~/.mdopener/ipc-token
+```
+
+What it repairs: owner-only permissions (`~/.mdopener`, `sessions/` and `reviews/` to 0700; session files, saved reviews and `ipc-port` to 0600), reporting the previous mode, and a saved review that is oversized, does not parse, has another schema or sits under another file's name, which is backed up to `<file>.bak-<UTC stamp>` and removed. What stays manual: `ipc-token` permissions (it is the app's secret, so the tool never opens or changes it; run `chmod 600 ~/.mdopener/ipc-token` yourself), symlinks and special files, and MCP client registration (Preferences > AI agents). The `manual` line still prints after `--apply`. Unix only. Details: [docs/doctor-fix.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md). To repair every Ashlr tool at once, see [Repair everything](https://github.com/ashlrai/ashlr-stack/blob/main/docs/getting-started-ecosystem.md#repair-everything) in the Ashlr Stack guide.
+
+## Part of the Ashlr ecosystem
+
+Ashlr MD is one of the open-source tools from [Ashlr.AI](https://ashlr.ai). Each
+one installs and runs on its own:
+
+- **[Phantom](https://phm.dev)** (`phm`): the agent workbench. Source:
+  [ashlrai/phantom](https://github.com/ashlrai/phantom).
+- **[Phantom Secrets](https://phm.dev/secrets)** (`phantom`): keeps real API keys
+  out of agent context with `phm_` placeholders. Source:
+  [ashlrai/phantom-secrets](https://github.com/ashlrai/phantom-secrets).
+- **[Locus](https://github.com/ashlrai/locus)** (`locus`): pins each agent session
+  to one account.
+- **[Lexicon](https://lexicon.ashlr.ai)** (`lexicon`): fixes the words dictation
+  gets wrong.
+- **[Ashlr Stack](https://stack.ashlr.ai)** (`stack`): provisions services and
+  stores their keys in Phantom Secrets.
+- **[ashlr-plugin](https://plugin.ashlr.ai/)** (`ashlr-plugin`): token-efficiency
+  tools for Claude Code and Codex.
+
+**Post-quantum readiness:** [docs/PQ-READINESS.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md) records what Ashlr MD does with cryptography today (no primitives implemented in the application source; dependencies such as `keyring`, `reqwest` and `tauri-plugin-updater` bring their own, not audited there) and what a migration would touch. It makes no claim that Ashlr MD is quantum-safe.
+
+## Contributing
+
+Contributions welcome! Please read [CONTRIBUTING.md](https://github.com/ashlrai/ashlr-md/blob/main/CONTRIBUTING.md). The
+short version: local-first, no GPL in the bundle, and verify in the real app.
+
+## License
+
+[MIT](https://github.com/ashlrai/ashlr-md/blob/main/LICENSE) © Ashlr MD contributors
+
+
+## Source: docs/AGENTS.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md
+
+# Using Ashlr MD with AI Coding Agents
+
+Ashlr MD ships an **MCP server** (`mdopener-mcp`) that lets AI coding agents
+open, read, edit, search, export, and **request human review of** the document
+that is live in your Ashlr MD window, without leaving their coding environment.
+
+It also ships **`mdopen`**, a tiny CLI companion for opening any `.md` file from
+a terminal or agent script, and for wiring up an **auto-open hook** that pops
+Markdown into Ashlr MD the moment your agent writes it.
+
+> **Tip:** To watch everything an agent produces, open the **Agent Activity
+> drawer** (`⌘B` on macOS, `Ctrl+B` on Windows/Linux) and point it at the folder
+> your agent writes to. New Markdown files appear live as they're created; click
+> any one to open it instantly. It's the recommended way to keep an eye on an
+> agent's `.md` output without polling the filesystem yourself.
+
+---
+
+## What the integration is
+
+There are two cooperating pieces:
+
+1. **`mdopener-mcp`**: a [Model Context Protocol](https://modelcontextprotocol.io/)
+   server speaking JSON-RPC 2.0 over stdio. Agents (Claude Code, Codex, Cursor,
+   anything MCP-capable) launch it as a child process and call its **tools**,
+   read its **resources**, and use its **prompts**. It talks to the running
+   Ashlr MD app over a token-authenticated loopback HTTP channel (see
+   [Security](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#security)).
+2. **`mdopen`**: a CLI for opening files (`mdopen file.md`), reading stdin
+   (`cat x.md | mdopen -`), and running as a Claude Code **PostToolUse hook**
+   (`mdopen --hook`) so freshly written Markdown auto-opens for review.
+
+The MCP server understands the MCP lifecycle (`initialize` →
+`notifications/initialized` → `tools/list` / `tools/call`, plus `ping`,
+`resources/*`, and `prompts/*`) and negotiates one of three protocol revisions:
+**`2024-11-05`**, **`2025-03-26`**, or **`2025-06-18`** (default). It echoes the
+client's requested `protocolVersion` when it's one of these, and otherwise
+advertises the latest, `2025-06-18`. A JSON-RPC batch (an array of messages,
+which `2025-03-26` clients may send) gets one array reply; a message without
+an `id` is a notification and gets no reply. A `notifications/*` method
+sent *with* an `id` is answered `-32600`, so the client is not left waiting.
+A message whose `jsonrpc` is not `"2.0"`, whose `params` is not an object, or
+whose `id` is not a string or an integer (MCP never allows `null`) is answered
+`-32600` Invalid Request.
+
+The `initialize` result carries `instructions`, which clients may give the
+model: the tools to start with (`open_file`, `present_document`,
+`request_review`, `get_current_content`, `edit_document`), that only
+`open_file` starts the app, what to do when Ashlr MD is not installed (ask the
+user to install it from the releases page), and the tools that work without
+the app: `export_text` and `export_metadata` (with `path`), `diff_documents`
+and `edit_canvas`, `search_vault` (with `vault`), `get_user_annotations` (task
+checkboxes only), `list_ai_actions` and the two conversation tools. The text
+used to say they all work "on files on disk" and to pass `path` to
+`diff_documents`, which takes `path_a` and `path_b`.
+
+---
+
+## Quick start: one-click setup (in-app)
+
+Open **Ashlr MD → Preferences → AI agents (MCP)** and click:
+
+- **Connect to Claude Code**: runs `claude mcp add` for you, no terminal needed.
+- **Connect to Cursor**: writes/merges `~/.cursor/mcp.json` automatically.
+- **Connect to Codex**: runs `codex mcp add` for you.
+- **Auto-open agent Markdown**: installs a Claude Code `PostToolUse` hook so written
+  `.md` files open in Ashlr MD automatically (see [Auto-open hook](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#auto-open-hook)).
+
+The **Connect** buttons are only enabled for tools detected on your machine
+(`claude` / `codex` on `$PATH`, or a `~/.cursor` directory for Cursor). For a
+tool that is not detected, a note under the buttons says how to install it;
+detection runs again when you reopen Preferences. For any other agent, copy
+the command with the **Copy** button and paste it in a terminal.
+
+When Claude Code or Codex already has an `ashlr-md` server, the Connect button
+asks it (`mcp get`) which program it runs. A registration for a program that no
+longer exists (the app was moved or reinstalled) is removed and added again for
+this app; one that runs another program that still exists is kept, and the
+message names it and the command that removes it.
+
+---
+
+## Claude Code
+
+### One-click (recommended)
+
+Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code**.
+Ashlr MD runs the following for you (with `<mcp-binary>` resolved to the bundled
+`mdopener-mcp` path):
+
+```bash
+claude mcp add --scope user ashlr-md <mcp-binary>
+```
+
+The `--scope user` flag registers the server globally (all projects), not just
+the current directory. Re-running Connect when `ashlr-md` is already registered
+is safe: Ashlr MD asks Claude Code (`claude mcp get ashlr-md`) which program it
+runs. A registration that already runs this app's server is left alone; one
+whose program no longer exists (the app was moved or reinstalled) is removed and
+added again with the current path; one that runs another program that still
+exists is kept, and the message names that program and the
+`claude mcp remove --scope user ashlr-md` command that removes it.
+
+### Manual
+
+```bash
+# macOS
+claude mcp add --scope user ashlr-md "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+
+# Windows (PowerShell): verify path; shown here for a typical per-user install
+claude mcp add --scope user ashlr-md "$env:LOCALAPPDATA\Ashlr MD\mdopener-mcp.exe"
+
+# Linux (.deb install default)
+claude mcp add --scope user ashlr-md "/usr/lib/Ashlr MD/mdopener-mcp"
+
+# Linux AppImage, without the app: copy the server out once, then register the copy
+./AshlrMD.AppImage --appimage-extract "usr/lib/Ashlr MD/mdopener-mcp"
+install -D "squashfs-root/usr/lib/Ashlr MD/mdopener-mcp" ~/.local/bin/mdopener-mcp
+rm -rf squashfs-root
+claude mcp add --scope user ashlr-md ~/.local/bin/mdopener-mcp
+```
+
+An AppImage mounts itself at a new `/tmp/.mount_*` directory on every launch
+and unmounts when it quits, so a path inside the mount stops working once the
+app closes. From an AppImage, the **Connect** buttons, the **Copy** command and
+**Auto-open agent Markdown** therefore copy `mdopener-mcp` (and `mdopen`) to
+`~/.local/share/app.mdopener.desktop/bin/` and register that copy, which stays
+put after the app quits. The copy is refreshed whenever you click one of them
+after updating the AppImage. The AppImage commands above are only needed when
+you register the server without opening the app; copy the server out again
+after you update the AppImage.
+
+After running it, **restart Claude Code** (quit and start a new session) once.
+
+To get the exact command (with the real binary path) for your machine, use the
+**Copy** button in **Preferences → AI agents (MCP)**; it produces precisely:
+
+```bash
+claude mcp add --scope user ashlr-md <resolved-mdopener-mcp-path>
+```
+
+### Verify
+
+```bash
+claude mcp list
+# macOS:   ashlr-md  /Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp
+# Windows: ashlr-md  C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe
+# Linux:   ashlr-md  "/usr/lib/Ashlr MD/mdopener-mcp"
+```
+
+### Using the tools in Claude Code
+
+Once the server is registered, Claude Code can call the tools automatically when
+you're working on a Markdown file. You can also prompt it explicitly:
+
+```
+Open my plan.md in Ashlr MD and show me its current content.
+```
+
+```
+Edit the open document: change the heading "## Goals" to "## Objectives", then ask me to review it.
+```
+
+---
+
+## Codex (OpenAI Codex CLI)
+
+### One-click (recommended)
+
+Open **Preferences → AI agents (MCP)** and click **Connect to Codex**. Ashlr MD
+runs the following for you:
+
+```bash
+codex mcp add ashlr-md -- <mcp-binary>
+```
+
+This writes an `[mcp_servers.ashlr-md]` table to `~/.codex/config.toml`. Codex
+consumes MCP **tools** (not resources/prompts), exactly what `ashlr-md` exposes
+for agent control.
+
+### Manual: `codex mcp add`
+
+```bash
+# macOS
+codex mcp add ashlr-md -- "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+
+# Windows (adjust to your install dir)
+codex mcp add ashlr-md -- "C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe"
+
+# Linux (.deb)
+codex mcp add ashlr-md -- "/usr/lib/Ashlr MD/mdopener-mcp"
+```
+
+### Manual: `config.toml`
+
+If you prefer editing config directly, the `codex mcp add` command above writes
+the equivalent of this to **`~/.codex/config.toml`** (global) or a project-level
+**`.codex/config.toml`**:
+
+```toml
+[mcp_servers.ashlr-md]
+# macOS:
+command = "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"
+# Windows (adjust to your install dir):
+# command = "C:\\Users\\<you>\\AppData\\Local\\Ashlr MD\\mdopener-mcp.exe"
+# Linux (.deb):
+# command = "/usr/lib/Ashlr MD/mdopener-mcp"
+args = []
+```
+
+Codex picks up the new server on its next invocation (no restart needed).
+
+---
+
+## Cursor
+
+### One-click (recommended)
+
+Open **Preferences → AI agents (MCP)** and click **Connect to Cursor**. Ashlr MD
+writes/merges the entry in `~/.cursor/mcp.json` for you, leaving any other
+servers untouched. A file it cannot merge (not valid JSON, for example with a
+comment or a trailing comma, or whose `mcpServers` is not an object) is left
+as it is and the button says why; fix it, or add the entry by hand as below.
+
+### Manual
+
+Edit (or create) **`~/.cursor/mcp.json`** (macOS/Linux) or
+`%USERPROFILE%\.cursor\mcp.json` (Windows), the file **Connect to Cursor** writes:
+
+```json
+{
+  "mcpServers": {
+    "ashlr-md": {
+      "command": "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+On **Windows**, replace `command` with the path to `mdopener-mcp.exe` in your
+install directory (e.g. `C:\Users\<you>\AppData\Local\Ashlr MD\mdopener-mcp.exe`).
+On **Linux**, use `"/usr/lib/Ashlr MD/mdopener-mcp"` (`.deb`), or for an
+AppImage the copy **Connect to Cursor** makes,
+`/home/<you>/.local/share/app.mdopener.desktop/bin/mdopener-mcp`, or the one
+made in the manual Claude Code steps above (a path inside the AppImage's
+mount changes every launch).
+
+If the file already has other servers, merge only the `"ashlr-md"` key into the
+existing `"mcpServers"` object; don't replace the whole file.
+
+After saving, go to **Cursor Settings → MCP** and click **Reload** (or restart
+Cursor). You should then see `ashlr-md` listed with a green status indicator.
+
+---
+
+## MCP tool reference
+
+The `mdopener-mcp` server exposes **20** tools over stdio JSON-RPC 2.0.
+Every tool returns its payload inside the standard MCP `content` envelope
+(`{ "content": [{ "type": "text", "text": "…" }], "isError": false }`); the
+"Returns" column below describes the JSON carried inside that text.
+Rows are in `tools/list` order: the destructive tools are listed last,
+`edit_canvas` (which rewrites a canvas file in place), `export` (which can
+replace a file) and the two that replace the whole document,
+`replace_document` and `set_content`, so reach for `edit_document` first.
+
+| Tool | Parameters | Returns | Notes |
+|---|---|---|---|
+| `open_file` | `path: string`, `mode?: "read"\|"edit"` | `{ opened, response }` or `{ opened, method: "url-scheme", confirmed?, note? }` | Opens a file in the Ashlr MD window. `response` is the running app's reply; `method: "url-scheme"` means the app was not reachable and the `mdopener://` URL was handed to the OS launcher, with `confirmed: false` and a `note` when the launcher had not finished within 10 s. **The only tool that launches the app** if it isn't running (falls back to the `mdopener://` URL scheme). Without `mode` the window keeps its current view (a file already open in a tab keeps its own, and an app this call launches starts in `read`); pass `read` before an `export`, which needs Read view. Only Markdown documents that are not dotfiles can be opened (see [Security](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#security)); another file is refused with "Refusing to open `path` '<absolute path>': only Markdown documents (…) that are not dotfiles can be opened." (`present_document` and `request_review` say "present" and "review"). A file that does not exist is refused (by the running app, or before launching it). A running app answers once its window has opened the file, so a file the window could not open (for example, one it cannot read) is a tool error with the reason, also when `path` is the document already open (a failed read of it used to be reported as opened, because that document was still the one open afterwards). A running app that answers with a server error or not in time is a tool error too, never retried through the URL scheme (which could open the file twice). An app that refuses this server's token (HTTP 401) gets the refused-token message (see [Troubleshooting](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#troubleshooting)) and nothing is launched: the URL scheme would reach the same app. |
+| `get_current_content` | none | `{ path, content }` | Path + full Markdown source of the open document. `path` is the absolute path of the document's file: the app opens only files, so it answers `path: null` only when no document is open (its welcome screen, with empty content); this row used to say `null` meant an unsaved document, and the app has none. A `path: null` answer is no document whatever its `content` (it used to be refused only with empty content, here, in `mdopener://current`, the prompts and `export_text` / `export_metadata`, so a buffer with no file read as a document), as the edit tools treat it. With no document open the result is `isError: true` ("No document is open in Ashlr MD. Open one first (open_file)."), as `mdopener://current` (`-32002`) reports it. `export_text` and `export_metadata` without `path` are `isError: true` too, but say to pass `path` instead ("No document is open in Ashlr MD; pass `path` to read a file."). |
+| `list_recent` | `limit?: integer` | `[ { path, fileName, openedAt }, … ]` | Recently opened files, most recent first (`openedAt` is milliseconds since the Unix epoch). `limit` defaults to `10`; a value that is not a whole number from 1 to 200 is refused (`-32602`). Needs the app running (it keeps the list): it does not start it, so with the app closed it is an error, and `open_file` starts the app. |
+| `request_review` | `path?: string`, `content?: string`, `blocking?: boolean`, `timeout_ms?: integer`, `wait_ms?: integer`, `review_id?: string` | `{ verdict, reviewId, comments }` or `{ status: "pending", reviewId }` | **BLOCKING human sign-off.** See [Human review loop](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#human-review-loop). One of `path`, `content` or `review_id` is required; an empty or whitespace-only `content` is refused with `-32602` (it used to register a review of no text). `verdict` is `approved`, `changes_requested`, `dismissed`, `timeout` or `superseded` (a newer review replaced it in the panel). Needs the app running: it does not start it, so call `open_file` first when the app is closed. |
+| `get_user_annotations` | `path: string` | `{ path, verdict, comments, late, tasks, tasksNote?, appRunning?, appAuthFailed?, note? }` | The human's latest review verdict + comments for that file (`verdict` and `comments` are `null` when no review of it was requested), plus its GFM task-checkbox states, read where the page shows a checkbox (`> - [ ] t` and `1. [ ] t` are tasks; a `- [ ]` line in fenced or indented code or front matter is not, and `- [x]` with nothing after it is text): from the live buffer when it is the open document, else from the Markdown file on disk (none for other files). A file on disk larger than 16 MiB (or not UTF-8 text) is not read: `tasks` is empty and `tasksNote` says why, then "Its tasks were not read." (that sentence used to run on from a reason with no full stop). Works without the app: the tasks are read from the file on disk, `verdict` and `comments` come from the review the app saved in `~/.mdopener/reviews/` (null when none; `stale: true` when the file changed since), and `appRunning: false` with a `note` says so. An app that answers HTTP 401 (a stale `~/.mdopener/ipc-token`, or another instance on the port) gets the same disk read, with `appAuthFailed: true` and a `note` naming the token and saying to quit and restart Ashlr MD. Read-only. |
+| `edit_document` | `find: string`, `replace: string`, `save?: boolean`, `path?: string` | `{ ok: true, replaced: 1 }` | **Exact, unique find/replace** on the open document. See below. With no document open it returns `isError: true` ("No document is open in Ashlr MD; open one first (open_file).", as `set_content` says) and nothing is applied (it used to say that `find` was not found). A `find` that is not found or not unique, or a `path` that is not the open document, returns `isError: true` with the reason and leaves the document unchanged; a `find` that is not found (here and in `stream_edit` and `stream_edit_apply`) says it must match exactly, whitespace included (a line break matches LF or CRLF), and to copy it from `get_current_content` (it used to stop at "not found"). As for `set_content`, at most two edits wait on the app at once. A window that does not answer within 4 s returns `isError: true` too, but it may still apply the edit, so the error says to call `get_current_content` to see whether it did before retrying (this row used to count it among the refusals that leave the document unchanged). With `save: true`, a save that fails returns `isError: true` saying the edit was applied but not saved; `stream_edit_apply` does the same. The app opens only files (with none it shows its welcome screen), so every document it shows has one: both descriptions used to promise an "applied but not saved" result for "a document with no file yet", and the window applied an edit to a buffer with no file that was not empty, out of sight; it now refuses any state with no file as "No document is open", as `set_content` does. |
+| `search_vault` | `query: string`, `limit?: integer`, `semantic?: boolean`, `vault?: string` | `{ results, mode, query?, note?, vault?, truncated?, depthCut? }` | Search across the vault (watched folder) + recents. `query` comes with mode `grep` only: the query as the app's own search read it. The app lists the watched folder's 200 most recently changed Markdown files (the app sends that cap with its vault list, and the `note` quotes the app's number); when the folder has more, the result has `truncated: true` and a `note` saying only those were searched (the Activity drawer says so too). The app keeps the newest files of the whole folder while it walks it, but reads at most 50,000 directory entries and enters folders at most 8 levels down; past the entry budget the walk stops, and below that depth a folder is skipped. Either way the list is the newest of the files it reached, and `truncated: true` comes with a `note` saying newer files elsewhere in the folder may have been missed. When the depth limit is what cut the walk, the result also has `depthCut: true` and the `note` says the folder is too deeply nested (with only the entry budget, there is no `depthCut` and the `note` says the folder is too large); the app's `/vault` reply carries the same `scanCut` (either limit) and `depthCut` (the depth limit) flags. An older app that sends no `depthCut` gets the note naming both limits. Semantic (Ollama `nomic-embed-text` embeddings) when Ollama is reachable on `127.0.0.1:11434`, otherwise case-insensitive grep; `semantic` forces one or the other. `mode` is `semantic`, `grep` (the app's own search), or `grep-local` (the app's search failed, so the vault files were grepped on disk). When semantic search was tried but unavailable (for example `semantic: true` with Ollama down), or the app's search refused or failed, `note` says so in words and quotes the reason. When only some documents fail to embed, the semantic results leave them out and `note` says how many. In every mode, a vault or recent Markdown file that cannot be read (not UTF-8 text, larger than 16 MiB, or a read error) is not searched, and `note` says so (in mode `grep` from the app's `/search` reply, which lists such files as `unread: [{ path, reason }]`, the first 20, with `unreadCount` for all; an app that predates those fields gives no such note): how many files, the first three by path with the reason ("1 file was not searched because it could not be read: /v/latin.md (not UTF-8 text (byte 4 is not valid UTF-8, on line 1)). Convert a file that is not UTF-8 to UTF-8 to make it searchable."), and how many more; such files used to be left out in silence. (Mode `semantic` embeds the files itself; the app's own semantic index, which grounds its "My library" chat, is separate, and Settings > Semantic search names the files a reindex could not read.) if the app refused and the on-disk grep cannot run either, the refusal is the error. `limit` defaults to `50` and is a whole number from 1 to 200 in every mode; a value outside that range is refused with `-32602`, by the tool and by `text://vault-search?…&limit=`, as for `list_recent` (a value above 200 used to be read as 200). Needs the app (it supplies the vault file list). When the app cannot be reached (no `~/.mdopener/ipc-port`, or nothing listening) or refuses this server's token (HTTP 401), but not when it refuses the request, `vault` names a directory (absolute, relative to the server's working directory, or under `~/`) whose Markdown files are searched on disk instead: `mode` is `grep-disk` (or `semantic`), `vault` is the directory searched, and `note` says the app was unreachable and the disk was searched. After a 401 the `note` (here and in mode `grep-local`) gives the cause and the fix of the refused-token message (see [Troubleshooting](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#troubleshooting)) instead of quoting the raw "IPC auth failed" text. The walk reads only Markdown files that are not dotfiles, skips hidden folders, `node_modules` and `target`, does not follow directory symlinks, and stops at 5000 files (the `note` says so). A file symlink is followed: the file it resolves to is searched, and listed by that resolved path, when it is a Markdown file that is not a dotfile, even if it is outside `vault` (a link's own name is judged too, so a link named `.notes.md` is skipped). It enters folders at most 16 levels below `vault`; a deeper folder is not searched, and the result then has `truncated: true`, `depthCut: true` and a `note` saying so (deeper folders used to be skipped in silence). Without `vault`, an unreachable app or a refused token is `isError: true`, and the message names `vault` (after a 401 it is the refused-token message followed by "To search without the app, pass `vault`: the directory of Markdown files to grep on disk."; it used to be the refused-token message alone). A `vault` that is not a directory, or is itself a hidden folder (`.git`, `.obsidian`), is `isError: true`. |
+| `present_document` | `path?: string` | `{ ok, path }` | Open a file (if `path` given) and switch the app into a distraction-free reading presentation (Read view in Zen mode: the title bar, tabs, status bar and side panels are hidden, the window keeps its size, and Escape leaves it; this row and the tool description used to call it full-screen, but the window is not made full-screen), ideal for showing a finished result. Without `path` it presents the open document, and is an error when none is open that names the next step ("No document is open to present. Pass `path` to present_document, or call open_file with the document's `path` first."; the window used to answer only "No document is open to present."). A `path` that does not exist is refused before the app is asked, so the error says so even when the app is not running. It answers once the window has opened and presented the document, and a failure there is a tool error with the reason. Needs the app running: it does not start it, so call `open_file` first when the app is closed. |
+| `list_ai_actions` | `include_prompts?: boolean` | `{ actions, count }` | The editor's AI transform actions (explain, summarize, rewrite, …) with id, label, shortLabel, icon, scope, and (by default) their prompt templates (`systemPrompt`, `userPromptTemplate`); `include_prompts: false` leaves the templates out. Templates read the text as `{text}`: the selection, or for scope `document` the document, of which the app's AI sidebar sends at most the first 8,000 characters (`doc-explain-selection` keeps its id but explains the document, as the sidebar has always sent it; its label and prompt used to say it explained a selection); `translate` and `explain-diff` also take `{arg}`, and carry an `argument` field saying what it is (the target language, or the on-disk version). No app needed. |
+| `get_conversation_context` | `session_id: string`, `limit?: integer` | `{ sessionId, messages, count, recentDocs }` | Each message is `{ id, sessionId, role, content, citedDocs, timestampMs }` (`timestampMs` in milliseconds since the Unix epoch). The last N messages (default `20`, a whole number from `1` to `200`; a value outside that range is refused with `-32602`, as for `list_recent`, where one above `200` used to be clamped) of a session's memory store, oldest first. `recentDocs` lists the paths those messages cite, most recently cited first and each once (it used to be in random order). An empty or blank path that an earlier build stored is left out of `recentDocs` and of each message's own `citedDocs`. A path an earlier build stored twice in one message is listed once in that message's `citedDocs`. Empty when the session has none. A session file larger than 16 MiB is not read: the result is `isError: true` saying how large it is (it used to be read whole, and an unreadable file answered as an empty session). A `session_id` too long for its file name is refused with `-32602` (see `save_conversation_message`). |
+| `save_conversation_message` | `session_id: string`, `role: "agent"\|"human"\|"system"`, `content: string`, `cited_docs?: string[]` | `{ ok, messageId, sessionId, role, timestampMs, dropped?, note? }` | Append to a session's memory store, persisted at `~/.mdopener/sessions/<session_id>.json`. ASCII letters, digits, `-` and `_` are kept in the file name and every other byte is written as `%XX`, so distinct ids never share a file (`a.b` is `a%2Eb.json`, `a_b` is `a_b.json`). That file name (without `.json`) may be at most 200 bytes, so an id of up to 200 letters, digits, `-` and `_` always fits (other bytes count three each); a longer id is refused with `-32602` instead of failing when the file is written. The sessions directory is owner-only (`0700`, tightened if an earlier build left it open) and each session file is `0600`, on Unix. Where a case-insensitive file system still folds two ids together, reads skip the other id's messages and appends are refused. History saved by earlier builds under the old name (every other character replaced by `_`) is still read, keeping only that id's messages, and the next append moves it to the new file. The Ashlr MD window persists its side of a session into the same file, in the same format (each message's `citedDocs` once per path, in the order first given, as this tool stores them), and both hold `~/.mdopener/sessions/.lock` while they update a file, so neither overwrites the other's messages. A file that cannot be parsed, or is larger than 16 MiB, is left as it is and the append is refused. A session file is kept within 16 MiB: when a message would take it past that, the oldest messages are dropped and the result says how many (`dropped`, with a `note`). A message that cannot be written to disk is not saved and returns `isError: true`. An empty or blank (whitespace-only) path in `cited_docs` is refused with `-32602` (it used to be stored and come back in `recentDocs`). Each `cited_docs` path is stored absolute: a relative one is resolved against the server's working directory when saved (it used to be stored as given), and one starting with `~/` against the home directory, and an absolute one is kept as given. A path given twice (or a relative path and its absolute form) is stored once, in the order first given (it used to be stored and returned twice). |
+| `diff_documents` | `path_a: string`, `path_b: string`, `context_lines?: integer` | `{ diff, hunks, added, removed, path_a, path_b }` | Unified diff of two Markdown files on disk (non-Markdown files and dotfiles are refused). `hunks` counts the change hunks and `added` / `removed` the lines added and removed; `path_a` / `path_b` are the absolute paths read, and identical files give an empty `diff` and three zero counts. `context_lines` defaults to `3` and is a whole number from `0` to `10000`; a larger value is refused with `-32602` (it used to be read as `10000`). Lines are compared with their line endings, so files that differ only in CRLF vs LF or in the final newline are not reported as identical: a `\r` stays visible in the diff, and a last line without a newline is followed by `\ No newline at end of file`, as in `diff -u`. |
+| `stream_edit` | `find: string`, `replace: string`, `preview?: boolean`, `preview_lines?: integer`, `path?: string` | `{ ok, editId, diff, candidates, matchCount, applied }` | Preview a find/replace on the open document as a unified diff (every candidate when `find` matches more than once). `diff` is the diff of the first (or only) match, `candidates` is `null` for a single match and otherwise `[{ matchIndex, startLine, diff, rank }]` in document order (rank 1 first), and `matchCount` counts the occurrences. With no document open it returns `isError: true` ("No document is open in Ashlr MD; open one first (open_file).", as `edit_document` says; it used to say that `find` was not found). A `find` that is not found (or, with `preview: false`, not unique, which the error counts: "not unique (3 matches)") or a `path` that is not the open document returns `isError: true` with the reason, and the document is unchanged; so does a preview's window that does not answer within 4 s. With `preview: false` a window that does not answer within 4 s returns `isError: true` too, but it may still apply the edit, so the error says to call `get_current_content` to see whether it did before retrying (this row used to say the document was unchanged). A refusal from the window's search also carries `matchCount` beside `content` and `isError` (the text and the rest of the result are unchanged): the occurrences of `find` it counted, `0` when it is not found. The app's `/stream-edit` reply used to drop it (`{ ok: false, error }`), and it now sends `matchCount` with them; an older app sends none, and the result then has no `matchCount`. The other refusals (no document open, a `path` that is not the open document, a busy app, a window that does not answer or fails while it handles the edit) did not search, so they carry none; the window used to send a made-up `0` for them. `preview` defaults to `true`; `false` applies immediately (not written to disk, `find` must match once) and the result has `applied: true`, an empty `diff`, `candidates: null` and an `editId` that names no preview, so do not call `stream_edit_apply` after it (a preview has `applied: false`; the row used to leave the empty `diff` unsaid). `preview_lines` defaults to `5` and is a whole number from `0` to `20`; a larger value is refused with `-32602` (it used to be read as `20`). A `path` must name the open document (compared after resolving symlinks, as `edit_document` does). Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. Prefer it over `edit_document` only to see the change before committing it: it is no cheaper for a large file, since both send the app only `find` and `replace`, a preview adds a diff and a second call, and with `path` it also asks the app for the open document's path, not its content, to compare (its description used to say to prefer it for large files, and this row that `path` fetched the whole document, which it no longer does). |
+| `stream_edit_apply` | `edit_id?: string`, `find: string`, `replace: string`, `match_index?: integer`, `save?: boolean`, `path?: string` | `{ ok: true, replaced: 1, matchIndex }` | Apply a previewed `stream_edit`, choosing the occurrence with `match_index` (0-based, default `0`); `matchIndex` in the result is the occurrence applied. With no document open it returns `isError: true` ("No document is open in Ashlr MD; open one first (open_file).", as `edit_document` says) and nothing is applied or saved. A `find` no longer in the live document, a `match_index` past its last occurrence ("matchIndex 3 out of bounds: document has 2 occurrence(s). Use a match_index from 0 to 1, or call stream_edit again to see the candidates."), or a `path` that is not the open document returns `isError: true` with the reason and leaves the document unchanged, as `edit_document` does, as does a third edit while two wait on the app. A window that does not answer within 4 s returns `isError: true` too, but it may still apply the edit, so the error says to call `get_current_content` to see whether it did before retrying (this row used to count it among the refusals that leave the document unchanged). `match_index` is a whole number from `0` to `4294967295`, the app's 32-bit limit, which the schema declares as its `maximum`; a larger value is refused with `-32602` (`` `match_index` must be at most 4294967295, got … ``; it used to be refused only as "too large", with no bound in the schema). The app re-finds `find` in the live document. An empty or whitespace-only `edit_id` is refused with `-32602` (it used to be accepted). A given `edit_id` must name a preview the running app made of the open document, with the same `find` and `replace`, that has not been applied yet; a preview applies once. Otherwise the call returns `isError: true` and the document is unchanged: an unknown one (already applied, made before the app last started, or never made) says "Unknown or stale editId '<id>': ...", a preview of another document says "Stale editId '<id>': it previews '<path>', but the open document is now '<path>'.", and both end "Call stream_edit again for a fresh preview, then stream_edit_apply with its editId." (it used to be forwarded unchecked, so a stale preview re-found `find` in whatever document was open). A refusal because `find` is no longer in the live document or `match_index` is past its last occurrence also carries `matchCount` beside `content` and `isError` (the text and the rest of the result are unchanged): the occurrences of `find` the window counted. The other refusals (no document open, a `path` that is not the open document, a stale `edit_id`, a busy app, a window that does not answer) did not search, so they carry none, and neither does an older app; the app's `/stream-edit-apply` reply used to carry none at all. Without `edit_id` the apply is not checked against a preview. With the app closed the error says to start it (with `open_file`), then call `stream_edit` again for a fresh preview, since a preview from before the app started no longer exists. |
+| `export_text` | `path?: string` | `{ text, word_count, char_count, path }` | Plain text of a Markdown file with the syntax stripped (code blocks kept as written, by the fence rule of `export_metadata`; code in a blockquote or a list item loses the `>` markers and the item's indentation it sits in, where list-item code used to keep its indentation; a `~~~` line inside a backtick block used to end it, and the code after it lost its `#` and `*` marks; indented code (four columns past its blockquote markers or list item text, not continuing a paragraph) is kept as code without them and its indent, where an indented line after a list item used to be read as text until the list ended, so code in an item lost its `#` and `*` marks; an item's line indented less is its continuation; and a heading loses its `#`s only by the ATX rule of `export_metadata`, so a `# comment` indented four spaces used to lose its `#`; blockquote `>` leaders are taken off before that rule, so `> # Quote` reads `Quote`, where it used to keep its `#`; each line is read past the blockquote markers, list markers and item indentation it sits in, by the container rule of the fences, so `- # Step` reads `Step` and `1)` items lose their markers, where a list item's heading used to keep its `#`): a setext heading underline (`===` or `---` after a paragraph) reads nothing, but an `===` line the page shows as text (after link reference definitions, with no paragraph before it, or lazily after a list item) is kept, where every line of only `=` or `-` used to be dropped, `~~struck~~` text keeps its words, table rows become tab-separated cells, also in a blockquote or list item (the `|---|` row is dropped, `\|` reads `|`; as in GFM and the app's own rendering, an unescaped `|` inside `` `code` `` still splits a cell), inline Markdown is read per paragraph, so a code span, inline math, emphasis or a link may run over a paragraph's line breaks (it used to be read one line at a time, so a code span over two lines kept its backticks), inline math (`$x$`, `$$x$$`, as the page's remark-math reads it) keeps its TeX without its `$`s, where its `*` and `_` used to be taken off as emphasis, and a link or image in it is none, also for `export_metadata`, footnotes read `[1]` at the reference and `[1] text` at the definition, a link reads its text and an image its alt text, without their inline marks (`[**a**](https://github.com/ashlrai/ashlr-md/blob/main/docs/u)` reads `a`, where it used to keep its `**`), when its `(...)` is a CommonMark destination and title (`[t](a b)` is no link and reads as written, where it used to read `t`; a link holds no link and its text no wikilink, so `[[[W]]](u)` reads `[[W]]`, where it used to read `[W](https://github.com/ashlrai/ashlr-md/blob/main/docs/u)`), but a `[text]` with no `(url)` after it keeps its brackets unless the document defines its label (`[text]: /url`), as on the page (any `[text]` used to lose them, so `[sic]` read `sic`), a link reference definition (`[text]: /url "title"`, also over two or three lines) reads nothing, as on the page, where it used to read `text: /url "title"`, an autolink reads its URL or address (`<https://x>`, `<me@x.org>`) and inline HTML reads nothing, by the CommonMark rules (an HTML tag used to be any `<` and a letter up to the next `>`, so `<me@x.org>` read nothing and `<a href="x://y">` read `a href="x://y"`), an HTML block (a `<div>` or a lone `<u>` line up to a blank line, a comment up to its `-->`) reads its text without its tags and is not read as Markdown, as the page shows it as raw HTML (a `# x` in a `<div>` used to lose its `#`, and the `===` after a `<u>` line was dropped as a setext underline), a footnote definition (`[^1]: text`) holds the lines indented four columns after it, as remark-gfm reads it, so a heading, a fence or a link reference definition in it is read as one, and `[^a b]: x` (no footnote, as its label has a space) is a link reference definition, a `<...>` link destination is read whole (`[t](https://github.com/ashlrai/ashlr-md/blob/main/docs/%3Ca)b>)` reads `t`), and a wikilink reads its target, or its alias when it has one (`[[Plan|the plan]]` reads `the plan`; `[[Real]]` used to read `[Real]`, and a `![[a.png]]` embed `[a.png]`; an embed now reads nothing). The text has no blank lines before its first line or after its last, where it used to start with a line break after leading blank lines, front matter or a definition. `char_count` is the text's length in Unicode characters, not bytes. Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open, or when the app cannot be reached; that error says to pass `path`, which needs no app). Without `path` it reads the document as the window holds it, edits not yet saved included, not its file on disk; the description used to say it operates on disk and returns the path of "the file read". |
+| `export_metadata` | `path?: string` | `{ frontmatter, headings, wikilinks, wikilink_headings, embedded_image_count, word_count, path }` | Structural metadata of a Markdown file: `headings` is `[{ level, text }]`, a flat list in document order, for every ATX heading outside a leading YAML front matter block and fenced code (an empty one, `#` alone, is left out; ```` ``` ```` or `~~~`, closed only by the same character at least as long; an open fence runs to the end; a front matter `# comment` and a `# ` line after a `~~~` inside a backtick block used to be headings; a heading has at most three spaces before its `#`s, so a `# comment` indented four spaces is indented code, which used to be a heading; a heading inside a blockquote, `> # Quote`, is not listed, as in Obsidian's outline and the app's Outline panel, nor one in a list item, `- # Step` or one on an item's continuation line, `- x`, a blank line, then `  # Sub`, which used to be listed), `wikilinks` the distinct `[[link]]` targets sorted, outside fenced code by the same fence rule, indented code and code spans (a `[[link]]` in indented code or in `` `code` `` used to be listed; a front matter property such as `related: "[[Plan]]"` is a link, as Obsidian reads it; a `~~~` line inside a backtick block used to make the code after it links; a link is one line, as in Obsidian, so an unclosed `[[` no longer pairs with a `]]` lines later and hides the links between them; a target is read as the app reads it: the note without its `#heading`, so `[[Plan#Goals]]` links to `Plan`, where it used to list `Plan#Goals`, and a `]` ends no target, so `[[a]b]]` is not a link, where it used to list `a]b`; `[[#Goals]]`, a heading of the same note, has no target and is not listed), `wikilink_headings` the distinct `{ target, heading }` of each `[[target#heading]]` link, sorted by target then heading (a field added beside `wikilinks`, which keeps its shape), `embedded_image_count` the `![...](https://github.com/ashlrai/ashlr-md/blob/main/docs/...)` and `![[...]]` images outside fenced and indented code, code spans and front matter (an image is one only when its `(...)` is a CommonMark destination and title, so `![a](b c)` is not; a property is not rendered, so an image in one embeds nothing; a `![[` embed is one line too, so an unclosed one is not counted), and `path` the document's absolute path (with `path` omitted, the open document's file, whose text is read from the window, edits not yet saved included, as in `export_text`). Reads `path` (Markdown only, no dotfiles) from disk, or the open document via the app when omitted (an error when nothing is open, or when the app cannot be reached; that error says to pass `path`, which needs no app). `frontmatter` is `null` when a leading `---` is never closed by `---` or `...` (that line is a thematic break, and `export_text` keeps the text after it). The supported YAML subset is described under [Front matter in `export_metadata`](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#front-matter-in-export_metadata). A leading UTF-8 byte order mark (as Notepad saves) is ignored by both `export_text` and `export_metadata`, so it does not hide the front-matter. |
+| `edit_canvas` | `path: string`, `ops: object[]`, `save?: boolean` | `{ ok, path, nodes_count, edges_count, node_ids, edge_ids, removed_edge_ids, ops_applied, saved, content }` | Apply typed edit ops (move/resize/edit/color/add/delete nodes and edges, reorder edges) to a `.canvas` file, all or nothing. The extension matches in any case (`Board.CANVAS`), as Markdown extensions do (only a lowercase `.canvas` used to be taken), and a `path` that does not end in it is refused with `-32602` naming it (`` `path` must point to a .canvas file, got `notes.md` ``). `ops` must hold at least one op: an empty list is refused with `-32602` (`` `ops` must not be empty ``) before the file is read, so it is never written (the schema declares `minItems: 1`). `node_ids` / `edge_ids` are the ids left afterwards (for follow-up ops), `removed_edge_ids` the edges `delete_node` removed with their node, and `content` the new canvas JSON (a string) when `save` is `false`, which writes nothing, and `null` when the file was written. `save` defaults to `true`. Top-level keys other than `nodes` and `edges`, and unknown keys on nodes and edges, are written back unchanged; a canvas whose `nodes` or `edges` is not an array of objects is refused with `isError: true` and left untouched. Op fields are checked like arguments, before the file is read: a field of the wrong type, a field no op takes, an op without `type`, or a field shorter than its declared `minLength` (an op's empty `id` or `ids` element) is refused with `-32602` naming the op and field (`` `ops[1].x` must be a number ``, `` `ops[0].id` must be at least 1 character long ``). So is a field that another op takes but this op does not use (`width` on a `move_node`, which used to be ignored while the call reported success): the error names the ops that use it, and a move and a resize are two ops. An empty or whitespace-only id (an op's `id`, an element of `reorder_edges`' `ids`, `add_node`'s `node.id`, or `add_edge`'s `edge.id`, `edge.fromNode` or `edge.toNode`) is refused with `-32602` before the file is read (`` op[0] move_node: `id` must not be empty ``; it used to come back as "node `` not found"). `move_node` and `resize_node` write a whole-number `x`, `y`, `width` or `height` as a JSON integer, as JSON Canvas expects (`5` or `5.0` is written `5`; it used to be written `5.0`), and a fractional one as given. `add_node` refuses (`-32602`) a node the app would not show: it needs a non-empty string `id`, a `type` of `text`, `file`, `link` or `group`, numbers `x`, `y`, `width` and `height` (size positive), a string `file` for a file node and `url` for a link node. `add_edge` likewise refuses (`-32602`) an edge whose `fromSide`/`toSide` is not `top`, `right`, `bottom` or `left`, whose `fromEnd`/`toEnd` is not `none` or `arrow`, or whose `label` is not a string (these used to be written as given). A color (`set_node_color`'s `color`, `add_node`'s `node.color`, `add_edge`'s `edge.color`) must be what JSON Canvas allows, a preset `"1"`..`"6"` or a hex `#rgb` / `#rrggbb`; anything else (`"red"`, `"7"`) is refused with `-32602`. A node or edge id that is not in the canvas (in `move_node`, `delete_edge`, `add_edge`'s `fromNode`/`toNode`, `reorder_edges` and the rest) is refused with `-32602` listing the ids that exist at that op, after the ops before it (the first 20, then a count), and saying the file was left unchanged (`` op[0] move_node: node `n2` not found. The canvas's node ids at this op are `n1`, `n3`. No op was applied and the file was left unchanged. ``); it used to name only the missing id. It is listed with `destructiveHint: true`, among the destructive tools after the read-only and targeted ones: it writes the canvas back in place (`save` defaults to `true`) and can remove nodes and edges, and it used to say `false`, so a client that confirms destructive tools let it rewrite a canvas unasked. |
+| `export` | `format: "pdf"\|"docx"\|"html"\|"epub"`, `output_path?: string`, `overwrite?: boolean` | `{ ok, format, path, bytes }` or `{ ok, format, dialog: true }` | Export the open document. With none open it is `isError` naming the next step ("No document is open to export. Call open_file with the document's `path` and mode "read", then retry."; it used to say only "open one before exporting"). With `output_path` (html, docx or epub, with that extension, in an existing directory) the app writes the file without a dialog and the call returns once the window reports it written and it is on disk. An export that fails in the window returns `isError` at once with the window's reason; from Edit or Source view that reason says to call `open_file` with the document's path and `mode: "read"`, then retry (it used to be "Switch to Read view before exporting.", a toggle only the human can click); one the window has not finished within 30 s returns `isError` saying so. The app writes one headless export at a time, in a slot of its own, so a slow export never makes edits, opens, presents or reviews wait; a second headless export sent while one is being written returns `isError` at once saying so (retry once the first finishes). The document must be in Read view. Without `output_path` the app opens its export dialog. pdf goes through the system print dialog and takes no `output_path`. Exports use the app's current theme; a `theme` argument is refused (`-32602`). A file already at `output_path` is replaced only with `overwrite: true` (default `false`): without it the call returns `isError` saying it exists, and nothing is written or sent to the app. A file that appears after that check is not replaced either: the app is told not to replace one, and writes the export to a temp file published with a hard link (or created with `O_EXCL` where links are not supported), which fails when anything is at the path, so the call returns `isError` saying a file is already there. The check and the write used to be two steps. It is listed with `destructiveHint: true`, after the read-only and targeted tools; it used to say `false` and overwrote the file unasked. |
+| `replace_document` | `content: string`, `save?: boolean` | `{ ok: true }` | Replace the **entire** content of the open document, the same operation as `set_content`. Prefer `edit_document` for targeted changes. In a CRLF document (one with `\r\n` and no lone `\n`) a `content` with no `\r` takes CRLF line breaks, and a document that starts with a byte order mark keeps it when `content` has none. Refuses with no document open and reports a failed apply or save as `set_content` does. |
+| `set_content` | `content: string`, `save?: boolean` | `{ ok: true }` | Replace the **entire** content of the open document, the same operation as `replace_document`, and like it listed with `destructiveHint: true`. `save` defaults to `false`. The call returns `{ ok: true }` once the window has applied the content (and saved it, with `save: true`). With no document open it returns `isError: true` ("No document is open in Ashlr MD; open one first (open_file).") and nothing is applied. The app opens only files (with none it shows its welcome screen), so every document it shows has one, and there is no unsaved document to fill: the description used to promise a "replaced but not saved" result for "a document with no file yet", which never came. With `save: true`, a save that fails returns `isError: true` saying the content was replaced but not saved (the buffer keeps the new content), and a window that does not answer within 4 s returns `isError: true` saying it may still apply the content, and to call `get_current_content` to see whether it did before retrying. Like `edit_document`, at most two edits wait on the app at once; another returns a "busy, retry" error. A `content` larger than the 16 MiB the app reads in one request (counted with JSON escapes) is refused with `-32602` before it is sent, as for `replace_document`, `edit_document`, `stream_edit`, `stream_edit_apply` and `request_review` (see the paragraphs below this table). |
+
+Every path argument (`path`, `path_a`, `path_b`, `vault`, `output_path` and
+each `cited_docs` entry) may be absolute, relative to the server's working
+directory, or start with `~/` (or be `~` alone) for the home directory, as in
+a shell. A leading `~` used to be read as a folder named `~` in the working
+directory, so `~/notes/plan.md` came back as a file that does not exist.
+`~user` and a `~` later in the path are kept as given.
+
+A document a tool reads from disk must be UTF-8 text. One that is not (a
+Latin-1 or UTF-16 file, as some Windows editors save) is `isError: true`
+naming the first byte that is not valid UTF-8 and its line (or saying it is
+UTF-16), and saying to convert the file to UTF-8; it used to say only "stream
+did not contain valid UTF-8". The app gives the same reason when it reads
+the file itself, so `open_file`, `present_document` and `request_review` (with
+`path`) of such a file fail with it too, and so does the window's own open
+and a patch the human applies to the file.
+
+The app reads at most 16 MiB of one request. A call that would send it more
+(`set_content` or `replace_document` with a larger `content`, `edit_document`,
+`stream_edit` or `stream_edit_apply` with a larger `find` and `replace`, or
+`request_review` with a larger inline `content`), measured as sent, with JSON
+escapes, is refused with `-32602` before anything is sent, saying what to do
+instead: change part of the document with `edit_document`, split the edit,
+or pass the review text as a file's `path`. It used to be sent, and the app's
+refusal reached the agent as "IPC write error: Connection reset by peer".
+
+When a tool fails while running (the app is not running, a file cannot be read
+or written, the app rejects the operation), the call still succeeds at the
+JSON-RPC level and returns `isError: true` with the reason as text, as the MCP
+spec asks, so the agent sees the message and can act on it. JSON-RPC errors
+are reserved for protocol problems: an unknown tool or invalid arguments
+(`-32602`).
+
+Arguments are checked against the tool's `inputSchema` before it runs. An
+argument the schema does not declare (a typo such as `pth`), a value of the
+wrong JSON type (`"limit": "5"`, `"include_prompts": "no"`, a number inside
+`cited_docs`) or `arguments` that is not an object is refused with `-32602`
+naming the argument; an undeclared one also lists the arguments the tool
+takes and the closest match. Every integer argument declares a `minimum` in
+its schema (`0`, or `1` for the `limit` of `search_vault`, `list_recent` and
+`get_conversation_context`, and for `request_review` the `5000` of
+`timeout_ms` and the `1000` of `wait_ms`), and a value
+below it (`"limit": -5`, `"match_index": -1`) is refused the same way instead
+of falling back to the default. An integer above its declared `maximum`
+(the `limit` of `search_vault`, `list_recent` and `get_conversation_context` declares `200`, `diff_documents`' `context_lines` `10000`, `stream_edit`'s `preview_lines` `20`, `stream_edit_apply`'s `match_index` `4294967295`, and `request_review`'s
+`timeout_ms` and `wait_ms` `600000`) is refused the same way. A string outside the property's `enum`
+(`"mode": "view"`, `"role": "bot"`, an `edit_canvas` op `type` of
+`"move"`) is refused the same way, and the message lists the allowed values
+(`` `mode` must be one of `read`, `edit`, got a string ("view") ``). A string
+shorter than the property's `minLength` is refused the same way. Every
+required string a tool cannot use when empty declares `1`: `search_vault`'s
+`query`, `edit_document`'s and `stream_edit`'s and `stream_edit_apply`'s
+`find`, `get_user_annotations`'s and `edit_canvas`'s `path`, and the
+`session_id` of both conversation tools and `save_conversation_message`'s
+`content`. So does every path a tool reads or opens (`open_file`'s,
+`present_document`'s, `export_text`'s, `export_metadata`'s and
+`request_review`'s `path`, `diff_documents`' `path_a` and `path_b`),
+`request_review`'s inline `content` and `search_vault`'s `vault`, and
+the optional `path` of `edit_document`, `stream_edit` and
+`stream_edit_apply`, `stream_edit_apply`'s `edit_id` and `export`'s
+`output_path` (omitting them is still allowed): an empty one, or one of only
+whitespace, is refused with `-32602`
+(`` `path` must not be empty ``), where it used to reach the file checks and
+come back as "only Markdown documents can be read", "No such file or
+directory", "not the open document" or "cannot make an empty path
+absolute". `search_vault` also refuses a `query` that is
+only whitespace with `-32602`, before it asks the app (it used to report that
+the app was not running). So a string such as `"1"`, a negative or a
+fractional `match_index` is refused rather than read as `0`, and `"save":
+"true"` rather than read as `false`. A whole number written as a float
+(`2.0`) is an integer, as in JSON Schema. `null` counts as not given. A
+`required` argument that is missing (or `null`) is refused the same way
+(`` `ops` is required ``) before the tool reads anything, and `request_review`
+without any of `path`, `content` or `review_id` is refused naming all three.
+A test drives every tool's advertised schema through this check, so the
+schema's `required` list, property types and `enum` values are what is enforced. An unknown tool
+name gets the closest tool name, if any, and a pointer to `tools/list`. A
+blank `session_id` is refused like a missing one. `prompts/get` with an
+unknown or missing `name` and `resources/read` with an unknown or missing
+`uri` answer `-32602` the same way: the closest prompt or URI, if any, and
+the prompt names or a pointer to `resources/list`.
+
+### `edit_document`: exact, unique find/replace
+
+`edit_document` replaces an **exact substring** of the currently open document.
+The `find` string must occur **exactly once**:
+
+- **0 matches** → the edit is refused: *"`find` string not found in the current document."*
+- **2+ matches** → the edit is refused: *"`find` string is not unique (N matches): include more surrounding context to disambiguate."*
+- **empty `find`** → refused by the MCP server itself with `-32602` (*"`find` must not be empty"*), whether or not the app is running.
+
+Matching is exact except for line breaks: a line break in `find` (`\n` or
+`\r\n`) matches either in the document, so an LF `find` edits a CRLF file
+(it used to be "not found" there), and `replace` is written in the line breaks
+of the line the match starts on, so a CRLF file keeps CRLF lines and a mixed
+file keeps each part's. The same holds for `stream_edit` and
+`stream_edit_apply`. A byte order mark and the text around the match are left
+as they are.
+
+So include enough surrounding context to make `find` unique. These soft failures
+come back as a **tool error** (`isError: true`) with the reason, not an opaque
+transport failure, so the agent can retry with more context.
+
+Pass `path` to assert which file is open: if a *different* document is currently
+open, the edit is refused rather than silently applied to the wrong file. Pass
+`save: true` to persist to disk immediately (default `false`: edits stay in the
+live buffer until saved).
+
+### `request_review`: blocking human sign-off
+
+See the dedicated [Human review loop](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#human-review-loop) section.
+
+### Front matter in `export_metadata`
+
+The block opens on a first line of `---` and closes on a later `---` or
+`...` line. Each delimiter starts at column 0 with only spaces or tabs after
+it, as the app's renderer reads front matter, so `  ---` is a thematic break
+and opens no block (the line used to be trimmed, which hid the text up to the
+next `---` from the headings, tasks and `export_text`).
+
+`frontmatter` reads a small subset of YAML, not full YAML:
+
+- **Scalars**: `true` / `false` become booleans, integers and decimals become
+  numbers, `~`, `null` and an empty value (`key:` with nothing after it and
+  nothing under it) become `null`, and anything else is a string with
+  surrounding `"` or `'` removed (`key: ""` is the empty string).
+- **Lists**: a flow list (`tags: [a, "b, c"]`) or `- item` lines under an
+  empty `key:` become arrays. An item written as `- name: x` starts an object,
+  and the lines aligned with `name` add keys to it, so
+  `- name: Ann` / `  role: lead` is `{"name": "Ann", "role": "lead"}`. An item
+  in quotes, or whose colons are not followed by a space (`- http://x`), stays
+  a string.
+- **Nesting**: indented `name: value` lines under an empty `owner:` become an
+  object (`{"owner": {"name": "value"}}`), at any depth. Their values are read
+  the same way, so `links: [a, b]` or `- item` lines under `roles:` are
+  arrays, and an empty one is `null`.
+- **Block scalars**: `key: |` keeps the indented lines under it as written,
+  and `key: >` folds them: a line break between two lines becomes a space, a
+  blank line becomes a line break, and lines indented further keep their
+  breaks. Both end with one line break; `|-` / `>-` drop it and `|+` / `>+`
+  keep every trailing blank line. An explicit indentation digit (`|2`) is
+  honoured. Lines inside a block scalar are text, so `# ...` there is kept.
+- A key's colon must be followed by a space or end the line, so `time: 10:30`
+  is the string `"10:30"`.
+- **Not parsed**: anchors and aliases (`&a`, `*a`), tags (`!!str`), flow
+  mappings (`{a: 1}` stays a string), and multi-line plain or quoted scalars
+  (their continuation lines are skipped). Comment lines (`# ...`) outside
+  block scalars are skipped.
+
+---
+
+## Resources reference
+
+The server implements `resources/list`, `resources/templates/list` and
+`resources/read`. `resources/templates/list` offers one template,
+`text://vault-search?q={query}` (`mimeType: application/json`), the search
+below. Listing it needs no app; reading it needs the app unless `&vault=` is
+given (this used to say only "it needs no app"). The `resources/list` entry
+names the same parameters, `&limit=` included (it used to leave `limit` out).
+
+- **`mdopener://current`**: the document currently open in Ashlr MD
+  (`mimeType: text/markdown`). Reading it returns the live content; an open
+  document that is empty is `""`. With no document open (the app answers
+  `path: null`, whatever its `content`) it is `-32002` ("No document is
+  open"), as for the prompts. It is `-32000` when the app is not running,
+  and also when the app answers HTTP 401 (it refuses this server's token),
+  with the refused-token message (see [Troubleshooting](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#troubleshooting))
+  instead of the not-running one. Any other HTTP error the app answers (a
+  404 or a 500) is `-32000` too, with the app's reason as the message (a
+  500 whose reason said "not found" used to read as a closed app).
+- **`text://vault-search?q=<query>`**: the same search as `search_vault`, as a
+  resource (`mimeType: application/json`; optional `&limit=`, `&vault=` and
+  `&semantic=false` or `true` to force grep or semantic search, like
+  `search_vault`'s `semantic`; any other value, a `limit` that is not a
+  whole number from 1 to 200, a parameter with no value, or any other
+  parameter (a misspelt `lmit=5`) is `-32602`, naming the closest one; so
+  is a parameter given twice (`q=a&q=b` used to search for `b` alone) and a
+  malformed escape (`q=%ZZ` used to search for the literal `%ZZ`; write a
+  literal `%` as `%25`, a `+` as `%2B`)).
+  Returns `{ results, mode, query, note?, vault?, truncated?, depthCut? }`,
+  with the same `note`, `truncated` and `depthCut` as `search_vault` when it
+  fell back or did not search every file; an error when the app is not
+  running and no `vault` is given.
+- **`mdopener://recent-documents`**: recently opened files that still exist,
+  each with `path`, `title`, `mtimeMs`, and a 200-character `preview`
+  (`mimeType: application/json`), as `{ documents, count, skipped }`.
+  `title` is the text of the first level 1 ATX heading outside YAML front
+  matter, fenced code blocks, blockquotes and list items (one on a list
+  item's continuation line, `- x`, a blank line, then `  # Sub`, used to
+  be the title), else the file name without its extension
+  (a `# ` line in front matter or a code block used to be taken as the
+  title). A heading has at most three spaces before its `#` and a space, a
+  tab or the end of the line after it, and its closing `#`s are dropped, as
+  in CommonMark and `export_metadata`'s headings; only `# ` at the start of
+  a line used to count, so `  # Title` and `#<tab>Title` were not titles.
+  Recents that cannot be listed are left out and counted in `skipped` by
+  reason: `missing` (no longer on disk), `notDocument` (a dotfile, not
+  Markdown, or not a regular file), `tooLarge` (past 16 MiB) and
+  `unreadable` (any other read failure, such as text that is not UTF-8).
+  An app with no recents gives an empty list;
+  an app that cannot be reached, that refuses this server's token (HTTP
+  401) or that answers any other HTTP error is `-32000`, as for
+  `mdopener://current` (it used to be an empty list too).
+- **`file://<path>` (vault files)**: every file the app lists in the
+  **vault** (watched folder) is listed as an individually readable resource.
+  The path in the URI is percent-encoded as RFC 3986 and RFC 8089 require:
+  every byte but a letter, a digit, `-._~`, `!$&'()*+,;=`, `:`, `@` and the
+  `/` separator is written `%XX`, so `/notes/My Notes 100%.md` is listed as
+  `file:///notes/My%20Notes%20100%25.md` and `café.md` as `caf%C3%A9.md`. A
+  Windows path `C:\notes\a.md` is `file:///C:/notes/a.md`, and a share
+  `\\srv\share\a.md` is `file:////srv/share/a.md`. The URIs used to be
+  `file://` followed by the path as is, which is not a valid URI when the
+  path has a space; `resources/read` still takes that form.
+  Recently opened files are not listed as `file://` entries (read
+  `mdopener://recent-documents` for them), but a recent's `file://<path>` is
+  still readable through `resources/read`. When the app cannot be asked for them (it is not
+  running, or it refused), the list has none, and the result carries
+  `_meta: { "mdopener/vaultFilesUnlisted": "<reason>" }` (also logged on
+  stderr) so a client can tell that from a vault with no files; a listing
+  that worked has no such key. When the app's vault list is cut short (the
+  watched folder has more Markdown files than the app lists, or is too large
+  or too deeply nested to scan in full, as `search_vault`'s `truncated`
+  says), the result carries `_meta: { "mdopener/vaultFilesTruncated":
+  "<reason>" }`, naming the app's cap, so the `file://` entries are not
+  read as the whole vault.
+
+`resources/read` is **scoped**: a `file://` URI is only readable if it is one of
+the paths the app currently advertises in the vault or recents. Any other path
+is rejected (`-32002`, saying to open it with `open_file` first), so the resource channel can't be used as an
+arbitrary-filesystem read primitive. When the app cannot be reached it lists
+no path, and the read is `-32000` saying the app is not running, or with
+the refused-token message when the app answers HTTP 401, as for
+`mdopener://current` (it used to be `-32002` "not in vault"). The
+percent-encoded URIs `resources/list` gives (`file:///notes/My%20Notes.md`),
+the same path written unencoded (`file:///notes/My Notes.md`, the form it
+used to give, tried first) and `file://localhost/...` are accepted, and a
+`file:///C:/...` or `file:////srv/share/...` URI names the Windows path the
+app lists; the check runs on the decoded path, so encoding cannot reach a
+file outside the vault. A malformed escape (`%ZZ`, a lone `%`; write a literal `%` as `%25`) or
+escapes that do not decode to UTF-8 (`%FF`) are refused with `-32602` naming
+the problem, unless the URI is an advertised path exactly as written. An advertised path is then read only if it is a Markdown document that
+is not a dotfile, checked after resolving symlinks (like the tools that read a
+path from disk), so a vault `notes.md` that links to `~/.ssh/id_rsa` or `.env`
+is refused (`-32002`). `mdopener://recent-documents` skips such a recent
+instead of previewing its target.
+
+---
+
+## Prompts reference
+
+The server implements `prompts/list` and `prompts/get`. Each prompt embeds the
+**live document** so the returned message is self-contained:
+
+| Prompt | What it asks the model to do |
+|---|---|
+| `summarize` | Summarize the current document into a short bulleted list of key points. |
+| `review_plan` | Review the current document as an implementation plan; flag risks, missing steps, and anything ambiguous. |
+| `improve_writing` | Tighten the prose and fix grammar of the current document without changing its meaning or structure. |
+
+`prompts/get` returns a single `user` message whose text is the instruction
+followed by the current document content. With no document open it is
+`-32002` ("No document is open"), and `-32000` when the app is not running
+or answers HTTP 401 (it refuses this server's token, and the message says
+how to fix it), the same errors `mdopener://current` gives; any other
+HTTP error the app answers is `-32000` too, with the app's reason as the
+message. No prompt takes arguments: `arguments` may be left out, `null` or
+`{}`, and any argument given (such as a `path`, which used to be dropped
+while the prompt ran on the open document) is refused with `-32602`; open
+the document you mean with `open_file` first. Each prompt's `prompts/list`
+description says so too, `-32000` included (it used to name only a closed
+app).
+
+---
+
+## Human review loop
+
+`request_review` is the heart of the agent-with-a-human-in-the-loop workflow. It
+lets an agent stop and get **explicit human sign-off** on a plan, diff, or doc
+before proceeding.
+
+### Flow
+
+1. **Agent calls `request_review`** with either a file `path` or inline
+   `content`. The MCP server registers the review with the app (a unique
+   `reviewId` is generated) and, if a `path` was given, opens that file in read
+   mode. The app shows its **review panel**. If the app cannot open the file,
+   no review is registered and the call returns `isError: true` with the
+   app's reason.
+2. **The call BLOCKS** (when `blocking` is `true`, the default). Under the hood
+   the MCP binary polls the app every ~1.5s for a verdict, for at most
+   `wait_ms` (default 50 s, below the 60 s request timeout of common MCP
+   clients). If the human has not decided by then it returns
+   `{ "status": "pending", "reviewId": "…" }`; call `request_review` again with
+   `review_id` to keep waiting on the same review.
+3. **The human acts in the app**, clicking **Approve**, **Request changes**, or
+   **Dismiss**, optionally leaving comments.
+4. **The agent receives the verdict** as the tool result:
+   `{ "verdict": "approved" | "changes_requested" | "dismissed", "reviewId": "…", "comments": "…" }`.
+   `dismissed` means the human closed the panel. If the panel's countdown runs
+   out with no decision, the verdict is `timeout`. A `timeout` never replaces
+   a verdict already given. If the human still decides after the window has
+   closed (an agent may already have been told `timeout`), that verdict is
+   recorded with `"late": true` and a `message` saying so, in the
+   `request_review` result of a resumed call and in `get_user_annotations`.
+5. **One review at a time.** The panel shows a single review. When another
+   `request_review` (from this agent or another) reaches the panel before the
+   human has decided, the review it replaces ends at once with
+   `{ "verdict": "superseded", "reviewId": "…", "supersededBy": "…", "message": "…" }`
+   (also when resumed with `review_id`, and in `get_user_annotations`), rather
+   than waiting out its window and reporting `timeout`. Call `request_review`
+   again if it still needs sign-off. Reviews are not queued: a queued review's
+   window would run out while it is hidden, and the human sees the newest
+   request, which is usually the one that matters. A verdict the human was
+   already submitting as the panel switched is still recorded, marked `late`.
+
+### Parameters
+
+- `path` *or* `content`: **one is required.** `path` opens that file for review;
+  `content` reviews inline Markdown, which the review panel shows as text
+  (it used to show only "inline content", so the human never saw what they
+  were approving).
+- `blocking` (default `true`): if `false`, the review is registered and the call
+  returns immediately with `{ "reviewId": "…", "status": "pending", "message": "…" }`.
+  Call `request_review` with that `review_id` to wait for the verdict. A
+  resumed call with `blocking: false` does not wait: it reads the review once
+  and returns its verdict, `{ "status": "pending", … }`, or `timeout` once its
+  window has closed, ignoring `wait_ms`. A
+  review of a `path` can also be read later via `get_user_annotations`; one
+  of inline `content` has no path, so only `review_id` finds it.
+- `timeout_ms` (default `300000` = 5 min, must be **5 000 to 600 000**): how long
+  the human has to decide (the review panel's window). A value outside that
+  range (or not a whole number) is refused with an invalid-params error naming
+  the range, and no review is registered; the app's `/review` refuses the same
+  values with a 400. When the window closes
+  during a call (the first one, or one resumed with `review_id`) with no
+  decision, the tool returns `{ "verdict": "timeout", … }`, so resuming a
+  review never waits past its window.
+- `wait_ms` (default `50000`, must be **1 000 to 600 000**): the most one call
+  blocks. Raise it only if your client allows longer tool calls. A value
+  outside that range (or not a whole number) is refused with an
+  invalid-params error naming the range, and no review is registered; it
+  used to be clamped in silence. To return without waiting, pass
+  `blocking: false`.
+- `review_id`: resume waiting on a review an earlier call returned as pending
+  (no new review is registered). An empty or blank `review_id` is refused with
+  `-32602`; it used to be read as absent, so the call registered a new review
+  that replaced the pending one. A resumed call cannot change the review, so
+  `path`, `content` and `timeout_ms` may be resent unchanged (or left out), and
+  one that differs from what the review was requested with is refused with an
+  invalid-params error naming it, and nothing is waited on. Refusing, rather
+  than going ahead and noting it, is deliberate: an agent that changed its
+  `content` and kept the old `review_id` would otherwise read the human's
+  verdict on the old text as a verdict on the new one. The server remembers
+  the last 256 reviews it registered; for a review it did not register (it was
+  restarted, or another server registered it) nothing can be compared, so the
+  call goes ahead and the result lists those arguments as `ignored`, with a
+  `note`. Once its `timeout_ms` window has closed with
+  no verdict, the call returns `{ "verdict": "timeout", … }`.
+  The app keeps a review for 30 minutes after its `timeout_ms` window closes,
+  so resume within that time; later the call returns `verdict: "timeout"`
+  (the record is gone). The newest review of each file is kept longer, for
+  `get_user_annotations`, and the app holds at most 256 reviews, dropping the
+  oldest decided ones first.
+
+### Reading the result later
+
+`get_user_annotations(path)` returns the **latest** verdict and comments recorded
+for a file (with `late: true` when that verdict came after its review window
+closed), plus the current state of its GFM task checkboxes
+(`- [ ]` / `- [x]`, including `*`/`+` bullets). Use it after a non-blocking
+`request_review`, or to re-check whether the human has ticked off task items.
+
+When Ashlr MD is not running, `get_user_annotations` still answers, from
+disk: `tasks` are the checkboxes saved in the file, and `verdict`, `comments`
+and `late` are the last review the app saved for that file in
+`~/.mdopener/reviews/` (`null` when none was saved), with `appRunning: false`
+and a `note`. The app saves a review of a file there when it is decided or
+superseded: one owner-only (`0600`, folder `0700`) JSON file per document,
+at most 256 KiB, written atomically; a newer review of the same file always
+wins, and a file that is oversized, corrupt, or names another path is
+ignored. A saved review adds `saved: true`, `reviewId`, `reviewedAt` (ms
+since the epoch), `supersededBy` for a superseded review, and `stale`. `stale`
+is `true` when the file changed since the review (its content hash differs) or
+cannot be compared: the verdict was for an earlier version, so a stale
+`approved` is not approval of the file as it is now, and the `note` says to
+call `request_review` (`open_file` starts the app) to ask again. A review of
+inline content (no path) is not saved. A file
+that cannot be read (missing, not a Markdown document, or larger than 16 MiB)
+has empty `tasks` and a `tasksNote` saying why, in the words the other disk
+tools use (for a missing file, "Cannot read '/abs/plan.md': the file does not
+exist. Its tasks were not read."). An app that answers HTTP 401
+(it refused the token in `~/.mdopener/ipc-token`: the file is stale, or the
+port belongs to another Ashlr MD instance) is read from disk the same way, but
+the result has `appAuthFailed: true` instead of `appRunning`, and its `note`
+says to ask the user to quit every Ashlr MD window and start the app again
+(which writes a new port and token), then call `get_user_annotations` again.
+Any other error from the app is still an error.
+
+### Tips for agents
+
+- Use `request_review` for **gates**: "Here's the plan / the diff / the final
+  doc. Approve before I continue."
+- Pair it with `present_document` when you want the human to read a polished
+  result without the app's chrome, then call `request_review` for the sign-off.
+- On `changes_requested`, read the returned `comments`, apply fixes with
+  `edit_document`, and request review again.
+
+---
+
+## Auto-open hook
+
+`mdopen --hook` is a Claude Code **PostToolUse hook**: whenever Claude writes or
+edits a Markdown file, the file auto-opens in Ashlr MD for review. The hook is
+silent and exits `0`, so it never disrupts Claude's tool flow: it reads
+the PostToolUse JSON from stdin, extracts the written file path, and opens it in
+read mode: through the running app's loopback IPC channel, or via the
+`mdopener://` scheme when the app is not running. It reads at most 64 MiB of
+stdin; a longer payload opens nothing (still silently, exit `0`). It acts only
+on a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit`: a payload whose
+`hook_event_name` is another event (a hook wired as `PreToolUse` would open the
+file before the tool changed it) or whose `tool_name` is another tool (`Read`
+carries a `file_path` too) opens nothing, so a broad hand-written matcher does
+not open every Markdown file the agent reads. A payload whose `tool_response`
+reports the tool failed (`success: false`, `is_error: true`, a non-empty
+`error`, or a `<tool_use_error>` string) opens nothing either, since a failed
+`Edit` leaves the file unchanged. A payload without those fields is judged by
+its `tool_input.file_path` alone. The hook command takes no arguments besides
+`--hook`: `mdopen --hook notes.md` is a usage error (exit `1`, naming the
+extra argument on stderr, which Claude Code reports without blocking the
+tool call), since the payload arrives on stdin.
+
+### One-click install
+
+**Preferences → AI agents (MCP) → Auto-open agent Markdown**. Ashlr MD merges this
+into **`~/.claude/settings.json`** (idempotently: it won't add a duplicate).
+If the hook it installed earlier runs an `mdopen` that no longer exists (the app
+was moved, for example from Downloads to Applications), clicking it again points
+the hook at this copy of the app; a hook running another `mdopen` that exists is
+left alone:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'<mdopen>' --hook",
+            "if": "Write(*.md)|Edit(*.md)"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The `matcher` fires on the `Edit` and `Write` tools; the `if` guard narrows it to
+`*.md` files. The `mdopen` path is single-quoted so the space in "Ashlr MD" does
+not split it; re-running the installer repairs an unquoted entry that earlier
+versions wrote for the same path. After installing, **restart Claude Code** to
+pick it up. The quoting targets the POSIX shell Claude Code runs hooks with; it
+has not been verified on an installed Windows build.
+
+From an AppImage the button does not write the `mdopen` inside the
+AppImage's temporary mount (`/tmp/.mount_*`), which is gone once the app
+quits: it copies `mdopen` to `~/.local/share/app.mdopener.desktop/bin/mdopen`
+and writes that path, refreshing the copy when you click it again after
+updating the AppImage.
+
+> If `~/.claude/settings.json` already has a non-object `hooks` value or a
+> non-array `hooks.PostToolUse`, the installer **bails with an error** rather than
+> clobbering your settings; fix the shape manually and retry.
+
+---
+
+## The `mdopen` CLI
+
+`mdopen` opens any Markdown file in Ashlr MD from a terminal, CI script, or agent
+tool call.
+When the app is running, `mdopen` hands it the file over the token-authenticated
+loopback IPC channel, so it works even where the `mdopener://` scheme is not
+registered (an AppImage or dev build on Linux). Otherwise it opens the
+`mdopener://` URL, which launches the app. It exits `1` when neither works;
+for `mdopen -` the temp file holding stdin is then removed. The message names
+the file, what the running-app route and the `mdopener://` route each hit,
+and ends with the next step (start Ashlr MD, then run `mdopen` again). It also
+exits `1`, before contacting the app, for a file that is not a Markdown document
+(`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) or is a dotfile, checked after
+symlinks are resolved; and when the running app refuses the file, it exits `1`
+with the app's reason on stderr without trying the URL scheme. It also exits
+`1` without trying the URL scheme when the running app was reached but
+failed: it answered with a server error, the connection broke, or it did not
+answer within 6 s. The app may still open the file then, so for `mdopen -`
+the temp file is kept. When the running app refuses the token (HTTP 401),
+`mdopen` still tries the `mdopener://` URL, and if that opens the file it
+exits `0` but prints the stale-token problem and its fix to stderr ("IPC auth
+failed: Ashlr MD refused the token in ~/.mdopener/ipc-token (HTTP 401), ...;
+quit every Ashlr MD window and start it again, which writes a new token. The
+file was opened through the mdopener:// URL instead."), as it reports an
+unconfirmed launch; it used to say nothing, so the stale token went unnoticed.
+`--hook` stays silent. `mdopen -` also
+exits `1`, opening nothing, when stdin is empty or only whitespace, or longer
+than the 16 MiB a document may be (it stops reading there and writes no temp
+file). Run with a
+terminal on stdin (nothing piped), it prints how to finish typing (Ctrl+D, or
+Ctrl+Z and Enter on Windows) to stderr. Run with no arguments at all, it prints its help to stderr and exits
+`1`; `mdopen --help` prints it to stdout and exits `0`. An empty or blank
+path (`mdopen "$FILE"` with an empty variable) is a usage error saying the
+path is empty, and a directory is refused as a directory (exit `1` for
+both). An argument that is
+not valid UTF-8 is a usage error (exit `1`, naming it on stderr): Ashlr MD
+takes paths as UTF-8 text, and such an argument used to crash `mdopen` with
+exit `101`, `--hook` included.
+
+### Install
+
+In Ashlr MD: **Preferences → Command-line tool → Install mdopen** (all platforms).
+From an AppImage, the link it makes points at the copy of `mdopen` in
+`~/.local/share/app.mdopener.desktop/bin/`, not inside the AppImage's mount.
+
+Or via the build-from-source installer (macOS/Linux):
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
+```
+
+On **Windows**, the app installer places `mdopen.exe` alongside the app, and
+**Install mdopen** copies it to `%USERPROFILE%\.local\bin\mdopen.exe`. Neither
+folder is on `PATH` by default, so add one of them to your user `PATH` yourself.
+
+### Usage
+
+```bash
+mdopen README.md                # open a file (read mode, default)
+mdopen --edit PLAN.md           # open directly in edit mode (-e also works)
+mdopen --read NOTES.md          # force read mode (-r also works; with --edit it is a usage error)
+cat notes.md | mdopen -         # pipe stdin → temp file → open in app
+mdopen -- -draft.md             # `--` ends flags, for file names starting with `-`
+mdopen -- -                     # after `--`, `-` is a file named `-`, not stdin
+mdopen --hook                   # Claude Code PostToolUse hook mode (reads JSON on stdin)
+mdopen --help                   # print usage (-h also works); wins over every other flag, --hook included
+mdopen --version                # print the version (-V also works)
+```
+
+### From an agent
+
+Claude Code (and other agents with shell access) can call `mdopen` directly:
+
+```python
+# In a Python agent tool
+import subprocess
+subprocess.run(["mdopen", "/path/to/output.md"], check=True)
+```
+
+---
+
+## The `mdopener://` URL scheme
+
+Any app (browser, terminal, script) can open a file in Ashlr MD via the custom
+URL scheme:
+
+```
+mdopener://open?path=/absolute/path/to/file.md
+mdopener://open?path=/path/to/file.md&mode=edit
+```
+
+From the terminal:
+
+```bash
+# macOS
+open "mdopener://open?path=$(pwd)/README.md"
+
+# Windows (PowerShell)
+Start-Process "mdopener://open?path=$PWD\README.md"
+
+# Linux
+xdg-open "mdopener://open?path=$(pwd)/README.md"
+```
+
+From JavaScript / Electron:
+
+```js
+shell.openExternal(`mdopener://open?path=${encodeURIComponent(filePath)}`);
+```
+
+Since any web page or program can launch these links, a link opens only an
+existing Markdown document that is not a dotfile (checked after resolving
+symlinks, as for `open_file`); anything else is ignored. The `path` is
+percent-decoded once. `mode` is `read` or `edit` and switches the document
+to that view once it is open, also when the link starts the app (so does
+`mdopen --edit` with the app closed); a link with any other `mode` is
+ignored, as `open_file` refuses one. `mode` used to be dropped, so the file
+opened in whatever view it was. Other parameters are ignored, by open and
+export links alike, and of a parameter given twice the first counts.
+
+`mdopener://export?path=<path>&format=pdf|docx|html|epub` opens the file and,
+once it has loaded (also when the link starts the app), the export dialog
+with that format selected (`format` defaults to `pdf`). The export request
+used to be sent with the open, so a link that started the app only opened
+the file. An export link always switches the file to Read view, which
+exporting needs: `mode` may be left out or be `read`, and a link with
+`mode=edit` (or any value an open link refuses) is ignored. It used to
+ignore `mode` and export from whatever view the file was in, which fails in
+Edit view. A link with any other `format` (`PDF`, `md`) is ignored, as the
+`export` tool refuses one; it used to open the dialog with no format
+selected.
+
+---
+
+## How it works: the IPC model
+
+The MCP binary communicates with the running Ashlr MD app over a **loopback HTTP
+server** bound to `127.0.0.1` on an OS-assigned port. On startup the app writes
+its port to `~/.mdopener/ipc-port` and a per-session token to
+`~/.mdopener/ipc-token`; the MCP binary reads both to locate and authenticate to
+the app, and the app removes them on clean exit.
+
+If the app is not running, most tools return a clear error; `open_file` is the
+exception and will cold-start the app via the `mdopener://` URL scheme. The
+frontend keeps the app's document, recents, and vault state mirrored to the IPC
+layer (via `mcp_sync_state` / `mcp_sync_vault`) so reads are always fresh without
+re-walking the disk.
+
+---
+
+## Security
+
+The integration is **local-only and token-authenticated**:
+
+- The IPC server binds to **`127.0.0.1`** (loopback) on an ephemeral port, so
+  nothing is exposed beyond your machine.
+- On startup the app generates a **32-byte CSPRNG token** (64 hex chars) and
+  writes it to `~/.mdopener/ipc-token`. On Unix the file is created **owner-only
+  (`0600`)** in a single syscall so the token is never momentarily world-readable.
+- **Every endpoint except `/health`** (a data-free liveness probe) requires
+  `Authorization: Bearer <token>`. The token is compared in **constant time** to
+  avoid leaking a timing signal, and a mismatch returns `401`.
+- The MCP `resources/read` channel is **scoped to advertised vault/recents
+  files** (it cannot be used to read arbitrary paths off disk) and, like
+  the tools below, it reads only Markdown non-dotfiles after resolving
+  symlinks.
+- Conversation memory under `~/.mdopener/sessions` is **owner-only**: the
+  server keeps the directory `0700` and writes each session file `0600`.
+- Searches (`search_vault`, `text://vault-search` and the app's `/search`)
+  read only the vault files and recents that are Markdown documents and not
+  dotfiles, checked after resolving symlinks, so a recent `.env` or a
+  `notes.md` link to a key is never searched.
+- The tools that read a path straight from disk (`diff_documents`,
+  `export_text` / `export_metadata` with `path`, `search_vault` with `vault`
+  when the app is unreachable, and the task list of
+  `get_user_annotations` for a file that is not the open document) only read Markdown files
+  (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) that are not dotfiles. The
+  check runs after symlinks are resolved, so a `notes.md` link to `.env` is
+  refused with `isError: true`. The read then takes only the file the check
+  saw: on Unix a link put in the file's place afterwards is not followed
+  (`O_NOFOLLOW`), and a file with another device and inode (its folder
+  swapped for a link, say) is refused. The app's `/search` and
+  `/annotations` read the same way. The tools that ask the app to open a path
+  (`open_file`, `present_document`, `request_review` with `path`) make the
+  same check, since the app would then show the file and
+  `get_current_content` would return it; the app's `/open`, `/present` and
+  `/review` endpoints refuse such a path too (HTTP 400, and the reason
+  reaches the agent). `edit_canvas` likewise re-checks `.canvas`
+  after resolving symlinks, and saves by renaming a new temp file over the
+  canvas (keeping its permissions), so a canvas swapped for a symlink after
+  the check is replaced, never written through.
+- `export` with `output_path` writes that file without a dialog, and replaces
+  an existing file of that name only with `overwrite: true`. It only accepts a non-dotfile path with the
+  format's own extension (`.html`/`.htm`, `.docx`, `.epub`) in an existing
+  directory, so it cannot overwrite Markdown or other file types. The app's
+  `/export` endpoint applies the same rule to `outputPath` (which must also be
+  absolute) and refuses anything else with HTTP 400, whoever calls it. It
+  replaces a file already at `outputPath` only when the request says
+  `"overwrite": true`; without the flag (a caller written before it existed)
+  the file is refused, not replaced.
+- Every disk read (those tools, `edit_canvas`, `file://` resources, the
+  recent-documents resource and the local grep fallback) opens regular files
+  only, so a FIFO or device named `x.md` is refused (or skipped) instead of
+  blocking the server. Each also refuses (or, for search and the
+  recent-documents resource, skips) a file larger than 16 MiB, the most the
+  app accepts in one request, instead of reading it whole into memory and
+  into the reply. Session files are read up to 16 MiB too. The app reads
+  the same way when the human opens a document or searches from the
+  window: regular files only, opened without blocking, at most 16 MiB (the
+  document `/content` returns was read that way).
+- An answer from the app's IPC server (or from Ollama) is read up to 64 MiB,
+  headers included; a longer one is refused ("more than 64 MiB") instead of
+  being read into memory for as long as the peer keeps sending.
+- The token and port files are **removed on clean app exit**, so a stale process
+  can't authenticate against a new session.
+
+---
+
+## Dev / build-from-source
+
+```bash
+# Full install (macOS: builds and installs the app, sidecars, and CLI;
+# elsewhere: CLI + MCP only, get the app from Releases):
+bash <(curl -fsSL https://raw.githubusercontent.com/ashlrai/ashlr-md/main/scripts/install.sh)
+
+# Or from a checkout:
+bash scripts/install.sh
+
+# CLI + MCP only (no Tauri app build):
+SKIP_APP_BUILD=1 bash scripts/install.sh
+```
+
+The install script requires **Rust** (rustup), **Bun** and **git**. It is a
+bash script for macOS and Linux. On macOS the full install also needs Xcode
+(see the script header). On Linux it builds and installs only `mdopen` and
+`mdopener-mcp` (a C toolchain such as `build-essential` is enough) and says so;
+install the app itself from a `.deb`, `.rpm` or `.AppImage` release.
+
+In a dev build the MCP binary lives at:
+
+```
+src-tauri/target/release/mdopener-mcp
+```
+
+Register it with Claude Code:
+
+```bash
+claude mcp add --scope user ashlr-md \
+  "$(pwd)/src-tauri/target/release/mdopener-mcp"
+```
+
+---
+
+## Troubleshooting
+
+**"binary not found" after connecting**
+The MCP binary must exist before the agent can launch it. Either:
+- Install the full app from a release DMG or `scripts/install.sh`, or
+- Run `cargo build --release --manifest-path src-tauri/Cargo.toml -p mdopener-mcp`
+  from the repo root and register the `src-tauri/target/release/mdopener-mcp`
+  path manually.
+
+**Tools return "Ashlr MD does not appear to be running"**
+The app must be open for everything except `open_file`. Launch Ashlr MD (or call
+`open_file`, which cold-starts it), then retry. A tool that was given a `path`
+(`request_review`, `present_document`, `edit_document`, `stream_edit`,
+`stream_edit_apply`) names the call to make with that exact path, for example
+`Call open_file with {"path":"/abs/plan.md"}, which starts it with this
+document, then call this tool again.` `stream_edit_apply` says instead to call
+`stream_edit` again for a fresh preview before applying: the `editId` of a
+preview from before the app started no longer exists, and the document may
+have changed since. The message also says that an
+app that is not installed comes from
+[the releases page](https://github.com/ashlrai/ashlr-md/releases).
+
+**Tools return "Ashlr MD answered on the port in ~/.mdopener/ipc-port but refused the token"**
+The app answered HTTP 401: `~/.mdopener/ipc-token` is stale, or the port
+belongs to another Ashlr MD instance. Every app tool returns this one message
+(it used to be the bare "IPC auth failed: token mismatch or missing
+~/.mdopener/ipc-token"), and it says the next step: ask the user to quit every
+Ashlr MD window fully and start the app again, which writes a new
+`~/.mdopener/ipc-port` and `~/.mdopener/ipc-token`, then retry the call.
+`open_file` returns it too, without trying the `mdopener://` URL. A
+`request_review` that hits it while waiting adds that restarting ends the
+review, so request a new one. `get_user_annotations` does not fail on it: it
+reads the tasks from disk and says so with `appAuthFailed: true`, and
+`search_vault` with `vault` searches that folder on disk, with a `note`
+saying why and how to fix it; without `vault`, its error adds "To search
+without the app, pass `vault`", as it does for an app that is not running.
+
+**Claude Code shows "ashlr-md: failed to start"**
+Run `claude mcp list` to see the registered path, then verify the binary exists
+at that path and is executable (`chmod +x`). Running
+`<path> --version` prints `mdopener-mcp <version>` and exits, so it is a quick
+check that the path is right (`--help` prints usage). Any other argument is
+ignored, so an old client config that passes one still starts the server, but
+it is named on stderr (`ignoring unknown argument ...`); look there in the
+client's MCP log for a typo such as `--verison`. That holds for an argument
+that is not valid UTF-8 too (it used to stop the server with a panic). Run from a terminal, it says
+on stderr that it is waiting for JSON-RPC on stdin; stdout carries only
+protocol messages.
+
+**Cursor MCP panel shows the server as offline**
+Restart Cursor. If the issue persists, open `~/.cursor/mcp.json` and confirm the
+`command` path points to the binary.
+
+**Auto-open hook didn't install**
+If `~/.claude/settings.json` has a malformed `hooks` / `hooks.PostToolUse` shape,
+the installer bails rather than overwrite it; fix the JSON manually and retry.
+
+**`mdopen` command not found after installing**
+On macOS/Linux, make sure `/usr/local/bin` (or `~/.local/bin`) is on your `$PATH`:
+```bash
+echo $PATH          # check
+mdopen --help       # verify
+```
+On Windows, add the folder holding `mdopen.exe` (`%USERPROFILE%\.local\bin`
+after **Install mdopen**, or the app's install folder) to your user `PATH`, then
+restart your terminal. The in-app installer does not change `PATH`.
+
+
+## Source: docs/INSTALL.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/INSTALL.md
+
+# Installing Ashlr MD
+
+Ashlr MD is available for macOS (Apple Silicon), Windows (x64) and Linux (x86_64)
+from [GitHub Releases](https://github.com/ashlrai/ashlr-md/releases/latest).
+There are no Homebrew, winget or AUR packages yet.
+
+---
+
+## macOS
+
+### DMG
+
+1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
+2. Download `Ashlr_MD_X.Y.Z_aarch64.dmg` (Apple Silicon, M1 or later). The
+   current release has no Intel build; on an Intel Mac, build from source (see
+   the README).
+3. Open the DMG, drag **Ashlr MD.app** to `/Applications`.
+4. On first launch, right-click the app and choose **Open** to bypass Gatekeeper
+   (required for unsigned/unnotarized builds; see note below).
+
+> **Note on Gatekeeper:** Current releases are not notarized with an Apple
+> Developer ID, so macOS shows a warning. Right-click → Open bypasses this one
+> time. Once you have opened it this way, future launches work normally.
+
+### Set Ashlr MD as the default Markdown app (macOS)
+
+1. Right-click any `.md` file in Finder → **Get Info**.
+2. Under **Open with**, select **Ashlr MD**.
+3. Click **Change All…** to apply to all `.md` files.
+
+---
+
+## Windows
+
+### Option A: NSIS Installer (recommended)
+
+1. Go to [github.com/ashlrai/ashlr-md/releases/latest](https://github.com/ashlrai/ashlr-md/releases/latest).
+2. Download `Ashlr_MD_X.Y.Z_x64-setup.exe`.
+3. Run the installer. It installs for the current user to `%LOCALAPPDATA%\Ashlr MD\`
+   by default.
+4. If Windows Defender SmartScreen appears, click **More info → Run anyway**.
+   (This warning appears for unsigned installers. It will disappear once the
+   app is code-signed with an EV/OV certificate.)
+
+> **Silent install** (for IT/automation):
+> ```bat
+> Ashlr_MD_X.Y.Z_x64-setup.exe /S
+> ```
+
+The installer puts the `mdopen` CLI (`mdopen.exe`) and the `mdopener-mcp` MCP
+server (`mdopener-mcp.exe`) next to the app in `%LOCALAPPDATA%\Ashlr MD\`.
+Neither is on your `PATH` after install. Use **Preferences → Command-line tool
+→ Install mdopen**, which copies `mdopen.exe` to `%USERPROFILE%\.local\bin\`
+(add that folder to your user `PATH`), or call it by its full path:
+`& "$env:LOCALAPPDATA\Ashlr MD\mdopen.exe" notes.md` in PowerShell.
+
+### Option B: MSI Package
+
+Download `Ashlr_MD_X.Y.Z_x64_en-US.msi` from the same release page.
+Double-click to install, or deploy silently via Group Policy / MDM.
+
+### Set Ashlr MD as the default Markdown app (Windows)
+
+The NSIS installer registers `.md`, `.markdown`, `.mdown`, `.mkd`, and `.mdx`
+file associations automatically. To change the default:
+
+1. Right-click a `.md` file → **Open with → Choose another app**.
+2. Select **Ashlr MD** → tick **Always use this app** → OK.
+
+---
+
+## Linux
+
+### Option A: Debian / Ubuntu (.deb)
+
+```bash
+# Download the .deb from the latest release
+curl -L \
+  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.deb" \
+  -o ashlr-md.deb
+
+# Install
+sudo dpkg -i ashlr-md.deb
+
+# Fix any missing dependencies
+sudo apt-get install -f
+```
+
+The `.deb` installs:
+- App binary at `/usr/bin/md-opener`
+- `.desktop` entry at `/usr/share/applications/Ashlr MD.desktop`
+- The `mdopen` CLI and the `mdopener-mcp` MCP server in `/usr/lib/Ashlr MD/`
+- Icons under `/usr/share/icons/hicolor/`
+
+`mdopen` is not on your `PATH` after install. Use **Preferences → Command-line
+tool → Install mdopen**, or call it by its full path:
+`"/usr/lib/Ashlr MD/mdopen" notes.md`.
+
+After install, `.md` files will appear in **Open With → Ashlr MD** in Nautilus
+and other XDG-compliant file managers.
+
+### Fedora / RHEL (.rpm)
+
+Download `Ashlr_MD_X.Y.Z_x86_64.rpm` from the latest release and install it with
+`sudo dnf install ./Ashlr_MD_X.Y.Z_x86_64.rpm`.
+
+### Option B: AppImage (portable, any distro)
+
+```bash
+# Download the AppImage
+curl -L \
+  "https://github.com/ashlrai/ashlr-md/releases/latest/download/Ashlr_MD_X.Y.Z_amd64.AppImage" \
+  -o AshlrMD.AppImage
+
+# Make executable and run
+chmod +x AshlrMD.AppImage
+./AshlrMD.AppImage
+```
+
+The first time it runs, the AppImage registers the `mdopener://` scheme for
+your user (a hidden `md-opener-handler.desktop` entry under
+`~/.local/share/applications/` that points at the AppImage), so `mdopen` and
+agent deep links reach it. If you move the AppImage, run it once from its new
+place to update that entry. It does not add a launcher, icons or an **Open
+With** entry for `.md` files; for that, use a desktop integration tool such
+as [appimaged](https://github.com/probonopd/go-appimage) or AppImageLauncher.
+
+> The AppImage bundles all dependencies and runs on any x86_64 Linux distro
+> with glibc ≥ 2.35 (Ubuntu 22.04+, Fedora 36+, etc.).
+
+### Set Ashlr MD as the default Markdown app (Linux)
+
+With the `.deb` or `.rpm` installed, use **Preferences → Default Markdown app →
+Make Default**, or run `xdg-mime` yourself. The desktop entry is named after
+the product, with a space, so quote it:
+
+```bash
+# Register the MIME type association
+xdg-mime default "Ashlr MD.desktop" text/markdown
+xdg-mime default "Ashlr MD.desktop" text/x-markdown
+
+# Verify
+xdg-mime query default text/markdown
+# → Ashlr MD.desktop
+```
+
+### Linux troubleshooting
+
+Checked against the v0.4.0 `.deb` and AppImage on Debian 13 (x86_64).
+
+**`dpkg -i` stops with unmet dependencies.** The `.deb` depends on
+`libwebkit2gtk-4.1-0` and `libgtk-3-0`. Install it with apt instead, which pulls
+those in for you:
+
+```bash
+sudo apt-get install ./Ashlr_MD_X.Y.Z_amd64.deb
+```
+
+**Connecting an agent when you use the AppImage.** `mdopener-mcp` lives inside
+the AppImage, which is mounted at a different temporary path on every run, so
+there is no `/usr/lib/Ashlr MD/mdopener-mcp` to point Claude Code, Codex or
+Cursor at. Either install the `.deb` or `.rpm`, or extract the AppImage once and
+use the extracted copy:
+
+```bash
+./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract
+# Stable path to the MCP server:
+"$PWD/squashfs-root/usr/lib/Ashlr MD/mdopener-mcp"
+```
+
+Extract again after you update the AppImage, so the agent runs the new version.
+
+**`Cannot mount AppImage, please check your FUSE setup.`** The AppImage uses
+the static type 2 runtime, so it does not need `libfuse2` (it ran on Debian 13
+with only libfuse3 installed). Where FUSE is not available at all, for example
+in a container without `/dev/fuse`, run it without mounting:
+
+```bash
+./Ashlr_MD_X.Y.Z_amd64.AppImage --appimage-extract-and-run
+```
+
+**`mdopen: command not found`.** Neither package puts `mdopen` on your `PATH`;
+see the note under Option A above.
+
+---
+
+## Auto-Updates
+
+Ashlr MD checks for updates a few seconds after each launch (all platforms)
+using the Tauri updater. When a new version is available, it asks whether to
+install it. Click **Install** to download and install; the app relaunches into
+the new version. **Later** dismisses the prompt until the next launch.
+
+There is no menu command to check by hand: quit and reopen the app to check
+again. A failed check (offline, for example) is silent.
+
+---
+
+## Uninstalling
+
+| Platform | Method |
+|---|---|
+| macOS DMG | Drag `Ashlr MD.app` from `/Applications` to Trash |
+| Windows | Settings → Apps → Ashlr MD → Uninstall |
+| Linux .deb | `sudo apt remove ashlr-md` |
+| Linux .rpm | `sudo dnf remove ashlr-md` |
+| Linux AppImage | Delete the `.AppImage` file, and `~/.local/share/applications/md-opener-handler.desktop` (the `mdopener://` handler it registered) |
+
+Preferences and app data are stored at:
+- **macOS:** `~/Library/Application Support/app.mdopener.desktop`
+- **Windows:** `%APPDATA%\app.mdopener.desktop`
+- **Linux:** `~/.config/app.mdopener.desktop`
+
+On every platform the app and its agent tools also keep `~/.mdopener/`
+(`%USERPROFILE%\.mdopener\` on Windows): the IPC port and token files and
+`sessions/`, the conversation memory agents save. A copy made with **Install
+mdopen** stays where it was copied too.
+
+These are not removed by a standard uninstall; delete them manually if you
+want a clean slate.
+
+
+## Source: docs/OBSIDIAN.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md
+
+# Obsidian compatibility
+
+Ashlr MD reads [Obsidian](https://obsidian.md) vaults and notes natively. Point
+it at a `.md` file in your vault and your wikilinks, embeds, highlights,
+comments, math, and `.canvas` files all render the way they do in Obsidian's
+Reading View, with no plugins and no export step.
+
+It is a **respectful guest** in your vault: Ashlr MD resolves links vault-wide,
+opens linked notes in tabs, and can hand a note back to Obsidian in one click,
+but it **never writes into your `.obsidian/` config folder** (see
+[Vault setup](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#vault-setup)).
+
+> This is a *compatibility* layer, not a re-implementation of Obsidian. Anything
+> not listed under [What's not supported yet](https://github.com/ashlrai/ashlr-md/blob/main/docs/OBSIDIAN.md#whats-not-supported-yet) below
+> should behave the way you expect; if it doesn't, that's a bug.
+
+---
+
+## Vault setup
+
+A "vault" is just a folder Obsidian manages. Obsidian marks the vault root with a
+`.obsidian/` config directory. Ashlr MD uses that same marker to find your vault
+so it can resolve `[[wikilinks]]` across the whole tree (not just the current
+folder).
+
+**How the vault root is found**, in order of precedence:
+
+1. **Settings override.** If you set a vault folder in **Settings → Vault**, that
+   path is always used as the vault root.
+2. **Auto-detection.** Otherwise, Ashlr MD walks up from the open document's
+   folder looking for the nearest ancestor that contains a `.obsidian/` folder,
+   and uses that directory as the vault root.
+3. **Fallback.** If neither is found (e.g. a loose `.md` file outside any vault),
+   link resolution falls back to the document's own directory.
+
+Setting the override in **Settings → Vault** is useful when you keep notes
+outside a formal Obsidian vault, or when you want resolution scoped to a specific
+folder regardless of where the open file lives.
+
+### Ashlr MD never writes to `.obsidian/`
+
+Saving a document is **refused** if the target path lands inside an `.obsidian/`
+config folder. The guard checks the path textually *and* resolves symlinks, so a
+symlinked config dir can't slip a write past it. Your Obsidian settings, themes,
+and plugin configuration are never touched by Ashlr MD.
+
+---
+
+## Wikilinks
+
+Type-through `[[...]]` internal links render as clickable links. Click one to
+open the resolved note in a tab; a link carrying a `#heading` anchor also scrolls
+to that heading once the note loads. Links that don't resolve are styled as
+**broken** and disabled, with the unresolved target shown on hover.
+
+### Supported grammar
+
+| Syntax | What it does |
+|---|---|
+| `[[note]]` | Link to `note`; the link text is `note`. |
+| `[[note\|alias]]` | Link to `note`, displayed as `alias`. |
+| `[[note#heading]]` | Link to `note` and scroll to the `heading` section. Default text is `note › heading`. |
+| `[[note#^block]]` | Link to `note` (the `^block` anchor is preserved; there's no rendered jump target for block refs yet, so it opens the note without scrolling). |
+| `[[#heading]]` | The bare-target form follows the same resolution rules; an empty file part doesn't resolve to a note. |
+
+Aliases and a single `#anchor` can be combined, e.g.
+`[[note#heading|see the setup]]`.
+
+### How a link resolves (vault-wide, closest match)
+
+Resolution mirrors Obsidian. The `#heading` / `#^block` fragment is stripped
+first; only the file part is resolved. Then, in order:
+
+1. **Exact relative path** from the current note's folder
+   (e.g. `[[subfolder/note]]`).
+2. **Vault-relative path** from the vault root (Obsidian's `[[folder/note]]`
+   from the root).
+3. **Relative path + a Markdown extension** appended (current folder, then vault
+   root). Recognized extensions: `.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`.
+4. **Vault-wide name match.** Every Markdown file in the vault whose *name*
+   matches (case-insensitively, by file stem) is collected, then the **closest**
+   one is chosen: a path that ends with the full link target wins first, then the
+   file sharing the longest folder path with the current note (proximity), then
+   the shortest path. Ties are broken deterministically, so the same link always
+   resolves to the same file.
+
+A target that carries an explicit extension (e.g. an image embed
+`![[diagram.png]]`) is matched by **full file name** instead of by Markdown
+stem. The vault scan skips hidden folders (including `.obsidian/`),
+`node_modules`, and `target`, and is depth- and count-bounded so resolution stays
+fast on large vaults.
+
+---
+
+## Embeds & transclusion
+
+Prefix a wikilink with `!` to **embed** the target inline (`![[...]]`). Embeds
+render through the same renderer, so nested Markdown, callouts, and math all work
+inside an embed. Recursive embeds are capped (depth 3) so an `a → b → a` cycle
+can't loop forever.
+
+| Syntax | What it does |
+|---|---|
+| `![[note]]` | Transclude the **entire** note inline, under a title bar. |
+| `![[note#heading]]` | Transclude just that **heading's section**: the heading plus everything under it up to the next same-or-higher-level heading. |
+| `![[note#^block]]` | Transclude just the **single block** (paragraph / list item) tagged with that `^block` id; the `^id` marker is stripped from the output. |
+| `![[image.png]]` | Embed the image inline. |
+| `![[image.png\|300]]` | Embed the image at **300px wide**. |
+| `![[image.png\|300x200]]` | Embed the image at **300×200px**. |
+
+Image embeds support `png`, `jpg`/`jpeg`, `gif`, `svg`, `webp`, `bmp`, and
+`avif`. Images are read through the Rust core into an inline `data:` URL (so the
+webview never needs broad filesystem access) and are capped at 25 MiB per image.
+If a partial-embed fragment can't be located, the **full** note is embedded so
+the embed still shows something useful.
+
+---
+
+## Highlights, comments & math
+
+| Syntax | Rendering |
+|---|---|
+| `==highlight==` | Rendered as a highlighted `<mark>`. Empty / whitespace-only delimiters (`== ==`) are left as plain text. |
+| `%%comment%%` | **Hidden** in the reading view, matching Obsidian: the delimiters and their content are removed. Inline comments only; comments that span paragraph boundaries are left as-is. |
+| `$inline math$` | Inline math via KaTeX. |
+| `$$display math$$` | Display (block) math via KaTeX. |
+
+Highlight and comment markers inside code spans / code blocks are treated as
+literal text and are never transformed.
+
+---
+
+## Canvas (`.canvas`)
+
+Ashlr MD opens [JSON Canvas](https://jsoncanvas.org) (`.canvas`) files in a
+**read-only** viewer. Drag the background to **pan**, scroll to **zoom**, and use
+**Fit** (or the `+` / `−` buttons) to frame the whole canvas. The view auto-fits
+on open.
+
+**Node types that render:**
+
+| Node | Rendering |
+|---|---|
+| `text` | The node's Markdown, rendered through the same renderer. |
+| `file` | A titled card embedding the linked file's Markdown or, for an image file, the inline image. The title is a button that opens the file in a tab. |
+| `link` | A card showing the external URL. Only `http(s):` and `mailto:` URLs are clickable; anything else (e.g. `javascript:`) is shown as inert text. |
+| `group` | A labelled rectangle drawn behind its member nodes. |
+
+**Edges** render as connectors with optional labels and arrowheads (Obsidian's
+default arrow-at-destination is honored). Node and edge **colors** use Obsidian's
+six-color preset palette as well as raw hex values.
+
+Canvas is read-only: node positions and the canvas file are **never written
+back**.
+
+---
+
+## Round-trip: Open in Obsidian
+
+Any open note can be handed back to Obsidian with the **Open in Obsidian**
+command (in the command palette, `⌘K`). It launches Obsidian on that exact file
+via the `obsidian://open?path=…` URI scheme, so you can edit graph-heavy notes,
+run plugins, or use any Obsidian feature, then jump back to Ashlr MD for a fast,
+beautiful read. (Obsidian must be installed.)
+
+The companion **[Open in Ashlr MD](https://github.com/ashlrai/ashlr-md/blob/main/integrations/obsidian/)** Obsidian plugin
+closes the loop the other way: a ribbon icon, command, and right-click menu send
+the current vault note to Ashlr MD via the `mdopener://` scheme.
+
+---
+
+## What's not supported yet
+
+Ashlr MD aims to *read* a vault faithfully, not to replace Obsidian's editor.
+The following are intentionally absent today:
+
+- **Editing or creating canvases.** `.canvas` files are view-only; positions and
+  content are never written back.
+- **Obsidian community/core plugins** (Dataview, Templater, Tasks, etc.). Ashlr
+  MD renders standard Markdown + the syntax documented above; plugin-specific
+  query blocks and processors are not evaluated.
+- **Block-reference jump targets.** A `[[note#^block]]` link opens the note but
+  doesn't scroll to the block (heading anchors *do* scroll). Block *embeds*
+  (`![[note#^block]]`) do work.
+- **Multi-line / block `%%comments%%`** that span paragraph boundaries; only
+  inline comments are hidden.
+- **Obsidian-specific frontmatter behaviors** (aliases-as-link-targets, custom
+  link-resolution settings, per-vault Markdown extension config). Link resolution
+  follows the rules documented above, not your vault's individual settings.
+
+If something in your vault doesn't render the way Obsidian's Reading View shows
+it, and it isn't in this list, please
+[open an issue](https://github.com/ashlrai/ashlr-md/issues).
+
+
+## Source: docs/PHANTOM.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/PHANTOM.md
+
+# Ashlr MD in Phantom
+
+[Phantom](https://github.com/ashlrai/phantom) uses Ashlr MD as its Markdown viewer.
+When Phantom has Markdown to show a human (`phm inbox show <id> --open`,
+`phm digest --open`) and Ashlr MD is installed, Phantom hands the file to
+Ashlr MD; otherwise it falls back to terminal output.
+
+> **Status on Phantom `master`:** only the inbox/digest viewer seam
+> (`src/core/integrations/markdown.ts`, `presentMarkdown`) is merged. It detects
+> Ashlr MD with `which mdopen` and runs `mdopen <file>`. The "open any `.md` in
+> Ashlr MD" opener for `phantom open` and the web/desktop **Open** action, its
+> `"markdownOpener": "editor"` / `PHANTOM_ASHLR_MD=0` opt-outs, and
+> `docs/companions/ashlr-md.md` live on Phantom's unmerged
+> `feat/ashlr-md-opener` branch, not on `master`.
+
+## Integration contract (stable hooks Phantom relies on)
+
+| Hook | Shape | Notes |
+|---|---|---|
+| URL scheme | `mdopener://open?path=<url-encoded absolute path>[&mode=edit]` | Defined in `src-tauri/tauri.conf.json` (`deep-link.desktop.schemes`). |
+| CLI | `mdopen <file.md>` | Phantom treats `mdopen` on `PATH` as "installed". Exit status below. |
+| MCP | `mdopener-mcp` → `open_file { path, mode? }` | For agents running under Phantom that want a human to review a document. See [AGENTS.md](https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md). |
+
+### `mdopen` exit status
+
+`mdopen` opens only Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`,
+`.mdx`) that are not dotfiles, checked after symlinks are resolved; anything
+else exits `1` before the app is contacted. When Ashlr MD is running, `mdopen`
+hands it the file over its loopback IPC channel. Otherwise it hands the
+`mdopener://` URL to the OS launcher (`open` on macOS,
+`xdg-open` then `gio open` on Linux, `rundll32 url.dll,FileProtocolHandler` on Windows) and waits at
+most 10 seconds for it. The launcher never gets `mdopen`'s stdin or stdout.
+
+| Exit | Meaning |
+|---|---|
+| `0` | The running app accepted the file, or the launcher accepted the URL. If the launcher is still running after 10 s, `mdopen` prints `... the open is not confirmed` on stderr and still exits `0`. |
+| `1` | Bad usage, a missing or unresolvable path, a file that is not a Markdown document or is a dotfile, the running app refused the file (its reason is on stderr, and the URL scheme is not tried), the running app was reached but failed: it answered with a server error, the connection broke, or it did not answer within 6 s (the URL scheme is not tried, since the app may still open the file, and a `mdopen -` temp file is kept), the launcher failed (no handler for `mdopener://`, no display), or no launcher exists. stderr says which. |
+
+`mdopen --hook` (the Claude Code `PostToolUse` hook) exits `0` and prints
+nothing, waiting at most 5 seconds for the launcher. It opens only the Markdown
+file a `PostToolUse` payload from `Write`, `Edit` or `MultiEdit` names; a
+payload naming another `hook_event_name` or `tool_name`, or whose
+`tool_response` reports the tool failed, opens nothing. Run by hand with a
+terminal on stdin (nothing piped in), it prints a hint on stderr and exits `0`
+at once instead of waiting for a payload. The one exception is a hook command
+with another argument (`mdopen --hook notes.md`): the payload comes on stdin,
+so that is a usage error, exit `1` with the argument named on stderr.
+
+A caller that wants to know whether the viewer opened must wait for `mdopen` to
+exit and check for `0`. Spawning it detached and ignoring the status reports
+success on a headless machine, where `mdopen` exits `1`.
+
+### `mdopener-mcp`
+
+Speaks MCP over stdio. `initialize` echoes `2024-11-05`, `2025-03-26` and
+`2025-06-18`, and answers any other requested version with `2025-06-18`.
+`open_file` accepts only a Markdown document that is not a dotfile and that
+exists (checked after symlinks are resolved); any other path is refused with
+`isError: true` before the app or the URL scheme is reached, and a running app
+that refuses the file is not retried through the URL scheme.
+When the app is not running, `open_file` falls back to the URL scheme through
+the same launchers as `mdopen` (bounded at 10 seconds). When nothing could
+open it, for example on a headless Linux box, the call returns a tool result
+with `isError: true` whose text names the launcher outcome. `mode` must be
+`read` or `edit`.
+
+Tool failures (app not reachable, a file that cannot be read or written, an
+operation the app rejects) come back as a successful `tools/call` result with
+`isError: true` and the reason as text, per the MCP spec, so the agent can
+read it and act. JSON-RPC errors are kept for protocol problems: an unknown
+tool or method, or invalid arguments (`-32602`).
+
+## Detection paths
+
+`mdopen` on `PATH`; macOS `/Applications/Ashlr MD.app` or `~/Applications/Ashlr MD.app`;
+Windows `%LOCALAPPDATA%\Ashlr MD\Ashlr MD.exe`; Linux `/usr/bin/md-opener`
+(or `/usr/bin/ashlr-md`) or an `Ashlr MD.desktop` entry.
+
+On a Linux `.deb` install the sidecars (`mdopen`, `mdopener-mcp`) land in
+`/usr/lib/Ashlr MD/`, which is not on `PATH`. `mdopen` is on `PATH` only after
+**Install mdopen** in Settings (`/usr/local/bin` or `~/.local/bin`) or the
+source installer. A detector that only runs `which mdopen` (Phantom `master`)
+misses a fresh `.deb` install.
+
+Changing the product name, bundle path, or the `mdopener` scheme is a breaking
+change for Phantom; update Phantom's Markdown integration alongside it.
+
+## Opting out (Phantom side)
+
+On the `feat/ashlr-md-opener` branch: `"markdownOpener": "editor"` in Phantom's
+config, or `PHANTOM_ASHLR_MD=0`. On `master`, simply omit `--open`.
+
+## Running under `phantom exec` (Phantom Secrets)
+
+`phantom exec -- <cmd>` does three things:
+- It starts `<cmd>` with `phm_` session placeholders instead of real provider keys.
+- It points provider base URLs such as `ANTHROPIC_BASE_URL` at a local Phantom proxy: `http://127.0.0.1:<port>/<route>/_phantom/<token>/`.
+- On the way out, the proxy swaps each placeholder for the real key.
+
+What Ashlr MD reads, at call time:
+
+| Setting | Used by | Rules |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | AI sidebar (Anthropic) | `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. Anything else is refused before the key is attached. The Phantom proxy URL is loopback http, so it is accepted. |
+| `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV` | AI sidebar (Anthropic) | Exactly `1` turns on reading the key from `ANTHROPIC_API_KEY` instead of Settings. Unset, or any other value, means Settings only (the default). |
+| `OLLAMA_HOST` | AI sidebar and semantic search (Ollama) | Taken as given: `host`, `host:port`, `:port` or a full URL. |
+| `OLLAMA_HOST` | MCP sidecar (`mdopener-mcp`) embeddings | Since #138: `https://` to any host, or plain `http://` only to `127.0.0.1` or `[::1]`. `:port`, `0.0.0.0` and `[::]` map to loopback, and redirects are refused. |
+
+Things to know:
+- **The Anthropic key comes from Settings by default.** The app sends the key saved in Settings, which is stored in the OS keychain, and ignores `ANTHROPIC_API_KEY`. To use the `phm_` placeholder from `phantom exec` instead, opt in with `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` (see below).
+- **Shell-launched only.** An app launched from the Dock or Start menu does not see variables from your shell or from `phantom exec`. Start its executable from that shell instead: for example `phantom exec -- /usr/bin/md-opener` on a Linux `.deb` install, or the executable inside `Ashlr MD.app/Contents/MacOS/` on macOS. `open -a` hands the launch to the OS and may not pass the variables. These launch forms have not been tested here.
+- **The sidecar has no key.** `mdopener-mcp` sends no Anthropic requests and attaches no key to Ollama requests. An agent that runs it under `phantom exec` needs no placeholder for it.
+- **No `phm:` references.** Ashlr MD never resolves a `phm:` reference. Do not use `phantom reveal` to copy a key into Settings or into the environment.
+
+### Using `ANTHROPIC_API_KEY` from the environment (opt-in)
+
+```sh
+ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1 phantom exec -- /usr/bin/md-opener
+```
+
+With `ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1`, the AI sidebar takes the Anthropic key from `ANTHROPIC_API_KEY` at request time:
+- **Only the environment key is used.** The key saved in Settings is not sent, and there is no fallback to it. Settings shows a note that the environment key is in use.
+- **The value stays in the Rust process.** It is never sent to the webview, written to Settings or the keychain, logged, or included in an error message. The webview only learns whether the opt-in is on, whether the key is usable, and whether it is a `phm_` placeholder.
+- **A `phm_` placeholder needs the session proxy.** `ANTHROPIC_BASE_URL` must be set and pass the usual rules. It must point at `127.0.0.1` or `[::1]` with a port, and that port must be `PHANTOM_PROXY_PORT` when it is set. Without that, the placeholder would go to the real provider, so the request is refused.
+- **A real key** in `ANTHROPIC_API_KEY` is accepted with any `ANTHROPIC_BASE_URL` that passes the usual rules.
+- **Refused before any request:** an unset or blank key, a `phm:` reference (Ashlr MD does not resolve references), or a value with spaces or control characters. The reason is shown, but the value never is.
+- **Request errors leave out the URL**, so the per-session proxy token in the path is not shown.
+
+The rules and the webview side are covered by tests: `src-tauri/src/base_urls.rs` and `src/ai/anthropicEnvKey.test.ts`. It has not been tested against a live `phantom exec` session.
+
+### LiteLLM
+
+If a LiteLLM proxy sits in front of Anthropic or Ollama, use LiteLLM 1.83.0 or newer, never 1.82.7 or 1.82.8.
+
+- **Why 1.83.0:** `litellm` 1.82.7 and 1.82.8 on PyPI were compromised releases that carried credential-stealing code (GHSA-5mg7-485q-xm76, March 2026). 1.83.0, published to PyPI on 2026-03-31, was the first clean release, built by LiteLLM's rebuilt release pipeline ([LiteLLM security update](https://docs.litellm.ai/blog/security-update-march-2026)).
+- **Use a current release, not just 1.83.0.** Later advisories were fixed in later releases (for example GHSA-3cv6-jpf6-8222). On 2026-10-19 the current PyPI release was 1.106.0. Check LiteLLM's security advisories before you pick or upgrade a version.
+- **Install it verifiably.** Use a hash-pinned install (`pip install --require-hashes -r requirements.txt`) or the official `ghcr.io/berriai/litellm` image, checked with `cosign verify` as LiteLLM's README shows. Run it in a container that does not mount your home directory or dotfiles.
+- Keep the provider keys on the LiteLLM side. Give the agent only the proxy URL and, if the proxy needs one, a proxy key that is separate from the provider keys.
+
+For Ashlr MD, `ANTHROPIC_BASE_URL` points at the gateway root, and the app appends `/v1/messages`, so the gateway must serve the Anthropic Messages API there. Use `https://`, or `http://127.0.0.1:<port>` for a proxy on the same machine. Only the URL handling is covered by tests. The app has not been tested against a live LiteLLM or Phantom proxy.
+
+
+## Source: docs/PQ-READINESS.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/PQ-READINESS.md
+
+# Post-quantum readiness
+
+Status as of 2026-10-17. This note records what ashlr-md does with cryptography today and what a post-quantum migration would touch. It makes no claim that ashlr-md is quantum-safe or quantum-resistant, and it adds no new cryptography.
+
+## Background (verified against NIST pages)
+- NIST published FIPS 203 (ML-KEM), FIPS 204 (ML-DSA) and FIPS 205 (SLH-DSA) on August 13, 2024. Source: https://csrc.nist.gov/Projects/Post-Quantum-Cryptography/Post-Quantum-Cryptography-Standardization
+- Shor's algorithm would break RSA and elliptic-curve schemes (RSA, ECDSA, ECDH, X25519, Ed25519) on a large enough quantum computer. Grover's algorithm gives a quadratic speedup on brute-force search, so symmetric keys are usually sized at 256 bits.
+- Harvest-now-decrypt-later applies to confidentiality: ciphertext captured today, protected only by classical key exchange, could be read later. Signatures are different: they matter when they are verified, so the risk is forgery after a capable quantum computer exists.
+
+## What ashlr-md uses today
+- No cryptographic primitives are implemented in the application source (TypeScript front end, Rust `src-tauri`, `mdopener-mcp`). The inventory scan finds no RSA, ECDSA, ECDH, Ed25519 or X25519 use.
+- Dependencies that bring crypto with them, listed from `src-tauri/Cargo.toml` and not audited here: `keyring` (OS credential store), `reqwest` (HTTP client) and `tauri-plugin-updater`. Which algorithms they use is decided by those crates and the platform, and this note does not claim anything about them. The scan cannot see inside dependencies.
+- The loopback IPC token is random bytes (see the comment in `src-tauri/Cargo.toml`); it is a shared secret, not a public-key scheme.
+
+## The check
+`scripts/check-crypto.mjs` scans source files (not tests, docs or vendored directories) for classical asymmetric primitives: RSA, ECDSA/ECDH, Ed25519/X25519 and Diffie-Hellman key generation. It prints an inventory and exits 1 when a file that is not in its `ALLOW` list uses one, so a new classical-only use needs a deliberate decision with a written reason. It does not judge hashes, HMAC or symmetric ciphers, and it is a regex scan, not a parser: it can miss indirect use through a dependency. Run it with `node scripts/check-crypto.mjs`; its tests run with `node --test scripts/check-crypto.test.mjs`.
+
+## Library note
+No post-quantum library is used here, because there is no concrete use that needs one. If one is added later, `@noble/post-quantum` 0.7.1 (MIT) offers ML-KEM, ML-DSA and SLH-DSA in TypeScript, but its README states it is not independently audited and not constant-time, so it should not be used for secret-key signing on shared hardware. RustCrypto `ml-kem` and `ml-dsa` carry the same "never independently audited" statement. Any adoption should say so in its docs. Source notes: Phantom's quantum research, /workspace/phantom-work/quantum-research.md.
+
+## If a migration is needed
+Watch the dependencies above. The update channel is the place a classical signature would matter most; check the `tauri-plugin-updater` documentation for its signature scheme before making any claim, and track upstream support for post-quantum signatures.
+
+
+## Source: docs/RELEASING.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/RELEASING.md
+
+# Releasing Ashlr MD
+
+Complete runbook for cutting a release, managing artifacts, and updating
+downstream distribution channels (Homebrew, winget, AUR).
+
+---
+
+## 1. Pre-release Checklist
+
+Before tagging, complete every item:
+
+- [ ] All CI checks passing on `main`.
+- [ ] Update `version` in **`src-tauri/tauri.conf.json`** (e.g. `"0.2.0"`).
+- [ ] Update `version` in **`src-tauri/Cargo.toml`** `[package]` section to match.
+- [ ] Update `version` in **`package.json`** to match.
+- [ ] Update **`CHANGELOG.md`**: add a section headed `## [X.Y.Z]`, an em dash and the
+  date (`YYYY-MM-DD`), like the earlier releases' headings.
+- [ ] Run `./scripts/generate-icons.sh` if `src-tauri/icons/icon.svg` changed.
+- [ ] Commit all changes:
+  ```bash
+  git add src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json CHANGELOG.md
+  git commit -m "chore: release vX.Y.Z"
+  ```
+
+---
+
+## 2. Cutting the Tag
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+This triggers `.github/workflows/release.yml`, which fans out across the full
+build matrix and **uploads each platform's bundles as workflow artifacts**.
+
+> **The workflow does NOT create the GitHub Release.** The org disables
+> `GITHUB_TOKEN` write access, so `release.yml` is build-only: it never calls
+> the Release API and never publishes `latest.json`. A maintainer assembles and
+> publishes the Release manually from the uploaded artifacts (see §4). Until
+> that manual step is done, **no release exists and the updater sees nothing.**
+
+> **Pre-release tags:** any tag containing a hyphen (`v0.2.0-beta.1`) sets
+> `prerelease: true` automatically. Use this for testing the pipeline without
+> shipping to stable update channels.
+
+---
+
+## 3. What the Workflow Produces
+
+The Tauri bundler names each file after `productName` (`Ashlr MD`), space
+included, and the workflow uploads them under those names. The release
+publishes them under the names in the last column, which the install guide,
+the Homebrew cask, the winget manifest and the AUR PKGBUILD download (see §4,
+step 4).
+
+| Platform | Runner | Bundler output | Publish as |
+|---|---|---|---|
+| macOS arm64 | `macos-14` | `Ashlr MD_X.Y.Z_aarch64.dmg` | `Ashlr_MD_X.Y.Z_aarch64.dmg` |
+| macOS x86_64 | `macos-13` | `Ashlr MD_X.Y.Z_x64.dmg` | `Ashlr_MD_X.Y.Z_x64.dmg` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.deb` | `Ashlr_MD_X.Y.Z_amd64.deb` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD-X.Y.Z-1.x86_64.rpm` | `Ashlr_MD_X.Y.Z_x86_64.rpm` |
+| Linux x86_64 | `ubuntu-22.04` | `Ashlr MD_X.Y.Z_amd64.AppImage` | `Ashlr_MD_X.Y.Z_amd64.AppImage` |
+| Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64-setup.exe` (NSIS) | `Ashlr_MD_X.Y.Z_x64-setup.exe` |
+| Windows x86_64 | `windows-latest` | `Ashlr MD_X.Y.Z_x64_en-US.msi` | `Ashlr_MD_X.Y.Z_x64_en-US.msi` |
+
+Each bundle comes with its updater `.sig` file where the updater signs it.
+
+Each leg uploads a platform-specific entry to the Tauri updater manifest.
+After all four legs complete, `latest.json` in the release contains aggregated
+entries for every platform; this is what `tauri-plugin-updater` polls.
+
+### Sidecar binaries per platform
+
+| Binary | macOS | Linux | Windows |
+|---|---|---|---|
+| `mdopen` | yes | yes | yes (`.exe`) |
+| `mdopener-mcp` | yes | yes | yes (`.exe`) |
+| `mdopener-afm` (Swift) | yes | no | no |
+| `mdopener-setdefault` (Swift) | yes | no | no |
+
+> **macOS AFM sidecar risk:** `mdopener-afm` requires Xcode 26 / Swift 6.2+
+> (macOS 26 SDK). The workflow selects the latest available Xcode via
+> `maxim-lobanov/setup-xcode@v1`. Until GitHub-hosted runners carry Xcode 26,
+> this sidecar may build against an older SDK or fail. See the comment block
+> in `.github/workflows/release.yml` (the "Select latest Xcode" step) for
+> mitigation steps. All other bundle artifacts are unaffected.
+
+---
+
+## 4. Assembling & Publishing the GitHub Release
+
+Because `release.yml` only uploads artifacts (see §2), you assemble the Release
+yourself with your own credentials:
+
+1. Open the completed workflow run at **github.com/ashlrai/ashlr-md/actions**
+   and **download every leg's uploaded artifacts** (the `.dmg`/`.deb`/
+   `.AppImage`/`.exe`/`.msi` bundles, their `.sig` files, and each leg's updater
+   manifest fragment).
+2. **Assemble `latest.json`** by merging the per-platform updater entries from
+   every leg into one manifest (`version`, `pub_date`, and a `platforms` map of
+   `{ signature, url }` per target). The `url` of each entry must point at the
+   renamed asset you upload in step 5.
+3. Create a new Release at **github.com/ashlrai/ashlr-md/releases/new** for the
+   `vX.Y.Z` tag (mark it pre-release for hyphenated tags). Paste the matching
+   `CHANGELOG.md` section as the notes.
+4. **Rename each bundle to its "Publish as" name in §3** (the space in
+   `Ashlr MD` becomes `_`, and the `.rpm` becomes `Ashlr_MD_X.Y.Z_x86_64.rpm`),
+   and each `.sig` to match. Uploaded as built, GitHub turns the space into a
+   `.` (`Ashlr.MD_X.Y.Z_amd64.deb`), and every download link in the docs and
+   packaging templates 404s.
+5. Attach all renamed bundles **and** the assembled `latest.json` as release
+   assets, then **Publish**.
+
+Publishing makes `latest.json` live at the updater endpoint; existing installs
+prompt to update on next launch. (If you later automate this, a PAT with
+`contents:write` in the workflow would let `tauri-action` create the Release
+directly and this manual step goes away.)
+
+---
+
+## 5. Post-release: Update the Homebrew Cask
+
+The canonical cask template lives at `packaging/homebrew/ashlr-md.rb`.
+The tap repo is **github.com/ashlrai/homebrew-ashlr-md**; create it if it
+doesn't exist yet; place the cask at `Casks/ashlr-md.rb` in that repo.
+
+```bash
+# 1. Download the new DMG and compute its SHA-256
+curl -L \
+  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr_MD_X.Y.Z_aarch64.dmg" \
+  -o Ashlr_MD_X.Y.Z_aarch64.dmg
+shasum -a 256 Ashlr_MD_X.Y.Z_aarch64.dmg
+
+# 2. Clone the tap repo and update the cask
+git clone https://github.com/ashlrai/homebrew-ashlr-md.git
+cd homebrew-ashlr-md
+
+# Edit Casks/ashlr-md.rb:
+#   version "X.Y.Z"
+#   sha256  "<output of shasum above>"
+
+# 3. Commit and push
+git add Casks/ashlr-md.rb
+git commit -m "Cask update: ashlr-md X.Y.Z"
+git push
+```
+
+Users install / upgrade with:
+```bash
+brew tap ashlrai/ashlr-md
+brew install --cask ashlr-md
+# upgrade:
+brew upgrade --cask ashlr-md
+```
+
+---
+
+## 6. Post-release: Update the winget Manifest
+
+The manifest templates live at `packaging/winget/`.
+
+```bash
+# 1. Download the NSIS installer and compute its SHA-256
+curl -L \
+  "https://github.com/ashlrai/ashlr-md/releases/download/vX.Y.Z/Ashlr_MD_X.Y.Z_x64-setup.exe" \
+  -o Ashlr_MD_X.Y.Z_x64-setup.exe
+
+# macOS/Linux:
+shasum -a 256 Ashlr_MD_X.Y.Z_x64-setup.exe
+# Windows PowerShell:
+# Get-FileHash "Ashlr_MD_X.Y.Z_x64-setup.exe" -Algorithm SHA256
+
+# 2. Copy the three manifests to a versioned folder
+mkdir -p manifests/a/ashlrai/AshlrMD/X.Y.Z
+cp packaging/winget/ashlrai.AshlrMD.*.yaml \
+   manifests/a/ashlrai/AshlrMD/X.Y.Z/
+
+# 3. Replace <VERSION> and <SHA256_NSIS_EXE> in all three files
+
+# 4. Validate locally (requires winget CLI or winget-create)
+winget validate --manifest manifests/a/ashlrai/AshlrMD/X.Y.Z/
+
+# 5. Fork https://github.com/microsoft/winget-pkgs and submit a PR
+#    adding the three manifests under manifests/a/ashlrai/AshlrMD/X.Y.Z/
+```
+
+---
+
+## 7. Post-release: Update the AUR Package
+
+The PKGBUILD template lives at `packaging/linux/aur/PKGBUILD`.
+
+```bash
+# 1. Compute SHA-256 of the .deb
+shasum -a 256 Ashlr_MD_X.Y.Z_amd64.deb
+
+# 2. Update packaging/linux/aur/PKGBUILD:
+#    pkgver=X.Y.Z
+#    sha256sums=('<output of shasum above>')
+
+# 3. Clone your AUR repo (first time: create the package at aur.archlinux.org)
+git clone ssh://aur@aur.archlinux.org/ashlr-md.git aur-ashlr-md
+cp packaging/linux/aur/PKGBUILD aur-ashlr-md/
+
+# 4. Regenerate .SRCINFO (required by AUR)
+cd aur-ashlr-md
+makepkg --printsrcinfo > .SRCINFO
+
+# 5. Test the build locally
+makepkg -si
+
+# 6. Push to AUR
+git add PKGBUILD .SRCINFO
+git commit -m "Update to X.Y.Z"
+git push
+```
+
+---
+
+## 8. GitHub Secrets Reference
+
+| Secret | Used by | Required? |
+|---|---|---|
+| `GITHUB_TOKEN` | Read-only (build/artifacts); release is published manually, see §4 | Auto-provided |
+| `TAURI_SIGNING_PRIVATE_KEY` | Updater `.sig` files | Yes (all legs) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Updater `.sig` files | Yes (all legs) |
+| `APPLE_CERTIFICATE` | macOS code signing | Optional (unsigned DMG works) |
+| `APPLE_CERTIFICATE_PASSWORD` | macOS code signing | Optional |
+| `APPLE_SIGNING_IDENTITY` | macOS code signing | Optional |
+| `APPLE_ID` | macOS notarization | Optional |
+| `APPLE_PASSWORD` | macOS notarization | Optional |
+| `APPLE_TEAM_ID` | macOS notarization | Optional |
+
+### Generate the Tauri updater keypair (one-time)
+
+```bash
+bun run tauri signer generate -w ~/.tauri/ashlr-md.key
+# → prints public key (add to tauri.conf.json `plugins.updater.pubkey`)
+# → writes private key to ~/.tauri/ashlr-md.key
+#   base64-encode and add as TAURI_SIGNING_PRIVATE_KEY secret
+```
+
+The updater pubkey is already set in `tauri.conf.json`; the private key must
+be in `TAURI_SIGNING_PRIVATE_KEY` before the first real release.
+
+---
+
+## 9. Icon Generation
+
+The canonical icon source is `src-tauri/icons/icon.svg`.
+
+```bash
+bun install            # if not already installed
+./scripts/generate-icons.sh
+git add src-tauri/icons/
+git commit -m "chore: regenerate app icons"
+```
+
+---
+
+## 10. Release Checklist Summary
+
+- [ ] `src-tauri/tauri.conf.json` version bumped
+- [ ] `src-tauri/Cargo.toml` version bumped
+- [ ] `package.json` version bumped
+- [ ] `CHANGELOG.md` updated
+- [ ] Icons regenerated (if SVG changed)
+- [ ] Version bump commit on `main`
+- [ ] Tag `vX.Y.Z` pushed; workflow fires
+- [ ] All four workflow legs green
+- [ ] CI artifacts downloaded and renamed, `latest.json` assembled, Release published (§4)
+- [ ] Homebrew tap cask updated (version + sha256)
+- [ ] winget manifest PR submitted to `microsoft/winget-pkgs`
+- [ ] AUR PKGBUILD updated and pushed
+
+
+## Source: docs/VISION.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/VISION.md
+
+# Ashlr MD: North Star & Goal Loop
+
+## The goal (end state)
+
+> **The instant, beautiful, AI-native home for every Markdown file, so good that a non-technical person never thinks about "Markdown" again, and an AI agent can drive it like a tool.**
+
+When Ashlr MD is finished, this is true:
+
+1. **Instant.** Double-click any `.md` and it's on screen in well under a second, rendered beautifully. It is the obvious default `.md` handler on every platform.
+2. **Beautiful by default.** Agent output (`PLAN.md`, `README.md`, research dumps) looks like a polished document with zero configuration: gorgeous themes, perfect code, diagrams, math, tables.
+3. **Effortless to edit.** Non-technical people edit in a Typora-style WYSIWYG and never see raw syntax. Power users get a lossless source mode. Saving is instant and safe.
+4. **Free, private AI built in.** Summarize / explain / rewrite / translate runs **locally and free** by default: Apple on-device models on macOS 26+ (Apple Silicon) and Ollama on Windows & Linux, with cloud as an optional upgrade. Nothing leaves the device unless the user explicitly opts in.
+5. **Agent-native.** Claude Code / Codex / Cursor can open a file (`mdopen file.md` / `mdopener://…`) and *drive* the app over MCP (open, read, edit, export), with one-click setup. An **Agent Activity drawer** watches the folder your agent writes to so new docs surface live, and a **⌘K command palette** makes every action keyboard-first. The app is a first-class citizen in an agentic workflow.
+6. **Shareable in one click.** Export to PDF / DOCX / HTML that looks great, with no Pandoc, no Terminal, no account.
+7. **Trustworthy & open.** MIT, local-first, no telemetry by default, no GPL bundled. A great open-source project the world can rely on; a premium hosted-AI tier funds it.
+
+## Who it's for
+
+The growing population of people (many non-technical) who use AI coding agents and are buried in Markdown they didn't ask for and can't comfortably read, edit, or share.
+
+## Experience pillars (the feel)
+
+- **Calm & native.** Feels right on every OS: macOS, Windows, and Linux. No Electron bloat, no jank, no chrome you don't need.
+- **Zero-config.** It's right the first time. Defaults are excellent.
+- **Honest about data.** A glanceable privacy badge; local-first is the default, not a setting you must find.
+- **Respects the file.** Editing never silently corrupts exotic Markdown; lossless source mode is always one click away.
+
+## Definition of excellent (the bar every feature clears)
+
+A feature is "done" only when:
+
+- It **works end-to-end in the real running app** (verified, not assumed: screenshot or live check).
+- It is **beautiful in all three themes** (Paper / Sepia / Midnight) and in light + dark.
+- It **degrades gracefully** (no provider? large file? malformed input? offline? All handled).
+- It is **fast** (no perceptible lag on a typical agent doc; large files don't freeze the UI).
+- Quality gates are green: `tsc` typecheck, Biome lint, `cargo check` (no warnings), production build.
+- It **does not leak data** off-device without explicit user action.
+- The code reads like the surrounding code and the non-obvious bits are commented.
+
+## The goal loop
+
+Each increment runs the same loop. We do not move on until the loop closes.
+
+```
+1. PLAN:     smallest valuable slice toward the end state; name the user-visible win.
+2. BUILD:    implement it, reusing existing patterns; no half-measures.
+3. RUN:      launch the real app and use the feature (open a real agent .md).
+4. VERIFY:   screenshot / live-check against the Definition of Excellent above.
+5. HARDEN:   edge cases, errors, all themes, perf, graceful degradation.
+6. GATE:     typecheck + lint + cargo check + build all green.
+7. REFLECT:  update this doc / README status; note caveats; pick the next slice.
+   ↻ repeat
+```
+
+**Stop conditions for the loop:** a slice is abandoned only if it would violate a pillar (e.g. requires shipping data off-device by default, or bundling GPL). Otherwise it gets finished.
+
+## Milestone map → end state
+
+| # | Milestone | "Done" means |
+|---|---|---|
+| M0 | Scaffold | App builds and runs; CI-ready. ✅ |
+| M1 | Instant viewer + default handler | Double-click → beautiful render; 3 themes; GFM/code/math/mermaid/footnotes. ✅ |
+| M2 | Editor + save | WYSIWYG (Milkdown) + lossless source mode + Read view; safe atomic save; external-change aware; recents; outline (⌘⇧O) with scrollspy. ✅ |
+| M3 | Export | One-click PDF / DOCX / HTML that looks great, fully offline, no Pandoc. ✅ |
+| M4 | Local-first AI | Tiered provider (Apple on-device, macOS only → Ollama → BYO key → hosted); selection actions, inline rewrite (⌘I), "Explain changes" + chat; privacy badge; free by default. ✅ |
+| M5 | Agent hand-off + MCP | `mdopen` CLI + `mdopener://` scheme + MCP server agents can drive; one-click setup; ⌘K command palette; Agent Activity drawer (⌘B). ✅ |
+| M6 | Smart rendering + distribution | Interactive checkboxes, code Copy/Run, callouts, plan/diff/multi-file detection; cross-platform builds (macOS DMG + Homebrew cask; Windows MSI/NSIS + winget; Linux .deb/.AppImage + AUR); auto-update. |
+
+## Non-goals (so we stay sharp)
+
+- Not a knowledge base / vault / wiki (that's Obsidian). One file at a time, done perfectly.
+- Not a heavy writing suite (that's iA Writer / Ulysses).
+- Not a cloud document platform (that's Notion). Local-first, always.
+- No account required to use the core product. Ever.
+
+
+## Source: docs/ashlr-handshake.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/ashlr-handshake.md
+
+# Ashlr companion handshake (v1)
+
+`mdopener-mcp --ashlr-handshake` (with or without `--json`) prints one JSON object and exits 0. `phm companions`,
+`phm doctor` or an agent can call it instead of parsing `--help`. The same
+contract is implemented by `locus`, `stack` (ashlr-stack), `ashlr-plugin` and
+`lexicon`, each with `--ashlr-handshake`.
+
+```json
+{
+  "kind": "ashlr.handshake",
+  "schema_version": 1,
+  "name": "ashlr-md",
+  "command": "mdopener-mcp",
+  "version": "0.4.0",
+  "protocols": { "ashlr.handshake": 1, "mcp": 1 },
+  "capabilities": ["mcp-server", "markdown-viewer", "review-annotations", "document-edit", "export", "vault-search", "agent-setup", "doctor-fix"],
+  "health": { "status": "ok", "checks": [{ "id": "app-running", "status": "absent" }] },
+  "edits": ["~/.mdopener/", "~/.cursor/mcp.json"],
+  "receipts": []
+}
+```
+
+Rules every implementation follows:
+
+- **Fast and local:** no network, no vault or keychain, and no secret values or project contents in the output.
+- **Stable shape:** `kind` and `schema_version` identify the contract. New fields may be added in v1; renames or removals bump `schema_version`.
+- **Ids:** `capabilities` and check `id`s are kebab-case. `protocols` maps a protocol name to the version spoken.
+- **Health:** `health.status` is `ok`, `degraded` (works, something it relies on is missing) or `unknown`. A check status is `ok`, `missing` (counts against health) or `absent` (informational, such as the app not running: several tools then answer from disk).
+- **Edits:** paths the CLI may write. `~/` is the home directory; other paths are relative to the project.
+- **Receipts:** receipt kinds the CLI emits (none yet; reserved for receipt.v1).
+
+The server answers before reading stdin, and reads neither the IPC token nor any document.
+
+
+## Source: docs/doctor-fix.md
+
+Canonical documentation: https://github.com/ashlrai/ashlr-md/blob/main/docs/doctor-fix.md
+
+# mdopener-mcp doctor --fix
+
+`mdopener-mcp doctor --fix` previews repairs to Ashlr MD's state folder, `~/.mdopener`, and
+writes nothing. `mdopener-mcp doctor --fix --apply` makes them. Add `--json` for a
+`{ mode, plan, outcome }` object. Same semantics as `locus doctor --fix`; `stack doctor --fix`
+runs it because the handshake (`mdopener-mcp --ashlr-handshake`) lists `doctor-fix`.
+
+```bash
+mdopener-mcp doctor --fix            # dry run: "would fix" lines and manual items
+mdopener-mcp doctor --fix --apply    # make the repairs
+mdopener-mcp doctor --fix --json     # { "mode": "dry_run", "plan": {...}, "outcome": null }
+```
+
+Exit codes: 0 when there is nothing to repair, after a preview, or when every fix applied;
+1 when an applied fix was skipped (for example the file changed between plan and apply).
+`--apply` without `--fix`, or an unknown argument, is refused with exit 2 and nothing written.
+
+## Repairs (macOS and Linux)
+
+| Finding | `--apply` does |
+| --- | --- |
+| `~/.mdopener`, `sessions/` or `reviews/` readable by group or others | `chmod 700` (the previous mode is reported) |
+| a session file, saved review or `ipc-port` readable by group or others | `chmod 600` (contents untouched) |
+| a saved review that is oversized, does not parse, has another schema, or is stored under another file's name (the reader ignores it) | copies it to `<file>.bak-<UTC stamp>` (new file, 0600), compares the copy byte for byte, then removes the original |
+
+Older builds created session files `0644`, and reopening an existing file never changes its
+mode, so those stayed readable by other users. Each fix is checked again against the folder as
+it is now before it is made; one that no longer applies is skipped.
+
+## Manual items (report only)
+
+- `ipc-token` readable by others: it is the app's secret, so this tool never opens, moves or
+  changes it. The item names the command: `chmod 600 ~/.mdopener/ipc-token`.
+- Symlinks and special files: never followed or changed.
+- MCP client registration and sidecar paths: repaired by the app's agent setup
+  (Preferences > AI agents), not here.
+
+On Windows the plan is empty with one manual note (permissions are not checked).
+
+`--json` plan entries: `fixes` (`{ kind: "tighten_mode", file, current_mode, target_mode }` or
+`{ kind: "move_aside", file, reason }`) and `report_only` (`{ code, file?, message }`);
+`outcome` is `null` for a preview, else `{ results: [{ fix, applied, backup?, previous_mode?, message? }] }`.
