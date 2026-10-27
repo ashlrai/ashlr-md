@@ -219,6 +219,9 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The open note's Activity entry is marked when the watched folder is a
+  link.** An entry listed under a path the tab never opened (through a folder
+  link) is now read once to learn whether it is the open file.
 - **A deleted or moved-away note leaves semantic search without a full
   reindex.** The per-file re-index now drops indexed notes no longer on disk,
   and a removal in the watched folder starts one.
