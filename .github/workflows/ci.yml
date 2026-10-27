@@ -1,25 +1,24 @@
 name: CI
 
-# Merge-queue CI (pilot). Until the repo variable MERGE_QUEUE is 'true' (set
-# when the ruleset enables the queue), PRs and main pushes run the selected
-# suite exactly as before, so nothing merges on the fast lane alone.
-# With MERGE_QUEUE=true: PR pushes, drafts included, get a fast typecheck and
-# lint under both required names. The full selected suite runs once, in the
-# merge queue (merge_group), on the batched merge commit. Nightly and manual
-# runs do everything on Linux and macOS. Main pushes run nothing: every commit
-# on main already passed its merge_group run. Run scripts/ci-local.sh before
-# pushing.
+# One fast required check on pull_request and merge_group: Check (Linux)
+# aggregates typecheck, Biome, the crypto policy check, the JS dependency
+# audit and a pinned diff secret scan (well under 3 min). The full suite
+# (unit tests with coverage, frontend build, Rust check/clippy/tests and
+# cargo audit on Linux, Rust check/clippy on macOS) runs at 6 AM and 6 PM ET
+# on main and on workflow_dispatch; a red scheduled run files a P0 FIX-MAIN
+# issue (fix-main.yml). Main pushes run nothing: every commit on main already
+# passed its merge_group run. Run scripts/ci-local.sh before pushing.
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   schedule:
-    - cron: "17 6 * * *"
+    # 6 AM and 6 PM ET (EDT, UTC-4).
+    - cron: "25 10 * * *"
+    - cron: "25 22 * * *"
   workflow_dispatch:
 
-# Cancel superseded PR runs; never cancel a queue or nightly run.
+# Cancel superseded PR runs; never cancel a queue or scheduled run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -28,73 +27,105 @@ permissions:
   contents: read
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # What the merge_group run needs (impact selection). PRs need no
-  # classification (fast lane only); nightly and manual runs select everything.
-  #   js:    frontend inputs changed (unit tests, build)
-  #   macos: Rust inputs changed (Linux and macOS cargo check and clippy)
-  #   docs-only merges run nothing but the always-on security checks.
-  # docs/AGENTS.md is include_str!'d by an mdopener-mcp test, so it is a Rust input.
-  # ---------------------------------------------------------------------------
-  changes:
-    name: Classify changes
-    if: github.event_name != 'push' || vars.MERGE_QUEUE != 'true'
+  fast:
+    name: Typecheck, lint, crypto policy
     runs-on: ubuntu-22.04
-    env:
-      SELECT: ${{ github.event_name == 'merge_group' || (github.event_name == 'pull_request' && vars.MERGE_QUEUE != 'true') }}
-    outputs:
-      js: ${{ steps.classify.outputs.js }}
-      macos: ${{ steps.classify.outputs.macos }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: env.SELECT == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'bun.lockb') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint (Biome)
+        run: bunx biome check src
+
+      # Tier-1 security check, pre-merge on every PR and queue run.
+      - name: Crypto policy check
+        run: bun run check:crypto
+
+      # Existing supply-chain step, unchanged (soft-gated so an upstream
+      # advisory annotates without blocking). Seconds, so it runs every time.
+      - name: Audit JS dependencies
+        run: bun audit
+        continue-on-error: true
+
+  secret-scan:
+    # Security floor: diff-only secret scan on every event, pinned Gitleaks
+    # 8.30.0 (sha256-verified). No path filter and no if-condition; the gate
+    # fails unless this job succeeds (skipped or cancelled fails closed).
+    name: Secret scan (diff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - id: classify
+      - name: Install pinned Gitleaks
         env:
-          EVENT: ${{ github.event_name }}
-          FAST: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
-          BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          GITLEAKS_VERSION: 8.30.0
+          GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
         run: |
           set -euo pipefail
-          if [ "$FAST" = true ]; then echo "js=false" >> "$GITHUB_OUTPUT"; echo "macos=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          case "$EVENT" in
-            merge_group|pull_request) ;;
-            *) echo "js=true" >> "$GITHUB_OUTPUT"; echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --retry 3 \
+            --output "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict -
+          mkdir -p "$RUNNER_TEMP/gitleaks-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/gitleaks-bin" gitleaks
+          "$RUNNER_TEMP/gitleaks-bin/gitleaks" version
+      - name: Scan the commits this event adds
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) base="$(git merge-base "$PR_BASE" "$HEAD_SHA")" ;;
+            merge_group) base="$MG_BASE" ;;
+            *) base="" ;;
           esac
-          files="$(git diff --name-only "$BASE...$HEAD")"
-          printf '%s\n' "$files"
-          not_rust='^(src/|landing/|samples/|integrations/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig(\.node)?\.json$|package\.json$|bun\.lockb?$|[^/]*\.md$|docs/)'
-          js_in='^(src/|index\.html$|biome\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig(\.node)?\.json$|package\.json$|bun\.lockb?$|\.github/workflows/|scripts/)'
-          macos=false; js=false
-          if printf '%s\n' "$files" | grep -v '^docs/AGENTS\.md$' | grep -Ev "$not_rust" | grep -q .; then macos=true; fi
-          if printf '%s\n' "$files" | grep -qx 'docs/AGENTS.md'; then macos=true; fi
-          if printf '%s\n' "$files" | grep -Eq "$js_in"; then js=true; fi
-          echo "js=$js" >> "$GITHUB_OUTPUT"; echo "macos=$macos" >> "$GITHUB_OUTPUT"
-          echo "js=$js macos=$macos"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base="${HEAD_SHA}~1"; fi
+          # A PR must not allowlist its own leak: ignore any repo-supplied config.
+          rm -f .gitleaks.toml .gitleaksignore
+          echo "scanning ${base}..${HEAD_SHA}"
+          "$RUNNER_TEMP/gitleaks-bin/gitleaks" git . --log-opts="${base}..${HEAD_SHA}" --redact --no-banner --max-target-megabytes 5 --timeout 120
 
-  # ---------------------------------------------------------------------------
-  # Linux. PR: typecheck + Biome only (~1 min, cached). merge_group: the
-  # selected suite plus the always-on security checks (crypto policy, audits).
-  # Nightly/manual: everything.
-  # ---------------------------------------------------------------------------
-  check-linux:
-    name: Check (Linux)
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
+  linux-full:
+    name: Linux full suite
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     # Runs bun install and tests (third-party code), so no id-token here.
     # The Codecov OIDC uploads live in the merge_group-only codecov job.
     permissions:
       contents: read
-    env:
-      # Fast lane: PR events once the merge queue is on.
-      PR: ${{ github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true' }}
-      # A failed classifier selects everything.
-      JS: ${{ needs.changes.result != 'success' || needs.changes.outputs.js == 'true' }}
-      RUST: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -126,20 +157,15 @@ jobs:
       # fails if either report is missing. Other events stay on bun run test.
       - name: Unit tests
         id: unit
-        if: env.PR != 'true' && env.JS == 'true'
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
-            ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
-            for f in coverage/lcov.info junit.xml; do
-              if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
-            done
-          else
-            bun run test
-          fi
+          ./node_modules/.bin/vitest run --coverage --coverage.reporter=lcov --reporter=default --reporter=junit --outputFile=junit.xml
+          for f in coverage/lcov.info junit.xml; do
+            if [ ! -s "$f" ]; then echo "::error::missing $f after coverage run"; exit 1; fi
+          done
 
       - name: Keep coverage reports for the Codecov job
-        if: ${{ !cancelled() && github.event_name == 'merge_group' && env.JS == 'true' && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.unit.outcome == 'success' || steps.unit.outcome == 'failure') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-reports
@@ -149,23 +175,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Soft-gated so an upstream advisory annotates without blocking.
-      # Always-on security check in the queue (not previously in CI).
-      - name: Crypto policy check
-        if: env.PR != 'true'
-        run: bun run check:crypto
-
-      - name: Audit JS dependencies
-        if: env.PR != 'true'
-        run: bun audit
-        continue-on-error: true
-
       - name: Frontend build
-        if: env.PR != 'true' && env.JS == 'true'
         run: bunx vite build
 
       - name: Install Rust
-        if: env.PR != 'true' && env.RUST == 'true'
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
@@ -173,13 +186,11 @@ jobs:
       # Caches ~/.cargo AND src-tauri/target (previously only the registry was
       # cached, so every run recompiled the whole Tauri tree).
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: env.PR != 'true' && env.RUST == 'true'
         with:
           workspaces: src-tauri
 
       # Tauri 2 Linux prerequisites — required for tauri-build to compile.
       - name: Install Linux system dependencies
-        if: env.PR != 'true' && env.RUST == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -195,7 +206,6 @@ jobs:
             patchelf
 
       - name: Stub sidecar binaries (resource existence check)
-        if: env.PR != 'true' && env.RUST == 'true'
         run: |
           mkdir -p src-tauri/target/release
           touch src-tauri/target/release/mdopen \
@@ -205,14 +215,12 @@ jobs:
           mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
 
       - name: Rust check (workspace)
-        if: env.PR != 'true' && env.RUST == 'true'
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
 
       # Linux-target clippy catches non-macOS cfg rot (dead code off macOS)
       # that the macOS clippy cannot see. Only when Rust inputs changed (the
       # classifier's `macos` output), or when the classifier did not succeed.
       - name: Rust clippy (workspace, Linux)
-        if: env.PR != 'true' && env.RUST == 'true'
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       # Full workspace tests (Linux): md-opener lib incl. local_inference gate
@@ -220,33 +228,24 @@ jobs:
       # kit) and doctor_fix. Queue and pre-flip PRs when Rust inputs changed;
       # nightly/manual always.
       - name: Rust tests (workspace)
-        if: env.PR != 'true' && env.RUST == 'true'
         run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=2
 
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.
       - name: Install cargo-audit
-        if: env.PR != 'true'
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-audit
         continue-on-error: true
 
       - name: Audit Rust dependencies
-        if: env.PR != 'true'
         run: cargo audit --file src-tauri/Cargo.lock
         continue-on-error: true
 
-  # ---------------------------------------------------------------------------
-  # Codecov uploads (merge_group only). The only job with id-token: write, and
-  # it runs no repo or dependency code: it only downloads the reports from
-  # Check (Linux) and hands them to the pinned Codecov actions over OIDC.
-  # Not a required check.
-  # ---------------------------------------------------------------------------
   codecov:
     name: Codecov upload
-    needs: check-linux
-    if: ${{ !cancelled() && github.event_name == 'merge_group' }}
+    needs: linux-full
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -276,42 +275,26 @@ jobs:
           fail_ci_if_error: false
           files: junit.xml
 
-  # ---------------------------------------------------------------------------
-  # macOS: only what needs macOS — the macOS-target Rust check and clippy
-  # (Swift/AFM sidecars, macOS-only cfg code). JS gates run on Linux above.
-  # ---------------------------------------------------------------------------
-  check-macos:
-    name: Check (macOS)
-    needs: changes
-    # Always reports the required name. On PRs, and in the queue when no Rust
-    # input changed, it is a seconds-long Linux stub; otherwise it runs the
-    # macOS check. A failed classifier runs it on macOS.
-    if: ${{ !cancelled() && (github.event_name != 'push' || vars.MERGE_QUEUE != 'true') }}
-    runs-on: ${{ ((github.event_name == 'pull_request' && vars.MERGE_QUEUE == 'true') || (needs.changes.result == 'success' && needs.changes.outputs.macos != 'true')) && 'ubuntu-22.04' || 'macos-14' }}
+  macos-full:
+    name: macOS full suite
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
     steps:
-      - name: Stub (no macOS inputs in this run)
-        if: runner.os != 'macOS'
-        run: echo "No Rust inputs selected; macOS check not needed for this event."
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: runner.os == 'macOS'
         with:
           persist-credentials: false
 
       - name: Install Rust
-        if: runner.os == 'macOS'
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: runner.os == 'macOS'
         with:
           workspaces: src-tauri
 
       # tauri-build validates bundle.resources paths exist at compile time.
       - name: Stub sidecar binaries (resource existence check)
-        if: runner.os == 'macOS'
         run: |
           mkdir -p src-tauri/target/release
           touch src-tauri/target/release/mdopen \
@@ -323,9 +306,30 @@ jobs:
           mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
 
       - name: Rust check (workspace)
-        if: runner.os == 'macOS'
         run: cargo check --workspace --manifest-path src-tauri/Cargo.toml
 
       - name: Rust clippy (workspace)
-        if: runner.os == 'macOS'
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+  # The one required check. Every event needs the fast job and the secret
+  # scan; scheduled and dispatch runs also need both full-suite jobs. Any
+  # needed job that is not success (failure, cancelled or skipped) fails it.
+  gate:
+    name: Check (Linux)
+    if: always()
+    needs: [fast, secret-scan, linux-full, macos-full]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every needed job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          full=false
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
+          bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and (.key == "linux-full" or .key == "macos-full") and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
+          if [ -n "$bad" ]; then echo "::error::Check (Linux): $bad"; exit 1; fi
+          echo "Check (Linux) passed ($EVENT)"
