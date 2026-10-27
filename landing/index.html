@@ -23,12 +23,6 @@
     <meta property="og:image" content="https://md.ashlr.ai/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="og.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
     <style>
       :root {
         --paper: #fbfaf6;
@@ -36,7 +30,7 @@
         --surface: #ffffff;
         --ink: #1a1a17;
         --ink-soft: #46453d;
-        --muted: #8a897c;
+        --muted: #666458;
         --line: #e9e6da;
         --line-strong: #dcd8c8;
         --accent: #0969da;
@@ -48,9 +42,9 @@
           0 6px 18px rgba(26, 26, 23, 0.06);
         --shadow-lg: 0 2px 6px rgba(26, 26, 23, 0.08),
           0 30px 70px -20px rgba(26, 26, 23, 0.28);
-        --display: "Fraunces", Georgia, serif;
-        --body: "Hanken Grotesk", -apple-system, system-ui, sans-serif;
-        --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+        --display: Georgia, "Times New Roman", serif;
+        --body: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: ui-monospace, Menlo, monospace;
         --maxw: 1180px;
       }
 
@@ -77,15 +71,6 @@
         color: #fff;
       }
 
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-        opacity: 0.035;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-      }
 
       a {
         color: inherit;
@@ -170,6 +155,7 @@
       }
       .brand {
         display: flex;
+        white-space: nowrap;
         align-items: center;
         gap: 11px;
         font-weight: 750;
@@ -235,7 +221,6 @@
         content: "";
         position: absolute;
         border-radius: 50%;
-        filter: blur(90px);
         z-index: 0;
         pointer-events: none;
       }
@@ -737,7 +722,7 @@
         display: inline-block;
       }
       .pcard.bad .ptag {
-        color: #b45309;
+        color: #92400e;
       }
       .pcard.good .ptag {
         color: var(--accent);
@@ -837,7 +822,6 @@
           rgba(107, 168, 255, 0.18),
           transparent 70%
         );
-        filter: blur(50px);
       }
       .ai-layout {
         display: grid;
@@ -1161,6 +1145,11 @@
         color: var(--muted);
         font-size: 14px;
       }
+      .shortcuts-grid { max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; }
+      .source { font-size: 14px; margin-top: 20px; }
+      .source a { text-decoration: underline; text-underline-offset: 3px; }
+      #agents .ai-points li { color: var(--ink-soft); }
+      #agents .ai-points b { color: var(--ink); }
       .foot-links {
         display: flex;
         gap: 24px;
@@ -1169,58 +1158,10 @@
         color: var(--ink);
       }
 
-      .reveal {
-        opacity: 0;
-        transform: translateY(24px);
-        transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
-          transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-      }
-      .reveal.in {
-        opacity: 1;
-        transform: none;
-      }
-      .hero .eyebrow,
-      .hero h1,
-      .hero .sub,
-      .hero-cta,
-      .hero-meta,
-      .stage {
-        opacity: 0;
-        animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-      }
-      .hero h1 {
-        animation-delay: 0.08s;
-      }
-      .hero .sub {
-        animation-delay: 0.18s;
-      }
-      .hero-cta {
-        animation-delay: 0.28s;
-      }
-      .hero-meta {
-        animation-delay: 0.36s;
-      }
-      .stage {
-        animation-delay: 0.34s;
-      }
-      @keyframes rise {
-        from {
-          opacity: 0;
-          transform: translateY(26px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
-      }
       @media (prefers-reduced-motion: reduce) {
         * {
           animation: none !important;
           transition: none !important;
-        }
-        .reveal {
-          opacity: 1;
-          transform: none;
         }
       }
 
@@ -1247,6 +1188,12 @@
         }
       }
       @media (max-width: 540px) {
+        .shortcuts-grid { grid-template-columns: 1fr; }
+        .foot-links { flex-wrap: wrap; gap: 12px 20px; }
+        .cta .btn { white-space: normal; height: auto; min-height: 48px; padding: 12px 16px; }
+        .nav-cta .btn-ghost {
+          display: none;
+        }
         .wrap {
           padding: 0 18px;
         }
@@ -1268,7 +1215,7 @@
           <a href="#ai">On-device AI</a>
           <a href="#agents">For agents</a>
           <a href="#shortcuts">Shortcuts</a>
-          <a href="#themes">Themes</a>
+          <a href="/docs/">Docs</a>
         </div>
         <div class="nav-cta">
           <a class="btn btn-ghost btn-sm" href="https://github.com/ashlrai/ashlr-md">
@@ -1280,7 +1227,7 @@
       </div>
     </nav>
 
-    <header id="top" class="hero">
+    <header id="top" class="hero" data-claim>
       <div class="wrap">
         <span class="eyebrow"><span class="dot"></span> The AI-native Markdown app</span>
         <h1>Markdown,<br />finally <em>beautiful.</em></h1>
@@ -1356,22 +1303,35 @@
           <code style="font-family: var(--mono)">.md</code>
         </div>
       </div>
+      <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Features and platform requirements</a></p>
     </header>
 
-    <section id="why">
+    <main>
+    <section id="use-cases" aria-labelledby="use-cases-title">
       <div class="wrap">
-        <div class="sec-head reveal">
+        <h2 id="use-cases-title" class="title">Find your Markdown workflow</h2>
+        <ul>
+          <li><a href="/use-cases/agent-markdown-review/">Review Markdown written by AI agents</a></li>
+          <li><a href="/use-cases/read-vault-notes/">Read notes from your vault</a></li>
+          <li><a href="/use-cases/markdown-export/">Export Markdown for review and sharing</a></li>
+        </ul>
+        <p><a href="/docs/">Browse documentation</a> · <a href="/install/">Installation guide</a></p>
+      </div>
+    </section>
+    <section id="why" data-claim>
+      <div class="wrap">
+        <div class="sec-head">
           <div class="kicker">The problem</div>
-          <h2 class="title">Your system opens Markdown <em>wrong.</em></h2>
+          <h2 class="title">Give Markdown a <em>reading view.</em></h2>
           <p>
-            Double-click a <code style="font-family: var(--mono)">.md</code> and
-            you get Preview (a blank page), TextEdit, or Notepad: raw syntax walls
-            none of them were built for the documents AI agents actually produce.
+            A <code style="font-family: var(--mono)">.md</code> file can contain
+            headings, code, callouts, and task lists. Ashlr MD renders that syntax
+            into a document you can read and edit.
           </p>
         </div>
-        <div class="problem reveal">
+        <div class="problem">
           <div class="pcard bad">
-            <span class="ptag">Today · TextEdit</span>
+            <span class="ptag">Markdown source</span>
             <div class="raw"># Launch Plan
 
 &gt; [!NOTE]
@@ -1398,88 +1358,90 @@ mdopen PLAN.md
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
-    <section id="features">
+    <section id="features" data-claim>
       <div class="wrap">
-        <div class="sec-head reveal">
+        <div class="sec-head">
           <div class="kicker">Everything you need</div>
           <h2 class="title">A real app for your <em>.md</em> files.</h2>
           <p>Open, read, edit, and share Markdown: beautifully, instantly, keyboard-first, on macOS, Windows, and Linux.</p>
         </div>
         <div class="grid">
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16M4 12h10M4 19h7" stroke-linecap="round"/></svg></div>
             <h3>Instant, beautiful rendering</h3>
-            <p>GitHub-flavored Markdown, syntax-highlighted code, Mermaid diagrams, math, tables, footnotes, rendered the moment you double-click.</p>
+            <p>GitHub-flavored Markdown, syntax-highlighted code, Mermaid diagrams, math, tables, footnotes, rendered the moment you double-click.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h16M6 16l9-9 3 3-9 9H6v-3Z" stroke-linejoin="round"/></svg></div>
             <h3>Edit without the syntax</h3>
-            <p>A Typora-style WYSIWYG editor for everyone, plus a lossless source mode for power users. Saves are instant and safe.</p>
+            <p>A visual editor for everyday writing, plus a source mode for direct Markdown editing. Atomic saves and external-change detection help you manage edits.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 21h14" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <h3>Export anywhere</h3>
-            <p>One click to a polished <b>PDF</b>, a <b>Word</b> doc, or a self-contained <b>HTML</b> page. Fully offline. No Pandoc, no accounts.</p>
+            <p>One click to a polished <b>PDF</b>, a <b>Word</b> doc, or a self-contained <b>HTML</b> page. Fully offline. No Pandoc, no accounts.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l2 2 4-4M4 6h16v12H4z" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <h3>Smart agent output</h3>
-            <p>Callouts, interactive checkboxes that save back to the file, and automatic plan / diff / multi-file detection with badges. Agent docs come alive.</p>
+            <p>Callouts, interactive checkboxes that save back to the file, and automatic plan / diff / multi-file detection with badges. Agent docs come alive.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 10l2.5 2L8 14M13 14h3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <h3>⌘K command palette</h3>
-            <p>Fuzzy, keyboard-first access to every action and your recent files. Open, save, export, switch themes, jump to AI, without lifting your hands.</p>
+            <p>Fuzzy, keyboard-first access to every action and your recent files. Open, save, export, switch themes, jump to AI, without lifting your hands.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/><circle cx="19" cy="6" r="2.4" fill="currentColor" stroke="none"/></svg></div>
             <h3>Agent activity, live (⌘B)</h3>
-            <p>Point the activity drawer at the folder your AI agent writes to and new Markdown files appear the instant they land. Click to open. Never dig through buried <code style="font-family: var(--mono)">.md</code> again.</p>
+            <p>Point the activity drawer at the folder your AI agent writes to and new Markdown files appear the instant they land. Click to open. Never dig through buried <code style="font-family: var(--mono)">.md</code> again.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.2 5.6L20 9l-4.5 3.4L17 18l-5-3-5 3 1.5-5.6L4 9l5.8-.4L12 3Z" stroke-linejoin="round"/></svg></div>
             <h3>Inline AI rewrite (⌘I)</h3>
-            <p>Right where you're editing: Rewrite, Fix grammar, Make concise, or Expand a selection. And when a file changes on disk, ask the AI to <b>explain the changes</b>.</p>
+            <p>Right where you're editing: Rewrite, Fix grammar, Make concise, or Expand a selection. And when a file changes on disk, ask the AI to <b>explain the changes</b>.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6M4 12h10M4 18h7" stroke-linecap="round"/><circle cx="17" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></div>
             <h3>Outline navigation (⌘⇧O)</h3>
-            <p>An auto table-of-contents with scrollspy lets you jump around long documents and always know where you are.</p>
+            <p>An auto table-of-contents with scrollspy lets you jump around long documents and always know where you are.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/></svg></div>
             <h3>Three gorgeous themes</h3>
-            <p>Paper, Sepia, and Midnight: switch live, and everything from code to diagrams follows along. Beautiful in light and dark.</p>
+            <p>Paper, Sepia, and Midnight: switch live, and everything from code to diagrams follows along. Beautiful in light and dark.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
-          <div class="feat reveal">
+          <div class="feat" data-claim>
             <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" stroke-linejoin="round"/></svg></div>
             <h3>Native &amp; instant</h3>
-            <p>Built on Tauri: a tiny native binary that launches in a blink. No Electron bloat, no spinning beachballs.</p>
+            <p>Built with Tauri and a React frontend. Available for macOS, Windows, and Linux under the MIT license.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Feature reference</a></p>
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
-    <section id="ai" style="padding: 40px 0">
+    <section id="ai" style="padding: 40px 0" data-claim>
       <div class="band-dark" style="padding: 80px 0">
         <div class="wrap">
           <div class="ai-layout">
             <div>
-              <div class="sec-head reveal" style="margin-bottom: 0">
+              <div class="sec-head" style="margin-bottom: 0">
                 <div class="kicker">Free · private · on-device</div>
-                <h2 class="title">AI that never leaves <em>your device.</em></h2>
-                <p>Summarize, explain, rewrite, or translate any document, locally and free. On macOS 26+ (Apple Silicon): Apple's on-device models, zero setup. On Windows &amp; Linux: Ollama, or bring your own key. Nothing uploaded by default.</p>
+                <h2 class="title">Choose <em>local AI.</em></h2>
+                <p>Summarize, explain, rewrite, or translate with a configured local provider. Apple Foundation Models requires Apple Silicon, macOS 26 or later, and Apple Intelligence enabled. Ollama needs a local installation and model. Cloud providers are optional and send requests off-device.</p>
               </div>
-              <ul class="ai-points reveal">
-                <li><span class="ck">✓</span><div><b>Genuinely free.</b> Apple on-device models on Mac (zero setup) or Ollama on Windows &amp; Linux. Zero cost either way.</div></li>
-                <li><span class="ck">✓</span><div><b>Genuinely private.</b> Your documents never touch a server on any platform. The green badge proves it.</div></li>
+              <ul class="ai-points">
+                <li><span class="ck">✓</span><div><b>Local options.</b> Apple Foundation Models on supported Macs, or an installed Ollama model.</div></li>
+                <li><span class="ck">✓</span><div><b>Know your provider.</b> Local inference and cloud inference have different data paths. Check the selected provider before sending a document.</div></li>
                 <li><span class="ck">✓</span><div><b>Tiered fallback.</b> Apple Foundation Models (macOS only) → Ollama → your own cloud key → optional hosted. You always control where inference runs.</div></li>
                 <li><span class="ck">✓</span><div><b>Everywhere you work.</b> Select text to Explain / Summarize / Rewrite / Translate, rewrite inline in the editor with ⌘I, or chat with the whole document.</div></li>
               </ul>
             </div>
-            <div class="ai-mock reveal">
+            <div class="ai-mock">
               <div class="amh">
                 <span class="pill"><span class="led"></span> On device</span>
                 <div class="who">AI Assistant<small>On-device · free · private</small></div>
@@ -1492,25 +1454,26 @@ mdopen PLAN.md
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
-    <section id="agents">
+    <section id="agents" data-claim>
       <div class="wrap">
         <div class="agent-grid">
           <div>
-            <div class="sec-head reveal" style="margin-bottom: 28px">
+            <div class="sec-head" style="margin-bottom: 28px">
               <div class="kicker">Agent-native</div>
               <h2 class="title">Your agents can <em>drive it.</em></h2>
               <p>Ashlr MD speaks the language of coding agents. Open a file from the terminal, a URL, or let Claude Code, Codex, or Cursor read and edit the live document over MCP.</p>
             </div>
-            <ul class="ai-points reveal">
+            <ul class="ai-points">
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">›</span><div><b>mdopen file.md</b>: open from any terminal or script.</div></li>
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">↗</span><div><b>mdopener://</b>: deep-link straight to a document.</div></li>
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">⚙</span><div><b>MCP server</b>: agents open, read, edit &amp; export the current doc. One-click setup in Settings.</div></li>
               <li><span class="ck" style="background:var(--accent-soft);color:var(--accent-deep)">◉</span><div><b>Agent activity drawer (⌘B)</b>: watch your agent's output folder and open new docs the moment they appear.</div></li>
             </ul>
           </div>
-          <div class="term reveal">
+          <div class="term">
             <div class="tb"><i></i><i></i><i></i></div>
             <pre><span class="cm"># open a file in Ashlr MD from anywhere</span>
 <span class="pr">$</span> mdopen PLAN.md
@@ -1518,7 +1481,7 @@ mdopen PLAN.md
 <span class="cm"># let Claude Code drive the app (or: Preferences → AI agents → Connect)</span>
 <span class="pr">$</span> claude mcp add --scope user ashlr-md \
     <span class="ac">"/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp"</span>
-<span class="cm">✓ connected · 20 tools available</span>
+<span class="cm">✓ connected</span>
 
 <span class="cm"># now, inside Claude Code:</span>
 <span class="ac">"open README.md, add a Summary</span>
@@ -1526,40 +1489,42 @@ mdopen PLAN.md
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md">Repository documentation</a></p>
     </section>
 
-    <section id="themes">
+    <section id="themes" data-claim>
       <div class="wrap">
-        <div class="sec-head reveal">
+        <div class="sec-head">
           <div class="kicker">Make it yours</div>
           <h2 class="title">Three themes. <em>Zero</em> config.</h2>
           <p>Pick a mood and the whole document (text, code, diagrams, chrome) follows. Try them live in the preview above.</p>
         </div>
         <div class="themes-grid">
-          <div class="theme-card reveal">
+          <div class="theme-card">
             <div class="tprev paper"><div class="ttl">Paper</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Paper <small>clean light</small></div>
           </div>
-          <div class="theme-card reveal">
+          <div class="theme-card">
             <div class="tprev sepia"><div class="ttl">Sepia</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Sepia <small>warm reading</small></div>
           </div>
-          <div class="theme-card reveal">
+          <div class="theme-card">
             <div class="tprev midnight"><div class="ttl">Midnight</div><div class="ln a"></div><div class="ln"></div><div class="ln" style="width:80%"></div></div>
             <div class="tname">Midnight <small>true dark</small></div>
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
-    <section id="shortcuts">
+    <section id="shortcuts" data-claim>
       <div class="wrap">
-        <div class="sec-head reveal">
+        <div class="sec-head">
           <div class="kicker">Keyboard-first</div>
           <h2 class="title">Every action, a <em>keystroke</em> away.</h2>
           <p>Drive the whole app from the keyboard, or just press <b>⌘K</b> and search for anything.</p>
         </div>
-        <div class="reveal" style="max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 28px">
+        <div class="shortcuts-grid">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Command palette</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘K</kbd></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">AI assistant</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘L</kbd></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Inline AI rewrite (in editor)</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘I</kbd></div>
@@ -1576,13 +1541,14 @@ mdopen PLAN.md
           <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">Settings</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘,</kbd></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow-sm)"><span style="color:var(--ink-soft)">All shortcuts (cheat sheet)</span><kbd style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-deep);background:var(--accent-soft);padding:3px 9px;border-radius:7px">⌘/</kbd></div>
         </div>
-        <p class="reveal" style="text-align:center;color:var(--muted);margin-top:18px;font-size:15px">Shown with ⌘ on macOS, Ctrl on Windows &amp; Linux.</p>
+        <p style="text-align:center;color:var(--muted);margin-top:18px;font-size:15px">Shown with ⌘ on macOS, Ctrl on Windows &amp; Linux.</p>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
-    <section id="download" style="padding-bottom: 20px">
+    <section id="download" style="padding-bottom: 20px" data-claim>
       <div class="wrap">
-        <div class="cta reveal">
+        <div class="cta">
           <div class="mark">M</div>
           <h2>Open Markdown.<br />Instantly beautiful.</h2>
           <p>Free, open source, and local-first, on macOS, Windows, and Linux. Make Ashlr MD your default <code style="font-family: var(--mono)">.md</code> handler and never dread a Markdown file again.</p>
@@ -1595,8 +1561,10 @@ mdopen PLAN.md
           </div>
         </div>
       </div>
+    <p class="wrap source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/README.md#features">Repository documentation</a></p>
     </section>
 
+    </main>
     <footer>
       <div class="wrap foot">
         <div class="brand" style="font-size: 16px">
@@ -1624,37 +1592,15 @@ mdopen PLAN.md
       window.addEventListener("scroll", onScroll, { passive: true });
 
       const win = document.getElementById("mockWin");
-      let userTouched = false;
       for (const b of document.querySelectorAll(".theme-switch button")) {
         b.addEventListener("click", () => {
-          userTouched = true;
           win.dataset.theme = b.dataset.t;
           for (const x of document.querySelectorAll(".theme-switch button"))
             x.classList.toggle("active", x === b);
         });
       }
-      const order = ["paper", "sepia", "midnight"];
-      let i = 0;
-      setInterval(() => {
-        if (userTouched) return;
-        i = (i + 1) % order.length;
-        win.dataset.theme = order[i];
-        for (const x of document.querySelectorAll(".theme-switch button"))
-          x.classList.toggle("active", x.dataset.t === order[i]);
-      }, 2600);
 
-      const io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            if (e.isIntersecting) {
-              e.target.classList.add("in");
-              io.unobserve(e.target);
-            }
-          }
-        },
-        { threshold: 0.14 },
-      );
-      for (const el of document.querySelectorAll(".reveal")) io.observe(el);
+
     </script>
   </body>
 </html>

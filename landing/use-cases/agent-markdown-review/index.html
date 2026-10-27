@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review Markdown written by AI agents | Ashlr MD</title>
+  <meta name="description" content="A practical workflow for opening agent plans, watching output folders, and requesting human review through Ashlr MD.">
+  <link rel="canonical" href="https://md.ashlr.ai/use-cases/agent-markdown-review/">
+  <meta property="og:title" content="Review Markdown written by AI agents | Ashlr MD">
+  <meta property="og:description" content="A practical workflow for opening agent plans, watching output folders, and requesting human review through Ashlr MD.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://md.ashlr.ai/use-cases/agent-markdown-review/">
+  <meta property="og:image" content="https://md.ashlr.ai/og.png">
+  <link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header><nav aria-label="Main"><a class="brand" href="/">Ashlr MD</a><a href="/docs/">Docs</a><a href="/install/">Install</a></nav></header>
+<main id="content">
+  <p class="eyebrow">Ashlr MD guides</p>
+  <h1>Review Markdown written by AI agents</h1>
+  <section data-claim><h2>Keep the plan beside the work</h2><p>When an agent produces a plan or research note, open the file in Ashlr MD and read it before the next change. The bundled <code>mdopen</code> CLI opens Markdown from a terminal, and the Agent Activity drawer can watch an output folder for new files.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md">Agent workflow guide</a></p></section>
+<section data-claim><h2>Start with one file</h2><ol><li>Follow the <a href="/install/">installation guide</a>, then enable <strong>Preferences → Command-line tool → Install mdopen</strong>.</li><li>Run <code>mdopen PLAN.md</code> from your project folder.</li><li>Open the Agent Activity drawer with <kbd>⌘B</kbd> on macOS or <kbd>Ctrl+B</kbd> on Windows and Linux, and choose the folder your agent writes to.</li></ol><p>This is useful when you want to read generated files without connecting an agent to the app.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md">CLI installation and activity drawer</a></p></section>
+<section data-claim><h2>Add a review loop when you need it</h2><p>In <strong>Preferences → AI agents (MCP)</strong>, connect a detected agent. The MCP server exposes tools for opening, reading, editing and exporting the live document, plus <code>request_review</code> for requesting human review. Try asking your agent: “Open PLAN.md, add a risks section, then request my review.”</p><p>Only <code>open_file</code> starts the app. Other live-document operations require the app to be running. A review request is a workflow step, not a guarantee that generated content is correct.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md">MCP tools and prerequisites</a></p></section>
+<section data-claim><h2>Choose how much to connect</h2><p>Use the CLI for opening files, the activity drawer for watching a folder, and MCP when you want an agent to operate on the document. For AppImage installations, use the in-app connection flow to register a stable copy of the sidecar instead of a temporary mount path.</p><p class="source">Source: <a data-source href="https://github.com/ashlrai/ashlr-md/blob/main/docs/AGENTS.md#manual">AppImage sidecar setup</a></p></section>
+  <aside aria-label="Related guides"><h2>Continue your workflow</h2><ul><li><a href="/use-cases/agent-markdown-review/">Review Markdown written by AI agents</a></li><li><a href="/use-cases/read-vault-notes/">Read Markdown notes from your vault</a></li><li><a href="/use-cases/markdown-export/">Export Markdown for review and sharing</a></li></ul><p><a href="/docs/">Browse documentation</a> · <a href="/install/">Install Ashlr MD</a></p></aside>
+</main>
+<footer><a href="/">Ashlr MD home</a> · <a href="https://github.com/ashlrai/ashlr-md">Source repository</a></footer>
+</body>
+</html>
