@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A folder deleted or moved inside the watched folder takes its notes off
+  the Activity list.** The watcher sent removals only for Markdown paths, and
+  a folder's removal reports the folder alone, so the notes in it stayed
+  listed (and failed when opened). The folder's removal is now sent after
+  the same settle check, and the list drops every note under it.
 - **The theme picker in Settings answers the arrow keys.** It is announced
   as a radio group but every swatch was its own Tab stop and the arrow keys
   did nothing. It is now one Tab stop (the chosen theme), and the arrow keys

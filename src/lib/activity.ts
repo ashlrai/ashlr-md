@@ -34,7 +34,8 @@ export interface ActivityEvent extends MdFileInfo {
    * Whether the watcher saw the file appear, change or go (deleted, or
    * renamed or moved away; `mtimeMs` and `size` are then 0). A rename inside
    * the folder is a `"removed"` for the old path and a `"modified"` for the
-   * new one.
+   * new one. A folder deleted or moved away is one `"removed"` for the
+   * folder's path, which stands for every note under it.
    */
   kind: "created" | "modified" | "removed";
 }

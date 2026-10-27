@@ -184,6 +184,39 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["new.md"]);
   });
 
+  it("a removed folder drops every file under it, and nothing beside it", () => {
+    const under = (path: string, mtimeMs: number): MdFileInfo => ({
+      path,
+      name: path.split("/").pop() ?? "",
+      dir: path.slice(0, path.lastIndexOf("/")),
+      mtimeMs,
+      size: 1,
+    });
+    useActivityStore.setState({
+      files: [
+        under("/watch/notes/a.md", 4),
+        under("/watch/notes/deep/b.md", 3),
+        under("/watch/notes-old/c.md", 2),
+        under("/watch/d.md", 1),
+      ],
+      unseen: ["/watch/notes/a.md", "/watch/d.md"],
+    });
+    useActivityStore.getState().applyEvent({
+      kind: "removed",
+      path: "/watch/notes",
+      name: "notes",
+      dir: "/watch",
+      mtimeMs: 0,
+      size: 0,
+    });
+    const s = useActivityStore.getState();
+    expect(s.files.map((f) => f.path)).toEqual([
+      "/watch/notes-old/c.md",
+      "/watch/d.md",
+    ]);
+    expect(s.unseen).toEqual(["/watch/d.md"]);
+  });
+
   // ── Unseen badge ────────────────────────────────────────────────────────
 
   it("applyEvent adds path to unseen when the drawer is closed", () => {

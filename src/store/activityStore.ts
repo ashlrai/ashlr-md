@@ -132,7 +132,8 @@ interface ActivityState {
   applyEvent: (ev: ActivityEvent) => void;
   /**
    * Drop `path` from the list: a file the watcher saw go, or one found gone
-   * when opened (a removal the watcher missed).
+   * when opened (a removal the watcher missed). A folder's path drops every
+   * file under it.
    */
   removeFile: (path: string) => void;
   /** Clear the unseen badge (drawer viewed). */
@@ -150,6 +151,18 @@ function toFileInfo(ev: ActivityEvent): MdFileInfo {
     mtimeMs: ev.mtimeMs,
     size: ev.size,
   };
+}
+
+/**
+ * `path` is `removed` or inside it: a folder deleted or moved away is sent
+ * as one removal (the watcher sends none for the notes inside it).
+ */
+function isAtOrUnder(path: string, removed: string): boolean {
+  return (
+    path === removed ||
+    path.startsWith(`${removed}/`) ||
+    path.startsWith(`${removed}\\`)
+  );
 }
 
 /** Upsert `file` to the front, de-duping by path, capped at MAX_FILES. */
@@ -260,8 +273,8 @@ export const useActivityStore = create<ActivityState>()(
 
       removeFile: (path) =>
         set((s) => ({
-          files: s.files.filter((f) => f.path !== path),
-          unseen: s.unseen.filter((p) => p !== path),
+          files: s.files.filter((f) => !isAtOrUnder(f.path, path)),
+          unseen: s.unseen.filter((p) => !isAtOrUnder(p, path)),
         })),
 
       markAllSeen: () => set({ unseen: [] }),
