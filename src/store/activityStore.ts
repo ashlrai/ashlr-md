@@ -33,6 +33,8 @@ let pendingNew: MdFileInfo[] = [];
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 /** Counts `loadFiles` calls: only the latest one's listing is kept. */
 let scans = 0;
+/** Events heard while the latest listing runs (null when none does). */
+let heard: ActivityEvent[] | null = null;
 
 function flushNewFileToast() {
   pendingTimer = null;
@@ -209,6 +211,7 @@ export const useActivityStore = create<ActivityState>()(
       loadFiles: async () => {
         const dir = get().watchedDir;
         const generation = ++scans;
+        heard = dir ? [] : null;
         if (!dir) {
           set({ files: [] });
           return;
@@ -224,7 +227,16 @@ export const useActivityStore = create<ActivityState>()(
           // A later listing started meanwhile (a refill after a removal):
           // this older one may still name what it no longer lists.
           if (generation !== scans) return;
-          const listed = scan.files;
+          // A file written or removed while the folder was walked may be
+          // missing from (or still in) the listing: what was heard wins.
+          let listed = scan.files;
+          for (const ev of heard ?? []) {
+            listed =
+              ev.kind === "removed"
+                ? listed.filter((f) => !isAtOrUnder(f.path, ev.path))
+                : [toFileInfo(ev), ...listed.filter((f) => f.path !== ev.path)];
+          }
+          heard = null;
           const depthCut = scan.depthCut === true;
           const scanCut = scan.scanCut || depthCut;
           // The folder changed while this listing ran: it is not this one's.
@@ -237,12 +249,14 @@ export const useActivityStore = create<ActivityState>()(
             lastError: null,
           });
         } catch (e) {
+          if (generation === scans) heard = null;
           if (get().watchedDir !== dir || generation !== scans) return;
           set({ lastError: e instanceof Error ? e.message : String(e) });
         }
       },
 
       applyEvent: (ev) => {
+        heard?.push(ev);
         // Deleted, or renamed or moved away: the file leaves the list.
         if (ev.kind === "removed") {
           get().removeFile(ev.path);

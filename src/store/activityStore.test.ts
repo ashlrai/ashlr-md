@@ -219,6 +219,27 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["b.md"]);
   });
 
+  it("a listing keeps the files written and removed while it ran", async () => {
+    // The walk saw old.md and missed fresh.md; both changed before it finished.
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("fresh.md", "created", 3));
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
+    resolveScan([makeFile("old.md", 2), makeFile("kept.md", 1)]);
+    await pending;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "fresh.md",
+      "kept.md",
+    ]);
+  });
+
   it("a removal from a whole list does not list the folder again", () => {
     useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
     useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));

@@ -30,6 +30,7 @@ import {
   CLOSE_MISSING_SAVE_AS,
   tabHoldsPath,
   useDocumentStore,
+  withoutVerbatimPrefix,
 } from "./documentStore";
 import { useToastStore } from "./toastStore";
 
@@ -1397,6 +1398,28 @@ describe("documentStore — one file opened by two paths is one tab", () => {
     expect(tab.key).toBe("/v/notes.md");
     expect(tabHoldsPath(tab, "/v/Notes.md")).toBe(true);
     expect(tabHoldsPath(tab, "/v/old.md")).toBe(false);
+  });
+
+  it("names a Windows canonical path without its verbatim prefix", () => {
+    expect(withoutVerbatimPrefix("\\\\?\\C:\\v\\a.md")).toBe("C:\\v\\a.md");
+    expect(withoutVerbatimPrefix("\\\\?\\UNC\\host\\share\\a.md")).toBe(
+      "\\\\host\\share\\a.md",
+    );
+    expect(withoutVerbatimPrefix("/v/a.md")).toBe("/v/a.md");
+  });
+
+  it("Save As keeps a Windows canonical spelling as Activity lists it", async () => {
+    sameFile((p) => (p === "C:\\v\\link\\b.md" ? "\\\\?\\D:\\real\\b.md" : p));
+    const base = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: { path?: string }) =>
+      cmd === "write_markdown_file" ? Promise.resolve("v2") : base?.(cmd, args),
+    );
+    await useDocumentStore.getState().openPath("C:\\v\\a.md");
+    pickMock.mockResolvedValueOnce("C:\\v\\link\\b.md");
+    expect(await useDocumentStore.getState().saveAs()).toBeNull();
+    expect(tabHoldsPath(useDocumentStore.getState().tabs[0], "D:\\real\\b.md")).toBe(
+      true,
+    );
   });
 
   /** A disk of `files`, each its own canonical path, saves written into it. */

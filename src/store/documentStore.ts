@@ -49,11 +49,16 @@ export function fileKey(file: MarkdownFile): string {
 }
 
 /**
- * Whether `tab` holds the file `path` names: its own path, its key (the
- * canonical path, as a read names it) or a path that opened it as the same
- * file ({@link fileKey}). Matching the path as given missed a file opened
- * under another spelling: a link, other case where case is ignored.
+ * A Windows canonical path as other paths spell it: `canonicalize` adds a
+ * verbatim prefix (`\\?\` before a drive, `\\?\UNC\` before a share), which no
+ * Activity entry or dialog path has. Other paths are returned unchanged.
  */
+export function withoutVerbatimPrefix(path: string): string {
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice(8)}`;
+  if (path.startsWith("\\\\?\\")) return path.slice(4);
+  return path;
+}
+
 /**
  * `tab.aliases` with each of `paths` the tab does not already hold. The
  * canonical spelling is kept as read: on a filesystem that ignores case the
@@ -61,11 +66,19 @@ export function fileKey(file: MarkdownFile): string {
  */
 function addAliases(tab: Tab, paths: (string | undefined)[]): string[] | undefined {
   const added = [...(tab.aliases ?? [])];
-  for (const p of paths) {
+  for (const raw of paths) {
+    const p = raw && withoutVerbatimPrefix(raw);
     if (p && !tabHoldsPath({ ...tab, aliases: added }, p)) added.push(p);
   }
   return added.length > 0 ? added : undefined;
 }
+
+/**
+ * Whether `tab` holds the file `path` names: its own path, its key (the
+ * canonical path, as a read names it) or a path that opened it as the same
+ * file ({@link fileKey}). Matching the path as given missed a file opened
+ * under another spelling: a link, other case where case is ignored.
+ */
 
 export function tabHoldsPath(
   tab: Pick<Tab, "path" | "key" | "aliases">,
