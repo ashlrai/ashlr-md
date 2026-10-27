@@ -1,10 +1,10 @@
 name: CodeQL
 
 # Code scanning stays off pull_request and off per-push CI.
-# Same nightly window as the CI workflow (06:17 UTC), plus merge_group
-# and manual runs.
+# Same nightly window as the CI workflow (06:17 UTC), plus manual runs.
+# Not on merge_group: the queue ref is deleted once the entry merges, so the
+# SARIF upload fails with "ref not found" (CodeQL is not a required check).
 on:
-  merge_group:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
