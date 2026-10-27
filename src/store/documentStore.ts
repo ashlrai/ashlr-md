@@ -49,6 +49,51 @@ export function fileKey(file: MarkdownFile): string {
 }
 
 /**
+ * A Windows canonical path as other paths spell it: `canonicalize` adds a
+ * verbatim prefix (`\\?\` before a drive, `\\?\UNC\` before a share), which no
+ * Activity entry or dialog path has. Other paths are returned unchanged.
+ */
+export function withoutVerbatimPrefix(path: string): string {
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice(8)}`;
+  if (path.startsWith("\\\\?\\")) return path.slice(4);
+  return path;
+}
+
+/**
+ * `tab.aliases` with each of `paths` the tab does not already hold. The
+ * canonical spelling is kept as read: on a filesystem that ignores case the
+ * key is lowercased, and the Activity list names the file as it is on disk.
+ */
+function addAliases(tab: Tab, paths: (string | undefined)[]): string[] | undefined {
+  const added = [...(tab.aliases ?? [])];
+  for (const raw of paths) {
+    const p = raw && withoutVerbatimPrefix(raw);
+    if (p && !tabHoldsPath({ ...tab, aliases: added }, p)) added.push(p);
+  }
+  return added.length > 0 ? added : undefined;
+}
+
+/**
+ * Whether `tab` holds the file `path` names: its own path, its key (the
+ * canonical path, as a read names it) or a path that opened it as the same
+ * file ({@link fileKey}). Matching the path as given missed a file opened
+ * under another spelling: a link, other case where case is ignored.
+ */
+
+export function tabHoldsPath(
+  tab: Pick<Tab, "path" | "key" | "aliases">,
+  path: string,
+): boolean {
+  // Aliases are kept without a Windows verbatim prefix (see addAliases).
+  const bare = withoutVerbatimPrefix(path);
+  return (
+    tab.path === path ||
+    tab.key === path ||
+    (tab.aliases?.some((a) => a === path || a === bare) ?? false)
+  );
+}
+
+/**
  * Tags in a `write_markdown_file` error (src-tauri/src/document.rs): the
  * file changed on disk since it was read, or is gone. Either way nothing
  * was written.
@@ -73,6 +118,11 @@ export interface Tab {
   id: string;
   /** Which file the tab holds, whatever path opened it ({@link fileKey}). */
   key: string;
+  /**
+   * Other paths that opened this tab's file (another case, a link, `..`),
+   * found as the same file by {@link fileKey}. See {@link tabHoldsPath}.
+   */
+  aliases?: string[];
   path: string;
   fileName: string;
   content: string;
@@ -569,7 +619,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // filesystem that ignores it): switch to its tab, as for its own path.
       const same = get().tabs.find((t) => t.key === key);
       if (same) {
-        set({ isLoading: false });
+        set((s) => ({
+          isLoading: false,
+          // Remembered, so the tab is found by this path too (tabHoldsPath).
+          tabs: s.tabs.map((t) =>
+            t.id === same.id
+              ? { ...t, aliases: addAliases(t, [path, file.canonical_path]) }
+              : t,
+          ),
+        }));
         get().switchTab(same.id);
         return null;
       }
@@ -593,6 +651,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         reloadNonce: get().reloadNonce + 1,
         splitView: false,
       };
+      tab.aliases = addAliases(tab, [file.canonical_path]);
       set((s) => ({
         // Mirror the new tab into the top-level active fields.
         ...tabFieldsToTop(tab),
@@ -876,15 +935,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     // (or as the only copy of a file gone from disk), the user is asked
     // first, as the dialog only asked about the file on disk.
     const destPath = dest;
-    const fileKeyOf = async () => {
+    const readDest = async (): Promise<MarkdownFile | null> => {
       try {
-        return fileKey(
-          await invoke<MarkdownFile>("read_markdown_file", { path: destPath }),
-        );
+        return await invoke<MarkdownFile>("read_markdown_file", { path: destPath });
       } catch {
         // Not there yet (or unreadable): the path as given will do.
-        return destPath;
+        return null;
       }
+    };
+    const fileKeyOf = async () => {
+      const file = await readDest();
+      return file ? fileKey(file) : destPath;
     };
     const others = (key: string) =>
       get().tabs.filter(
@@ -942,14 +1003,21 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // so opening the new file by another path (a symbolic link to its
       // folder, other case where case is ignored) opened it in a second
       // tab, whose saves overwrote this one's.
-      const key = await fileKeyOf();
+      const file = await readDest();
+      const key = file ? fileKey(file) : destPath;
       // The other tabs on this file held the text just replaced: closed,
       // so one tab holds it (unless the user switched to one meanwhile).
       const stale = new Set([...open, ...others(key)].map((t) => t.id));
+      // The old file's spellings go; the new one's canonical spelling, as
+      // it is on disk, stays (the key is lower-cased where case is ignored).
+      const aliases = (t: Tab) =>
+        addAliases({ ...t, path: dest, key, aliases: undefined }, [
+          file?.canonical_path,
+        ]);
       set((s) => ({
         tabs: s.tabs
           .filter((t) => !stale.has(t.id) || t.id === s.activeId)
-          .map((t) => (t.id === activeId ? { ...t, key } : t)),
+          .map((t) => (t.id === activeId ? { ...t, key, aliases: aliases(t) } : t)),
       }));
       useRecentStore.getState().add(dest, fileName, Date.now());
       if (get().activeId === activeId) {
@@ -1015,7 +1083,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       path: to,
       fileName,
       tabs: syncActiveTab(next).map((t) =>
-        t.id === s.activeId ? { ...t, key: to } : t,
+        t.id === s.activeId ? { ...t, key: to, aliases: undefined } : t,
       ),
     });
     toast.info(
@@ -1026,12 +1094,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     await get().refreshFromDisk(to);
     // Found again by its canonical path, as a read names it (see fileKey).
     try {
-      const key = fileKey(
-        await invoke<MarkdownFile>("read_markdown_file", { path: to }),
-      );
+      const file = await invoke<MarkdownFile>("read_markdown_file", { path: to });
+      const key = fileKey(file);
       set((now) => ({
         tabs: now.tabs.map((t) =>
-          t.id === s.activeId && t.path === to ? { ...t, key } : t,
+          t.id === s.activeId && t.path === to
+            ? {
+                ...t,
+                key,
+                aliases: addAliases({ ...t, key, aliases: undefined }, [
+                  file.canonical_path,
+                ]),
+              }
+            : t,
         ),
       }));
     } catch {

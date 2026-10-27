@@ -91,4 +91,13 @@ describe("<ShortcutSheet />", () => {
     });
     expect(useUiStore.getState().shortcutsOpen).toBe(false);
   });
+
+  it("its list is a named Tab stop, so the keyboard can scroll it", () => {
+    useUiStore.setState({ shortcutsOpen: true });
+    act(() => root.render(createElement(ShortcutSheet)));
+    const list = host.querySelector<HTMLElement>(".shortcut-sheet-body");
+    expect(list?.tabIndex).toBe(0);
+    expect(list?.getAttribute("role")).toBe("region");
+    expect(list?.getAttribute("aria-label")).toBe("Shortcuts");
+  });
 });

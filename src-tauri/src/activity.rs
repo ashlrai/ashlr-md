@@ -170,9 +170,23 @@ impl EventRouter {
     }
 
     fn handle(self: &std::sync::Arc<Self>, event: &notify::Event) {
-        use notify::event::ModifyKind;
+        use notify::event::{ModifyKind, RemoveKind};
         for path in &event.paths {
-            if should_skip_path(path) || !is_markdown(path) {
+            if should_skip_path(path) {
+                continue;
+            }
+            if !is_markdown(path) {
+                // A folder deleted, or renamed or moved away, sends no event
+                // for the notes inside it on every platform: its own removal
+                // is sent (after the same settle check), and the listing
+                // drops the notes under it. Only a file's removal is known
+                // not to be a folder's; the others may be either.
+                match event.kind {
+                    EventKind::Remove(RemoveKind::File) => {}
+                    EventKind::Remove(_) => self.gone(path),
+                    EventKind::Modify(ModifyKind::Name(_)) if !path.exists() => self.gone(path),
+                    _ => {}
+                }
                 continue;
             }
             match event.kind {
@@ -720,6 +734,38 @@ mod tests {
         }
         std::thread::sleep(Duration::from_millis(120));
         assert!(kinds(&seen).is_empty(), "{:?}", kinds(&seen));
+    }
+
+    #[test]
+    fn a_folder_deleted_or_moved_away_is_sent_as_removed() {
+        use notify::event::{EventKind, ModifyKind, RemoveKind, RenameMode};
+        let dir = TempDir::new("folder");
+        let (router, seen) = recording_router();
+        router.handle(
+            &notify::Event::new(EventKind::Remove(RemoveKind::Folder))
+                .add_path(dir.0.join("deleted")),
+        );
+        router.handle(
+            &notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                .add_path(dir.0.join("moved.d")),
+        );
+        // A folder renamed inside the watched one: the new name is there.
+        let kept = dir.0.join("kept");
+        std::fs::create_dir(&kept).unwrap();
+        router.handle(
+            &notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To))).add_path(kept),
+        );
+        wait_for(&seen, 2);
+        std::thread::sleep(Duration::from_millis(60));
+        let mut sent = kinds(&seen);
+        sent.sort();
+        assert_eq!(
+            sent,
+            vec![
+                ("removed".to_string(), "deleted".to_string()),
+                ("removed".to_string(), "moved.d".to_string()),
+            ]
+        );
     }
 
     #[test]

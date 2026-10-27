@@ -16,7 +16,7 @@ import {
 import { formatShortcut } from "../lib/keymap";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { MAX_FILES, useActivityStore } from "../store/activityStore";
-import { useDocumentStore } from "../store/documentStore";
+import { tabHoldsPath, useDocumentStore } from "../store/documentStore";
 import { isMissingFileError } from "../store/recentStore";
 import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
@@ -129,7 +129,10 @@ export function ActivityDrawer() {
   // Opened, focus the open file's entry (else the newest, else the call to
   // action, else close).
   useFocusOnOpen(open, panelRef, ACTIVITY_FOCUS);
-  const activePath = useDocumentStore((s) => s.path);
+  // The open document's tab: an entry is marked by file identity, so one
+  // listed under another spelling than the tab's (a link, other case where
+  // case is ignored) is still marked.
+  const activeTab = useDocumentStore((s) => s.tabs.find((t) => t.id === s.activeId));
 
   // A ticking clock so relative timestamps stay fresh while the drawer is open.
   const [now, setNow] = useState(() => Date.now());
@@ -280,7 +283,7 @@ export function ActivityDrawer() {
           ) : null}
           <ul className="activity-list">
             {files.map((file) => {
-              const isActive = activePath === file.path;
+              const isActive = activeTab ? tabHoldsPath(activeTab, file.path) : false;
               const isNew = unseen.includes(file.path);
               return (
                 <li key={file.path}>

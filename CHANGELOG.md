@@ -219,6 +219,38 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
+  nothing focusable, so with focus on the close button the arrow and Page
+  keys could not scroll it to the shortcuts below the fold. The list is now
+  a named region with a Tab stop of its own.
+- **Export no longer closes a dialog you just opened again.** After a
+  successful export the dialog closes itself after a short pause; closing it
+  first and opening Export again within that pause (or while a slow export
+  was still finishing) shut the new dialog on its own. The pause now belongs
+  to the dialog that started it.
+- **A folder deleted or moved inside the watched folder takes its notes off
+  the Activity list.** The watcher sent removals only for Markdown paths, and
+  a folder's removal reports the folder alone, so the notes in it stayed
+  listed (and failed when opened). The folder's removal is now sent after
+  the same settle check, and the list drops every note under it.
+- **The theme picker in Settings answers the arrow keys.** It is announced
+  as a radio group but every swatch was its own Tab stop and the arrow keys
+  did nothing. It is now one Tab stop (the chosen theme), and the arrow keys
+  (and Home/End) move to and choose the next or previous theme.
+- **Tabs with the same file name can be told apart.** Two `README.md` tabs
+  from different folders looked identical. A tab whose file name another tab
+  shares now shows the fewest parent folders that tell it apart (also read
+  out by screen readers); other tabs are unchanged.
+- **The Activity list marks the open note under any spelling.** Its entry
+  was marked only when the document's path matched the listed path exactly,
+  so a note opened through a link to the watched folder (or in other case
+  where case is ignored) had no marked entry, and opening the drawer focused
+  the newest entry instead of it. Entries are now matched by file identity.
+- **The last-active document is active again after a restore, under any
+  spelling.** The saved active path was matched to a tab by its exact path,
+  so one that opened as another spelling of a file already open (other case
+  where case is ignored, a link) had no tab and the last tab reopened stayed
+  active. Tabs are now found by file identity, as opening a file finds them.
 - **Opening the app with a file keeps your last session.** A launch with a
   file (a double-click, `mdopen`, a link) skipped the session restore, and the
   first save of the session then replaced the saved tabs with that file alone,

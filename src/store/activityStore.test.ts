@@ -51,7 +51,7 @@ vi.mock("./uiStore", () => ({
 import type { ActivityEvent, MdFileInfo } from "../lib/activity";
 import { listMarkdownFiles, scanMarkdownFiles } from "../lib/activity";
 import { embedIndex } from "../lib/embedSearch";
-import { useActivityStore } from "./activityStore";
+import { MAX_FILES, useActivityStore } from "./activityStore";
 
 const listMock = listMarkdownFiles as ReturnType<typeof vi.fn>;
 const scanMock = scanMarkdownFiles as ReturnType<typeof vi.fn>;
@@ -182,6 +182,123 @@ describe("activityStore", () => {
     useActivityStore.getState().applyEvent(makeEvent("new.md", "modified", 2000));
     useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
     expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["new.md"]);
+  });
+
+  it("a removal from a list cut short lists the folder again", async () => {
+    listMock.mockResolvedValue([makeFile("older.md", 1)]);
+    useActivityStore.setState({
+      watchedDir: "/watch",
+      files: [makeFile("a.md", 2)],
+      truncated: true,
+    });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    await vi.waitFor(() =>
+      expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+        "older.md",
+      ]),
+    );
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("an older listing that finishes last does not overwrite a newer one", async () => {
+    // The first listing still names a file a later removal dropped; a
+    // refill started meanwhile lists the folder as it is now.
+    let resolveOld: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveOld = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("b.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const older = useActivityStore.getState().loadFiles();
+    await useActivityStore.getState().loadFiles();
+    resolveOld([makeFile("a.md", 2), makeFile("b.md", 1)]);
+    await older;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual(["b.md"]);
+  });
+
+  it("a listing keeps the files written and removed while it ran", async () => {
+    // The walk saw old.md and missed fresh.md; both changed before it finished.
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("fresh.md", "created", 3));
+    useActivityStore.getState().applyEvent(makeEvent("old.md", "removed", 0));
+    resolveScan([makeFile("old.md", 2), makeFile("kept.md", 1)]);
+    await pending;
+    expect(useActivityStore.getState().files.map((f) => f.name)).toEqual([
+      "fresh.md",
+      "kept.md",
+    ]);
+  });
+
+  it("a removal heard during a listing cut short lists the folder again", async () => {
+    let resolveScan: (f: MdFileInfo[]) => void = () => {};
+    listMock.mockImplementationOnce(
+      () =>
+        new Promise<MdFileInfo[]>((r) => {
+          resolveScan = r;
+        }),
+    );
+    listMock.mockResolvedValueOnce([makeFile("older.md", 1)]);
+    useActivityStore.setState({ watchedDir: "/watch" });
+    const pending = useActivityStore.getState().loadFiles();
+    useActivityStore.getState().applyEvent(makeEvent("gone.md", "removed", 0));
+    // One more than the list keeps: the folder has more than it shows.
+    resolveScan(
+      Array.from({ length: MAX_FILES + 1 }, (_, i) =>
+        i === 0 ? makeFile("gone.md", 9999) : makeFile(`n${i}.md`, 9000 - i),
+      ),
+    );
+    await pending;
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("a removal from a whole list does not list the folder again", () => {
+    useActivityStore.setState({ watchedDir: "/watch", files: [makeFile("a.md", 2)] });
+    useActivityStore.getState().applyEvent(makeEvent("a.md", "removed", 0));
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("a removed folder drops every file under it, and nothing beside it", () => {
+    const under = (path: string, mtimeMs: number): MdFileInfo => ({
+      path,
+      name: path.split("/").pop() ?? "",
+      dir: path.slice(0, path.lastIndexOf("/")),
+      mtimeMs,
+      size: 1,
+    });
+    useActivityStore.setState({
+      files: [
+        under("/watch/notes/a.md", 4),
+        under("/watch/notes/deep/b.md", 3),
+        under("/watch/notes-old/c.md", 2),
+        under("/watch/d.md", 1),
+      ],
+      unseen: ["/watch/notes/a.md", "/watch/d.md"],
+    });
+    useActivityStore.getState().applyEvent({
+      kind: "removed",
+      path: "/watch/notes",
+      name: "notes",
+      dir: "/watch",
+      mtimeMs: 0,
+      size: 0,
+    });
+    const s = useActivityStore.getState();
+    expect(s.files.map((f) => f.path)).toEqual([
+      "/watch/notes-old/c.md",
+      "/watch/d.md",
+    ]);
+    expect(s.unseen).toEqual(["/watch/d.md"]);
   });
 
   // ── Unseen badge ────────────────────────────────────────────────────────
