@@ -96,6 +96,15 @@ jobs:
       JS: ${{ needs.changes.result != 'success' || needs.changes.outputs.js == 'true' }}
       RUST: ${{ needs.changes.result != 'success' || needs.changes.outputs.macos == 'true' }}
     steps:
+      # Security floor: Classify changes must succeed on every PR and queue
+      # run; a skipped or failed classifier fails this required check.
+      - name: Require Classify changes
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          CLASSIFY: ${{ needs.changes.result }}
+        run: |
+          if [ "$CLASSIFY" != success ]; then echo "::error::Classify changes result is '$CLASSIFY' (must be success)"; exit 1; fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -150,13 +159,11 @@ jobs:
           retention-days: 1
 
       # Soft-gated so an upstream advisory annotates without blocking.
-      # Always-on security check in the queue (not previously in CI).
+      # Always-on security checks, PR and queue (Security floor, Oct 26).
       - name: Crypto policy check
-        if: env.PR != 'true'
         run: bun run check:crypto
 
       - name: Audit JS dependencies
-        if: env.PR != 'true'
         run: bun audit
         continue-on-error: true
 
@@ -226,14 +233,12 @@ jobs:
       # Cargo.lock is platform-independent, so the CVE audit runs once here
       # (prebuilt binary, seconds) instead of `cargo install` on macOS.
       - name: Install cargo-audit
-        if: env.PR != 'true'
         uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-audit
         continue-on-error: true
 
       - name: Audit Rust dependencies
-        if: env.PR != 'true'
         run: cargo audit --file src-tauri/Cargo.lock
         continue-on-error: true
 
