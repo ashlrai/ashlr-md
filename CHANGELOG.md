@@ -219,6 +219,8 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **A folder moved into the watched folder lists its notes in Activity at
+  once.** They used to appear only after the next full scan.
 - **The open note's Activity entry is marked when the watched folder is a
   link.** An entry listed under a path the tab never opened (through a folder
   link) is now read once to learn whether it is the open file.

@@ -141,6 +141,10 @@ fn stat_file(path: &Path) -> (u64, u64) {
 /// (vim's default) removes the path for a moment; that is not a deletion.
 const REMOVE_SETTLE: Duration = Duration::from_millis(250);
 
+/// Most notes sent for one folder made or moved in: as many as the Activity
+/// list keeps (`MAX_FILES` in src/store/activityStore.ts).
+const FOLDER_ADDED_LIMIT: usize = 200;
+
 type EmitFn = std::sync::Arc<dyn Fn(ActivityFilePayload) + Send + Sync>;
 
 /// Turns watcher events into `activity://file` payloads. Removals used to be
@@ -185,6 +189,10 @@ impl EventRouter {
                     EventKind::Remove(RemoveKind::File) => {}
                     EventKind::Remove(_) => self.gone(path),
                     EventKind::Modify(ModifyKind::Name(_)) if !path.exists() => self.gone(path),
+                    // Nor does a folder made or moved in for the notes it
+                    // already holds: they are sent as a note's would be.
+                    EventKind::Create(_) => self.folder_added(path, "created"),
+                    EventKind::Modify(ModifyKind::Name(_)) => self.folder_added(path, "modified"),
                     _ => {}
                 }
                 continue;
@@ -226,6 +234,19 @@ impl EventRouter {
         }
         let (mtime_ms, size) = stat_file(path);
         (self.emit)(payload_for(path, path_str, kind, mtime_ms, size));
+    }
+
+    /// Sends the notes in a folder made or moved into the watched one, at most
+    /// [`FOLDER_ADDED_LIMIT`] of the newest, oldest first so the newest ends
+    /// up on top of the list. They were listed only by the next full scan.
+    fn folder_added(&self, path: &Path, kind: &'static str) {
+        if !path.is_dir() {
+            return;
+        }
+        let scan = scan_newest(path, FOLDER_ADDED_LIMIT, MAX_SCAN_ENTRIES);
+        for file in scan.files.iter().rev() {
+            self.present(Path::new(&file.path), kind);
+        }
     }
 
     fn gone(self: &std::sync::Arc<Self>, path: &Path) {
@@ -764,6 +785,35 @@ mod tests {
             vec![
                 ("removed".to_string(), "deleted".to_string()),
                 ("removed".to_string(), "moved.d".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_notes_of_a_folder_moved_or_made_in_are_sent() {
+        use notify::event::{CreateKind, EventKind, ModifyKind, RenameMode};
+        let dir = TempDir::new("added");
+        let moved = dir.0.join("moved");
+        std::fs::create_dir_all(moved.join("sub")).unwrap();
+        write_md(&moved, "old.md", 1_000);
+        write_md(&moved.join("sub"), "new.md", 2_000);
+        std::fs::write(moved.join("pic.png"), "x").unwrap();
+        let made = dir.0.join("made");
+        std::fs::create_dir(&made).unwrap();
+        write_md(&made, "made.md", 3_000);
+        let (router, seen) = recording_router();
+        router.handle(
+            &notify::Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
+                .add_path(moved),
+        );
+        router.handle(&notify::Event::new(EventKind::Create(CreateKind::Folder)).add_path(made));
+        // Oldest first, so the newest is on top of the list.
+        assert_eq!(
+            kinds(&seen),
+            vec![
+                ("modified".to_string(), "old.md".to_string()),
+                ("modified".to_string(), "new.md".to_string()),
+                ("created".to_string(), "made.md".to_string()),
             ]
         );
     }
