@@ -8,7 +8,7 @@ import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { restoreSession, sessionRestoreMessage } from "./lib/session";
+import { openAtLaunch, sessionRestoreMessage } from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
   restoreBuffers,
@@ -54,9 +54,9 @@ export default function App() {
     root.style.setProperty("--content-width", `${contentWidth}px`);
   }, [theme, fontSize, contentWidth]);
 
-  // Open files: drain anything buffered before mount; if the user didn't
-  // double-click a file, restore the previous session ("continue where you left
-  // off"). Then start persisting session changes and listen for live opens.
+  // Open files: restore the previous session ("continue where you left off"),
+  // then open anything buffered before mount (a double-clicked file). Then
+  // start persisting session changes and listen for live opens.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let unsubSave: (() => void) | undefined;
@@ -66,16 +66,15 @@ export default function App() {
       const pending = await invoke<string[]>("take_pending_files").catch(
         () => [] as string[],
       );
-      if (pending.length) {
-        // Open every queued file (openPath dedupes); the last stays active.
-        await openOpenedFiles(pending, openPath);
-      } else {
-        const restored = await restoreSession();
-        const said = sessionRestoreMessage(restored);
-        if (said) {
-          if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
-          else toast.info(said);
-        }
+      // The saved tabs, then every queued file (openPath dedupes); the last
+      // stays active.
+      const restored = await openAtLaunch(pending, (paths) =>
+        openOpenedFiles(paths, openPath),
+      );
+      const said = sessionRestoreMessage(restored);
+      if (said) {
+        if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
+        else toast.info(said);
       }
       // Put back the unsaved text a crash or forced quit left, then keep
       // it from here on (see lib/unsavedBuffers.ts).

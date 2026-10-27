@@ -219,6 +219,11 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **Opening the app with a file keeps your last session.** A launch with a
+  file (a double-click, `mdopen`, a link) skipped the session restore, and the
+  first save of the session then replaced the saved tabs with that file alone,
+  so they were lost for every later launch too. The saved tabs now reopen and
+  the file opens after them, as the active tab.
 - **An embed of a note changed or deleted since shows it as it is now.** An
   `![[note]]` embed read its note once: when a file changed on disk wikilinks
   resolved again but embeds did not, so an embed of a note deleted or
