@@ -1,0 +1,573 @@
+{
+  "tools": [
+    {
+      "inputSchema": {
+        "properties": {
+          "context_lines": {
+            "description": "Number of unchanged context lines surrounding each change hunk, a whole number from 0 to 10000 (a value outside that range is refused, not clamped). Defaults to 3.",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path_a": {
+            "description": "Path to the first (original) document (absolute, `~/...` for the home directory, or relative to this server's working directory).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "path_b": {
+            "description": "Path to the second (modified) document (absolute, `~/...` for the home directory, or relative to this server's working directory).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path_a",
+          "path_b"
+        ],
+        "type": "object"
+      },
+      "name": "diff_documents"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "ops": {
+            "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
+            "items": {
+              "properties": {
+                "color": {
+                  "description": "Color preset '1' to '6' or hex '#RGB' / '#RRGGBB'; anything else is refused. Omit to clear (set_node_color).",
+                  "type": "string"
+                },
+                "edge": {
+                  "description": "Full edge object to insert (add_edge). Must include a non-empty string id, and non-empty fromNode and toNode naming existing nodes. Optional fromSide/toSide must be 'top', 'right', 'bottom' or 'left', fromEnd/toEnd 'none' or 'arrow', color a preset '1'-'6' or hex '#RGB' / '#RRGGBB', and label a string; anything else is refused.",
+                  "type": "object"
+                },
+                "height": {
+                  "description": "New height (resize_node); a whole number is written as an integer.",
+                  "type": "number"
+                },
+                "id": {
+                  "description": "Node or edge id (required for most ops); an empty or blank one is refused before the file is read.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ids": {
+                  "description": "Complete ordered list of all edge ids (reorder_edges); an empty or blank id is refused.",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "label": {
+                  "description": "New group label (edit_group_label, required) or edge label (edit_edge_label; omit to clear).",
+                  "type": "string"
+                },
+                "node": {
+                  "description": "Full node object to insert (add_node). Must include a non-empty string id, type ('text', 'file', 'link' or 'group'), and numbers x, y, width and height (width and height positive); a file node needs a string `file`, a link node a string `url`.",
+                  "type": "object"
+                },
+                "text": {
+                  "description": "New text content (edit_text).",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Operation type.",
+                  "enum": [
+                    "move_node",
+                    "resize_node",
+                    "edit_text",
+                    "edit_link",
+                    "edit_group_label",
+                    "set_node_color",
+                    "add_node",
+                    "delete_node",
+                    "add_edge",
+                    "delete_edge",
+                    "edit_edge_label",
+                    "reorder_edges"
+                  ],
+                  "type": "string"
+                },
+                "url": {
+                  "description": "New URL (edit_link).",
+                  "type": "string"
+                },
+                "width": {
+                  "description": "New width (resize_node); a whole number is written as an integer.",
+                  "type": "number"
+                },
+                "x": {
+                  "description": "New x coordinate (move_node); a whole number is written as an integer.",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "New y coordinate (move_node); a whole number is written as an integer.",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "path": {
+            "description": "Path to the .canvas file to edit (absolute, `~/...` for the home directory, or relative to this server's working directory).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "save": {
+            "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "ops"
+        ],
+        "type": "object"
+      },
+      "name": "edit_canvas"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "find": {
+            "description": "The exact text to replace, not empty. Must appear exactly once in the document.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "description": "Optional: assert this is the open document (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "replace": {
+            "description": "The replacement text.",
+            "type": "string"
+          },
+          "save": {
+            "description": "Save to disk after editing. Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "find",
+          "replace"
+        ],
+        "type": "object"
+      },
+      "name": "edit_document"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "format": {
+            "description": "Export format.",
+            "enum": [
+              "pdf",
+              "docx",
+              "html",
+              "epub"
+            ],
+            "type": "string"
+          },
+          "output_path": {
+            "description": "Where to write the export (html, docx or epub only), with the format's extension (.html/.htm, .docx, .epub): absolute, `~/...` for the home directory, or relative to this server's working directory. The directory must exist.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "overwrite": {
+            "description": "Replace a file that is already at `output_path`. Defaults to false: an existing file is refused, not overwritten.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "type": "object"
+      },
+      "name": "export"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_metadata"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory): .md, .markdown, .mdown, .mkd or .mdx; dotfiles and other files are refused. When omitted the currently open document is used.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_text"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Maximum number of messages to return: the most recent N, in chronological order. A whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 20.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "session_id": {
+            "description": "The session identifier previously passed to save_conversation_message. Required.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_conversation_context"
+    },
+    {
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_current_content"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Path to the Markdown file (absolute, `~/...` for the home directory, or relative to this server's working directory).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "get_user_annotations"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "include_prompts": {
+            "description": "Whether to include the full system/user prompt templates. Defaults to true.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_ai_actions"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Maximum number of entries to return, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 10. The app keeps at most 12 recent files.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_recent"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "mode": {
+            "description": "View to show the document in. Omit to keep the window's current view (a document already open in a tab keeps its own; an app this call launches starts in 'read').",
+            "enum": [
+              "read",
+              "edit"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to the Markdown file to open (absolute, `~/...` for the home directory, or relative to this server's working directory, not the app's). The result's `opened` is the absolute path.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "open_file"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "path": {
+            "description": "Optional path to the Markdown file to open before presenting (absolute, `~/...` for the home directory, or relative to this server's working directory). Omit to present the current document.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "present_document"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "description": "The new full Markdown content.",
+            "type": "string"
+          },
+          "save": {
+            "description": "Save to disk after replacing. Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "replace_document"
+    },
+    {
+      "inputSchema": {
+        "anyOf": [
+          {
+            "required": [
+              "path"
+            ]
+          },
+          {
+            "required": [
+              "content"
+            ]
+          },
+          {
+            "required": [
+              "review_id"
+            ]
+          }
+        ],
+        "properties": {
+          "blocking": {
+            "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true.",
+            "type": "boolean"
+          },
+          "content": {
+            "description": "Inline Markdown to review, if no file path is given; an empty or whitespace-only string is refused.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to the Markdown file to review (absolute, `~/...` for the home directory, or relative to this server's working directory).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "review_id": {
+            "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one; an empty or blank id is refused. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeout_ms": {
+            "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped.",
+            "maximum": 600000,
+            "minimum": 5000,
+            "type": "integer"
+          },
+          "wait_ms": {
+            "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped.",
+            "maximum": 600000,
+            "minimum": 1000,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "request_review"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "cited_docs": {
+            "description": "Optional list of document paths that were open or referenced when this message was produced (absolute, `~/...` for the home directory, or relative to this server's working directory, which is resolved to an absolute path when saved). An empty or blank path is refused; a path given twice is saved once.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "content": {
+            "description": "The message text, not empty or only whitespace. For agent messages describe the action taken. For human messages include their verdict and any comments.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "description": "'agent' for actions taken by the AI, 'human' for verdicts/comments from the user, 'system' for internal bookkeeping (e.g. document path at session start).",
+            "enum": [
+              "agent",
+              "human",
+              "system"
+            ],
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Session identifier. Use a stable ID per multi-turn workflow (e.g. the review ID, or a UUID the agent generates at the start of the session). At most 200 bytes once encoded for its file name (letters, digits, `-` and `_` count one byte, other bytes three).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "role",
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "save_conversation_message"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "semantic": {
+            "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability.",
+            "type": "boolean"
+          },
+          "vault": {
+            "description": "Optional directory (absolute, `~/...` for the home directory, or relative to this server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_vault"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "content": {
+            "description": "The new Markdown content.",
+            "type": "string"
+          },
+          "save": {
+            "description": "Whether to save the file to disk immediately. Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "set_content"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "find": {
+            "description": "Exact text to search for in the current document, not empty.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "description": "Optional: assert this is the currently open document path (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "preview": {
+            "description": "When true (default), return a diff preview before applying. When false, apply immediately.",
+            "type": "boolean"
+          },
+          "preview_lines": {
+            "description": "Context lines on each side of the diff hunk, a whole number from 0 to 20 (a value outside that range is refused, not clamped). Defaults to 5.",
+            "maximum": 20,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "replace": {
+            "description": "Replacement text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "find",
+          "replace"
+        ],
+        "type": "object"
+      },
+      "name": "stream_edit"
+    },
+    {
+      "inputSchema": {
+        "properties": {
+          "edit_id": {
+            "description": "Optional: the editId of the stream_edit preview; an empty or blank one is refused. When given, it must name a preview this app made of the open document with the same find/replace that has not been applied yet; otherwise the call is refused and says to call stream_edit again. The app re-finds `find` in the live document and applies occurrence `match_index`.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "find": {
+            "description": "The exact find string from the preview request, not empty.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "match_index": {
+            "description": "0-based index of the candidate to apply, a whole number from 0 to 4294967295 (the app's 32-bit limit; a larger value is refused, not clamped). Defaults to 0 (first occurrence). An index past the document's last occurrence is refused by the app, saying how many there are.",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "description": "Optional path assertion: errors if a different file is open; absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "replace": {
+            "description": "The replacement text from the preview request.",
+            "type": "string"
+          },
+          "save": {
+            "description": "Persist to disk after applying. Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "find",
+          "replace"
+        ],
+        "type": "object"
+      },
+      "name": "stream_edit_apply"
+    }
+  ]
+}
