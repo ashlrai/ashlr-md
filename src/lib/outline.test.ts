@@ -3,6 +3,7 @@ import {
   atxHeading,
   atxHeadings,
   filterHeadings,
+  headingLabels,
   markdownLines,
   maskInlineCode,
   parseHeadings,
@@ -748,6 +749,28 @@ describe("GFM literal autolinks hold no code span or math", () => {
 });
 
 describe("filterHeadings", () => {
+  it("labels repeated headings across levels while retaining their destinations after filtering", () => {
+    const headings = parseHeadings("# Repeat\n## Other\n### Repeat\n# Repeat\n");
+    const labels = headingLabels(headings);
+    expect(labels).toEqual([
+      "Repeat (line 1)",
+      "Other",
+      "Repeat (line 3)",
+      "Repeat (line 4)",
+    ]);
+    expect(
+      filterHeadings(headings, "repeat").map((h) => [
+        labels[headings.indexOf(h)],
+        h.depth,
+        h.slug,
+        h.line,
+      ]),
+    ).toEqual([
+      ["Repeat (line 1)", 1, "repeat", 1],
+      ["Repeat (line 3)", 3, "repeat-1", 3],
+      ["Repeat (line 4)", 1, "repeat-2", 4],
+    ]);
+  });
   it("preserves duplicate anchors and document order when filtering", () => {
     const headings = parseHeadings("# Repeat\n# Other\n# Repeat\n");
     expect(filterHeadings(headings, "  REPEAT ").map((h) => [h.slug, h.line])).toEqual([

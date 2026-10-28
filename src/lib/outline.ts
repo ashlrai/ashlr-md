@@ -29,6 +29,19 @@ export interface HeadingItem {
   line: number;
 }
 
+/** Label repeated headings by source line without changing their anchor targets. */
+export function headingLabels(headings: HeadingItem[]): string[] {
+  const counts = new Map<string, number>();
+  for (const heading of headings) {
+    counts.set(heading.text, (counts.get(heading.text) ?? 0) + 1);
+  }
+  return headings.map((heading) =>
+    (counts.get(heading.text) ?? 0) > 1
+      ? `${heading.text} (line ${heading.line})`
+      : heading.text,
+  );
+}
+
 /** Filter existing headings without changing their document anchor IDs. */
 export function filterHeadings(headings: HeadingItem[], query: string): HeadingItem[] {
   const term = query.trim().toLowerCase();
