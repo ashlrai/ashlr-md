@@ -23,6 +23,4 @@ It's a single static file; host it anywhere:
 
 ## Notes
 
-- Replace the placeholder repo URL `github.com/ashlrai/ashlr-md` and the
-  download link (`/releases`) once the repo + first release exist.
 - Fonts load from Google Fonts; for a fully offline page, self-host them.

@@ -41,6 +41,7 @@ bun run build
 bun run typecheck        # tsc --noEmit
 bunx biome check src     # lint + format
 bun run test             # Vitest unit tests
+bun run check:doc-links  # relative links in the repo's Markdown resolve
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --workspace   --manifest-path src-tauri/Cargo.toml   # Rust unit tests

@@ -1,12 +1,20 @@
 #!/usr/bin/env node
-// Flags relative Markdown links in docs/ that point nowhere: a [text](path) or
-// ![alt](src) outside code whose file is missing, and a #fragment that names no
-// heading of the target page. Fragments are matched against GitHub-style slugs
-// (what rehype-slug + github-slugger write as heading ids, here and in the
-// app's read view): lowercased, punctuation but `_` and `-` dropped, spaces as
-// hyphens, repeats suffixed -1, -2. Light on purpose: a scanner, not a parser.
+// Flags relative Markdown links in the repo's Markdown docs (README.md,
+// AGENTS.md, docs/, integrations/, landing/, samples/, ...) that point nowhere:
+// a [text](path) or ![alt](src) outside code whose file is missing, and a
+// #fragment that names no heading of the target page. Fragments are matched
+// against GitHub-style slugs (what rehype-slug + github-slugger write as
+// heading ids, here and in the app's read view): lowercased, punctuation but
+// `_` and `-` dropped, spaces as hyphens, repeats suffixed -1, -2. Light on
+// purpose: a scanner, not a parser.
 // Links and headings inside fenced code, inline code spans, HTML comments and a
 // leading front matter block are skipped; indented code is not tracked.
+// `node_modules`, `target`, `dist` and `__fixtures__` directories and
+// dot-directories are not scanned (test fixtures are renderer input, not docs,
+// and may contain intentionally broken links). Pass directories as arguments
+// to narrow the scan (default: the whole repository, `.`); pass `--external`
+// to also check remote http(s) targets with a HEAD request (GET fallback) —
+// remote checking is opt-in because it needs the network.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -295,7 +303,9 @@ export function headingSlugs(src, masked = maskCode(src)) {
   return slugs;
 }
 
-/** The `.md` files under each of `dirs` (relative to `root`), sorted. */
+/** The `.md` files under each of `dirs` (relative to `root`), sorted. An entry
+ * that is itself a Markdown file is taken as a file, not walked as a
+ * directory. */
 export function docFiles(root, dirs) {
   const out = [];
   const walk = (dir) => {
@@ -303,7 +313,7 @@ export function docFiles(root, dirs) {
       const p = join(dir, name);
       const st = statSync(p);
       if (st.isDirectory()) {
-        if (!name.startsWith('.') && name !== 'node_modules') walk(p);
+        if (!name.startsWith('.') && name !== 'node_modules' && name !== 'target' && name !== 'dist' && name !== '__fixtures__') walk(p);
         continue;
       }
       if (MARKDOWN.test(name)) out.push(p);
@@ -311,7 +321,9 @@ export function docFiles(root, dirs) {
   };
   for (const d of dirs) {
     const abs = resolve(root, d);
-    if (existsSync(abs)) walk(abs);
+    if (!existsSync(abs)) continue;
+    if (statSync(abs).isDirectory()) walk(abs);
+    else if (MARKDOWN.test(abs)) out.push(abs);
   }
   return out.sort();
 }
@@ -352,7 +364,10 @@ function checkFrag(frag, slugs, target, root) {
 
 /**
  * The broken relative links under `root`'s `dirs` (default `docs/`), with the
- * count checked: `{ broken: [{ file, line, dest, reason }], checked, files }`.
+ * count checked and the unique remote targets seen:
+ * `{ broken: [{ file, line, dest, reason }], checked, files,
+ *   external: [{ url, file, line }] }`. `external` collects each http(s)
+ * destination once, at its first sighting, for `checkExternal` to probe.
  */
 export function scan(root, { dirs = ['docs'] } = {}) {
   const cache = new Map();
@@ -362,6 +377,7 @@ export function scan(root, { dirs = ['docs'] } = {}) {
   };
   const files = docFiles(root, dirs);
   const broken = [];
+  const externalSeen = new Map();
   let checked = 0;
   for (const file of files) {
     const src = readFileSync(file, 'utf8');
@@ -372,11 +388,66 @@ export function scan(root, { dirs = ['docs'] } = {}) {
       const key = `${line} ${dest}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const trimmed = dest.trim();
+      if (/^https?:\/\//i.test(trimmed) && !externalSeen.has(trimmed))
+        externalSeen.set(trimmed, { file: rel, line });
       const reason = checkLink(root, file, dest, slugsFor);
       if (reason) broken.push({ file: rel, line, dest, reason });
     }
   }
-  return { broken, checked, files: files.length };
+  return {
+    broken,
+    checked,
+    files: files.length,
+    external: [...externalSeen].map(([url, at]) => ({ url, ...at })),
+  };
+}
+
+/**
+ * A reason `url` is unreachable, or null when a request to it comes back under
+ * `status < 400`. `HEAD` is tried first and `GET` once after it, so a server
+ * that refuses or mishandles HEAD still passes when GET answers; the last
+ * failure is reported.
+ */
+async function probe(url, timeout) {
+  let last = null;
+  for (const method of ['HEAD', 'GET']) {
+    try {
+      const res = await fetch(url, {
+        method,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(timeout),
+      });
+      res.body?.cancel();
+      if (res.status < 400) return null;
+      last = `HTTP ${res.status}`;
+    } catch (e) {
+      last =
+        e?.name === 'TimeoutError' || e?.name === 'AbortError'
+          ? `timed out after ${timeout} ms`
+          : String(e?.cause?.code ?? e?.message ?? e);
+    }
+  }
+  return last;
+}
+
+/**
+ * `{url, file, line, reason}` for each collected external URL that did not
+ * answer under 400, probed `concurrency` at a time.
+ */
+export async function checkExternal(external, { timeout = 15000, concurrency = 8 } = {}) {
+  const failed = [];
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, external.length) }, async () => {
+      while (i < external.length) {
+        const item = external[i++];
+        const reason = await probe(item.url, timeout);
+        if (reason !== null) failed.push({ ...item, reason });
+      }
+    }),
+  );
+  return failed;
 }
 
 export function report({ broken, checked, files }, dirs = ['docs']) {
@@ -387,15 +458,38 @@ export function report({ broken, checked, files }, dirs = ['docs']) {
   return { text: lines.join('\n'), failed: broken.length > 0 };
 }
 
-export function main(root, opts) {
-  const { text, failed } = report(scan(root, opts), opts?.dirs);
+/**
+ * Exit code of the full check over `root`'s `dirs` (default `['.']`, the whole
+ * repository). With `external`, remote http(s) targets are probed too.
+ */
+export async function main(root, { dirs = ['.'], external = false } = {}) {
+  const result = scan(root, { dirs });
+  const { text, failed } = report(result, dirs);
   console.log(text);
-  if (failed) console.error('Fix the path, or point #fragment at a heading of the target (its GitHub-style slug).');
+  if (failed)
+    console.error(
+      'Fix the path, or point #fragment at a heading of the target (its GitHub-style slug).',
+    );
+  if (!external) return failed ? 1 : 0;
+  const failures = await checkExternal(result.external);
+  console.log(
+    `external links: ${result.external.length} unique remote URL(s), ${failures.length} broken`,
+  );
+  for (const f of failures)
+    console.log(`  BROKEN ${f.url} - ${f.reason} (first seen ${f.file}:${f.line})`);
+  if (failures.length > 0) {
+    console.error('A remote URL must answer under 400; fix or update the target.');
+    return 1;
+  }
   return failed ? 1 : 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = resolve(fileURLToPath(import.meta.url), '..', '..');
-  const dirs = process.argv.slice(2);
-  process.exit(main(root, { dirs: dirs.length ? dirs : ['docs'] }));
+  const args = process.argv.slice(2);
+  const external = args.includes('--external');
+  const dirs = args.filter((a) => a !== '--external');
+  main(root, { dirs: dirs.length ? dirs : ['.'], external }).then((code) =>
+    process.exit(code),
+  );
 }

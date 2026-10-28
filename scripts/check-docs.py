@@ -81,7 +81,7 @@ class DocumentationContracts(unittest.TestCase):
     def test_readme_quality_commands_exist(self):
         scripts = json.loads((ROOT / 'package.json').read_text(encoding="utf-8"))['scripts']
         readme = (ROOT / 'README.md').read_text(encoding="utf-8")
-        for command in re.findall(r'^bun run ([a-z:]+)\b', readme, re.M):
+        for command in re.findall(r'^bun run ([a-z:-]+)\b', readme, re.M):
             with self.subTest(command=command):
                 self.assertIn(command, scripts)
 

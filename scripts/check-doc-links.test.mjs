@@ -1,9 +1,21 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { headingSlugs, linkTargets, report, scan, slug } from './check-doc-links.mjs';
+import {
+  checkExternal,
+  headingSlugs,
+  linkTargets,
+  main,
+  report,
+  scan,
+  slug,
+} from './check-doc-links.mjs';
+
+const REPO_ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 
 function fixture(files) {
   const root = mkdtempSync(join(tmpdir(), 'doclinks-'));
@@ -164,4 +176,101 @@ test('a title after the destination, and a <dest with spaces>, are read', () => 
     links.map((l) => l.dest),
     ['x.md', 'dir/my file.md', 'y.md#f'],
   );
+});
+
+test('generated dependency, build and fixture directories are not scanned', () => {
+  const root = fixture({
+    'README.md': '# R\n[ok](./docs/a.md)\n',
+    'docs/a.md': '# A\n',
+    'node_modules/pkg/README.md': '[x](./gone.md)\n',
+    'target/doc/README.md': '[x](./gone.md)\n',
+    'dist/assets/README.md': '[x](./gone.md)\n',
+    '__fixtures__/case/README.md': '[x](./gone.md)\n',
+    '.hidden/docs.md': '[x](./gone.md)\n',
+  });
+  const r = scan(root, { dirs: ['.'] });
+  assert.deepEqual(r.broken, []);
+  assert.equal(r.files, 2); // README.md and docs/a.md only
+  rmSync(root, { recursive: true });
+});
+
+test('remote http(s) targets are collected once, at their first sighting', () => {
+  const root = fixture({
+    'docs/a.md': [
+      '[a](https://x.dev/1) and [b](https://y.dev) then [c](https://x.dev/1) again.',
+      '[d](mailto:me@x.org) [e](ssh://h) [f](./b.md)',
+    ].join('\n'),
+    'docs/b.md': '# B\n[z](https://x.dev/1) too.\n',
+  });
+  const r = scan(root);
+  assert.deepEqual(
+    r.external,
+    [
+      { url: 'https://x.dev/1', file: 'docs/a.md', line: 1 },
+      { url: 'https://y.dev', file: 'docs/a.md', line: 1 },
+    ],
+  );
+  rmSync(root, { recursive: true });
+});
+
+test('checkExternal probes HEAD first and falls back to GET', async (t) => {
+  const server = createServer((req, res) => {
+    if (req.url === '/gone') return res.writeHead(404).end();
+    if (req.url === '/head-refused' && req.method === 'HEAD') return res.writeHead(405).end();
+    res.writeHead(200).end('ok');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const failed = await checkExternal([
+    { url: `${base}/ok`, file: 'f.md', line: 1 },
+    { url: `${base}/gone`, file: 'f.md', line: 2 },
+    { url: `${base}/head-refused`, file: 'f.md', line: 3 },
+  ]);
+  assert.deepEqual(
+    failed.map((f) => [f.url, f.reason]),
+    [[`${base}/gone`, 'HTTP 404']],
+  );
+});
+
+test('main() scans the whole repository by default and reports broken links', async () => {
+  const root = fixture({
+    'README.md': '# R\n[x](./gone.md)\n',
+    'docs/a.md': '# A\n',
+  });
+  assert.equal(await main(root), 1);
+  rmSync(root, { recursive: true });
+});
+
+test('every relative link in this repository resolves', () => {
+  const { broken } = scan(REPO_ROOT, { dirs: ['.'] });
+  assert.deepEqual(broken, []);
+});
+
+test('the README documents how Ashlr MD plugs into Phantom', () => {
+  const readme = readFileSync(join(REPO_ROOT, 'README.md'), 'utf8');
+  assert.ok(readme.includes('## How Ashlr MD plugs into Phantom'));
+  for (const target of [
+    './docs/PHANTOM.md',
+    './docs/PHANTOM.md#mdopen-exit-status',
+    'https://github.com/ashlrai/phantom',
+    'https://github.com/ashlrai/phantom-secrets',
+    'https://phm.dev',
+    '#how-ashlr-md-plugs-into-phantom',
+  ]) {
+    assert.ok(
+      readme.includes(`](${target})`),
+      `README.md should link to ${target}`,
+    );
+  }
+  for (const text of [
+    'phm inbox show',
+    'mdopener-mcp',
+    'mdopener://',
+    'phantom exec',
+    'phm_',
+    'ASHLR_MD_ANTHROPIC_KEY_FROM_ENV',
+  ]) {
+    assert.ok(readme.includes(text), `README.md Phantom coverage should mention ${text}`);
+  }
 });
