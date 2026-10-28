@@ -12,3 +12,4 @@
 /src-tauri/src/ipc.rs @masonwyatt23
 /src-tauri/bins/mdopen/src/ipc.rs @masonwyatt23
 /src-tauri/bins/mdopener-mcp/src/local_inference_probe.rs @masonwyatt23
+/.github/tests/secret-shape/ @masonwyatt23

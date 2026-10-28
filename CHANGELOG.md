@@ -3,6 +3,15 @@
 All notable changes to Ashlr MD are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+<!-- fresh:begin version-table -->
+| Component | Released version |
+|---|---|
+| Desktop app | 0.4.0 |
+| CLI and MCP sidecars (bundled) | 0.4.0 |
+
+Released 2026-06-06. [Release notes and downloads](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0).
+<!-- fresh:end -->
+
 ## [0.4.1] — Unreleased
 
 ### Added
@@ -219,6 +228,74 @@ All notable changes to Ashlr MD are documented here. This project adheres to
   inline AI already showed their text as text.
 
 ### Fixed
+- **The command palette highlight goes back to the first row when the recent
+  files change while it is open.** It stayed on the old index, on another row.
+- **A folder moved into the watched folder lists its notes in Activity at
+  once.** They used to appear only after the next full scan.
+- **The open note's Activity entry is marked when the watched folder is a
+  link.** An entry listed under a path the tab never opened (through a folder
+  link) is now read once to learn whether it is the open file.
+- **A deleted or moved-away note leaves semantic search without a full
+  reindex.** The per-file re-index now drops indexed notes no longer on disk,
+  and a removal in the watched folder starts one.
+- **The keyboard shortcut sheet scrolls from the keyboard.** Its list holds
+  nothing focusable, so with focus on the close button the arrow and Page
+  keys could not scroll it to the shortcuts below the fold. The list is now
+  a named region with a Tab stop of its own.
+- **Export no longer closes a dialog you just opened again.** After a
+  successful export the dialog closes itself after a short pause; closing it
+  first and opening Export again within that pause (or while a slow export
+  was still finishing) shut the new dialog on its own. The pause now belongs
+  to the dialog that started it.
+- **A folder deleted or moved inside the watched folder takes its notes off
+  the Activity list.** The watcher sent removals only for Markdown paths, and
+  a folder's removal reports the folder alone, so the notes in it stayed
+  listed (and failed when opened). The folder's removal is now sent after
+  the same settle check, and the list drops every note under it.
+- **The theme picker in Settings answers the arrow keys.** It is announced
+  as a radio group but every swatch was its own Tab stop and the arrow keys
+  did nothing. It is now one Tab stop (the chosen theme), and the arrow keys
+  (and Home/End) move to and choose the next or previous theme.
+- **Tabs with the same file name can be told apart.** Two `README.md` tabs
+  from different folders looked identical. A tab whose file name another tab
+  shares now shows the fewest parent folders that tell it apart (also read
+  out by screen readers); other tabs are unchanged.
+- **The Activity list marks the open note under any spelling.** Its entry
+  was marked only when the document's path matched the listed path exactly,
+  so a note opened through a link to the watched folder (or in other case
+  where case is ignored) had no marked entry, and opening the drawer focused
+  the newest entry instead of it. Entries are now matched by file identity.
+- **The last-active document is active again after a restore, under any
+  spelling.** The saved active path was matched to a tab by its exact path,
+  so one that opened as another spelling of a file already open (other case
+  where case is ignored, a link) had no tab and the last tab reopened stayed
+  active. Tabs are now found by file identity, as opening a file finds them.
+- **Opening the app with a file keeps your last session.** A launch with a
+  file (a double-click, `mdopen`, a link) skipped the session restore, and the
+  first save of the session then replaced the saved tabs with that file alone,
+  so they were lost for every later launch too. The saved tabs now reopen and
+  the file opens after them, as the active tab.
+- **An embed of a note changed or deleted since shows it as it is now.** An
+  `![[note]]` embed read its note once: when a file changed on disk wikilinks
+  resolved again but embeds did not, so an embed of a note deleted or
+  rewritten since kept its old text. Embeds now resolve and read the note
+  again.
+- **A document changed on disk keeps your place in the read view.** Each
+  change another app or an agent wrote to a clean document scrolled the read
+  view to the top, so a reader following an agent's writes lost their place.
+  A reload of the document shown now keeps the scroll position, and it no
+  longer takes focus from a field that has it (the find bar, the AI
+  sidebar); a different document still opens at the top.
+- **A note deleted, renamed or moved in the watched folder leaves the Activity
+  list.** The folder watcher sent only creates and changes, so a note deleted
+  elsewhere stayed listed (and failed when opened), and wikilinks to it kept
+  resolving to the old file. The `activity://file` event now also has a
+  `"removed"` kind (sent once the path has stayed gone for a moment, so an
+  editor's save by rename is not a removal); a rename is a removal of the old
+  path and a change of the new one. The other fields are unchanged.
+- **A canvas image card's title shows the image in its folder.** Clicking it
+  opened the image as a document, which failed with a toast. It now reveals
+  the image in the file manager, and the canvas stays in view.
 - **Switching tabs keeps your place in the read view.** Every switch scrolled
   the read view to the top, so going back to a long document lost where it
   was being read. A tab switched back to now returns to where it was; a newly

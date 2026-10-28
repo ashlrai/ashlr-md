@@ -7,6 +7,7 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// The app version the sidecar ships with, so serverInfo cannot drift from it.
 fn app_version() -> String {
@@ -94,7 +95,6 @@ fn handshake_with_current_client_protocol_versions() {
 /// left open, so a server that ignored the flag would hang the test).
 #[test]
 fn version_and_help_flags_exit_without_serving() {
-    use std::time::{Duration, Instant};
     for (flag, expect) in [
         ("--version", format!("mdopener-mcp {}", app_version())),
         ("-V", format!("mdopener-mcp {}", app_version())),
@@ -559,4 +559,168 @@ fn get_user_annotations_reports_the_saved_review_when_the_app_is_closed() {
     std::fs::write(review_store::review_file(&dir, path), "{oops").unwrap();
     let v = annotations(home.path(), path);
     assert!(v["verdict"].is_null(), "{v}");
+}
+
+/// How long a test gives the server to exit once its stdin has ended.
+const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Assert `child` exits cleanly within [`EXIT_TIMEOUT`]; `why` names what
+/// should have ended it. A server that kept running after its stdin ended
+/// would linger as an orphan, so the wait is bounded and the failure loud.
+fn wait_for_clean_exit(child: &mut std::process::Child, why: &str) {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success(), "{why}: exit status {status}");
+            return;
+        }
+        if start.elapsed() > EXIT_TIMEOUT {
+            let _ = child.kill();
+            panic!("{why}: still running after {EXIT_TIMEOUT:?}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A client that exits cleanly closes the server's stdin; the server must
+/// then exit rather than linger.
+#[test]
+fn server_exits_when_stdin_is_closed() {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "server exited before stdin was closed"
+    );
+    drop(child.stdin.take());
+    wait_for_clean_exit(&mut child, "stdin closed");
+}
+
+/// Parent death reaches a stdio server as stdin EOF: the write end of its
+/// stdin pipe is closed when the parent process dies, however the parent
+/// died. Here that write end is held by a second copy of the binary standing
+/// in for the MCP client (its own stdin is kept open so it goes on serving),
+/// and killing it must end the server instead of leaving an orphan behind.
+#[test]
+fn server_exits_when_the_process_holding_its_stdin_dies() {
+    let home = tempfile::tempdir().unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    let mut server = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(reader)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // Stand-in for the client: a live process that holds the write end of
+    // the server's stdin as its own stdout, which it never writes.
+    let mut parent = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(writer)
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let parent_stdin = parent.stdin.take().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        server.try_wait().unwrap().is_none(),
+        "server exited while its parent lived"
+    );
+    parent.kill().unwrap();
+    parent.wait().unwrap();
+    drop(parent_stdin);
+    wait_for_clean_exit(&mut server, "parent process died");
+}
+
+/// A single stdin line past the server's limit (4 * MAX_DOCUMENT_BYTES) is
+/// dropped as it is read rather than buffered whole, answered with a -32600
+/// error, and the session goes on. `serve_bounded` covers the reader; this
+/// drives the real binary end to end.
+#[test]
+fn an_oversized_message_is_refused_and_the_session_goes_on() {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        stdin
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"pad\":\"")
+            .unwrap();
+        let chunk = [b'a'; 1 << 20];
+        for _ in 0..70 {
+            stdin.write_all(&chunk).unwrap();
+        }
+        stdin.write_all(b"\"}\n").unwrap();
+        writeln!(stdin, "{}", json!({"jsonrpc":"2.0","id":2,"method":"ping"})).unwrap();
+    }
+    wait_for_clean_exit(&mut child, "oversized message then stdin closed");
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut text).unwrap();
+    let lines: Vec<Value> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("stdout must be JSON-RPC only"))
+        .collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert_eq!(lines[0]["id"], Value::Null, "{:?}", lines[0]);
+    assert_eq!(lines[0]["error"]["code"], -32600, "{:?}", lines[0]);
+    let msg = lines[0]["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("longer than"), "{msg}");
+    assert_eq!(lines[1], json!({"jsonrpc":"2.0","id":2,"result":{}}));
+}
+
+/// `ipc-port` and `ipc-token` under `~/.mdopener` are read once for every
+/// request to the app. A FIFO used to block that read (and the request)
+/// forever, and a file of any size was read whole; both are now refused, so
+/// the tool reports the app as not running.
+#[cfg(unix)]
+#[test]
+fn an_ipc_state_file_that_is_a_fifo_or_oversized_is_refused_not_read() {
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"get_current_content","arguments":{}}});
+    for fifo in [true, false] {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(".mdopener");
+        std::fs::create_dir_all(&dir).unwrap();
+        let port = dir.join("ipc-port");
+        if fifo {
+            let status = Command::new("mkfifo").arg(&port).status().unwrap();
+            assert!(status.success(), "mkfifo failed");
+        } else {
+            // Past the 8 KiB the file may be: the app writes at most a
+            // five-digit port.
+            std::fs::write(&port, "9".repeat(16 * 1024)).unwrap();
+        }
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mdopener-mcp"))
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.as_mut().unwrap(), "{call}").unwrap();
+        drop(child.stdin.take());
+        wait_for_clean_exit(&mut child, "ipc-port is a fifo or oversized");
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut text).unwrap();
+        let reply: Value = serde_json::from_str(text.trim()).unwrap();
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("ipc-port not found"), "fifo={fifo}: {text}");
+    }
 }

@@ -12,6 +12,10 @@ free, private, **on-device AI** built in.
 
 *Think Preview.app, but Markdown-aware, editable, and AI-native, and cross-platform.*
 
+<!-- fresh:begin version-badge -->
+[![Release: 0.4.0](https://img.shields.io/badge/release-0.4.0-0969da.svg)](https://github.com/ashlrai/ashlr-md/releases/tag/v0.4.0)
+<!-- fresh:end -->
+
 [![CI](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlrai/ashlr-md/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0969da.svg)](./LICENSE)
 [![Platform: macOS · Windows · Linux](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-1a1a17.svg)](#)
@@ -229,11 +233,12 @@ Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
 
 ## One-click agent setup
 
-Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
-**Connect to Cursor**; no terminal required. For Codex, copy the command from the
-same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch an
-agent's output folder and open new `.md` files the moment they appear. Full guide
+Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code**,
+**Connect to Cursor**, or **Connect to Codex**; no terminal required. The
+**Agent Activity drawer (⌘B)** is the recommended way to watch an agent's output folder and open new `.md` files the moment they appear. Full guide
 + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
+
+MCP discovery metadata and offline validation: [docs/mcp-registry.md](./docs/mcp-registry.md).
 
 ## Download & install
 
@@ -286,10 +291,13 @@ Quality gates (all green in CI):
 
 ```bash
 bun run typecheck        # tsc --noEmit
-bunx biome check src     # lint + format
+bun run lint             # lint + format
 bun run test             # Vitest unit tests
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 ```
+
+Source-only documentation drift check: `python3 scripts/check-docs.py`. It compares
+the tool table, CLI examples and frontend event inventory with the source.
 
 Source-only MCP setup checks (Python 3, Rust, and Bash; no installer or agent
 CLI execution): `python3 scripts/test-mcp-setup.py`.

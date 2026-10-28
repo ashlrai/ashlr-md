@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check:crypto": "node --test scripts/check-crypto.test.mjs && node scripts/check-crypto.mjs",
+    "check:doc-links": "node --test scripts/check-doc-links.test.mjs && node scripts/check-doc-links.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -12,7 +13,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
-    "format": "biome format --write src"
+    "format": "biome format --write src",
+    "fresh:sync": "node scripts/freshness/sync.mjs",
+    "fresh:check": "node scripts/freshness/check.mjs",
+    "test:freshness": "node --test scripts/freshness/freshness.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
@@ -56,6 +60,8 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "@vitest/coverage-v8": "2.1.9",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "happy-dom": "^20.10.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",

@@ -376,7 +376,12 @@ function CanvasFileNodeView({
     (async () => {
       const path = await resolveWikilink(node.file);
       if (!path) {
-        if (!cancelled) setResolved(null);
+        // No title action for a file that no longer resolves: the path
+        // resolved for the node's previous file is not this one.
+        if (!cancelled) {
+          setAbsPath(null);
+          setResolved(null);
+        }
         return;
       }
       if (!cancelled) setAbsPath(path);
@@ -417,7 +422,21 @@ function CanvasFileNodeView({
             className="canvas-node__open"
             // A file deleted or moved since the card resolved it is said in
             // a toast; the canvas stays in view. It was replaced by the error.
+            // An image is not a document the app can open (reading it as
+            // text failed with a toast): its title shows it in its folder.
             onClick={() => {
+              if (isImage) {
+                // The opener plugin's own command (allowed by opener:default);
+                // its JS wrapper is only this call, so it is not a dependency.
+                invoke("plugin:opener|reveal_item_in_dir", { paths: [absPath] }).catch(
+                  (e: unknown) => {
+                    toast.error(
+                      `Could not show ${fileName} in its folder: ${String(e)}`,
+                    );
+                  },
+                );
+                return;
+              }
               void useDocumentStore
                 .getState()
                 .openPath(absPath, { keepViewOnError: true })
@@ -425,7 +444,7 @@ function CanvasFileNodeView({
                   if (error !== null) toast.error(linkOpenError(absPath, error));
                 });
             }}
-            title={`Open ${fileName}`}
+            title={isImage ? `Show ${fileName} in its folder` : `Open ${fileName}`}
           >
             {fileName}
           </button>

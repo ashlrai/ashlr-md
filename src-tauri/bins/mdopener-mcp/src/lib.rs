@@ -462,7 +462,7 @@ fn read_session_file(path: &std::path::Path) -> std::io::Result<String> {
         return Err(too_large(meta.len()));
     }
     let mut text = String::new();
-    std::fs::File::open(path)?
+    open_for_read(path, false)?
         .take(MAX_SESSION_FILE_BYTES + 1)
         .read_to_string(&mut text)?;
     if text.len() as u64 > MAX_SESSION_FILE_BYTES {
@@ -880,7 +880,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": LIST_RECENT_MAX,
-                        "description": "Maximum number of entries to return, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 10. The app keeps at most 12 recent files."
+                        "description": "Maximum entries (1 to 200, default 10); the app keeps at most 12."
                     }
                 }
             }),
@@ -902,8 +902,8 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "path": { "type": "string", "minLength": 1, "description": "Path to the Markdown file to review (absolute, `~/...` for the home directory, or relative to this server's working directory)." },
                     "content": { "type": "string", "minLength": 1, "description": "Inline Markdown to review, if no file path is given; an empty or whitespace-only string is refused." },
                     "blocking": { "type": "boolean", "description": "If false, register the review and return { status: 'pending', reviewId } at once; call again with that review_id to wait for the verdict. With review_id, false returns the review's current state (verdict, or pending) at once instead of waiting. Defaults to true." },
-                    "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "How long the human has to decide (the review panel's window), in milliseconds. Default 300000 (5 min). Must be between 5000 and 600000; a value outside that range is refused, not clamped." },
-                    "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max milliseconds this call blocks before returning { status: 'pending', reviewId }. Default 50000, below the 60 s request timeout of common MCP clients. Must be between 1000 and 600000; a value outside that range is refused, not clamped." },
+                    "timeout_ms": { "type": "integer", "minimum": REVIEW_MIN_TIMEOUT_MS, "maximum": REVIEW_MAX_TIMEOUT_MS, "description": "Review panel deadline in ms; default 300000 (5 min)." },
+                    "wait_ms": { "type": "integer", "minimum": REVIEW_MIN_WAIT_MS, "maximum": REVIEW_MAX_WAIT_MS, "description": "Max blocking time in ms before returning { status: 'pending', reviewId }; default 50000." },
                     "review_id": { "type": "string", "minLength": 1, "description": "Keep waiting on a review a previous call returned as pending, instead of registering a new one; an empty or blank id is refused. `path`, `content` and `timeout_ms` may be resent unchanged but cannot change the review: one that differs from what the review was requested with is refused. For a review this server did not register (it was restarted) they cannot be compared, and the result lists them as `ignored`." }
                 },
                 "anyOf": [{ "required": ["path"] }, { "required": ["content"] }, { "required": ["review_id"] }]
@@ -942,7 +942,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "find": { "type": "string", "minLength": 1, "description": "The exact text to replace, not empty. Must appear exactly once in the document." },
+                    "find": { "type": "string", "minLength": 1, "description": "Exact text, which must appear once." },
                     "replace": { "type": "string", "description": "The replacement text." },
                     "save": { "type": "boolean", "description": "Save to disk after editing. Defaults to false." },
                     "path": { "type": "string", "minLength": 1, "description": "Optional: assert this is the open document (errors if a different file is open); absolute, `~/...` for the home directory, or relative to this server's working directory. An empty or blank (only whitespace) string is refused; omit it to skip the check." }
@@ -965,7 +965,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "minLength": 1, "description": "Natural-language or keyword query (case-insensitive), not empty or only whitespace. Semantic similarity used when Ollama is available; grep fallback otherwise." },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Max number of results to return in every mode, a whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 50." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": SEARCH_MAX_RESULTS, "description": "Maximum results in every mode; default 50." },
                     "semantic": { "type": "boolean", "description": "Force semantic mode (true) or grep mode (false). Omit to auto-detect via Ollama availability." },
                     "vault": { "type": "string", "minLength": 1, "description": "Optional directory (absolute, `~/...` for the home directory, or relative to this server's working directory) searched on disk when Ashlr MD is not running. Only Markdown files that are not dotfiles, outside hidden folders, node_modules and target, are read; a hidden folder as `vault` is refused. Ignored while the app is reachable." }
                 },
@@ -1006,7 +1006,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                 "properties": {
                     "include_prompts": {
                         "type": "boolean",
-                        "description": "Whether to include the full system/user prompt templates. Defaults to true."
+                        "description": "Include system/user prompt templates; default true."
                     }
                 }
             }),
@@ -1034,7 +1034,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": MAX_MESSAGES_PER_SESSION,
-                        "description": "Maximum number of messages to return: the most recent N, in chronological order. A whole number from 1 to 200 (a value outside that range is refused, not clamped). Defaults to 20."
+                        "description": "Most recent messages in chronological order; default 20."
                     }
                 },
                 "required": ["session_id"]
@@ -1098,7 +1098,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                         "type": "integer",
                         "minimum": 0,
                         "maximum": DIFF_MAX_CONTEXT_LINES,
-                        "description": "Number of unchanged context lines surrounding each change hunk, a whole number from 0 to 10000 (a value outside that range is refused, not clamped). Defaults to 3."
+                        "description": "Unchanged context lines around each hunk; default 3."
                     }
                 },
                 "required": ["path_a", "path_b"]
@@ -1153,13 +1153,13 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "preview": {
                         "type": "boolean",
-                        "description": "When true (default), return a diff preview before applying. When false, apply immediately."
+                        "description": "Preview the diff when true (default); otherwise apply immediately."
                     },
                     "preview_lines": {
                         "type": "integer",
                         "minimum": 0,
                         "maximum": STREAM_EDIT_MAX_PREVIEW_LINES,
-                        "description": "Context lines on each side of the diff hunk, a whole number from 0 to 20 (a value outside that range is refused, not clamped). Defaults to 5."
+                        "description": "Context lines on each side of the diff hunk; default 5."
                     },
                     "path": {
                         "type": "string",
@@ -1209,11 +1209,11 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "find": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "The exact find string from the preview request, not empty."
+                        "description": "Exact find string from the preview request."
                     },
                     "replace": {
                         "type": "string",
-                        "description": "The replacement text from the preview request."
+                        "description": "Replacement text from the preview request."
                     },
                     "match_index": {
                         "type": "integer",
@@ -1337,7 +1337,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     "ops": {
                         "type": "array",
                         "minItems": 1,
-                        "description": "Ordered list of edit operations to apply atomically, at least one (an empty list is refused, and the file is not read or written). Each op takes only the fields its type uses (move_node: id, x, y; resize_node: id, width, height; and so on, as each field says); any other field is refused, so a move and a resize are two ops.",
+                        "description": "Operations apply atomically. Each op accepts only fields for its type (move_node: id, x, y; resize_node: id, width, height); a move and resize require separate ops.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1381,7 +1381,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "save": {
                         "type": "boolean",
-                        "description": "Write the mutated canvas back to disk. Defaults to true; false is a dry run that writes nothing and returns the would-be canvas JSON as `content`."
+                        "description": "Write the canvas (default true); false is a dry run that writes nothing and returns the would-be JSON as `content`."
                     }
                 },
                 "required": ["path", "ops"]
@@ -1418,7 +1418,7 @@ pub fn tool_registry() -> Vec<ToolDef> {
                     },
                     "overwrite": {
                         "type": "boolean",
-                        "description": "Replace a file that is already at `output_path`. Defaults to false: an existing file is refused, not overwritten."
+                        "description": "Replace an existing `output_path`; default false."
                     }
                 },
                 "required": ["format"]
@@ -1547,6 +1547,17 @@ fn unavailable_resource_msg(uri: &str) -> String {
 pub fn tool_list() -> Value {
     let tools: Vec<Value> = tool_registry().iter().map(|t| t.to_json()).collect();
     json!(tools)
+}
+
+/// Stable, offline contract for companion clients such as Phantom.
+/// Keep complete input schemas, but omit presentation text and registry order.
+pub fn tool_contract() -> Value {
+    let mut tools: Vec<Value> = tool_registry()
+        .iter()
+        .map(|tool| json!({ "name": tool.name, "inputSchema": tool.input_schema }))
+        .collect();
+    tools.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    json!({ "tools": tools })
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -5323,24 +5334,32 @@ fn non_utf8_canonical_refusal(raw: &str, arg: &str, verb: &str) -> Option<String
     ))
 }
 
-/// Read a file as UTF-8 text, refusing anything that is not a regular file
-/// (after following symlinks). Opening a FIFO for reading blocks until a
-/// writer appears, and a device or socket is never a document, so every disk
-/// read goes through here rather than `std::fs::read_to_string`. The file is
-/// opened non-blocking and judged by the opened handle, so a FIFO put in its
-/// place after the check cannot block the read either.
-pub fn read_regular_file(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+/// Read a file of at most `limit` bytes as UTF-8 text, refusing anything
+/// that is not a regular file (after following symlinks). Opening a FIFO
+/// for reading blocks until a writer appears, and a device or socket is
+/// never a state file, so the small `~/.mdopener` files the server reads go
+/// through here rather than `std::fs::read_to_string`. The file is opened
+/// non-blocking and judged by the opened handle, so a FIFO put in its place
+/// after the check cannot block the read either, and one that grows past
+/// `limit` while it is read is refused rather than kept whole.
+fn read_regular_file(path: impl AsRef<std::path::Path>, limit: u64) -> std::io::Result<String> {
     use std::io::Read as _;
     let path = path.as_ref();
     if !std::fs::metadata(path)?.is_file() {
         return Err(not_regular());
     }
-    let mut file = open_for_read(path, false)?;
+    let file = open_for_read(path, false)?;
     if !file.metadata()?.is_file() {
         return Err(not_regular());
     }
     let mut text = String::new();
-    file.read_to_string(&mut text)?;
+    file.take(limit + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("it is larger than {limit} bytes"),
+        ));
+    }
     Ok(text)
 }
 
@@ -6008,12 +6027,20 @@ pub fn best_snippet_for_query(content: &str, query: &str) -> (usize, String) {
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
 
+/// Largest `ipc-port` or `ipc-token` file read, and each is read once per
+/// request to the app: the app writes a port of at most five digits and a
+/// 64-character session token, so a file past this was not written by the
+/// app. The read is bounded ([`read_regular_file`]) so a huge or special
+/// file planted there is refused rather than kept whole, and a FIFO put
+/// there cannot block the request.
+const MAX_IPC_FILE_BYTES: u64 = 8 * 1024;
+
 /// Read the port written by the running app.
 pub fn read_ipc_port() -> Result<u16, String> {
     let path = mdopener_file_in(dirs::home_dir(), "ipc-port")?;
 
-    let content =
-        std::fs::read_to_string(&path).map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
+    let content = read_regular_file(&path, MAX_IPC_FILE_BYTES)
+        .map_err(|_| "~/.mdopener/ipc-port not found".to_string())?;
 
     content
         .trim()
@@ -6032,7 +6059,7 @@ pub const IPC_TOKEN_EMPTY: &str = "~/.mdopener/ipc-token is empty, so Ashlr MD h
 /// Read the per-session auth token written by the running app.
 pub fn read_ipc_token() -> Result<String, String> {
     let path = mdopener_file_in(dirs::home_dir(), "ipc-token")?;
-    std::fs::read_to_string(&path)
+    read_regular_file(&path, MAX_IPC_FILE_BYTES)
         .map_err(|_| "~/.mdopener/ipc-token not found".to_string())
         .and_then(|s| {
             let t = s.trim().to_string();

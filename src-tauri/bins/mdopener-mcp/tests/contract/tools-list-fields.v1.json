@@ -1,0 +1,646 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Open File"
+    },
+    "inputSchema": {
+      "properties": {
+        "mode": {
+          "enum": [
+            "read",
+            "edit"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "open_file"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get Current Content"
+    },
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_current_content"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List Recent Files"
+    },
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_recent"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Request Human Review"
+    },
+    "inputSchema": {
+      "anyOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "content"
+          ]
+        },
+        {
+          "required": [
+            "review_id"
+          ]
+        }
+      ],
+      "properties": {
+        "blocking": {
+          "type": "boolean"
+        },
+        "content": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "review_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "timeout_ms": {
+          "maximum": 600000,
+          "minimum": 5000,
+          "type": "integer"
+        },
+        "wait_ms": {
+          "maximum": 600000,
+          "minimum": 1000,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "request_review"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get User Annotations"
+    },
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "get_user_annotations"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Edit Document"
+    },
+    "inputSchema": {
+      "properties": {
+        "find": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "replace": {
+          "type": "string"
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "find",
+        "replace"
+      ],
+      "type": "object"
+    },
+    "name": "edit_document"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Search Vault"
+    },
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "semantic": {
+          "type": "boolean"
+        },
+        "vault": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_vault"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Present Document"
+    },
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "present_document"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "List AI Actions"
+    },
+    "inputSchema": {
+      "properties": {
+        "include_prompts": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_ai_actions"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Get Conversation Context"
+    },
+    "inputSchema": {
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "session_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_conversation_context"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Save Conversation Message"
+    },
+    "inputSchema": {
+      "properties": {
+        "cited_docs": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "content": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "agent",
+            "human",
+            "system"
+          ],
+          "type": "string"
+        },
+        "session_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "role",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "save_conversation_message"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Diff Documents"
+    },
+    "inputSchema": {
+      "properties": {
+        "context_lines": {
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path_a": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path_b": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_a",
+        "path_b"
+      ],
+      "type": "object"
+    },
+    "name": "diff_documents"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Stream Edit (Preview + Apply)"
+    },
+    "inputSchema": {
+      "properties": {
+        "find": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "preview_lines": {
+          "maximum": 20,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "find",
+        "replace"
+      ],
+      "type": "object"
+    },
+    "name": "stream_edit"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Apply Stream Edit"
+    },
+    "inputSchema": {
+      "properties": {
+        "edit_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "find": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "match_index": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "replace": {
+          "type": "string"
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "find",
+        "replace"
+      ],
+      "type": "object"
+    },
+    "name": "stream_edit_apply"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Export Plain Text"
+    },
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "export_text"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Export Metadata"
+    },
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "export_metadata"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Edit Canvas"
+    },
+    "inputSchema": {
+      "properties": {
+        "ops": {
+          "items": {
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "edge": {
+                "type": "object"
+              },
+              "height": {
+                "type": "number"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "label": {
+                "type": "string"
+              },
+              "node": {
+                "type": "object"
+              },
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "move_node",
+                  "resize_node",
+                  "edit_text",
+                  "edit_link",
+                  "edit_group_label",
+                  "set_node_color",
+                  "add_node",
+                  "delete_node",
+                  "add_edge",
+                  "delete_edge",
+                  "edit_edge_label",
+                  "reorder_edges"
+                ],
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "width": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "ops"
+      ],
+      "type": "object"
+    },
+    "name": "edit_canvas"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Export Document"
+    },
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "enum": [
+            "pdf",
+            "docx",
+            "html",
+            "epub"
+          ],
+          "type": "string"
+        },
+        "output_path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "overwrite": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "type": "object"
+    },
+    "name": "export"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Replace Document"
+    },
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "replace_document"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Set Content"
+    },
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "save": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "set_content"
+  }
+]

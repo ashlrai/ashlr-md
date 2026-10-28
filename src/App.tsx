@@ -8,9 +8,14 @@ import { installCloseGuard } from "./lib/closeGuard";
 import { classify } from "./lib/docClassifier";
 import { listenForOpenedFiles, openOpenedFiles } from "./lib/fileOpens";
 import { handleGlobalKeyDown } from "./lib/globalKeys";
-import { restoreSession, sessionRestoreMessage } from "./lib/session";
+import {
+  openAtLaunch,
+  type SessionRestore,
+  sessionRestoreMessage,
+} from "./lib/session";
 import { runStartupEmbedIndex } from "./lib/startupEmbedIndex";
 import {
+  type RestoreResult,
   restoreBuffers,
   restoreMessage,
   startKeepingBuffers,
@@ -35,6 +40,11 @@ import "./styles/diff.css";
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mdx)$/i;
 
+// The launch open runs once per app start. React.StrictMode runs the effect
+// below twice in development; a second restore finishing after the first run
+// opened the launch file would make the saved active tab active again.
+let launchOpen: Promise<{ restored: SessionRestore; kept: RestoreResult }> | undefined;
+
 export default function App() {
   const openPath = useDocumentStore((s) => s.openPath);
   const theme = useSettingsStore((s) => s.theme);
@@ -54,32 +64,41 @@ export default function App() {
     root.style.setProperty("--content-width", `${contentWidth}px`);
   }, [theme, fontSize, contentWidth]);
 
-  // Open files: drain anything buffered before mount; if the user didn't
-  // double-click a file, restore the previous session ("continue where you left
-  // off"). Then start persisting session changes and listen for live opens.
+  // Open files: restore the previous session ("continue where you left off"),
+  // then open anything buffered before mount (a double-clicked file). Then
+  // start persisting session changes and listen for live opens.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let unsubSave: (() => void) | undefined;
     let keeping: { stop: () => void } | undefined;
     let gone = false;
     (async () => {
-      const pending = await invoke<string[]>("take_pending_files").catch(
-        () => [] as string[],
-      );
-      if (pending.length) {
-        // Open every queued file (openPath dedupes); the last stays active.
-        await openOpenedFiles(pending, openPath);
-      } else {
-        const restored = await restoreSession();
-        const said = sessionRestoreMessage(restored);
-        if (said) {
-          if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
-          else toast.info(said);
-        }
+      // The saved tabs, then every queued file (openPath dedupes); the last
+      // stays active.
+      launchOpen ??= (async () => {
+        const pending = await invoke<string[]>("take_pending_files").catch(
+          () => [] as string[],
+        );
+        // Put back the unsaved text a crash or forced quit left before the
+        // launch files open (see lib/unsavedBuffers.ts), then keep it from
+        // here on.
+        let kept: RestoreResult = { restored: [], recovered: [] };
+        const restored = await openAtLaunch(
+          pending,
+          (paths) => openOpenedFiles(paths, openPath),
+          async () => {
+            kept = await restoreBuffers(openPath);
+          },
+        );
+        return { restored, kept };
+      })();
+      const { restored, kept } = await launchOpen;
+      if (gone) return;
+      const said = sessionRestoreMessage(restored);
+      if (said) {
+        if (restored.gone.length > 0) toast.error(said, { timeout: 8000 });
+        else toast.info(said);
       }
-      // Put back the unsaved text a crash or forced quit left, then keep
-      // it from here on (see lib/unsavedBuffers.ts).
-      const kept = await restoreBuffers(openPath);
       const keptNote = restoreMessage(kept);
       if (keptNote) toast[keptNote.kind](keptNote.text);
       if (!gone) keeping = startKeepingBuffers();

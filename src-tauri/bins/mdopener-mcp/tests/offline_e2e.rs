@@ -1,6 +1,7 @@
-//! Offline flagship end to end, against the real binary with HOME in a temp
-//! dir and a fake OpenAI-compatible server on a 127.0.0.1 port-0 listener
-//! (plain std TCP: runs the same on Linux, macOS and CI with no Ollama):
+//! Offline flagship coverage with HOME in a temp dir and a fake OpenAI-compatible
+//! server on a 127.0.0.1 port-0 listener (plain std TCP, no Ollama required).
+//! Doctor and setup argument checks run the real binary. Setup collection and
+//! rendering inject unavailable defaults instead of probing fixed ports:
 //!
 //! - `doctor` reports `offline [ok] verified` when `localInference.offline`
 //!   is on and the loopback server answers, `unverified` when it does not,
@@ -11,6 +12,7 @@
 //!   sees only the probe's GET of the model list (no key), HOME is byte for
 //!   byte unchanged, and no model is fetched.
 
+use mdopener_mcp::{local_inference_probe::ProbeResult, offline};
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -118,6 +120,37 @@ fn run(home: &Path, args: &[&str]) -> (i32, String, String) {
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
+}
+
+/// Exercise collection and rendering with deterministic default findings.
+/// Only the configured ephemeral server is probed; fixed ports are never used.
+fn setup_local(home: &Path, json_output: bool) -> String {
+    let root = std::fs::read(home.join(".ashlr/config.json"))
+        .ok()
+        .map(|bytes| serde_json::from_slice::<Value>(&bytes).unwrap());
+    let servers = offline::DEFAULT_SERVERS
+        .iter()
+        .map(|server| offline::ServerFinding {
+            provider: server.provider.into(),
+            base_url: server.base_url.into(),
+            probe: ProbeResult {
+                status: "unreachable",
+                provider: Some(server.provider.into()),
+                loopback: true,
+                reachable: false,
+                http_status: None,
+                model_count: 0,
+                reason: Some("connect-failed".into()),
+                bytes_read: 0,
+            },
+        })
+        .collect();
+    let report = offline::collect_with_servers(root.as_ref(), Duration::from_secs(3), servers);
+    if json_output {
+        offline::render_json(&report)
+    } else {
+        offline::render_text(&report)
+    }
 }
 
 /// Every file under `root` with its bytes, sorted.
@@ -307,17 +340,14 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     let before = snapshot(home.path());
 
     let t = Instant::now();
-    let (code, text, err) = run(home.path(), &["setup", "--local"]);
-    assert_eq!(code, 0, "{err}");
-    assert!(err.is_empty(), "{err}");
+    let text = setup_local(home.path(), false);
     assert!(
         text.starts_with(
             "setup --local: local model servers on loopback (downloads nothing, writes nothing)\n"
         ),
         "{text}"
     );
-    // The default servers are reported with a status from the closed set
-    // (whatever this machine runs on 11434 and 8000).
+    // Injected defaults are unavailable regardless of host services.
     for (provider, url) in [
         ("ollama", "http://127.0.0.1:11434/v1"),
         ("omlx", "http://127.0.0.1:8000/v1"),
@@ -326,12 +356,7 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
             .lines()
             .find(|l| l.trim_start().starts_with(provider) && l.contains(url))
             .unwrap_or_else(|| panic!("no {provider} line in {text}"));
-        assert!(
-            line.contains("reachable, ")
-                || line.contains("not running (")
-                || line.contains("bad response ("),
-            "{line}"
-        );
+        assert!(line.contains("not running (connect-failed)"), "{line}");
     }
     assert!(
         text.contains("config   ~/.ashlr/config.json       openai-compat: reachable, 1 model(s); offline: off\n"),
@@ -349,11 +374,10 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     assert!(text.contains("       mdopener-mcp doctor\n"), "{text}");
     // Value-free: the configured server's port never appears.
     assert!(!text.contains(&format!(":{}", server.port)), "{text}");
-    // Three probes at most, each bounded, with nothing slow in between.
+    // Only the configured server is probed, with a bounded timeout.
     assert!(t.elapsed() < Duration::from_secs(12), "{:?}", t.elapsed());
 
-    let (code, json, _) = run(home.path(), &["setup", "--local", "--json"]);
-    assert_eq!(code, 0);
+    let json = setup_local(home.path(), true);
     let v: Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["kind"], "ashlr.setup-local");
     assert_eq!(v["schema_version"], 1);
@@ -364,11 +388,8 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
     assert_eq!(servers[0]["provider"], "ollama");
     assert_eq!(servers[1]["provider"], "omlx");
     for s in servers {
-        let status = s["probe"]["status"].as_str().unwrap();
-        assert!(
-            ["reachable", "unreachable", "bad-response"].contains(&status),
-            "{status}"
-        );
+        assert_eq!(s["probe"]["status"], "unreachable");
+        assert_eq!(s["probe"]["reason"], "connect-failed");
     }
     assert_eq!(v["config"]["status"], "ok");
     assert_eq!(v["config"]["offline"], false);
@@ -394,14 +415,11 @@ fn setup_local_finds_the_configured_server_and_downloads_nothing() {
 #[test]
 fn setup_local_on_a_fresh_machine_prints_the_ollama_pull_and_block() {
     let home = tempfile::tempdir().unwrap();
-    let (code, text, _) = run(home.path(), &["setup", "--local"]);
-    assert_eq!(code, 0);
+    let text = setup_local(home.path(), false);
     assert!(
         text.contains("config   ~/.ashlr/config.json       no localInference block\n"),
         "{text}"
     );
-    // Whichever default server answers (or none), the next steps name the
-    // exact commands and the pull is for the user to run.
     assert!(text.contains("next:\n  1. "), "{text}");
     assert!(text.contains("  2. Add to ~/.ashlr/config.json (setup writes nothing):\n       \"localInference\": { \"provider\": \""), "{text}");
     assert!(text.contains("\", \"offline\": true }\n"), "{text}");
@@ -411,26 +429,41 @@ fn setup_local_on_a_fresh_machine_prints_the_ollama_pull_and_block() {
         ),
         "{text}"
     );
-    let (_, json, _) = run(home.path(), &["setup", "--local", "--json"]);
+    let json = setup_local(home.path(), true);
     let v: Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["config"]["status"], "absent");
-    let provider = v["recommended"]["provider"].as_str().unwrap();
-    if provider == "ollama" {
-        assert_eq!(v["recommended"]["pullCommand"], "ollama pull qwen3.8:27b");
-        assert!(
-            text.contains("\n       ollama pull qwen3.8:27b\n"),
-            "{text}"
-        );
-        assert!(text.contains("setup never starts it"), "{text}");
-    } else {
-        assert_eq!(provider, "omlx");
-        assert!(v["recommended"]["pullCommand"].is_null());
-    }
+    assert_eq!(v["recommended"]["provider"], "ollama");
+    assert_eq!(v["recommended"]["reachable"], false);
+    assert_eq!(v["recommended"]["pullCommand"], "ollama pull qwen3.8:27b");
+    assert!(
+        text.contains("\n       ollama pull qwen3.8:27b\n"),
+        "{text}"
+    );
+    assert!(text.contains("setup never starts it"), "{text}");
     assert_eq!(v["config_snippet"]["localInference"]["offline"], true);
     assert!(
         std::fs::read_dir(home.path()).unwrap().next().is_none(),
         "setup created something in a fresh HOME"
     );
+}
+
+#[test]
+fn setup_local_reuses_injected_default_for_a_matching_config() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir(home.path().join(".ashlr")).unwrap();
+    std::fs::write(
+        home.path().join(".ashlr/config.json"),
+        r#"{"localInference":{"provider":"ollama","offline":true}}"#,
+    )
+    .unwrap();
+    let before = snapshot(home.path());
+    let output = setup_local(home.path(), true);
+    let report: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(report["config"]["probe"], report["servers"][0]["probe"]);
+    assert_eq!(report["config"]["probe"]["status"], "unreachable");
+    assert_eq!(report["config"]["offline"], true);
+    assert_eq!(report["recommended"]["reachable"], false);
+    assert_eq!(snapshot(home.path()), before);
 }
 
 #[test]

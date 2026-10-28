@@ -57,7 +57,16 @@ export function ShortcutSheet() {
             ×
           </button>
         </div>
-        <div className="settings-body shortcut-sheet-body">
+        {/* The list scrolls and holds nothing focusable: a Tab stop of its
+            own lets the keyboard scroll it (WebKit scrolls only what has
+            focus). The arrow keys and Page keys did nothing. */}
+        <div
+          className="settings-body shortcut-sheet-body"
+          role="region"
+          aria-label="Shortcuts"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be focusable to scroll by keyboard
+          tabIndex={0}
+        >
           {groups.map((g) => (
             <section
               key={g.group}

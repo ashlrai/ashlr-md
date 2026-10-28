@@ -1,5 +1,6 @@
 import type React from "react";
 import "../../styles/tabbar.css";
+import { tabFolderHints } from "../../lib/tabNames";
 import { useDocumentStore } from "../../store/documentStore";
 
 /** The id of the document area the tabs control (Shell's <main>). */
@@ -59,6 +60,8 @@ export function TabBar() {
   const closeTab = useDocumentStore((s) => s.closeTab);
 
   if (tabs.length < 2) return null;
+  // Tabs that share a file name show enough of their folder to tell apart.
+  const hints = tabFolderHints(tabs);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     const buttons = Array.from(
@@ -87,6 +90,7 @@ export function TabBar() {
     >
       {tabs.map((tab) => {
         const active = tab.id === activeId;
+        const hint = hints.get(tab.id);
         return (
           <div
             key={tab.id}
@@ -116,6 +120,12 @@ export function TabBar() {
                   aria-label on a plain span is not). */}
               {tab.isDirty && <span className="tab-dirty" aria-hidden="true" />}
               <span className="tab-name">{tab.fileName || "Untitled"}</span>
+              {hint && (
+                <span className="tab-folder">
+                  <span className="visually-hidden">, in </span>
+                  {hint}
+                </span>
+              )}
               {tab.isDirty && (
                 <span className="visually-hidden">, unsaved changes</span>
               )}
