@@ -51,6 +51,32 @@ cargo audit              # known-vuln Rust deps (advisory; cargo install cargo-a
 
 Run `bunx biome check --write src` to auto-fix formatting and imports.
 
+## Resolving merge conflicts
+
+Some files churn on every PR and are resolved mechanically, never by hand:
+
+- `CHANGELOG.md` (any depth) is union-merged via `.gitattributes`
+  (`merge=union`): both sides' entries survive. Note GitHub's server-side
+  merge ignores custom drivers; the attribute helps local `git merge` /
+  `git rebase` runs.
+- `CLAUDE.md` and `README.md` take main's version and re-apply the PR's
+  own hunks; a hunk whose preimage is gone keeps main's version.
+- `bun.lock` and `src-tauri/Cargo.lock` are never hand-merged: take main's
+  version, then re-run `bun install` / `cargo metadata`. The manifest
+  (`package.json` / `Cargo.toml`) must come out byte-identical and
+  resolved sources must stay on `registry.npmjs.org` / `crates.io`.
+
+When a `git rebase main` (or `git merge`) stops on conflicts:
+
+```bash
+bun run resolve-conflicts        # or: node scripts/resolve-conflicts.mjs
+```
+
+Each conflicted path is resolved by the rules above and staged; anything
+else is reported and left for a human. Re-run after finishing those, then
+`git rebase --continue`. `--dry-run` previews without touching files.
+`bun run test:conflicts` runs the fixture-rebase test suite.
+
 ## Principles
 
 - **Local-first.** Nothing leaves the device without explicit user action.
