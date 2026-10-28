@@ -64,9 +64,17 @@ export type TableEdit =
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Pad a cell string with single spaces on each side. */
+/**
+ * Keep cell Markdown on one physical line and escape structural pipes.
+ * Preserve existing escapes: parsed cells contain Markdown source, not plain text.
+ */
 function padCell(value: string): string {
-  return ` ${value} `;
+  const content = value
+    .replace(/\r\n|\r|\n/g, "<br>")
+    .replace(/(\\*)\|/g, (match, slashes: string) =>
+      slashes.length % 2 === 0 ? `\\${match}` : match,
+    );
+  return ` ${content} `;
 }
 
 /** Render a row as a GFM pipe-delimited line (no trailing newline). */
