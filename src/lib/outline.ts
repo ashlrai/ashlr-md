@@ -29,6 +29,14 @@ export interface HeadingItem {
   line: number;
 }
 
+/** Filter existing headings without changing their document anchor IDs. */
+export function filterHeadings(headings: HeadingItem[], query: string): HeadingItem[] {
+  const term = query.trim().toLowerCase();
+  return term
+    ? headings.filter((heading) => heading.text.toLowerCase().includes(term))
+    : headings;
+}
+
 /**
  * The text the page shows for inline math `value`: the read view renders
  * it with KaTeX (rehype-katex, default options) and takes a heading's slug

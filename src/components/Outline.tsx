@@ -12,7 +12,7 @@ import "../styles/outline.css";
 import { anchorElement } from "../lib/docLinks";
 import { formatShortcut } from "../lib/keymap";
 import { smoothScrollBehavior } from "../lib/motion";
-import { type HeadingItem, parseHeadings } from "../lib/outline";
+import { filterHeadings, type HeadingItem, parseHeadings } from "../lib/outline";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -62,6 +62,12 @@ export function Outline() {
 
   // Rebuild only when the document content changes.
   const headings = useMemo(() => parseHeadings(content), [content]);
+
+  const [query, setQuery] = useState("");
+  const filteredHeadings = useMemo(
+    () => filterHeadings(headings, query),
+    [headings, query],
+  );
 
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -140,12 +146,17 @@ export function Outline() {
 
   // Keep the active item visible within the outline's own scroll area.
   useEffect(() => {
-    if (!activeSlug || !listRef.current) return;
+    if (
+      !activeSlug ||
+      !listRef.current ||
+      !filteredHeadings.some((h) => h.slug === activeSlug)
+    )
+      return;
     const el = listRef.current.querySelector<HTMLElement>(
       `[data-slug="${CSS.escape(activeSlug)}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [activeSlug]);
+  }, [activeSlug, filteredHeadings]);
 
   const handleClick = (h: HeadingItem) => {
     if (viewMode === "read") {
@@ -184,6 +195,17 @@ export function Outline() {
         </button>
       </div>
 
+      {path && headings.length > 0 && (
+        <label>
+          <span>Filter headings</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      )}
+
       {!path || headings.length === 0 ? (
         <div className="outline-empty">
           <div className="outline-empty__icon">≡</div>
@@ -194,9 +216,11 @@ export function Outline() {
               : "Open a document to see its outline."}
           </p>
         </div>
+      ) : filteredHeadings.length === 0 ? (
+        <p role="status">No headings match your filter.</p>
       ) : (
         <ul className="outline-list" ref={listRef}>
-          {headings.map((h) => {
+          {filteredHeadings.map((h) => {
             const isActive = h.slug === activeSlug;
             return (
               <li key={h.slug}>
