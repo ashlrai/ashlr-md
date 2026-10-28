@@ -4,7 +4,7 @@ name: CI
 # aggregates typecheck, Biome, the crypto policy check, the JS dependency
 # audit and a pinned diff secret scan (well under 3 min). The full suite
 # (unit tests with coverage, frontend build, Rust check/clippy/tests and
-# cargo audit on Linux, Rust check/clippy on macOS) runs at 6 AM and 6 PM ET
+# cargo audit on Linux, Rust check/clippy on macOS) runs daily at 04:23 ET
 # on main and on workflow_dispatch; a red scheduled run files a P0 FIX-MAIN
 # issue (fix-main.yml). Main pushes run nothing: every commit on main already
 # passed its merge_group run. Run scripts/ci-local.sh before pushing.
@@ -13,8 +13,9 @@ on:
     types: [opened, synchronize, reopened]
   merge_group:
   schedule:
-    # Daily full suite at 06:00 ET (10:00 UTC).
-    - cron: "0 10 * * *"
+    # Daily full suite at 04:23 ET (08:23 UTC), staggered from the other repos'
+    # daily runs so the macOS job does not queue behind them (RQ-DAILY-15).
+    - cron: "23 8 * * *"
   workflow_dispatch:
 
 # Cancel superseded PR runs; never cancel a queue or scheduled run.
@@ -121,7 +122,7 @@ jobs:
     name: Linux full suite
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     # Runs bun install and tests (third-party code), so no id-token here.
     # The Codecov OIDC uploads live in the merge_group-only codecov job.
     permissions:
@@ -190,10 +191,14 @@ jobs:
           workspaces: src-tauri
 
       # Tauri 2 Linux prerequisites — required for tauri-build to compile.
+      # One daily run spent 1466s here on a stalled mirror: bound each fetch and
+      # the step.
       - name: Install Linux system dependencies
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_opts[@]}" update
+          sudo apt-get "${apt_opts[@]}" install -y \
             libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
@@ -279,7 +284,7 @@ jobs:
     name: macOS full suite
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-14
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
