@@ -10,17 +10,16 @@ name: CI
 # passed its merge_group run. Run scripts/ci-local.sh before pushing.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
   merge_group:
   schedule:
-    # 6 AM and 6 PM ET (EDT, UTC-4).
-    - cron: "25 10 * * *"
-    - cron: "25 22 * * *"
+    # Daily full suite at 06:00 ET (10:00 UTC).
+    - cron: "0 10 * * *"
   workflow_dispatch:
 
 # Cancel superseded PR runs; never cancel a queue or scheduled run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -122,6 +121,7 @@ jobs:
     name: Linux full suite
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     # Runs bun install and tests (third-party code), so no id-token here.
     # The Codecov OIDC uploads live in the merge_group-only codecov job.
     permissions:
@@ -279,6 +279,7 @@ jobs:
     name: macOS full suite
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-14
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -311,13 +312,42 @@ jobs:
       - name: Rust clippy (workspace)
         run: cargo clippy --workspace --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
+  secret-shape:
+    # Security floor: pinned scrub.pl (sha256 5aa902ab) over the added lines of
+    # the candidate diff, on every event. No if and no paths filter; the gate
+    # fails closed unless this job succeeds.
+    name: Secret-shape scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Scan candidate diff (fail closed)
+        env:
+          SCRUB_SHA256: 5aa902abedbb3bf7fa8d893b93969e247c82ff62ac26cd082215caabfb740265
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          echo "${SCRUB_SHA256}  .github/tests/secret-shape/scrub.pl" | sha256sum --check --strict
+          if [ -z "${BASE_SHA}" ]; then BASE_SHA="$(git rev-parse "${HEAD_SHA}^1")"; fi
+          base="$(git merge-base "${BASE_SHA}" "${HEAD_SHA}")"
+          git diff --no-color --no-ext-diff "${base}" "${HEAD_SHA}" > "${RUNNER_TEMP}/candidate.diff"
+          perl .github/tests/secret-shape/scrub.pl --check --allow-fixtures < "${RUNNER_TEMP}/candidate.diff"
+
   # The one required check. Every event needs the fast job and the secret
   # scan; scheduled and dispatch runs also need both full-suite jobs. Any
   # needed job that is not success (failure, cancelled or skipped) fails it.
   gate:
     name: Check (Linux)
     if: always()
-    needs: [fast, secret-scan, linux-full, macos-full]
+    needs: [fast, secret-scan, linux-full, macos-full, secret-shape]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
@@ -328,8 +358,51 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # Exact dependency keys: a missing or extra job fails closed.
+          printf '%s' "$NEEDS" | jq -e --argjson exp "[\"fast\", \"linux-full\", \"macos-full\", \"secret-scan\", \"secret-shape\"]" '(keys | sort) == $exp' > /dev/null || { echo "::error::gate dependency inventory changed"; exit 1; }
           full=false
           if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then full=true; fi
           bad="$(printf '%s' "$NEEDS" | jq -r --argjson full "$full" 'to_entries[] | select(.value.result != "success") | select(($full | not) and (.key == "linux-full" or .key == "macos-full") and .value.result == "skipped" | not) | "\(.key)=\(.value.result)"')"
           if [ -n "$bad" ]; then echo "::error::Check (Linux): $bad"; exit 1; fi
           echo "Check (Linux) passed ($EVENT)"
+
+  fixup-queue:
+    # Daily red run -> READY FIXUP lines for the router queue (fix-forward owner:
+    # ci-efficiency). One line per failed job from the needs context only: no
+    # logs or env, read-only token, passed through the pinned scrub.pl.
+    name: Daily fixup queue
+    needs: [fast, secret-scan, linux-full, codecov, macos-full, secret-shape, gate]
+    if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout scrubber
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/tests/secret-shape/scrub.pl
+          sparse-checkout-cone-mode: false
+      - name: Build fixup-queue.txt
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          SCRUB_SHA256: 5aa902abedbb3bf7fa8d893b93969e247c82ff62ac26cd082215caabfb740265
+        run: |
+          set -euo pipefail
+          echo "${SCRUB_SHA256}  .github/tests/secret-shape/scrub.pl" | sha256sum --check --strict
+          sha7="${GITHUB_SHA:0:7}"
+          run="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          printf '%s' "$NEEDS" | jq -r --arg sha7 "$sha7" --arg run "$run" --arg repo "ashlr-md" --arg up "$(echo ashlr-md | tr a-z- A-Z-)" '
+            [to_entries[] | select(.value.result == "failure" or .value.result == "cancelled")] | to_entries[] |
+            "- READY RQ-FIXUP-\($up)-\($sha7)-\(.key + 1) (P0, pool=any, repo=\($repo), lead=CI-Efficiency, owner=ci-efficiency, job=\(.value.key), result=\(.value.value.result), run=\($run), sha=\($sha7)): daily full suite job \(.value.key) concluded \(.value.value.result); first error is in the run'"'"'s failed step."' > raw.txt
+          perl .github/tests/secret-shape/scrub.pl < raw.txt > fixup-queue.txt
+          echo "fixup_lines=$(wc -l < fixup-queue.txt)"
+          cat fixup-queue.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload fixup queue
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ashlr-md-fixup-queue
+          path: fixup-queue.txt
+          if-no-files-found: error
+          retention-days: 7
