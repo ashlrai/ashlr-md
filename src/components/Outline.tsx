@@ -12,7 +12,12 @@ import "../styles/outline.css";
 import { anchorElement } from "../lib/docLinks";
 import { formatShortcut } from "../lib/keymap";
 import { smoothScrollBehavior } from "../lib/motion";
-import { filterHeadings, type HeadingItem, parseHeadings } from "../lib/outline";
+import {
+  filterHeadings,
+  type HeadingItem,
+  headingLabels,
+  parseHeadings,
+} from "../lib/outline";
 import { useFocusOnOpen, useReturnFocus } from "../lib/useReturnFocus";
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
@@ -62,6 +67,10 @@ export function Outline() {
 
   // Rebuild only when the document content changes.
   const headings = useMemo(() => parseHeadings(content), [content]);
+  const labels = useMemo(() => {
+    const names = headingLabels(headings);
+    return new Map(headings.map((heading, index) => [heading, names[index]]));
+  }, [headings]);
 
   const [query, setQuery] = useState("");
   const filteredHeadings = useMemo(
@@ -235,10 +244,10 @@ export function Outline() {
                     } as React.CSSProperties
                   }
                   onClick={() => handleClick(h)}
-                  title={h.text}
+                  title={labels.get(h)}
                   aria-current={isActive ? "location" : undefined}
                 >
-                  <span className="outline-item__text">{h.text}</span>
+                  <span className="outline-item__text">{labels.get(h)}</span>
                 </button>
               </li>
             );
