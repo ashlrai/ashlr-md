@@ -321,6 +321,9 @@ export function scrollToFragment(fragment: string): () => void {
   let tries = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const tick = () => {
+    // The retry can outlive its caller's cleanup (and the DOM itself under
+    // test teardown); bail instead of dereferencing a gone document.
+    if (typeof document === "undefined") return;
     const el = anchorElement(fragment);
     if (el) {
       el.scrollIntoView({ behavior: smoothScrollBehavior(), block: "start" });

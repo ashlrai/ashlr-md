@@ -18,6 +18,7 @@ import {
   imageSource,
   linkTarget,
   resolveFromDocument,
+  scrollToFragment,
 } from "./docLinks";
 import { invalidateWikilinkCache } from "./wikilink";
 
@@ -146,6 +147,27 @@ describe("anchorElement", () => {
     const { doc, embed } = page();
     doc.lastElementChild?.previousElementSibling?.remove();
     expect(anchorElement("setup", doc)).toBe(embed.firstElementChild);
+  });
+});
+
+describe("scrollToFragment", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
+  it("gives up quietly when the document is gone before a retry fires", () => {
+    vi.useFakeTimers();
+    scrollToFragment("no-such-heading"); // nothing renders it: a retry stays pending
+    const g = globalThis as { document?: Document };
+    const doc = g.document as Document;
+    delete g.document; // happy-dom teardown rips the global out from under it
+    try {
+      expect(typeof document === "undefined").toBe(true); // the delete took
+      expect(() => vi.runAllTimers()).not.toThrow();
+    } finally {
+      g.document = doc;
+    }
   });
 });
 
