@@ -118,6 +118,48 @@ describe("recentStore", () => {
     expect(useRecentStore.getState().recents).toHaveLength(12);
   });
 
+  it("orders timestamps descending and preserves insertion order for ties and invalid values", () => {
+    const { add } = useRecentStore.getState();
+    add("/invalid-a", "invalid-a", Number.NaN);
+    add("/old", "old", 1);
+    add("/tie-a", "tie-a", 2);
+    add("/tie-b", "tie-b", 2);
+    add("/invalid-b", "invalid-b", Infinity);
+    expect(useRecentStore.getState().recents.map((r) => r.path)).toEqual([
+      "/tie-b",
+      "/tie-a",
+      "/old",
+      "/invalid-b",
+      "/invalid-a",
+    ]);
+  });
+
+  it("normalizes persisted duplicates and caps entries on hydration", async () => {
+    const entries = Array.from({ length: 14 }, (_, i) => ({
+      path: `/file${i}`,
+      fileName: `file${i}`,
+      openedAt: 20 - i,
+    }));
+    localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        state: {
+          recents: [
+            { path: "/file0", fileName: "older", openedAt: 0 },
+            ...entries,
+            { path: "/invalid", fileName: "invalid", openedAt: null },
+          ],
+        },
+        version: 0,
+      }),
+    );
+    await useRecentStore.persist.rehydrate();
+    const recents = useRecentStore.getState().recents;
+    expect(recents).toHaveLength(12);
+    expect(recents.map((r) => r.path)).toEqual(entries.slice(0, 12).map((r) => r.path));
+    expect(recents[0].fileName).toBe("file0");
+  });
+
   // ── localStorage persistence ──────────────────────────────────────────────
 
   it("add() writes state to localStorage after mutation", () => {
