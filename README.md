@@ -25,6 +25,7 @@ free, private, **on-device AI** built in.
 [Download](https://github.com/ashlrai/ashlr-md/releases) ·
 [Contributing](./CONTRIBUTING.md) ·
 [Roadmap](./ROADMAP.md) ·
+[Plugs into Phantom](#how-ashlr-md-plugs-into-phantom) ·
 [Vision](./docs/VISION.md)
 
 <img src="./docs/og.png" width="820" alt="Ashlr MD: a beautiful Markdown plan with callouts and checkboxes, plus an on-device AI assistant" />
@@ -120,7 +121,8 @@ especially for non-technical people. Ashlr MD does exactly that, on every platfo
 - **Phantom's Markdown viewer**: when Ashlr MD is installed, [Phantom](https://github.com/ashlrai/phantom)
   hands its inbox and digest Markdown (`phm inbox show --open`, `phm digest --open`)
   to `mdopen`. The broader "open any `.md`" opener is not on Phantom's `master` yet.
-  See [**docs/PHANTOM.md**](./docs/PHANTOM.md).
+  See [**How Ashlr MD plugs into Phantom**](#how-ashlr-md-plugs-into-phantom) and
+  [**docs/PHANTOM.md**](./docs/PHANTOM.md).
 - **Obsidian integration**: the [Open in Ashlr MD](./integrations/obsidian/)
   plugin sends any vault note to Ashlr MD with one click (ribbon, command, and
   right-click) via the `mdopener://` scheme.
@@ -293,8 +295,14 @@ Quality gates (all green in CI):
 bun run typecheck        # tsc --noEmit
 bun run lint             # lint + format
 bun run test             # Vitest unit tests
+bun run check:doc-links  # every relative link in the repo's Markdown resolves
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 ```
+
+`bun run check:doc-links` scans all Markdown in the repository (README, docs/,
+integrations/, samples/, ...) for relative links and `#anchors` that point
+nowhere; `--external` also probes remote URLs (needs the network):
+`node scripts/check-doc-links.mjs --external`.
 
 Source-only documentation drift check: `python3 scripts/check-docs.py`. It compares
 the tool table, CLI examples and frontend event inventory with the source.
@@ -334,6 +342,43 @@ Run `mdopener-mcp doctor --fix --apply` to make these changes (a file's contents
 ```
 
 What it repairs: owner-only permissions (`~/.mdopener`, `sessions/` and `reviews/` to 0700; session files, saved reviews and `ipc-port` to 0600), reporting the previous mode, and a saved review that is oversized, does not parse, has another schema or sits under another file's name, which is backed up to `<file>.bak-<UTC stamp>` and removed. What stays manual: `ipc-token` permissions (it is the app's secret, so the tool never opens or changes it; run `chmod 600 ~/.mdopener/ipc-token` yourself), symlinks and special files, and MCP client registration (Preferences > AI agents). The `manual` line still prints after `--apply`. Unix only. Details: [docs/doctor-fix.md](./docs/doctor-fix.md). To repair every Ashlr tool at once, see [Repair everything](https://github.com/ashlrai/ashlr-stack/blob/main/docs/getting-started-ecosystem.md#repair-everything) in the Ashlr Stack guide.
+
+## How Ashlr MD plugs into Phantom
+
+[Phantom](https://phm.dev), the agent workbench, uses Ashlr MD as its Markdown
+viewer. When Phantom has Markdown to show a human (`phm inbox show <id> --open`,
+`phm digest --open`) it hands the file to `mdopen` when Ashlr MD is installed,
+and falls back to terminal output when it is not. On Phantom's `master` only the
+inbox/digest seam is merged; the "open any `.md`" opener for `phantom open` and
+the `PHANTOM_ASHLR_MD=0` opt-out live on Phantom's `feat/ashlr-md-opener` branch.
+
+Phantom relies on three stable hooks; changing them is a breaking change for
+Phantom, so they are kept stable:
+
+| Hook | What Phantom does with it |
+|---|---|
+| `mdopen` on `PATH` | Treated as "Ashlr MD is installed"; `mdopen <file.md>` exits `0` only when a viewer accepted the file ([exit-status contract](./docs/PHANTOM.md#mdopen-exit-status)) |
+| `mdopener://` URL scheme | `mdopener://open?path=<url-encoded absolute path>[&mode=edit]` deep link, declared in the desktop bundle |
+| `mdopener-mcp` | Agents running under Phantom call `open_file` to put a document in front of a human for review |
+
+Under `phantom exec -- <cmd>` the app and its sidecars run inside the
+[Phantom Secrets](https://github.com/ashlrai/phantom-secrets) boundary: provider
+keys arrive as `phm_` placeholders and `ANTHROPIC_BASE_URL` points at the
+session's loopback proxy, a shape the app's URL rules already accept. The AI
+sidebar uses the key saved in Settings by default; set
+`ASHLR_MD_ANTHROPIC_KEY_FROM_ENV=1` to take `ANTHROPIC_API_KEY` from the
+environment instead (a `phm_` placeholder is honored only when the base URL is
+the session proxy). `mdopener-mcp` sends no Anthropic requests and attaches no
+key, so it needs no placeholder. Ashlr MD never resolves a `phm:` reference;
+do not use `phantom reveal` to copy a key into Settings. The `localInference`
+block in `~/.ashlr/config.json` has the same shape as Phantom's, so one config
+serves both tools, and the installer reports `phantom --version` without ever
+reading or revealing a secret value.
+
+The full contract (`mdopen` exit statuses, `open_file` semantics, detection
+paths and the `phantom exec` variable table) lives in
+[**docs/PHANTOM.md**](./docs/PHANTOM.md). The URL handling is covered by tests;
+the app has not been tested against a live `phantom exec` session.
 
 ## Part of the Ashlr ecosystem
 

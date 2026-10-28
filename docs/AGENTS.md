@@ -263,6 +263,7 @@ if the sidecar has not been installed.
 ```bash
 mdopener-mcp --version
 mdopener-mcp --help
+mdopener-mcp --export-tool-schema
 mdopener-mcp --ashlr-handshake [--json]
 mdopener-mcp doctor [--json]
 mdopener-mcp doctor --fix [--apply] [--json]
@@ -270,10 +271,12 @@ mdopener-mcp setup --local [--json]
 ```
 
 Square brackets indicate optional arguments; omit the brackets when running a
-command. `doctor` checks local inference and offline status. `doctor --fix`
-previews state repairs; add `--apply` to write them. `setup --local` prints
-local model setup steps and downloads and writes nothing. See the README's
-[repair guide](../README.md#repair-with-doctor---fix) for repair boundaries.
+command. `--export-tool-schema` prints the tool names and input schemas as
+JSON, then exits. `doctor` checks local inference and offline status. `doctor
+--fix` previews state repairs; add `--apply` to write them. `setup --local`
+prints local model setup steps and downloads and writes nothing. See the
+README's [repair guide](../README.md#repair-with-doctor---fix) for repair
+boundaries.
 
 The tool table below and the frontend event inventory are checked against
 source by `python3 scripts/check-docs.py`.
@@ -883,6 +886,10 @@ Claude Code (and other agents with shell access) can call `mdopen` directly:
 import subprocess
 subprocess.run(["mdopen", "/path/to/output.md"], check=True)
 ```
+
+Running under the Phantom workbench or `phantom exec`? The detection paths,
+the `phm_` placeholder boundary and the exact exit-status contract Phantom
+relies on are in [PHANTOM.md](./PHANTOM.md).
 
 ---
 
