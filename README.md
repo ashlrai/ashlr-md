@@ -233,10 +233,9 @@ Shown with ⌘ on macOS; use **Ctrl** on Windows & Linux.
 
 ## One-click agent setup
 
-Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code** or
-**Connect to Cursor**; no terminal required. For Codex, copy the command from the
-same panel. The **Agent Activity drawer (⌘B)** is the recommended way to watch an
-agent's output folder and open new `.md` files the moment they appear. Full guide
+Open **Preferences → AI agents (MCP)** and click **Connect to Claude Code**,
+**Connect to Cursor**, or **Connect to Codex**; no terminal required. The
+**Agent Activity drawer (⌘B)** is the recommended way to watch an agent's output folder and open new `.md` files the moment they appear. Full guide
 + config snippets: [**docs/AGENTS.md**](./docs/AGENTS.md).
 
 MCP discovery metadata and offline validation: [docs/mcp-registry.md](./docs/mcp-registry.md).
@@ -292,10 +291,13 @@ Quality gates (all green in CI):
 
 ```bash
 bun run typecheck        # tsc --noEmit
-bunx biome check src     # lint + format
+bun run lint             # lint + format
 bun run test             # Vitest unit tests
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 ```
+
+Source-only documentation drift check: `python3 scripts/check-docs.py`. It compares
+the tool table, CLI examples and frontend event inventory with the source.
 
 Source-only MCP setup checks (Python 3, Rust, and Bash; no installer or agent
 CLI execution): `python3 scripts/test-mcp-setup.py`.

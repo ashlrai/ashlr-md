@@ -1,5 +1,5 @@
 /**
- * MCP bridge — keeps the Rust IPC server in sync with the frontend document
+ * MCP bridge: keeps the Rust IPC server in sync with the frontend document
  * state, and applies mutations that arrive from the IPC server as Tauri events.
  *
  * Mount once from App.tsx:
@@ -23,17 +23,20 @@
  *   and routes them to the appropriate store action:
  *     - `mcp://open`        → documentStore.openPath()
  *     - `mcp://set-content` → documentStore.setContent() [+ optional save]
- *     - `mcp://export`      → uiStore.openExport() after optionally switching doc
+ *     - `mcp://edit`        → exact, unique find/replace [+ optional save]
+ *     - `mcp://stream-edit` → preview edits (or apply with preview: false)
+ *     - `mcp://stream-edit-apply` → apply a validated proposal [+ optional save]
+ *     - `mcp://export`      → export to outputPath, or open the export dialog
  *     - `mcp://review`      → reviewStore.registerReview()
  *     - `mcp://present`     → read view + uiStore.openZen() (distraction-free)
  *
  * ## Architecture
  *
  * Handler implementations live in src/mcp/handlers/:
- *   - export.ts      — PDF/DOCX/HTML/EPUB
- *   - edit.ts        — set-content, edit, stream-edit, stream-edit-apply
- *   - review.ts      — request_review
- *   - conversation.ts — open, present
+ *   - export.ts: PDF/DOCX/HTML/EPUB
+ *   - edit.ts: set-content, edit, stream-edit, stream-edit-apply
+ *   - review.ts: handleRequestReview (mcp://review)
+ *   - conversation.ts: open, present
  *
  * This file is responsible only for:
  *   1. PUSH sync subscriptions (documentStore → Rust, vault → Rust, session → Rust)
