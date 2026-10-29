@@ -52,6 +52,11 @@ function glyphStrings(file: string, src: string): string[] {
 }
 
 describe("shortcut labels", () => {
+  it("uses fallback labels for unknown keys", () => {
+    expect(formatShortcut("PageDown")).toBe("pagedown");
+    expect(formatShortcut("x")).toBe("X");
+  });
+
   it("no UI string hard-codes a mac modifier glyph", () => {
     expect(Object.keys(sources)).toContain("./components/layout/TitleBar.tsx");
     const found = Object.entries(sources).flatMap(([f, src]) => glyphStrings(f, src));
