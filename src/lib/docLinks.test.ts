@@ -1,5 +1,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { visit } from "unist-util-visit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();
@@ -20,9 +23,29 @@ import {
   resolveFromDocument,
   scrollToFragment,
 } from "./docLinks";
+import { remarkWikilinks } from "./remark-wikilinks";
 import { invalidateWikilinkCache } from "./wikilink";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe("document link extraction", () => {
+  it("finds no links in a document without links and leaves its tree unchanged", () => {
+    const processor = unified().use(remarkParse).use(remarkWikilinks);
+    const tree = processor.parse(
+      "# Notes\n\nPlain text and an unfinished [[reference.\n",
+    );
+    const original = structuredClone(tree);
+    const result = processor.runSync(tree);
+    const links: string[] = [];
+    visit(result, (node) => {
+      if (["link", "linkReference", "wikilink", "wikiembed"].includes(node.type)) {
+        links.push(node.type);
+      }
+    });
+    expect(links).toEqual([]);
+    expect(tree).toEqual(original);
+  });
+});
 
 describe("linkTarget", () => {
   const doc = "/v/notes/doc.md";
