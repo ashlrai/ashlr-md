@@ -487,6 +487,30 @@ describe("rule:invalid-link-target", () => {
     expect(twice).toBe(once);
   });
 
+  it("is idempotent with default rules when an unfixed warning remains", () => {
+    const doc = "# First\n\n## Second\n\nRead [draft]() and [guide](./guide.md).   \n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "no-trailing-spaces",
+      "orphaned-heading",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "# First\n\n## Second\n\nRead [draft](TODO) and [guide](./guide.md).\n",
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it.each([
     "",
     " \t ",
