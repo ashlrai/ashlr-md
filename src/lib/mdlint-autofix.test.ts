@@ -192,6 +192,22 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    "First line.\n",
+  ])("autofixes a link at the start of a line after %j without losing following text", (prefix) => {
+    const doc = `${prefix}[link]() followed by text.\nNext line.\n`;
+    const expected = `${prefix}[link](TODO) followed by text.\nNext line.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
+  it.each([
     [
       "See [docs](https://example.com/guide?topic=lint#links) and [draft]().\n",
       "See [docs](https://example.com/guide?topic=lint#links) and [draft](TODO).\n",
