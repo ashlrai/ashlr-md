@@ -1133,6 +1133,22 @@ describe("LinterToast violation history", () => {
     clearLintHistory();
   });
 
+  it("does not change text or record another fix on a second pass for an empty image alt", () => {
+    const doc = "See ![](images/chart.png) for context.   \n";
+    const rules = [ruleNoTrailingSpaces, ruleMissingAltText];
+    const once = fixAllViolations(doc, lintDocument(doc, { rules }));
+    const historyAfterFirstPass = [...getLintHistory()];
+    const twice = fixAllViolations(once, lintDocument(once, { rules }));
+
+    expect(once).toBe("See ![TODO: describe image](images/chart.png) for context.\n");
+    expect(twice).toBe(once);
+    expect(historyAfterFirstPass.map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "no-trailing-spaces",
+    ]);
+    expect(getLintHistory()).toEqual(historyAfterFirstPass);
+  });
+
   it("getLintHistory returns an empty array initially", () => {
     expect(getLintHistory()).toHaveLength(0);
   });
