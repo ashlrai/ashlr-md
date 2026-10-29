@@ -281,6 +281,23 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("preserves a bracketed year in prose while fixing links on either side", () => {
+    const doc = "See [draft]() for the report from [2024], then [notes](#).\n";
+    const expected =
+      "See [draft](TODO) for the report from [2024], then [notes](TODO).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves surrounding text and CRLF line endings when fixing a later link", () => {
     const doc = "First line.\r\n\r\nBefore [draft]() after.\r\nLast line.\r\n";
     const expected = "First line.\r\n\r\nBefore [draft](TODO) after.\r\nLast line.\r\n";
