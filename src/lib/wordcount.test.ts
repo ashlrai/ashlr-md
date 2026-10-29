@@ -6,6 +6,12 @@ describe("computeDocStats", () => {
     expect(computeDocStats("one two three four five").words).toBe(5);
   });
 
+  it("counts accented words separated by Unicode whitespace", () => {
+    expect(
+      computeDocStats("café\u00a0mañana\u2003naïve\nre\u0301sume\u0301").words,
+    ).toBe(4);
+  });
+
   it("counts punctuation-only prose as whitespace-separated words", () => {
     expect(computeDocStats("!!! ??? ;;;")).toEqual({ words: 3, minutes: 1 });
   });
