@@ -249,6 +249,34 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes destination %j next to a valid link in either order", (destination) => {
+    const valid = "[café docs](https://example.com/guide?topic=lint#links)";
+    const invalid = `[draft guide](${destination})`;
+    const repaired = "[draft guide](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const [links, expectedLinks] of [
+      [valid + invalid, valid + repaired],
+      [invalid + valid, repaired + valid],
+    ]) {
+      const doc = `Before ${links} after.\r\n`;
+      const expected = `Before ${expectedLinks} after.\r\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      expect(applyAllFixes(doc, violations)).toBe(expected);
+      expect(lintDocument(expected, { rules })).toHaveLength(0);
+    }
+  });
+
   it("is idempotent when autofixing a broken link", () => {
     const doc = "Before [link]() after.\n";
     const rules = [ruleInvalidLinkTarget];
