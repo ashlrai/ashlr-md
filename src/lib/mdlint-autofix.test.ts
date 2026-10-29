@@ -518,6 +518,35 @@ describe("rule:missing-alt-text", () => {
     expect(violations[0].severity).toBe("warning");
   });
 
+  it.each([
+    "",
+    " \t ",
+  ])("fixes alt text %j next to a described image in either order", (alt) => {
+    const described = "![A sleeping cat](images/cat.jpg?size=2#preview)";
+    const missing = `![${alt}](images/diagram.png)`;
+    const repaired = "![TODO: describe image](images/diagram.png)";
+    const rules = [ruleMissingAltText];
+
+    for (const [images, expectedImages] of [
+      [described + missing, described + repaired],
+      [missing + described, repaired + described],
+    ]) {
+      const doc = `Before ${images} after.\r\n`;
+      const expected = `Before ${expectedImages} after.\r\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("missing-alt-text");
+      expect(violations[0].fix).not.toBeNull();
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(missing);
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toHaveLength(0);
+    }
+  });
+
   it("flags an image with whitespace-only alt text", () => {
     const doc = "Look: ![   ](photo.jpg) here.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
