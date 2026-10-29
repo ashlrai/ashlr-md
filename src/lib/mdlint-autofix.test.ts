@@ -1365,6 +1365,17 @@ describe("LinterToast violation history", () => {
     clearLintHistory();
   });
 
+  it("leaves an empty document empty without recording fixes", () => {
+    const doc = "";
+    const toastRules = new Set(LINTER_DEFAULT_ENABLED_RULES);
+    const violations = lintDocument(doc).filter((v) => toastRules.has(v.ruleId));
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe("");
+    expect(fixAllViolations(doc, violations)).toBe("");
+    expect(getLintHistory()).toEqual([]);
+  });
+
   it("does not change text or record another fix on a second pass for an empty image alt", () => {
     const doc = "See ![](images/chart.png) for context.   \n";
     const rules = [ruleNoTrailingSpaces, ruleMissingAltText];
