@@ -124,6 +124,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    [
+      "Read [café guide](../guides/setup.md?view=full#install), then [café guide]().\n",
+      "Read [café guide](../guides/setup.md?view=full#install), then [café guide](TODO).\n",
+    ],
+    [
+      "Read [café guide](), then [café guide](../guides/setup.md?view=full#install).\n",
+      "Read [café guide](TODO), then [café guide](../guides/setup.md?view=full#install).\n",
+    ],
+  ])("preserves a relative link and its label while fixing a broken link", (doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags a link with an empty href", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
