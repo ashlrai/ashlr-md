@@ -225,6 +225,19 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).not.toContain("[my link]()");
   });
 
+  it("inserts TODO into an empty href without changing the Unicode link label", () => {
+    const doc = "Read [Café ☕ guide]() for details.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyFix(doc, violations[0]);
+    expect(fixed).toBe("Read [Café ☕ guide](TODO) for details.");
+    expect(applyAllFixes(doc, violations)).toBe(fixed);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("autofix replaces a whitespace-only href while preserving link text and prose", () => {
     const doc = "See [my link](   ) for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
