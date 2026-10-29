@@ -225,8 +225,22 @@ export function ActivityDrawer() {
       // stayed.
       void openPath(file.path, { keepViewOnError: true }).then((error) => {
         if (error === null) return;
-        toast.error(`Could not open ${file.name}: ${error}`);
-        if (isMissingFileError(error)) removeFile(file.path);
+        if (isMissingFileError(error)) {
+          toast.error(
+            `${file.name} was moved or deleted. Check its location or choose another folder.`,
+          );
+          // Removing the focused button would otherwise leave focus on the page body.
+          const focused =
+            panelRef.current?.querySelector<HTMLButtonElement>(".activity-item:focus");
+          if (focused?.title === file.path) {
+            panelRef.current
+              ?.querySelector<HTMLButtonElement>(".activity-drawer__folder")
+              ?.focus();
+          }
+          removeFile(file.path);
+        } else {
+          toast.error(`Could not open ${file.name}: ${error}`);
+        }
       });
       markAllSeen();
     },
@@ -300,8 +314,12 @@ export function ActivityDrawer() {
           <p className="activity-empty__body">
             No Markdown yet in{" "}
             <span className="activity-empty__dir">{basename(watchedDir)}</span>. New
-            files your agent writes will appear here the moment they land.
+            files your agent writes will appear here the moment they land. Check the
+            folder or choose another if you expected recent changes.
           </p>
+          <button type="button" className="activity-empty__cta" onClick={pickFolder}>
+            Choose another folder…
+          </button>
         </div>
       ) : (
         <>
