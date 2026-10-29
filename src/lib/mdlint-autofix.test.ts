@@ -407,6 +407,49 @@ describe("rule:invalid-link-target", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("reports and fixes each repeated identical link with destination %j", (destination) => {
+    const link = `[draft guide](${destination})`;
+    const fixedLink = "[draft guide](TODO)";
+    for (const separator of [" between ", "\r\nThen "]) {
+      const doc = `Before ${link}${separator}${link} after.\n`;
+      const rules = [ruleInvalidLinkTarget];
+      const violations = lintDocument(doc, { rules });
+      const first = doc.indexOf(link);
+      const second = doc.indexOf(link, first + link.length);
+
+      expect(violations).toHaveLength(2);
+      expect(
+        violations.map((violation) => ({
+          ruleId: violation.ruleId,
+          from: violation.range?.from.offset,
+          to: violation.range?.to.offset,
+        })),
+      ).toEqual(
+        [first, second].map((offset) => ({
+          ruleId: "invalid-link-target",
+          from: offset,
+          to: offset + link.length,
+        })),
+      );
+      expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+      expect(applyFix(doc, violations[0])).toBe(
+        `Before ${fixedLink}${separator}${link} after.\n`,
+      );
+      expect(applyFix(doc, violations[1])).toBe(
+        `Before ${link}${separator}${fixedLink} after.\n`,
+      );
+
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(`Before ${fixedLink}${separator}${fixedLink} after.\n`);
+      expect(lintDocument(fixed, { rules })).toHaveLength(0);
+    }
+  });
+
   it("autofixes two invalid links on one line without changing surrounding text", () => {
     const doc = "Before [first]() between [second](#) and [valid](./file.md) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
