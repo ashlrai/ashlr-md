@@ -157,6 +157,24 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it.each([
+    "",
+    "   ",
+    "#",
+    "?",
+  ])("autofixes an invalid destination %j while preserving adjacent punctuation", (href) => {
+    const doc = `See ("[guide](${href})"), then continue!\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const expected = 'See ("[guide](TODO)"), then continue!\n';
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("is idempotent when autofixing a broken link", () => {
     const doc = "Before [link]() after.\n";
     const rules = [ruleInvalidLinkTarget];
