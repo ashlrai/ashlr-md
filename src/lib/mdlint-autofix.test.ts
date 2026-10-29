@@ -239,6 +239,25 @@ describe("rule:missing-alt-text", () => {
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
 
 describe("chained violations and multi-line fixes", () => {
+  it("fixes an empty image alt and invalid link on separate lines without changing other lines", () => {
+    const doc =
+      "Intro: café\tkeeps its spacing.\n\nSee ![](diagram.png) for context.\n" +
+      "Unrelated  text stays here.\nVisit [docs]() for details.\n\nEnd.\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Intro: café\tkeeps its spacing.\n\nSee ![TODO: describe image](diagram.png) for context.\n" +
+        "Unrelated  text stays here.\nVisit [docs](TODO) for details.\n\nEnd.\n",
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("applies fixes for two different rules in one applyAllFixes pass", () => {
     const doc = "See ![](diagram.png) and [link]().\n";
     const violations = lintDocument(doc, {
