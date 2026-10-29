@@ -1284,6 +1284,34 @@ describe("LinterToast violation history", () => {
   });
 
   it.each([
+    true,
+    false,
+  ])("Fix all preserves a described image when an empty-alt image is on another line (described first: %s)", (describedFirst) => {
+    const described = "![A café at sunset](images/cafe.jpg?size=2#preview)";
+    const empty = "![](images/chart.png?view=full#data)";
+    const repaired = "![TODO: describe image](images/chart.png?view=full#data)";
+    const lines = describedFirst ? [described, empty] : [empty, described];
+    const expectedLines = describedFirst
+      ? [described, repaired]
+      : [repaired, described];
+    const doc = `Intro.\r\n${lines.join("\r\nBetween images.\r\n")}\r\nEnd.\r\n`;
+    const expected = `Intro.\r\n${expectedLines.join("\r\nBetween images.\r\n")}\r\nEnd.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(empty);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual(["missing-alt-text"]);
+  });
+
+  it.each([
     "",
     " \t ",
     "#",
