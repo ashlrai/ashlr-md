@@ -232,6 +232,19 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("preserves surrounding text and CRLF line endings when fixing a later link", () => {
+    const doc = "First line.\r\n\r\nBefore [draft]() after.\r\nLast line.\r\n";
+    const expected = "First line.\r\n\r\nBefore [draft](TODO) after.\r\nLast line.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("preserves multiline surrounding prose and its original line endings", () => {
     const doc =
       "Opening line with café.\r\nSecond line keeps  its spacing.\n\n" +
