@@ -8974,6 +8974,27 @@ fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
     }
 }
 
+#[test]
+fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
+    for (markdown, expected) in [
+        (
+            "The notes say [first phrase][second phrase] here.\n",
+            "The notes say [first phrase][second phrase] here.",
+        ),
+        (
+            "Read [**first**][second *phrase*] together.\n",
+            "Read [first][second phrase] together.",
+        ),
+        (
+            "Keep [first][second] and follow [the guide][ref].\n\n[ref]: /guide\n",
+            "Keep [first][second] and follow the guide.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 /// export_text printed a link reference definition as `label: url`,
 /// although the page shows nothing for it, and read any `<` and a letter
 /// up to the next `>` as an HTML tag, so an email autolink read nothing,
