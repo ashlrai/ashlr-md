@@ -801,6 +801,30 @@ describe("LINTER_DEFAULT_ENABLED_RULES", () => {
 // ─── 8. Edge cases ────────────────────────────────────────────────────────────
 
 describe("edge cases", () => {
+  it.each([
+    "",
+    "\n",
+  ])("leaves clean Markdown unchanged with final newline %j", (ending) => {
+    const doc =
+      [
+        "---",
+        "title: Café guide",
+        "---",
+        "",
+        "# Café guide",
+        "",
+        "Read the [guide](https://example.com/guide) and see ![A diagram](diagram.png).",
+        "",
+        "## Details",
+        "",
+        "Keep  internal spacing and Unicode: ☕.",
+      ].join("\n") + ending;
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("lintDocument on an empty string produces no violations for new rules", () => {
     const violations = lintDocument("", {
       rules: [ruleOrphanedHeading, ruleInvalidLinkTarget, ruleMissingAltText],
