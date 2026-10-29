@@ -45,6 +45,39 @@ describe("document link extraction", () => {
     expect(links).toEqual([]);
     expect(tree).toEqual(original);
   });
+
+  it("returns distinct links in document order", () => {
+    const processor = unified().use(remarkParse).use(remarkWikilinks);
+    const tree = processor.runSync(
+      processor.parse(
+        "[First](zeta.md) then [[Alpha#Section|alias]] and [Third][ref].\n\n" +
+          "![[Middle]] followed by [Last](beta.md).\n\n[ref]: gamma.md\n",
+      ),
+    );
+    const links: unknown[] = [];
+    visit(tree, (node) => {
+      if (["link", "linkReference", "wikilink", "wikiembed"].includes(node.type)) {
+        links.push(node);
+      }
+    });
+    expect(links).toEqual([
+      expect.objectContaining({ type: "link", url: "zeta.md" }),
+      expect.objectContaining({
+        type: "wikilink",
+        data: expect.objectContaining({
+          hProperties: expect.objectContaining({ dataWikitarget: "Alpha#Section" }),
+        }),
+      }),
+      expect.objectContaining({ type: "linkReference", identifier: "ref" }),
+      expect.objectContaining({
+        type: "wikiembed",
+        data: expect.objectContaining({
+          hProperties: expect.objectContaining({ dataEmbedTarget: "Middle" }),
+        }),
+      }),
+      expect.objectContaining({ type: "link", url: "beta.md" }),
+    ]);
+  });
 });
 
 describe("linkTarget", () => {
