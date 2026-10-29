@@ -184,6 +184,19 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("preserves a valid link and surrounding text while fixing links on both sides", () => {
+    const doc =
+      "Before [first]() café, see [docs](https://example.com/guide?topic=lint#links) for details; then [last](#) after.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Before [first](TODO) café, see [docs](https://example.com/guide?topic=lint#links) for details; then [last](TODO) after.\n",
+    );
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
+  });
+
   it("reports correct character range for the invalid link", () => {
     const doc = "Text [bad]() more.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
