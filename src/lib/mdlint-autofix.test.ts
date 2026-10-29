@@ -619,6 +619,42 @@ describe("rule:missing-alt-text", () => {
 
 describe("chained violations and multi-line fixes", () => {
   it.each([
+    ["````", "\n"],
+    ["~~~~", "\r\n"],
+  ])("preserves examples after a shorter marker inside a %s fence", (fence, newline) => {
+    const code = [
+      `${fence}markdown`,
+      "[draft]() and ![](diagram.png)",
+      fence.slice(0, 3),
+      "[draft]() and ![](diagram.png)",
+      fence,
+    ].join(newline);
+    const doc = [`Before [draft]().`, "", code, "", "After ![](diagram.png).", ""].join(
+      newline,
+    );
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      [
+        "Before [draft](TODO).",
+        "",
+        code,
+        "",
+        "After ![TODO: describe image](diagram.png).",
+        "",
+      ].join(newline),
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
     "```",
     "~~~",
   ])("preserves link and image examples inside a %s fence", (fence) => {
