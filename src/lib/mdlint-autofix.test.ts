@@ -693,6 +693,37 @@ describe("rule:missing-alt-text", () => {
 
 describe("chained violations and multi-line fixes", () => {
   it.each([
+    "\n",
+    "\r\n",
+  ])("keeps interleaved link and image fixes unchanged on a second pass with newline %j", (newline) => {
+    const doc = [
+      "Café: [first]() then ![](first.png) and [valid](./guide.md).",
+      "See ![diagram](valid.png), [second](#), and ![  ](second.jpg).",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      [
+        "Café: [first](TODO) then ![TODO: describe image](first.png) and [valid](./guide.md).",
+        "See ![diagram](valid.png), [second](TODO), and ![TODO: describe image](second.jpg).",
+      ].join(newline),
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
+  it.each([
     ["````", "\n"],
     ["~~~~", "\r\n"],
   ])("preserves examples after a shorter marker inside a %s fence", (fence, newline) => {
