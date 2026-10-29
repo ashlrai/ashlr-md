@@ -365,6 +365,24 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
 
+  it("only fixes an empty alt after an image with descriptive alt", () => {
+    const doc =
+      "Café: ![A sleeping cat](images/cat.jpg?size=2#preview) next to ![](images/dog.png).\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const expected =
+      "Café: ![A sleeping cat](images/cat.jpg?size=2#preview) next to ![TODO: describe image](images/dog.png).\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toHaveLength(0);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
