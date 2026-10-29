@@ -148,6 +148,26 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("preserves an HTTPS link and surrounding prose while fixing links on both sides", () => {
+    const doc =
+      "Before [draft]() café; read [the guide](https://example.com/guide?topic=lint#links) " +
+      "for details, then visit [next](#) afterward.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Before [draft](TODO) café; read [the guide](https://example.com/guide?topic=lint#links) " +
+        "for details, then visit [next](TODO) afterward.\r\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags a link with an empty href", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
