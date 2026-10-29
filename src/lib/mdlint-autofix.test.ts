@@ -157,6 +157,16 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("is idempotent when autofixing a broken link", () => {
+    const doc = "Before [link]() after.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+
+    expect(once).toBe("Before [link](TODO) after.\n");
+    expect(twice).toBe(once);
+  });
+
   it("autofixes a link on the final line without adding a trailing newline", () => {
     const doc = "First line.\nSee [link](#)";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
