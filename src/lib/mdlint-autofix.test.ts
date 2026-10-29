@@ -245,6 +245,23 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).not.toContain("![](diagram.png)");
   });
 
+  it.each([
+    "   ",
+    " \t ",
+  ])("autofixes whitespace-only alt text while preserving the image source and prose", (alt) => {
+    const doc = `Before ![${alt}](images/photo.jpg?size=2#preview) after.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const expected =
+      "Before ![TODO: describe image](images/photo.jpg?size=2#preview) after.\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("autofix preserves surrounding text", () => {
     const doc = "Before ![](img.png) after.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
