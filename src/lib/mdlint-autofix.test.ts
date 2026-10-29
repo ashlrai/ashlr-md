@@ -150,6 +150,18 @@ describe("rule:invalid-link-target", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it("autofixes two invalid links on one line without changing surrounding text", () => {
+    const doc = "Before [first]() between [second](#) and [valid](./file.md) after.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Before [first](TODO) between [second](TODO) and [valid](./file.md) after.\n",
+    );
+    expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
+  });
+
   it("reports correct character range for the invalid link", () => {
     const doc = "Text [bad]() more.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
