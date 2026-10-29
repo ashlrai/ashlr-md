@@ -6,6 +6,10 @@ describe("computeDocStats", () => {
     expect(computeDocStats("one two three four five").words).toBe(5);
   });
 
+  it("counts punctuation-only prose as whitespace-separated words", () => {
+    expect(computeDocStats("!!! ??? ;;;")).toEqual({ words: 3, minutes: 1 });
+  });
+
   it("excludes YAML frontmatter from the count", () => {
     const md = "---\ntitle: My Post\nauthor: Jane Doe\n---\n\nHello world here";
     expect(computeDocStats(md).words).toBe(3);
