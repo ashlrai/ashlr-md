@@ -6579,6 +6579,25 @@ fn export_metadata_parses_frontmatter_and_headings() {
 }
 
 #[test]
+fn heading_with_bracketed_phrase_preserves_literal_brackets() {
+    let md = "# Plan [Phase One]\n\n## Read [the guide](guide.md)\n";
+    let text = run_export_text_on(md);
+    assert_eq!(
+        text["text"].as_str().unwrap().trim(),
+        "Plan [Phase One]\n\nRead the guide"
+    );
+
+    let metadata = run_export_metadata_on(md);
+    assert_eq!(
+        metadata["headings"],
+        json!([
+            { "level": 1, "text": "Plan [Phase One]" },
+            { "level": 2, "text": "Read [the guide](guide.md)" }
+        ])
+    );
+}
+
+#[test]
 fn export_metadata_returns_no_links_for_an_empty_document() {
     let result = run_export_metadata_on("");
     assert_eq!(result["wikilinks"], json!([]));
