@@ -144,6 +144,15 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("autofixes a link on the final line without adding a trailing newline", () => {
+    const doc = "First line.\nSee [link](#)";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe("First line.\nSee [link](TODO)");
+    expect(applyAllFixes(doc, violations)).toBe("First line.\nSee [link](TODO)");
+  });
+
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
