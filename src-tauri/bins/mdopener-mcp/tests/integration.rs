@@ -6312,14 +6312,8 @@ use mdopener_mcp::{count_words, strip_markdown, tool_export_metadata, tool_expor
 
 /// Helper: write a temp file, run the tool, return the parsed result JSON.
 fn run_export_text_on(markdown: &str) -> Value {
-    let dir = std::env::temp_dir();
-    let path = dir.join(format!(
-        "test_export_text_{}.md",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos()
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test_export_text.md");
     std::fs::write(&path, markdown).unwrap();
     let ipc = MockIpc::new();
     let args = json!({ "path": path.to_string_lossy() });
@@ -8900,6 +8894,16 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
     }
     let docs = include_str!("../../../../docs/AGENTS.md");
     assert!(docs.contains("keeps its brackets unless the document defines its label"));
+}
+
+#[test]
+fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
+    let markdown = "Please review [TODO] before the next release.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Please review [TODO] before the next release."
+    );
 }
 
 #[test]
