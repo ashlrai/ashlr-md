@@ -1388,6 +1388,32 @@ describe("LinterToast violation history", () => {
     ]);
   });
 
+  it("Fix all preserves distinct labels and prose around multiple invalid links", () => {
+    const doc =
+      "Start with [café guide](), then [API reference](#); keep [docs](./docs.md).\r\n" +
+      "For more, see [release notes]( \t ) and [next steps](?) at the end.";
+    const expected =
+      "Start with [café guide](TODO), then [API reference](TODO); keep [docs](./docs.md).\r\n" +
+      "For more, see [release notes](TODO) and [next steps](TODO) at the end.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(fixAllViolations(fixed, remaining)).toBe(expected);
+    expect(getLintHistory()).toHaveLength(4);
+  });
+
   it.each([
     true,
     false,
