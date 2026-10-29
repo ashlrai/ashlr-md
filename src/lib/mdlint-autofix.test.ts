@@ -150,6 +150,26 @@ describe("rule:invalid-link-target", () => {
     expect(applyFix(doc, violations[0])).toBe("See [my link](TODO) for details.\n");
   });
 
+  it.each([
+    "",
+    "  \t ",
+    "#",
+    "?",
+  ])("preserves the full multiword label when fixing destination %j", (destination) => {
+    const label = "A detailed guide to preserving every word in this link label";
+    const doc = `Before [${label}](${destination}) after.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+
+    const expected = `Before [${label}](TODO) after.\n`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("fixes a mixed whitespace destination alongside other links", () => {
     const doc = "See [café guide]( \t  ) and [other](#), then [valid](./guide.md).\n";
     const rules = [ruleInvalidLinkTarget];
