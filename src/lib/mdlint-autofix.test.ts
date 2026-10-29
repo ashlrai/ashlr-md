@@ -333,6 +333,29 @@ describe("rule:invalid-link-target", () => {
     expect(twice).toBe(once);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("keeps the result unchanged on a second autofix pass for href %j", (href) => {
+    const doc = `See ![](diagram.png) and [draft](${href}); [docs](./guide.md) stays.\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+
+    expect(once).toBe(
+      "See ![TODO: describe image](diagram.png) and [draft](TODO); [docs](./guide.md) stays.\n",
+    );
+    expect(twice).toBe(once);
+  });
+
   it("autofixes a link on the final line without adding a trailing newline", () => {
     const doc = "First line.\nSee [link](#)";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
