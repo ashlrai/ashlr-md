@@ -1053,18 +1053,24 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
 
         // A difference in case is the same file only where case is ignored.
-        let upper = "/Applications/ASHLR MD.app/Contents/Resources/mdopen";
+        // Keep these synthetic paths off disk: an installed app on a
+        // case-insensitive volume would canonicalize both spellings alike,
+        // even when this test asks for a case-sensitive comparison.
+        let current = dir.join("Applications/Ashlr MD.app/Contents/Resources/mdopen");
+        let upper = dir.join("Applications/ASHLR MD.app/Contents/Resources/mdopen");
+        let current = current.to_str().unwrap();
+        let upper = upper.to_str().unwrap();
         let exists = |p: &str| p != old;
         let mut root = with(upper);
         let before = root.clone();
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &exists, true),
+            merge_hook_with(&mut root, current, &exists, true),
             Ok(HookMerge::AlreadyInstalled)
         );
         assert_eq!(root, before);
         let mut root = with(upper);
         assert_eq!(
-            merge_hook_with(&mut root, MDOPEN, &exists, false),
+            merge_hook_with(&mut root, current, &exists, false),
             Ok(HookMerge::Moved(old.to_string()))
         );
     }
@@ -1278,25 +1284,30 @@ mod tests {
     /// other platforms it is another program.
     #[test]
     fn a_registration_differing_only_in_case_is_this_apps_where_case_is_ignored() {
-        let upper = "/Applications/ASHLR MD.app/Contents/Resources/mdopener-mcp";
-        let add = format!("mcp add --scope user ashlr-md {MCP}");
+        // Do not canonicalize a real installation on the host filesystem.
+        let dir = std::env::temp_dir().join(format!("ashlr-md-case-{}", std::process::id()));
+        let mcp = dir.join("Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp");
+        let upper = dir.join("Applications/ASHLR MD.app/Contents/Resources/mdopener-mcp");
+        let mcp = mcp.to_str().unwrap();
+        let upper = upper.to_str().unwrap();
+        let add = format!("mcp add --scope user ashlr-md {mcp}");
         let script = [
             (add.as_str(), fail(CLAUDE_EXISTS)),
             ("mcp get ashlr-md", ok(&claude_get(upper))),
         ];
         let cli = FakeCli::new(&script);
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, true).unwrap();
+        let msg = connect_agent_cli(&CLAUDE_CLI, mcp, &|a| cli.run(a), &|_| true, true).unwrap();
         assert!(msg.contains("which is this app's"), "{msg}");
         assert!(!cli.calls().iter().any(|c| c.contains("remove")));
 
         let cli = FakeCli::new(&script);
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &|_| true, false).unwrap();
+        let msg = connect_agent_cli(&CLAUDE_CLI, mcp, &|a| cli.run(a), &|_| true, false).unwrap();
         assert!(msg.contains("left as it is"), "{msg}");
 
         // A registered path that is gone is stale, whatever its case.
         let cli = FakeCli::new(&script);
         let gone = |p: &str| p != upper;
-        let msg = connect_agent_cli(&CLAUDE_CLI, MCP, &|a| cli.run(a), &gone, true).unwrap_err();
+        let msg = connect_agent_cli(&CLAUDE_CLI, mcp, &|a| cli.run(a), &gone, true).unwrap_err();
         assert!(msg.contains("no longer exists"), "{msg}");
 
         assert_eq!(PATHS_IGNORE_CASE, cfg!(target_os = "macos"));
