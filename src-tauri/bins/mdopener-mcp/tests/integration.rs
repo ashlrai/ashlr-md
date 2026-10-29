@@ -8907,6 +8907,16 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_abbreviation_in_surrounding_prose() {
+    let markdown = "Use a common format [e.g.] Markdown for the document.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Use a common format [e.g.] Markdown for the document."
+    );
+}
+
+#[test]
 fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
     for (markdown, expected) in [
         (
