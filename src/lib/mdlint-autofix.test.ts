@@ -1219,6 +1219,33 @@ describe("chained violations and multi-line fixes", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    ["```", "\n"],
+    ["~~~", "\r\n"],
+  ])("preserves link and image examples in an unclosed %s fence", (fence, newline) => {
+    const code = [
+      `${fence}markdown`,
+      "[draft]() and [anchor](#)",
+      "![](diagram.png) and ![  ](other.jpg)",
+    ].join(newline);
+    const doc = ["Before [draft]() and ![](diagram.png).", "", code].join(newline);
+    const expected = [
+      "Before [draft](TODO) and ![TODO: describe image](diagram.png).",
+      "",
+      code,
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves a valid image and surrounding prose while applying fixes on both sides", () => {
     const doc =
       "Before [first]() café, see ![A sleeping cat](images/cat.jpg?size=2) in the middle; " +
