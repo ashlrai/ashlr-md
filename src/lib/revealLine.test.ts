@@ -71,6 +71,24 @@ describe("revealLine", () => {
       vi.useRealTimers();
       expect(seen.map((el) => el.textContent)).toEqual(["End."]);
     });
+
+    it("scrolls to the last block when the line is beyond the document", async () => {
+      vi.useFakeTimers();
+      try {
+        const lastBlock = blockForLine(12, body());
+        expect(lastBlock?.textContent).toBe("End.");
+        const scroll = vi.fn();
+        if (!lastBlock) throw new Error("Expected the last block to exist");
+        lastBlock.scrollIntoView = scroll;
+        revealLine(100);
+        await act(async () => {
+          vi.advanceTimersByTime(10);
+        });
+        expect(scroll).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("moves the source editor's cursor to the line", async () => {
@@ -84,5 +102,21 @@ describe("revealLine", () => {
     });
     expect(view.state.selection.main.head).toBe(view.state.doc.line(8).from);
     view.destroy();
+  });
+
+  it("clamps a line beyond the document to the last source line", async () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: DOC }),
+      parent: host,
+    });
+    try {
+      const lastLine = view.state.doc.line(view.state.doc.lines);
+      revealLine(view.state.doc.lines + 100);
+      await vi.waitFor(() => {
+        expect(view.state.selection.main.head).toBe(lastLine.from);
+      });
+    } finally {
+      view.destroy();
+    }
   });
 });
