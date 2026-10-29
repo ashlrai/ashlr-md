@@ -323,6 +323,23 @@ describe("rule:invalid-link-target", () => {
     }
   });
 
+  it.each([
+    ["[guide](TODO)[guide](#)", "[guide](TODO)[guide](TODO)"],
+    ["[guide](#)[guide](TODO)", "[guide](TODO)[guide](TODO)"],
+  ])("preserves an adjacent valid link with the same label: %s", (links, expectedLinks) => {
+    const doc = `Before ${links} after.\n`;
+    const expected = `Before ${expectedLinks} after.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("is idempotent when autofixing a broken link", () => {
     const doc = "Before [link]() after.\n";
     const rules = [ruleInvalidLinkTarget];
