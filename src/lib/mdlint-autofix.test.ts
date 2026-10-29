@@ -1200,6 +1200,28 @@ describe("chained violations and multi-line fixes", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it("keeps an empty-alt image fix unchanged on a second pass with a remaining warning", () => {
+    const doc = "# First\n\n## Second\n\nSee ![](chart.png) and [draft]().\n";
+    const rules = [ruleOrphanedHeading, ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "orphaned-heading",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "# First\n\n## Second\n\nSee ![TODO: describe image](chart.png) and [draft](TODO).\n",
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("applies fixes for two different rules in one applyAllFixes pass", () => {
     const doc = "See ![](diagram.png) and [link]().\n";
     const violations = lintDocument(doc, {
