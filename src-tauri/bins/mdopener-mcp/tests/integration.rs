@@ -8917,6 +8917,16 @@ fn export_text_keeps_bracketed_abbreviation_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_numeric_citations_in_surrounding_prose() {
+    let markdown = "Studies [1] and [23] support the finding; see [42] for details.\n\n[42]: https://example.com\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Studies [1] and [23] support the finding; see 42 for details."
+    );
+}
+
+#[test]
 fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
     for (markdown, expected) in [
         (
