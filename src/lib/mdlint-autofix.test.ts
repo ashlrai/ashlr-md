@@ -236,6 +236,20 @@ describe("rule:missing-alt-text", () => {
     expect(violations).toHaveLength(1);
   });
 
+  it("reports whitespace-only alt text without changing the document during linting", () => {
+    const doc = "Before ![ \t ](images/photo.jpg?size=2) after.\n";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(doc).toBe("Before ![ \t ](images/photo.jpg?size=2) after.\n");
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "missing-alt-text",
+      severity: "warning",
+      range: { from: { offset: 7 }, to: { offset: 38 } },
+    });
+    expect(violations[0].fix).not.toBeNull();
+  });
+
   it("autofix inserts a TODO placeholder", () => {
     const doc = "See ![](diagram.png) for context.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
