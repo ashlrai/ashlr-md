@@ -286,6 +286,20 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("autofixes invalid links on separate lines while preserving labels and line breaks", () => {
+    const doc = "See [first guide]() for details.\n\nThen visit [second guide](#).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "See [first guide](TODO) for details.\n\nThen visit [second guide](TODO).\n",
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("preserves a valid link and surrounding text while fixing links on both sides", () => {
     const doc =
       "Before [first]() café, see [docs](https://example.com/guide?topic=lint#links) for details; then [last](#) after.\n";
