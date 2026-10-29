@@ -6585,6 +6585,13 @@ fn export_metadata_parses_frontmatter_and_headings() {
 }
 
 #[test]
+fn export_metadata_returns_no_links_for_an_empty_document() {
+    let result = run_export_metadata_on("");
+    assert_eq!(result["wikilinks"], json!([]));
+    assert_eq!(result["wikilink_headings"], json!([]));
+}
+
+#[test]
 fn export_metadata_extracts_wikilinks_and_image_count() {
     let md = concat!(
         "# Doc\n\n",
