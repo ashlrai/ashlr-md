@@ -509,6 +509,14 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it("leaves an image with descriptive alt text unchanged after autofix", () => {
+    const doc = "See ![A sleeping cat on a windowsill](images/cat.jpg) for context.\n";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("leaves a descriptive image unchanged and proposes no alt-text fix when linting", () => {
     const doc = "See ![A sleeping cat on a windowsill](images/cat.jpg) for context.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
