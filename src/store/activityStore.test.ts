@@ -490,6 +490,22 @@ describe("activityStore", () => {
 
   // ── clearWatch ──────────────────────────────────────────────────────────
 
+  it("clearWatch safely clears an empty activity history", () => {
+    useActivityStore.setState({ watchedDir: "/watch", files: [], unseen: [] });
+    expect(useActivityStore.getState().files).toEqual([]);
+
+    expect(() => {
+      useActivityStore.getState().clearWatch();
+      useActivityStore.getState().clearWatch();
+    }).not.toThrow();
+
+    const s = useActivityStore.getState();
+    expect(s.watchedDir).toBeNull();
+    expect(s.files).toEqual([]);
+    expect(s.unseen).toEqual([]);
+    expect(s.lastError).toBeNull();
+  });
+
   it("clearWatch resets all runtime state", () => {
     useActivityStore.setState({
       watchedDir: "/watch",
