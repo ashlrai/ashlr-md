@@ -144,6 +144,21 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("is idempotent when invalid hrefs are linted and autofixed twice", () => {
+    const doc = "[empty]() [space](   ) [anchor](#) [query](?) [valid](./file.md)\n";
+    const options = { rules: [ruleInvalidLinkTarget] };
+    const violations = lintDocument(doc, options);
+    expect(violations).toHaveLength(4);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "[empty](TODO) [space](TODO) [anchor](TODO) [query](TODO) [valid](./file.md)\n",
+    );
+    const remaining = lintDocument(once, options);
+    expect(remaining).toHaveLength(0);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
