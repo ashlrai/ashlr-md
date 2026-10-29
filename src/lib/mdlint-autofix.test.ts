@@ -433,6 +433,25 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it("fixes every invalid destination across lines without changing surrounding prose", () => {
+    const doc =
+      "Café: [first]() then [second](   ); keep [docs](./guide.md).\r\n" +
+      "Next, [third](#) and [fourth](?) finish the sentence.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(4);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Café: [first](TODO) then [second](TODO); keep [docs](./guide.md).\r\n" +
+        "Next, [third](TODO) and [fourth](TODO) finish the sentence.",
+    );
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toHaveLength(0);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it("preserves a valid link and surrounding text while fixing links on both sides", () => {
     const doc =
       "Before [first]() café, see [docs](https://example.com/guide?topic=lint#links) for details; then [last](#) after.\n";
