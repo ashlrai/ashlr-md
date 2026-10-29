@@ -366,6 +366,23 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
 
+  it("preserves descriptive alt text and the image source when fixing trailing spaces", () => {
+    const doc =
+      "See ![A sleeping cat on a windowsill](images/cat.jpg?size=2#preview).   \n";
+    const expected =
+      "See ![A sleeping cat on a windowsill](images/cat.jpg?size=2#preview).\n";
+    const rules = [ruleMissingAltText, ruleNoTrailingSpaces];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "no-trailing-spaces",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("flags an image with no alt text", () => {
     const doc = "Look: ![](photo.jpg) here.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
