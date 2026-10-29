@@ -8923,6 +8923,16 @@ fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
     }
 }
 
+#[test]
+fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
+    let markdown = "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "The report says the result was 'definately [sic] confirmed' by the authors."
+    );
+}
+
 /// export_text printed a link reference definition as `label: url`,
 /// although the page shows nothing for it, and read any `<` and a letter
 /// up to the next `>` as an HTML tag, so an email autolink read nothing,
