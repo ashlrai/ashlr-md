@@ -455,6 +455,21 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toBe("Before ![TODO: describe image](img.png) after.\n");
   });
 
+  it("preserves a Unicode image source and surrounding prose when fixing empty alt text", () => {
+    const doc = "前置き 😀 ![](画像/星🌟-café.png?言語=日本語#詳細) 之后 café.\n";
+    const expected =
+      "前置き 😀 ![TODO: describe image](画像/星🌟-café.png?言語=日本語#詳細) 之后 café.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("fixes an empty alt at the start of a later line without changing surrounding lines", () => {
     const doc =
       "Intro: café and 😀.\n\n![](images/chart.png?size=2#preview) explains the data.\n" +
