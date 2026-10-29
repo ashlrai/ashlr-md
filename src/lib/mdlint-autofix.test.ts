@@ -114,6 +114,27 @@ describe("rule:invalid-link-target", () => {
     expect(violations[0].severity).toBe("warning");
   });
 
+  it("identifies the invalid link in the original input without changing its label", () => {
+    const doc = "See [published guide](./guide.md).\nThen read [draft guide]() next.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      severity: "warning",
+      message: "Invalid link target: [draft guide](empty)",
+      range: {
+        from: { offset: 45, line: 2, col: 10 },
+        to: { offset: 60, line: 2, col: 25 },
+      },
+    });
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft guide]()");
+    expect(doc).toBe(
+      "See [published guide](./guide.md).\nThen read [draft guide]() next.\n",
+    );
+  });
+
   it("flags a link with a whitespace-only href", () => {
     const doc = "See [my link](   ) for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
