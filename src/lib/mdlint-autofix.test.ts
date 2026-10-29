@@ -106,6 +106,24 @@ describe("rule:invalid-link-target", () => {
     expect(violations[0].fix).not.toBeNull();
   });
 
+  it("preserves a valid HTTPS link and surrounding prose when autofixing trailing spaces", () => {
+    const doc =
+      "Before [café guide](https://example.com/guide?topic=lint#links) after.   \n";
+    const expected =
+      "Before [café guide](https://example.com/guide?topic=lint#links) after.\n";
+    const rules = [ruleInvalidLinkTarget, ruleNoTrailingSpaces];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "no-trailing-spaces",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags a link with an empty href", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
