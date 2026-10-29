@@ -1026,6 +1026,26 @@ describe("chained violations and multi-line fixes", () => {
   it.each([
     "\n",
     "\r\n",
+  ])("preserves a bracketed word at the end of a paragraph and its final newline %j", (newline) => {
+    const doc = `Read [draft]() and see ![](chart.png) for details [note]${newline}`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Read [draft](TODO) and see ![TODO: describe image](chart.png) for details [note]${newline}`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(fixed);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
   ])("keeps interleaved link and image fixes unchanged on a second pass with newline %j", (newline) => {
     const doc = [
       "Café: [first]() then ![](first.png) and [valid](./guide.md).",
