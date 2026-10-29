@@ -150,6 +150,20 @@ describe("rule:invalid-link-target", () => {
     expect(applyFix(doc, violations[0])).toBe("See [my link](TODO) for details.\n");
   });
 
+  it("fixes a mixed whitespace destination alongside other links", () => {
+    const doc = "See [café guide]( \t  ) and [other](#), then [valid](./guide.md).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "See [café guide](TODO) and [other](TODO), then [valid](./guide.md).\n",
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("autofix preserves surrounding text", () => {
     const doc = "Before [link](#) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
