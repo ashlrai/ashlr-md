@@ -133,6 +133,26 @@ describe("rule:invalid-link-target", () => {
     expect(violations).toHaveLength(1);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("reports invalid destination %j without applying its fix during linting", (destination) => {
+    const link = `[draft guide](${destination})`;
+    const source = `Before ${link} after.\n`;
+    const violations = lintDocument(source, { rules: [ruleInvalidLinkTarget] });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      ruleId: "invalid-link-target",
+      severity: "warning",
+      range: { from: { offset: 7 }, to: { offset: 7 + link.length } },
+    });
+    expect(violations[0].fix).not.toBeNull();
+    expect(source).toBe(`Before [draft guide](${destination}) after.\n`);
+  });
+
   it("autofix replaces invalid href with TODO placeholder", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
