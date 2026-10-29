@@ -603,6 +603,27 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it("preserves a descriptive image with a relative source and its surrounding prose", () => {
+    const paragraph =
+      "Before the illustration, see ![A map of the café garden](../assets/garden.png) for details.\r\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const cleanViolations = lintDocument(paragraph, { rules });
+
+    expect(cleanViolations).toEqual([]);
+    expect(applyAllFixes(paragraph, cleanViolations)).toBe(paragraph);
+
+    const doc = `${paragraph}\r\nRead [draft]() next.\r\n`;
+    const expected = `${paragraph}\r\nRead [draft](TODO) next.\r\n`;
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("leaves an image with descriptive alt text and a query string unchanged after autofix", () => {
     const doc =
       "See ![A sleeping cat on a windowsill](images/cat.jpg?size=2&format=webp) for context.\n";
