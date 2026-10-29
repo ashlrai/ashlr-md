@@ -531,6 +531,26 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it("preserves mixed line endings when fixing links on separate lines", () => {
+    const doc = "Intro.\r\nFirst [one]().\nMiddle.\r\nSecond [two](#).\nEnd.\r\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    expect(applyFix(doc, violations[0])).toBe(
+      "Intro.\r\nFirst [one](TODO).\nMiddle.\r\nSecond [two](#).\nEnd.\r\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Intro.\r\nFirst [one]().\nMiddle.\r\nSecond [two](TODO).\nEnd.\r\n",
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Intro.\r\nFirst [one](TODO).\nMiddle.\r\nSecond [two](TODO).\nEnd.\r\n",
+    );
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("fixes every invalid destination across lines without changing surrounding prose", () => {
     const doc =
       "Café: [first]() then [second](   ); keep [docs](./guide.md).\r\n" +
