@@ -352,6 +352,22 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toBe("Before ![TODO: describe image](img.png) after.\n");
   });
 
+  it.each([
+    "\nNext line.\n",
+    "",
+  ])("autofixes an empty alt at the end of a line with suffix %j", (suffix) => {
+    const doc = `First line.\nSee the diagram: ![](images/chart.png)${suffix}`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+
+    const expected = `First line.\nSee the diagram: ![TODO: describe image](images/chart.png)${suffix}`;
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("only fixes an empty alt before an image with descriptive alt", () => {
     const doc = "Before ![](first.png) between ![A sleeping cat](cat.jpg) after.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
