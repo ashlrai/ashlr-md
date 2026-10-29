@@ -862,6 +862,30 @@ describe("rule:missing-alt-text", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it("fixes distinct empty-alt images on separate lines while preserving their sources", () => {
+    const first = "../assets/chart%20one.png?size=2#preview";
+    const second = "images/写真.svg?theme=dark#detail";
+    const doc = `Café: ![](${first})\r\nBetween images.\r\n![](${second}) at the end.\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Café: ![TODO: describe image](${first})\r\nBetween images.\r\n![](${second}) at the end.\r\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Café: ![](${first})\r\nBetween images.\r\n![TODO: describe image](${second}) at the end.\r\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `Café: ![TODO: describe image](${first})\r\nBetween images.\r\n![TODO: describe image](${second}) at the end.\r\n`,
+    );
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toHaveLength(0);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it("autofixes adjacent images with empty alt text and preserves both sources", () => {
     const doc = "Café: ![](images/first.png)![](images/second.jpg?size=2#preview).\n";
     const rules = [ruleMissingAltText];
