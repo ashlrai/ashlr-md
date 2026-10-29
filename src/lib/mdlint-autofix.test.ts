@@ -93,6 +93,19 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("leaves a valid link unchanged and proposes no href fix during linting", () => {
+    const doc = "See [docs](https://example.com/guide?topic=lint#links).   \n";
+    const violations = lintDocument(doc, {
+      rules: [ruleInvalidLinkTarget, ruleNoTrailingSpaces],
+    });
+
+    expect(doc).toBe("See [docs](https://example.com/guide?topic=lint#links).   \n");
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "no-trailing-spaces",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+  });
+
   it("flags a link with an empty href", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
