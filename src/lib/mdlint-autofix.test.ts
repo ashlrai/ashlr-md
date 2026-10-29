@@ -858,6 +858,22 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it("preserves an absolute image source and title when fixing whitespace-only alt text", () => {
+    const doc =
+      'See ![ \t ](https://example.com/image.png?size=2#preview "Image title") here.\n';
+    const expected =
+      'See ![TODO: describe image](https://example.com/image.png?size=2#preview "Image title") here.\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("autofixes Unicode whitespace-only alt text without changing a Unicode source or CRLF", () => {
     const doc =
       "Intro 😀.\r\nSee ![\u00a0\t\u2003](画像/星🌟.png?size=2#詳細) here.\r\n";
