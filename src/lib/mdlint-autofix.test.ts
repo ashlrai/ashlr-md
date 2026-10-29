@@ -129,6 +129,14 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).not.toContain("[my link]()");
   });
 
+  it("autofix replaces a whitespace-only href while preserving link text and prose", () => {
+    const doc = "See [my link](   ) for details.\n";
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe("See [my link](TODO) for details.\n");
+  });
+
   it("autofix preserves surrounding text", () => {
     const doc = "Before [link](#) after.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
