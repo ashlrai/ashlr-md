@@ -607,6 +607,22 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).not.toContain("![](diagram.png)");
   });
 
+  it("preserves the complete image source and query string when fixing empty alt text", () => {
+    const doc =
+      "See ![](https://example.com/image.png?size=2&label=hello%20world&token=a%26b#preview) here.\n";
+    const expected =
+      "See ![TODO: describe image](https://example.com/image.png?size=2&label=hello%20world&token=a%26b#preview) here.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it.each(["", " \t "])("is idempotent when autofixing image alt text %j", (alt) => {
     const doc = `Before ![${alt}](images/chart.png?size=2#preview) after.\n`;
     const rules = [ruleMissingAltText];
