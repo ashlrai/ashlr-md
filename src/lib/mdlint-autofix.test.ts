@@ -975,6 +975,23 @@ describe("LinterToast violation history", () => {
     expect(typeof entry.docSnippet).toBe("string");
   });
 
+  it("Fix all repairs an invalid link and preserves a valid link", () => {
+    const doc = "Read [docs](https://example.com/guide#links), then [draft]().\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(
+      "Read [docs](https://example.com/guide#links), then [draft](TODO).\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+  });
+
   it("Fix all applies every fix without corrupting later offsets", () => {
     // The image fix lengthens the text before the link, so applying fixes in
     // document order would splice the link fix at a stale offset.
