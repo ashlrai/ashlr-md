@@ -124,6 +124,30 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it("preserves a valid fragment link and surrounding text when fixing neighboring links", () => {
+    const heading = "# Installation\n\n";
+    const doc = `${heading}Before [first]() see [installation](#installation) for details, then [last](#) after.\n`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      `${heading}Before [first](TODO) see [installation](#installation) for details, then [last](#) after.\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `${heading}Before [first]() see [installation](#installation) for details, then [last](TODO) after.\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `${heading}Before [first](TODO) see [installation](#installation) for details, then [last](TODO) after.\n`,
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags a link with an empty href", () => {
     const doc = "See [my link]() for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
