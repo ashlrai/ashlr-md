@@ -212,6 +212,31 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    ["guide", ""],
+    ["", "#"],
+    ["draft guide", " \t "],
+    ["guide", "?"],
+  ])("changes only the invalid destination of a later-line link with label %j", (label, destination) => {
+    const prefix = "First line: café.\n\nSecond line stays intact.\n";
+    const suffix = "\nFollowing line with [valid](./file.md).\nFinal line.\n";
+    const doc = `${prefix}Before [${label}](${destination}) after.${suffix}`;
+    const expected = `${prefix}Before [${label}](TODO) after.${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].range?.from).toEqual({
+      offset: prefix.length + "Before ".length,
+      line: 4,
+      col: 7,
+    });
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
+  it.each([
     "",
     "First line.\n",
   ])("autofixes a link at the start of a line after %j without losing following text", (prefix) => {

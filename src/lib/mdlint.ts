@@ -587,17 +587,15 @@ export const ruleInvalidLinkTarget: LintRule = {
       if (/^\s*$/.test(href) || href === "#" || href === "?") {
         const from = m.index;
         const to = from + m[0].length;
+        const hrefEnd = to - 1;
+        const hrefStart = hrefEnd - href.length;
         const text = m[1] || "link";
         violations.push({
           ruleId: "invalid-link-target",
           message: `Invalid link target: [${text.slice(0, 30)}](${href || "empty"})`,
           severity: "warning",
           range: range(doc, from, to),
-          fix: (d) => {
-            // Replace this specific occurrence by offset
-            const placeholder = `[${text}](TODO)`;
-            return d.slice(0, from) + placeholder + d.slice(to);
-          },
+          fix: (d) => d.slice(0, hrefStart) + "TODO" + d.slice(hrefEnd),
         });
       }
     }
