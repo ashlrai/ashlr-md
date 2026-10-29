@@ -8910,6 +8910,10 @@ fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
             "The quotation was accurate [sic]",
         ),
         (
+            "The finding was confirmed [1].\n",
+            "The finding was confirmed [1].",
+        ),
+        (
             "The quotation was\naccurate [sic]\n\nAnother paragraph.\n",
             "The quotation was\naccurate [sic]\n\nAnother paragraph.",
         ),
