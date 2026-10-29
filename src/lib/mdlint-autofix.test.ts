@@ -232,6 +232,25 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it("preserves multiline surrounding prose and its original line endings", () => {
+    const doc =
+      "Opening line with café.\r\nSecond line keeps  its spacing.\n\n" +
+      "Read [draft guide](#) for details.\r\n" +
+      "The next line has a tab\there.\nFinal line without a newline.";
+    const expected =
+      "Opening line with café.\r\nSecond line keeps  its spacing.\n\n" +
+      "Read [draft guide](TODO) for details.\r\n" +
+      "The next line has a tab\there.\nFinal line without a newline.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it.each([
     ["guide", ""],
     ["", "#"],
