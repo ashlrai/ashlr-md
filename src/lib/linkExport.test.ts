@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import { useDocumentStore } from "../store/documentStore";
 import { useUiStore } from "../store/uiStore";
+import { exportHtml } from "./export";
 import { applyLinkExport } from "./linkExport";
 
 describe("applyLinkExport", () => {
@@ -38,6 +39,35 @@ describe("applyLinkExport", () => {
     });
     expect(useUiStore.getState().exportOpen).toBe(true);
     expect(useUiStore.getState().exportFormat).toBe("html");
+  });
+
+  it("preserves multiline prose and its link when exporting HTML", async () => {
+    const content =
+      "Before the link,\nvisit [the guide](https://example.com/guide) today.\nAfter the link.\n";
+    const rendered =
+      '<p>Before the link,\nvisit <a href="https://example.com/guide">the guide</a> today.\nAfter the link.</p>';
+    useDocumentStore.setState({ content });
+    const body = document.createElement("div");
+    body.className = "markdown-body";
+    body.innerHTML = rendered;
+    document.body.appendChild(body);
+    invokeMock.mockResolvedValueOnce("html").mockResolvedValue(undefined);
+
+    try {
+      await applyLinkExport("/notes/a.md");
+      expect(useUiStore.getState().exportOpen).toBe(true);
+      expect(useUiStore.getState().exportFormat).toBe("html");
+      expect(useDocumentStore.getState().content).toBe(content);
+
+      await expect(exportHtml("a", "/notes/a.html")).resolves.toBe(true);
+      const write = invokeMock.mock.calls.find(
+        ([command]) => command === "write_file_bytes",
+      );
+      expect(write).toBeDefined();
+      expect(new TextDecoder().decode(write?.[1])).toContain(rendered);
+    } finally {
+      body.remove();
+    }
   });
 
   it("does nothing when the link asked for no export", async () => {
