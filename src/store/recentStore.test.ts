@@ -170,6 +170,29 @@ describe("recentStore", () => {
     expect(blob!.state.recents[0].path).toBe("/p.md");
   });
 
+  it("persists and rehydrates a single updated entry when a path is reopened", async () => {
+    const { add } = useRecentStore.getState();
+    add("/a.md", "old name", 1000);
+    add("/b.md", "b.md", 2000);
+    add("/a.md", "new name", 3000);
+    add("/a.md", "new name", 4000);
+
+    const expected = [
+      { path: "/a.md", fileName: "new name", openedAt: 4000 },
+      { path: "/b.md", fileName: "b.md", openedAt: 2000 },
+    ];
+    expect(useRecentStore.getState().recents).toEqual(expected);
+    expect(getStoredState<{ recents: RecentFile[] }>(STORE_KEY)?.state.recents).toEqual(
+      expected,
+    );
+
+    const restore = captureBlob();
+    useRecentStore.setState({ recents: [] });
+    restore();
+    await useRecentStore.persist.rehydrate();
+    expect(useRecentStore.getState().recents).toEqual(expected);
+  });
+
   it("clear() writes empty recents to localStorage", () => {
     useRecentStore.getState().add("/a.md", "a.md", 1000);
     useRecentStore.getState().clear();
