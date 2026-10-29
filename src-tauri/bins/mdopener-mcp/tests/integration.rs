@@ -8926,6 +8926,27 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_escaped_opening_and_closing_brackets() {
+    for (markdown, expected) in [
+        (
+            "Keep \\[literal\\] beside [a link](/guide).\n",
+            "Keep [literal] beside a link.",
+        ),
+        (
+            "Keep \\[label\\] and read [label].\n\n[label]: /guide\n",
+            "Keep [label] and read label.",
+        ),
+        (
+            "An opening \\[ and a closing \\] bracket.\n",
+            "An opening [ and a closing ] bracket.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_bracketed_abbreviation_in_surrounding_prose() {
     let markdown = "Use a common format [e.g.] Markdown for the document.\n";
     let result = run_export_text_on(markdown);
