@@ -144,6 +144,24 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it.each([
+    [
+      "Before [valid](https://example.com)[broken]() after.\n",
+      "Before [valid](https://example.com)[broken](TODO) after.\n",
+    ],
+    [
+      "Before [broken](#)[valid](./docs.md) after.\n",
+      "Before [broken](TODO)[valid](./docs.md) after.\n",
+    ],
+  ])("autofixes an invalid link adjacent to a valid link", (doc, expected) => {
+    const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
+  });
+
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
