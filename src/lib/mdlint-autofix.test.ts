@@ -157,6 +157,28 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it.each([
+    [
+      "See [docs](https://example.com/guide?topic=lint#links) and [draft]().\n",
+      "See [docs](https://example.com/guide?topic=lint#links) and [draft](TODO).\n",
+    ],
+    [
+      "See [draft]() and [docs](https://example.com/guide?topic=lint#links).\n",
+      "See [draft](TODO) and [docs](https://example.com/guide?topic=lint#links).\n",
+    ],
+  ])("autofixes only the invalid destination in %s", (doc, expected) => {
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toHaveLength(0);
+  });
+
   it("is idempotent when autofixing a broken link", () => {
     const doc = "Before [link]() after.\n";
     const rules = [ruleInvalidLinkTarget];
