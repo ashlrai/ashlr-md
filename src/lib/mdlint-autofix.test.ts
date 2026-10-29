@@ -196,6 +196,19 @@ describe("rule:missing-alt-text", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it("autofixes multiple images on one line without changing sources or prose", () => {
+    const doc =
+      "Before ![](first.png) between ![   ](images/second.jpg?size=2) and ![Existing](third.svg) after.\n";
+    const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
+    expect(violations).toHaveLength(2);
+
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Before ![TODO: describe image](first.png) between ![TODO: describe image](images/second.jpg?size=2) and ![Existing](third.svg) after.\n",
+    );
+    expect(lintDocument(fixed, { rules: [ruleMissingAltText] })).toHaveLength(0);
+  });
+
   it("does not flag images with non-empty alt text", () => {
     const doc = "![My diagram](diagram.png)\n";
     expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toHaveLength(0);
