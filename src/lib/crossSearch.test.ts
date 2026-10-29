@@ -115,6 +115,26 @@ describe("searchFiles — basic invocation", () => {
     const out = await searchFiles(["/a.md", "/b.md"], "zzznomatch");
     expect(out).toEqual([]);
   });
+
+  it("does not return results from a preceding search when the next query has no matches", async () => {
+    const paths = ["/a.md", "/b.md"];
+    const matches = [makeFileResult("/a.md", "a.md", [makeMatch(1, "hello world")])];
+    invokeMock.mockResolvedValueOnce(matches).mockResolvedValueOnce([]);
+
+    expect(await searchFiles(paths, "hello")).toEqual(matches);
+    expect(await searchFiles(paths, "zzznomatch")).toEqual([]);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "search_files", {
+      paths,
+      query: "hello",
+      limit: undefined,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "search_files", {
+      paths,
+      query: "zzznomatch",
+      limit: undefined,
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
