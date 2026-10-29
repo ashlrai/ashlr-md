@@ -29,6 +29,17 @@ describe("applyLinkExport", () => {
     expect(useUiStore.getState().exportFormat).toBe("docx");
   });
 
+  it("opens the export dialog for an empty document", async () => {
+    useDocumentStore.setState({ content: "" });
+    invokeMock.mockResolvedValue("html");
+    await expect(applyLinkExport("/notes/a.md")).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith("take_link_export", {
+      path: "/notes/a.md",
+    });
+    expect(useUiStore.getState().exportOpen).toBe(true);
+    expect(useUiStore.getState().exportFormat).toBe("html");
+  });
+
   it("does nothing when the link asked for no export", async () => {
     invokeMock.mockResolvedValue(null);
     await applyLinkExport("/notes/a.md");
