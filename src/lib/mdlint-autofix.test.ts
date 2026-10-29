@@ -1596,6 +1596,20 @@ describe("LINTER_DEFAULT_ENABLED_RULES", () => {
 // ─── 8. Edge cases ────────────────────────────────────────────────────────────
 
 describe("edge cases", () => {
+  it("preserves a clean document through two autofix passes", () => {
+    const doc =
+      "---\ntitle: Guide\n---\n\nOrdinary prose with café and  internal spacing.\n\n" +
+      "Read the [guide](https://example.com/guide?topic=lint#links) for details.\n";
+    const firstViolations = lintDocument(doc);
+    expect(firstViolations).toEqual([]);
+    const once = applyAllFixes(doc, firstViolations);
+    expect(once).toBe(doc);
+
+    const secondViolations = lintDocument(once);
+    expect(secondViolations).toEqual([]);
+    expect(applyAllFixes(once, secondViolations)).toBe(doc);
+  });
+
   it.each([
     "",
     "\n",
