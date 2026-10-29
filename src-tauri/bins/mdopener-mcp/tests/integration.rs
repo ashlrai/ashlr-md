@@ -8947,6 +8947,23 @@ fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
     );
 }
 
+#[test]
+fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
+    for (markdown, expected) in [
+        (
+            "The note ([needs review]), then continues.\n",
+            "The note ([needs review]), then continues.",
+        ),
+        (
+            "She wrote: '[exact wording]'; he agreed!\n",
+            "She wrote: '[exact wording]'; he agreed!",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 /// export_text printed a link reference definition as `label: url`,
 /// although the page shows nothing for it, and read any `<` and a letter
 /// up to the next `>` as an HTML tag, so an email autolink read nothing,
