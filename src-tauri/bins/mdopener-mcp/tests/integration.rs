@@ -8902,6 +8902,23 @@ fn export_text_keeps_brackets_unless_a_reference_is_defined() {
     assert!(docs.contains("keeps its brackets unless the document defines its label"));
 }
 
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
+    for (markdown, expected) in [
+        (
+            "The quotation was accurate [sic]\n",
+            "The quotation was accurate [sic]",
+        ),
+        (
+            "The quotation was\naccurate [sic]\n\nAnother paragraph.\n",
+            "The quotation was\naccurate [sic]\n\nAnother paragraph.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 /// export_text printed a link reference definition as `label: url`,
 /// although the page shows nothing for it, and read any `<` and a letter
 /// up to the next `>` as an HTML tag, so an email autolink read nothing,
