@@ -175,6 +175,19 @@ describe("insertTableTransaction", () => {
     expect(out?.child(1).type.name).toBe("table");
   });
 
+  it("preserves the header cells of a single-row table", () => {
+    const d = schema.node("doc", null, [p.create(null, text("Before"))]);
+    const headerOnly = schema.node("doc", null, [grid([["Name", "Value"]])]);
+    const out = insertTableTransaction(at(d, 3), headerOnly)?.doc;
+    const inserted = out?.child(1);
+
+    expect(inserted?.type.name).toBe("table");
+    expect(inserted?.childCount).toBe(1);
+    expect(inserted?.child(0).childCount).toBe(2);
+    expect(inserted?.child(0).child(0).textContent).toBe("Name");
+    expect(inserted?.child(0).child(1).textContent).toBe("Value");
+  });
+
   it("is null without a table to insert", () => {
     const d = schema.node("doc", null, [p.create(null, text("A"))]);
     const none = schema.node("doc", null, [p.create(null, text("| a |"))]);
