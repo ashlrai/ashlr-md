@@ -1197,6 +1197,33 @@ describe("LinterToast violation history", () => {
     ]);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("Fix all is idempotent for invalid destination %j with a remaining warning", (destination) => {
+    const doc = `# First\n\n## Second\n\nRead [draft](${destination}).\n`;
+    const rules = [ruleOrphanedHeading, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "orphaned-heading",
+    ]);
+
+    const once = fixAllViolations(doc, violations);
+    expect(once).toBe("# First\n\n## Second\n\nRead [draft](TODO).\n");
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+  });
+
   it("Fix all applies every fix without corrupting later offsets", () => {
     // The image fix lengthens the text before the link, so applying fixes in
     // document order would splice the link fix at a stale offset.
