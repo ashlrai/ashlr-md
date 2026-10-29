@@ -431,6 +431,18 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).not.toContain("![](diagram.png)");
   });
 
+  it.each(["", " \t "])("is idempotent when autofixing image alt text %j", (alt) => {
+    const doc = `Before ![${alt}](images/chart.png?size=2#preview) after.\n`;
+    const rules = [ruleMissingAltText];
+    const once = applyAllFixes(doc, lintDocument(doc, { rules }));
+    const twice = applyAllFixes(once, lintDocument(once, { rules }));
+
+    expect(once).toBe(
+      "Before ![TODO: describe image](images/chart.png?size=2#preview) after.\n",
+    );
+    expect(twice).toBe(once);
+  });
+
   it.each([
     "   ",
     " \t ",
