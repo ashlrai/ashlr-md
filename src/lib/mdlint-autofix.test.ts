@@ -198,6 +198,16 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toBe("Before ![TODO: describe image](img.png) after.\n");
   });
 
+  it("autofix is idempotent for an image with empty alt text", () => {
+    const doc = "Before ![](img.png) after.\n";
+    const options = { rules: [ruleMissingAltText] };
+    const once = applyAllFixes(doc, lintDocument(doc, options));
+    const twice = applyAllFixes(once, lintDocument(once, options));
+
+    expect(once).toBe("Before ![TODO: describe image](img.png) after.\n");
+    expect(twice).toBe(once);
+  });
+
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
