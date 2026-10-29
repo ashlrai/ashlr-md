@@ -502,6 +502,26 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 
+  it.each([
+    [
+      "![](shared.png)![A cat](shared.png)",
+      "![TODO: describe image](shared.png)![A cat](shared.png)",
+    ],
+    [
+      "![A cat](shared.png)![](shared.png)",
+      "![A cat](shared.png)![TODO: describe image](shared.png)",
+    ],
+  ])("fixes only the empty alt in adjacent images: %s", (doc, expected) => {
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toHaveLength(0);
+  });
+
   it("flags multiple images missing alt text", () => {
     const doc = "![](a.png) text ![](b.png) more.\n";
     const violations = lintDocument(doc, { rules: [ruleMissingAltText] });
