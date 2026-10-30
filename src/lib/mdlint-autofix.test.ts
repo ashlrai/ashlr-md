@@ -442,6 +442,24 @@ describe("rule:invalid-link-target", () => {
     expect(fixed).toBe("Before [link](TODO) after.\n");
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves surrounding text and no final newline when fixing a link with %j line endings", (newline) => {
+    const doc = `Opening paragraph.${newline}${newline}Before [draft]() after.`;
+    const expected = `Opening paragraph.${newline}${newline}Before [draft](TODO) after.`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves surrounding blank lines and the final newline when fixing a link", () => {
     const doc =
       "\nOpening paragraph.\n\n\nRead [draft]() here.\n\nClosing paragraph.\n\n";
