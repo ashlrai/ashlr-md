@@ -316,6 +316,7 @@ describe("rule:invalid-link-target", () => {
 
   it.each([
     "",
+    " \t ",
     "#",
     "?",
   ])("preserves punctuation in the link label when fixing destination %j", (destination) => {
