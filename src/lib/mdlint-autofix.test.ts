@@ -1333,6 +1333,25 @@ describe("rule:missing-alt-text", () => {
     expect(twice).toBe(once);
   });
 
+  it.each([
+    '"Café chart"',
+    "'Café chart'",
+  ])("preserves an image destination and title %s across autofix passes", (title) => {
+    const destination = `images/caf%C3%A9.png?size=2#preview ${title}`;
+    const doc = `See ![](${destination}) for details.`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(`See ![TODO: describe image](${destination}) for details.`);
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("keeps multiple empty-alt image fixes unchanged on a second default-rule pass", () => {
     const doc =
       "---\r\ntitle: Images\r\n---\r\n\r\n" +
