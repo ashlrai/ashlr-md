@@ -713,19 +713,37 @@ export function lintDocument(doc: string, opts: LintOptions = {}): LintViolation
  * so fixes don't invalidate each other's offsets.
  */
 export function applyAllFixes(doc: string, violations: LintViolation[]): string {
-  // Only violations with a fix function, sorted by descending offset
+  const fixable = violations.filter((v) => v.fix !== null);
+  // A fix whose whole range sits inside another fixable's range edits text the
+  // wider fix replaces wholesale; applying both splices the wider fix at
+  // offsets the narrower one already shifted (`![](?)`, reported by
+  // missing-alt-text and invalid-link-target, used to come out
+  // `![TODO: describe image](?)DO)`). The wider fix wins in a batch; the
+  // narrower fix still applies on its own or on a later lint pass.
+  const independent = fixable.filter(
+    (v) =>
+      !v.range ||
+      !fixable.some(
+        (other) =>
+          other !== v &&
+          other.range !== null &&
+          other.range.from.offset <= v.range!.from.offset &&
+          other.range.to.offset >= v.range!.to.offset &&
+          (other.range.from.offset < v.range!.from.offset ||
+            other.range.to.offset > v.range!.to.offset),
+      ),
+  );
+  // Sorted by descending offset
   // (document-level violations last, then highest offset first).
-  const fixable = violations
-    .filter((v) => v.fix !== null)
-    .sort((a, b) => {
-      if (!a.range && !b.range) return 0;
-      if (!a.range) return 1; // doc-level fixes after positional
-      if (!b.range) return -1;
-      return b.range.from.offset - a.range.from.offset; // descending
-    });
+  const ordered = independent.sort((a, b) => {
+    if (!a.range && !b.range) return 0;
+    if (!a.range) return 1; // doc-level fixes after positional
+    if (!b.range) return -1;
+    return b.range.from.offset - a.range.from.offset; // descending
+  });
 
   let result = doc;
-  for (const v of fixable) {
+  for (const v of ordered) {
     result = v.fix!(result);
   }
   return result;
