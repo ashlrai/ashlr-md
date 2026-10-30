@@ -846,6 +846,31 @@ describe("rule:missing-alt-text", () => {
     expect(violations[0].severity).toBe("warning");
   });
 
+  it("fixes only an empty alt across lines while preserving both image sources", () => {
+    const doc =
+      "Café: ![A garden map](../assets/map.svg?view=full#north)\r\n" +
+      'Diagram: ![](https://example.com/a%20b.png?size=2&theme=dark#preview "Diagram")\r\n';
+    const expected =
+      "Café: ![A garden map](../assets/map.svg?view=full#north)\r\n" +
+      'Diagram: ![TODO: describe image](https://example.com/a%20b.png?size=2&theme=dark#preview "Diagram")\r\n';
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(
+      '![](https://example.com/a%20b.png?size=2&theme=dark#preview "Diagram")',
+    );
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it.each([
     "",
     " \t ",
