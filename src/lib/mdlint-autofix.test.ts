@@ -521,6 +521,25 @@ describe("rule:invalid-link-target", () => {
     expect(twice).toBe(once);
   });
 
+  it("is idempotent when fixing multiple invalid destinations across lines", () => {
+    const doc =
+      "📚 [draft]() and [section](#); keep [guide](./guide.md).\r\n" +
+      "Then [search](?) and [café]( \t ) at the end.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+    expect(violations).toHaveLength(4);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "📚 [draft](TODO) and [section](TODO); keep [guide](./guide.md).\r\n" +
+        "Then [search](TODO) and [café](TODO) at the end.",
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("is idempotent with default rules when an unfixed warning remains", () => {
     const doc = "# First\n\n## Second\n\nRead [draft]() and [guide](./guide.md).   \n";
     const rules = BUILTIN_RULES.filter((rule) =>
