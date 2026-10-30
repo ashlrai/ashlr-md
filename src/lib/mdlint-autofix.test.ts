@@ -1608,6 +1608,51 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(fixed, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
 
+  it("gives each of several invalid images the placeholder while retaining its own source", () => {
+    const images = [
+      { alt: "", src: "images/first.png" },
+      { alt: " \t ", src: "../assets/map%20two.svg#view" },
+      { alt: "\u00a0", src: 'example.com/pic.webp "Pic title"' },
+    ];
+    const doc =
+      `Gallery: ![](${images[0].src}) with ![A map](map.svg),\n` +
+      `then ![${images[1].alt}](${images[1].src}),\n` +
+      `and ![${images[2].alt}](${images[2].src}) at the end.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    for (const [i, { alt, src }] of images.entries()) {
+      expect(violations[i].message).toBe(`Image is missing alt text: ${src}`);
+      const { from, to } = violations[i].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(`![${alt}](${src})`);
+
+      // A single fix repairs only its own image and leaves the others untouched.
+      const once = applyFix(doc, violations[i]);
+      expect(once).toContain(`![TODO: describe image](${src})`);
+      expect(once).not.toContain(`![${alt}](${src})`);
+      for (const [j, other] of images.entries()) {
+        if (j !== i) expect(once).toContain(`![${other.alt}](${other.src})`);
+      }
+    }
+
+    const expected =
+      `Gallery: ![TODO: describe image](${images[0].src}) with ![A map](map.svg),\n` +
+      `then ![TODO: describe image](${images[1].src}),\n` +
+      `and ![TODO: describe image](${images[2].src}) at the end.\n`;
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.split("TODO: describe image")).toHaveLength(images.length + 1);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("does not flag images with non-empty alt text", () => {
     const doc = "![My diagram](diagram.png)\n";
     expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toHaveLength(0);
