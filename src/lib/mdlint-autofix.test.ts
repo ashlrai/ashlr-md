@@ -733,6 +733,28 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it("preserves a described image and its destination while fixing neighboring images", () => {
+    const image =
+      '![Café terrace at sunset ☕](images/caf%C3%A9.jpg?size=2&format=webp#view "Terrace")';
+    const doc = `Before ![](first.png), ${image}, then ![  ](last.png).\r\n`;
+    const expected =
+      `Before ![TODO: describe image](first.png), ${image}, ` +
+      "then ![TODO: describe image](last.png).\r\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves a descriptive image with a relative source and its surrounding prose", () => {
     const paragraph =
       "Before the illustration, see ![A map of the café garden](../assets/garden.png) for details.\r\n";
