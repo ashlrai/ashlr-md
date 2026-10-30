@@ -1712,6 +1712,20 @@ describe("edge cases", () => {
     expect(violations).toHaveLength(0);
   });
 
+  it("lints and autofixes an empty document to no findings and unchanged content", () => {
+    const doc = "";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(doc);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
+  });
+
   it("lintDocument on whitespace-only doc produces no new-rule violations", () => {
     const violations = lintDocument("   \n\n   \n", {
       rules: [ruleOrphanedHeading, ruleInvalidLinkTarget, ruleMissingAltText],
