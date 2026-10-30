@@ -293,6 +293,24 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "",
+    "#",
+    "?",
+  ])("preserves punctuation in the link label when fixing destination %j", (destination) => {
+    const doc = `Read [What's new: v2.0 (draft), & next steps!](${destination}) today.\n`;
+    const expected = "Read [What's new: v2.0 (draft), & next steps!](TODO) today.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     "   ",
     "\t",
     "\t\t",
