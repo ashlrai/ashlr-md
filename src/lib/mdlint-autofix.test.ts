@@ -1549,6 +1549,29 @@ describe("chained violations and multi-line fixes", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves image and link order across adjacent lines with %j", (newline) => {
+    const doc = `![](diagram.png)${newline}[docs]()${newline}`;
+    // Run the link rule first to verify violations are ordered by position.
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      `![TODO: describe image](diagram.png)${newline}[docs](TODO)${newline}`,
+    );
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it("keeps an empty-alt image fix unchanged on a second pass with a remaining warning", () => {
     const doc = "# First\n\n## Second\n\nSee ![](chart.png) and [draft]().\n";
     const rules = [ruleOrphanedHeading, ruleMissingAltText, ruleInvalidLinkTarget];
