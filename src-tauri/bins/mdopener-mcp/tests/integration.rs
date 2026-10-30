@@ -2936,7 +2936,12 @@ fn list_recent_is_described_as_needing_the_app() {
         .find(|t| t.name == "list_recent")
         .unwrap();
     assert!(
-        def.description.contains("Needs Ashlr MD running"),
+        def.description.contains("Requires Ashlr MD running"),
+        "{}",
+        def.description
+    );
+    assert!(
+        def.description.contains("otherwise returns an error"),
         "{}",
         def.description
     );
@@ -8938,6 +8943,23 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
         result["text"].as_str().unwrap(),
         "Please review [TODO] before the next release."
     );
+}
+
+#[test]
+fn export_text_keeps_repeated_prose_brackets_in_order() {
+    for (markdown, expected) in [
+        (
+            "First [TODO], then [sic], and again [TODO].\n",
+            "First [TODO], then [sic], and again [TODO].",
+        ),
+        (
+            "[one] [two] [one]; see [the guide](/guide), then [**two**] and [one].\n",
+            "[one] [two] [one]; see the guide, then [two] and [one].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
 }
 
 #[test]
