@@ -214,6 +214,36 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes only the invalid destination %j regardless of link order", (destination) => {
+    const valid = '[guide](./guide.md?view=full#links "Guide title")';
+    const invalid = `[guide](${destination})`;
+    const repaired = "[guide](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const validFirst of [true, false]) {
+      const doc = `Intro.\r\nRead ${validFirst ? valid : invalid} and ${validFirst ? invalid : valid}.\r\n`;
+      const expected = `Intro.\r\nRead ${validFirst ? valid : repaired} and ${validFirst ? repaired : valid}.\r\n`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      const { from, to } = violations[0].range!;
+      expect(doc.slice(from.offset, to.offset)).toBe(invalid);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      const remaining = lintDocument(fixed, { rules });
+      expect(remaining).toEqual([]);
+      expect(applyAllFixes(fixed, remaining)).toBe(expected);
+    }
+  });
+
   it("flags a link with a whitespace-only href", () => {
     const doc = "See [my link](   ) for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
