@@ -124,6 +124,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    '"Guide title"',
+    "'Guide title'",
+    "(Guide title)",
+  ])("preserves a valid link with title %s when autofixing its line", (title) => {
+    const link = `[guide](./guide.md?view=full#links ${title})`;
+    const doc = `Read ${link} for details.   \n`;
+    const expected = `Read ${link} for details.\n`;
+    const rules = [ruleInvalidLinkTarget, ruleNoTrailingSpaces];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "no-trailing-spaces",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(applyAllFixes(fixed, [])).toBe(expected);
+  });
+
   it("preserves a valid fragment link and surrounding text when fixing neighboring links", () => {
     const heading = "# Installation\n\n";
     const doc = `${heading}Before [first]() see [installation](#installation) for details, then [last](#) after.\n`;
