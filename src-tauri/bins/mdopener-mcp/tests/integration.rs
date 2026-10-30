@@ -9095,6 +9095,27 @@ fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_bracketed_prose_in_list_items() {
+    for (markdown, expected) in [
+        (
+            "- The quote says 'definately [sic]' in [the report](/report).\n",
+            "The quote says 'definately [sic]' in the report.",
+        ),
+        (
+            "1. [sic] begins the note.\n2. End with [TODO].\n",
+            "[sic] begins the note.\nEnd with [TODO].",
+        ),
+        (
+            "- [x] Check the quote [sic].\n- [ ] Follow up [TODO].\n",
+            "Check the quote [sic].\nFollow up [TODO].",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
     for (markdown, expected) in [
         (
