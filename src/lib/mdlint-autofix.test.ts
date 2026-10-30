@@ -908,6 +908,32 @@ describe("rule:invalid-link-target", () => {
 // ─── 3. Rule: missing-alt-text ────────────────────────────────────────────────
 
 describe("rule:missing-alt-text", () => {
+  it.each([
+    true,
+    false,
+  ])("preserves a described image sharing a source with an image needing a fix (described first: %s)", (describedFirst) => {
+    const source = "images/caf%C3%A9.png?size=2#preview";
+    const described = `![Café terrace at sunset](${source})`;
+    const empty = `![](${source})`;
+    const repaired = `![TODO: describe image](${source})`;
+    const doc = `${describedFirst ? described : empty} and ${describedFirst ? empty : described}.\n`;
+    const expected = `${describedFirst ? described : repaired} and ${describedFirst ? repaired : described}.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(empty);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("preserves a described image and its destination while fixing neighboring images", () => {
     const image =
       '![Café terrace at sunset ☕](images/caf%C3%A9.jpg?size=2&format=webp#view "Terrace")';
