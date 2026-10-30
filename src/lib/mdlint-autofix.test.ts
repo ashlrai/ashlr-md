@@ -783,6 +783,29 @@ describe("rule:invalid-link-target", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it("fixes every invalid destination among repeated labels across paragraphs", () => {
+    const doc =
+      "Before [guide]() and [guide](#), keep [guide](./guide.md).\r\n\r\n" +
+      "Example: `[guide](?)`\nThen [guide](?) and [guide]( \t ) after café.";
+    const expected =
+      "Before [guide](TODO) and [guide](TODO), keep [guide](./guide.md).\r\n\r\n" +
+      "Example: `[guide](?)`\nThen [guide](TODO) and [guide](TODO) after café.";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(4);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(["[guide]()", "[guide](#)", "[guide](?)", "[guide]( \t )"]);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it.each([
     "",
     " \t ",
