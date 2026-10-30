@@ -141,7 +141,7 @@ fn copy_out(bundled: &Path, dest: &Path, stamp_path: &Path, stamp: &str) -> std:
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            output.set_permissions(fs::Permissions::from_mode(0o755))?;
+            output.set_permissions(fs::Permissions::from_mode(0o700))?;
         }
         fs::rename(&tmp, dest)
     })();
@@ -269,7 +269,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&dest).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o755);
+            assert_eq!(mode & 0o777, 0o700);
         }
 
         // Same version and size: the copy is left alone.
