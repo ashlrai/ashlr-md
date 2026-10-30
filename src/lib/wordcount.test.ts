@@ -38,6 +38,15 @@ describe("computeDocStats", () => {
     expect(computeDocStats(md).words).toBe(4); // "intro words here" + "outro"
   });
 
+  it("counts surrounding prose but excludes every line of a multiline fence", () => {
+    const fence =
+      "```js\nconst message = 'hello world';\nconsole.log(message);\nreturn message;\n```";
+    expect(computeDocStats(`words before\n\n${fence}\n\nwords after here`).words).toBe(
+      5,
+    );
+    expect(computeDocStats(fence).words).toBe(0);
+  });
+
   it("excludes inline code", () => {
     // "run" + "now"; the inline-code span is removed entirely.
     expect(computeDocStats("run `npm install foo bar` now").words).toBe(2);
