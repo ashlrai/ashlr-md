@@ -66,7 +66,7 @@ export function regenerate(content, templates, path) {
 
 export async function run(directory = root, check = false) {
   const templates = blocks(await sources(directory));
-  const paths = ['README.md', 'CHANGELOG.md', ...await markdown(directory, 'docs'), ...await markdown(directory, 'samples')].sort();
+  const paths = ['README.md', 'CHANGELOG.md', ...await markdown(directory, 'docs'), ...await markdown(directory, 'samples')].sort((a, b) => a < b ? -1 : Number(a > b));
   const changes = [];
   // Validate every file before writing any changes.
   for (const path of paths) {

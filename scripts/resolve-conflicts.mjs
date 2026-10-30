@@ -298,7 +298,7 @@ export function cli() {
       continue;
     }
     const outcome = fn(root, path);
-    if (/needs a human|failed|first$/.test(outcome)) {
+    if (outcome.includes('needs a human') || outcome.includes('failed') || outcome.endsWith('first')) {
       console.log(`unresolved ${path} (${outcome})`);
       bad++;
     } else {

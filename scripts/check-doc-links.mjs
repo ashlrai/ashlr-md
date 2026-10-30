@@ -325,7 +325,7 @@ export function docFiles(root, dirs) {
     if (statSync(abs).isDirectory()) walk(abs);
     else if (MARKDOWN.test(abs)) out.push(abs);
   }
-  return out.sort();
+  return out.sort((a, b) => a < b ? -1 : Number(a > b));
 }
 
 /**
@@ -418,7 +418,7 @@ async function probe(url, timeout) {
         redirect: 'follow',
         signal: AbortSignal.timeout(timeout),
       });
-      res.body?.cancel();
+      await res.body?.cancel();
       if (res.status < 400) return null;
       last = `HTTP ${res.status}`;
     } catch (e) {
@@ -489,7 +489,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = process.argv.slice(2);
   const external = args.includes('--external');
   const dirs = args.filter((a) => a !== '--external');
-  main(root, { dirs: dirs.length ? dirs : ['.'], external }).then((code) =>
-    process.exit(code),
-  );
+  try {
+    process.exitCode = await main(root, { dirs: dirs.length ? dirs : ['.'], external });
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

@@ -1,12 +1,14 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   checkExternal,
+  docFiles,
   headingSlugs,
   linkTargets,
   main,
@@ -273,4 +275,37 @@ test('the README documents how Ashlr MD plugs into Phantom', () => {
   ]) {
     assert.ok(readme.includes(text), `README.md Phantom coverage should mention ${text}`);
   }
+});
+
+test('checkExternal handles rejected body cancellation and retries GET', async (t) => {
+  const methods = [];
+  t.mock.method(globalThis, 'fetch', async (_url, { method }) => {
+    methods.push(method);
+    return {
+      status: 200,
+      body: { cancel: async () => { throw new Error('cancel failed'); } },
+    };
+  });
+  const target = { url: 'https://example.com', file: 'f.md', line: 1 };
+  assert.deepEqual(await checkExternal([target]), [{ ...target, reason: 'cancel failed' }]);
+  assert.deepEqual(methods, ['HEAD', 'GET']);
+});
+
+test('CLI reports scan errors with a failing exit status', (t) => {
+  const root = fixture({ 'docs/a.md': '# A\n' });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  symlinkSync(join(root, 'missing.md'), join(root, 'docs/dangling.md'));
+  const result = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts/check-doc-links.mjs'), root], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ENOENT/);
+  assert.doesNotMatch(result.stderr, /UnhandledPromiseRejection|at async/);
+});
+
+test('document paths use stable code-unit order across mixed case and numbers', (t) => {
+  const names = ['z.md', 'a2.md', 'a10.md', 'A.md'];
+  const root = fixture(Object.fromEntries(names.map((name) => [`docs/${name}`, '# Title\n'])));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.deepEqual(docFiles(root, ['docs']), ['A.md', 'a10.md', 'a2.md', 'z.md'].map((name) => join(root, 'docs', name)));
 });
