@@ -26,6 +26,10 @@ export const VALID_JOBS = new Set([
   'fixup-queue',
 ]);
 
+// The allowlist as it appears in error messages: sorted once, by code point
+// order is not wanted — localeCompare reads naturally for these keys.
+const VALID_JOBS_LABEL = [...VALID_JOBS].sort((a, b) => a.localeCompare(b)).join(', ');
+
 // only_jobs: comma-separated job keys from the allowlist.
 // Each key: lowercase letters, digits, hyphens. No shell-active chars.
 const ONLY_JOBS_RE = /^[a-z][a-z0-9-]*(,[a-z][a-z0-9-]*)*$/;
@@ -50,7 +54,7 @@ export function validateJobs(onlyJobs) {
   if (!ONLY_JOBS_RE.test(onlyJobs)) {
     return {
       ok: false,
-      error: `only_jobs must match allowlist pattern (comma-separated keys from: ${[...VALID_JOBS].sort().join(', ')})`,
+      error: `only_jobs must match allowlist pattern (comma-separated keys from: ${VALID_JOBS_LABEL})`,
     };
   }
   const jobs = onlyJobs.split(',').map((s) => s.trim());
@@ -58,7 +62,7 @@ export function validateJobs(onlyJobs) {
     if (!VALID_JOBS.has(job)) {
       return {
         ok: false,
-        error: `only_jobs contains unknown job "${job}". Allowed: ${[...VALID_JOBS].sort().join(', ')}`,
+        error: `only_jobs contains unknown job "${job}". Allowed: ${VALID_JOBS_LABEL}`,
       };
     }
   }

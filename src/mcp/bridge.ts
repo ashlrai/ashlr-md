@@ -101,7 +101,7 @@ export function useMcpBridge(): void {
     const syncNow = () => {
       const { path, content } = useDocumentStore.getState();
       const recents = useRecentStore.getState().recents;
-      invoke("mcp_sync_state", {
+      void invoke("mcp_sync_state", {
         path: path ?? null,
         content,
         recents,
@@ -118,7 +118,7 @@ export function useMcpBridge(): void {
     const syncVaultNow = () => {
       const { watchedDir, files, truncated, scanCut, depthCut } =
         useActivityStore.getState();
-      invoke("mcp_sync_vault", {
+      void invoke("mcp_sync_vault", {
         watchedDir: watchedDir ?? null,
         files: files.map((f) => ({ path: f.path, name: f.name, dir: f.dir })),
         truncated,
@@ -146,7 +146,7 @@ export function useMcpBridge(): void {
       sessionTimer.current = setTimeout(() => {
         const { currentSessionId: sid } = useConversationStore.getState();
         if (sid) {
-          persistSession(sid);
+          void persistSession(sid);
         }
       }, 500);
     };
@@ -154,7 +154,7 @@ export function useMcpBridge(): void {
     const schedulePersistenceSync = () => {
       const { path, content } = useDocumentStore.getState();
       if (path && content) {
-        syncDocToSession(path, content).catch(() => {
+        void syncDocToSession(path, content).catch(() => {
           // Non-fatal — persistence is best-effort.
         });
       }
@@ -193,7 +193,7 @@ export function useMcpBridge(): void {
     // Track each listener's unlisten fn as it resolves (or unlisten on the spot
     // if we've already been disposed).
     for (const p of unlisteners) {
-      p.then((fn) => {
+      void p.then((fn) => {
         if (disposed) fn();
         else live.push(fn);
       });

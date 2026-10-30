@@ -98,7 +98,7 @@ export function DefaultHandlerBanner() {
   useEffect(() => {
     let cancelled = false;
     const check = () => {
-      defaultHandlerStatus().then((s) => {
+      void defaultHandlerStatus().then((s) => {
         if (cancelled) return;
         setStatus(s);
         // Only advance to the success confirmation if we were actively waiting

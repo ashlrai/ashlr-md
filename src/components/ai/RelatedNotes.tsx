@@ -39,7 +39,7 @@ export function RelatedNotes() {
     if (!path) return;
     let cancelled = false;
     const content = useDocumentStore.getState().content;
-    retrieveLibraryContext(queryFromDoc(fileName, content)).then((ctx) => {
+    void retrieveLibraryContext(queryFromDoc(fileName, content)).then((ctx) => {
       if (cancelled) return;
       setRelated(ctx.citations.filter((c) => c.path !== path).slice(0, 5));
     });

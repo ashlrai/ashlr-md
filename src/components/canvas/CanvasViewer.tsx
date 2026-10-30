@@ -373,7 +373,7 @@ function CanvasFileNodeView({
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const path = await resolveWikilink(node.file);
       if (!path) {
         // No title action for a file that no longer resolves: the path
@@ -428,13 +428,11 @@ function CanvasFileNodeView({
               if (isImage) {
                 // The opener plugin's own command (allowed by opener:default);
                 // its JS wrapper is only this call, so it is not a dependency.
-                invoke("plugin:opener|reveal_item_in_dir", { paths: [absPath] }).catch(
-                  (e: unknown) => {
-                    toast.error(
-                      `Could not show ${fileName} in its folder: ${String(e)}`,
-                    );
-                  },
-                );
+                void invoke("plugin:opener|reveal_item_in_dir", {
+                  paths: [absPath],
+                }).catch((e: unknown) => {
+                  toast.error(`Could not show ${fileName} in its folder: ${String(e)}`);
+                });
                 return;
               }
               void useDocumentStore
