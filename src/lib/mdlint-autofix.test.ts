@@ -621,6 +621,22 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("preserves intervening prose when fixing multiple links in either violation order", () => {
+    const doc = "Before [first](      ) — café 😀, then [second](?) after.\n";
+    const expected = "Before [first](TODO) — café 😀, then [second](TODO) after.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("autofixes invalid links on separate lines while preserving labels and line breaks", () => {
     const doc = "See [first guide]() for details.\n\nThen visit [second guide](#).\n";
     const rules = [ruleInvalidLinkTarget];
