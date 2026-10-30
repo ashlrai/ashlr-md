@@ -148,6 +148,35 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules })).toEqual([]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a reference link and its definition while fixing neighboring links with %j line endings", (newline) => {
+    const doc = [
+      "Read [draft]() before [the guide][guide-id] and [notes](#) after.",
+      "",
+      '[guide-id]: https://example.com/guide?view=full#links "Guide title"',
+      "",
+    ].join(newline);
+    const expected = [
+      "Read [draft](TODO) before [the guide][guide-id] and [notes](TODO) after.",
+      "",
+      '[guide-id]: https://example.com/guide?view=full#links "Guide title"',
+      "",
+    ].join(newline);
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves an HTTPS link and surrounding prose while fixing links on both sides", () => {
     const doc =
       "Before [draft]() café; read [the guide](https://example.com/guide?topic=lint#links) " +
