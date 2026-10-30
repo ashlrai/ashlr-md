@@ -675,6 +675,25 @@ describe("rule:invalid-link-target", () => {
     expect(twice).toBe(once);
   });
 
+  it("is idempotent for an invalid link with all built-in rules enabled", () => {
+    const doc =
+      "---\ntitle: Guide\n---\n\n# Guide\n\nSee ![](chart.png) and [draft]().   \n";
+    const violations = lintDocument(doc);
+    expect(violations.map((violation) => violation.ruleId).sort()).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+      "no-trailing-spaces",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "---\ntitle: Guide\n---\n\n# Guide\n\nSee ![TODO: describe image](chart.png) and [draft](TODO).\n",
+    );
+    const remaining = lintDocument(once);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it("is idempotent when fixing multiple invalid destinations across lines", () => {
     const doc =
       "📚 [draft]() and [section](#); keep [guide](./guide.md).\r\n" +
