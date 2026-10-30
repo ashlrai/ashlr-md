@@ -1881,6 +1881,29 @@ describe("LinterToast violation history", () => {
     clearLintHistory();
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("Fix all preserves clean prose and Markdown with line ending %j", (lineEnding) => {
+    const doc = [
+      "# Café guide",
+      "",
+      "Ordinary prose with  intentional spacing and **emphasis**.  ",
+      "A second line links to [the guide](https://example.com/guide#details).",
+      "",
+      "- Use `code` when needed.",
+      "- See ![A chart](images/chart.png) for context.",
+      "",
+    ].join(lineEnding);
+    const enabledRules = new Set(LINTER_DEFAULT_ENABLED_RULES);
+    const violations = lintDocument(doc).filter((v) => enabledRules.has(v.ruleId));
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+    expect(fixAllViolations(doc, violations)).toBe(doc);
+    expect(getLintHistory()).toEqual([]);
+  });
+
   it("leaves an empty document empty without recording fixes", () => {
     const doc = "";
     const toastRules = new Set(LINTER_DEFAULT_ENABLED_RULES);
