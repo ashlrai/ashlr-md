@@ -2107,6 +2107,27 @@ describe("LinterToast violation history", () => {
     ]);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+    "\n\n",
+    "\r\n\r\n",
+  ])("Fix all preserves the trailing newline sequence %j after an invalid link", (ending) => {
+    const doc = `Opening paragraph.\n\nRead [draft]()${ending}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(`Opening paragraph.\n\nRead [draft](TODO)${ending}`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+  });
+
   it("Fix all preserves distinct labels and prose around multiple invalid links", () => {
     const doc =
       "Start with [café guide](), then [API reference](#); keep [docs](./docs.md).\r\n" +
