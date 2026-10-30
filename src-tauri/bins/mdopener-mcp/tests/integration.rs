@@ -9008,6 +9008,27 @@ fn export_text_keeps_numeric_citations_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_digits_in_bracketed_prose() {
+    for (markdown, expected) in [
+        (
+            "Use [version 2] after [v1.2], and retain [007].\n",
+            "Use [version 2] after [v1.2], and retain [007].",
+        ),
+        (
+            "Compare [item 10] with [item 2]; see [release 3](/releases/3).\n",
+            "Compare [item 10] with [item 2]; see release 3.",
+        ),
+        (
+            "Keep [step 1] and follow [step 2].\n\n[step 2]: /guide\n",
+            "Keep [step 1] and follow step 2.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
+#[test]
 fn export_text_keeps_multiple_undefined_numbered_references() {
     let markdown = "Evidence [1], [23][24], and [1] supports the claim; see [42].\n";
     let result = run_export_text_on(markdown);
