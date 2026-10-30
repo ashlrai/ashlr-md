@@ -386,6 +386,59 @@ describe("rule:invalid-link-target", () => {
   });
 
   it.each([
+    "\n",
+    "\r\n",
+  ])("preserves multiline context and code examples with %j line endings", (newline) => {
+    const lines = [
+      "Opening paragraph: 🚀 café.",
+      "",
+      "```md",
+      "Read [draft](#) here.",
+      "```",
+      "",
+      "Read [draft](#) here, then [published](./guide.md).",
+      "",
+      "Closing paragraph keeps  its spacing.",
+    ];
+    const doc = `${lines.join(newline)}${newline}`;
+    const expected = `${[
+      ...lines.slice(0, 6),
+      "Read [draft](TODO) here, then [published](./guide.md).",
+      ...lines.slice(7),
+    ].join(newline)}${newline}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves a multiline link label and surrounding lines with %j line endings", (newline) => {
+    const prefix = `Opening paragraph.${newline}${newline}Read [draft${newline}guide](`;
+    const suffix = `) for details.${newline}${newline}Closing paragraph.${newline}`;
+    const doc = `${prefix}?${suffix}`;
+    const expected = `${prefix}TODO${suffix}`;
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it.each([
     ["guide", ""],
     ["", "#"],
     ["draft guide", " \t "],
