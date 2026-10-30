@@ -2115,6 +2115,35 @@ describe("LinterToast violation history", () => {
     expect(getLintHistory()).toHaveLength(4);
   });
 
+  it("Fix all preserves both image sources while fixing an empty alt and a later link", () => {
+    const doc =
+      "See ![A café map](images/map.svg?view=full#north) beside " +
+      "![](images/chart.png?size=2#data), then [details]().\n";
+    const expected =
+      "See ![A café map](images/map.svg?view=full#north) beside " +
+      "![TODO: describe image](images/chart.png?size=2#data), then [details](TODO).\n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(expected);
+    const history = [...getLintHistory()];
+    expect(history.map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(fixAllViolations(fixed, remaining)).toBe(expected);
+    expect(getLintHistory()).toEqual(history);
+  });
+
   it.each([
     true,
     false,
