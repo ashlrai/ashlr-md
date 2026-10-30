@@ -197,6 +197,23 @@ describe("rule:invalid-link-target", () => {
     );
   });
 
+  it("fixes a live invalid link while preserving a valid link and a matching code example", () => {
+    const doc =
+      "Example: `[guide](?)`\n\nRead [guide](?) or [guide](./guide.md#links).\n";
+    const expected =
+      "Example: `[guide](?)`\n\nRead [guide](TODO) or [guide](./guide.md#links).\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags a link with a whitespace-only href", () => {
     const doc = "See [my link](   ) for details.\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
