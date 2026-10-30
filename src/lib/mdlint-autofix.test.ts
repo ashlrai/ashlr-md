@@ -93,6 +93,28 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(doc, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it.each([
+    "\n",
+    "\r\n",
+  ])("preserves an absolute URL and surrounding text when fixing another link with %j line endings", (newline) => {
+    const valid =
+      '[café guide](https://example.com/a%20b?tag=one&tag=two&empty=#section "Guide title")';
+    const prefix = ["---", "title: Guide", "---", ""].join(newline) + newline;
+    const doc =
+      prefix + [`Before ${valid} after.`, "Read [draft]() next."].join(newline);
+    const expected =
+      prefix + [`Before ${valid} after.`, "Read [draft](TODO) next."].join(newline);
+    const violations = lintDocument(doc);
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed)).toEqual([]);
+  });
+
   it("leaves a valid link unchanged and proposes no href fix during linting", () => {
     const doc = "See [docs](https://example.com/guide?topic=lint#links).   \n";
     const violations = lintDocument(doc, {
