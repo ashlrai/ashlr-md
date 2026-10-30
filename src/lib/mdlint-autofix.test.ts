@@ -1260,6 +1260,23 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it("fixes only the whitespace-only alt when adjacent images share a literal destination", () => {
+    const src = "images/chart$&$1.png?size=2#preview";
+    const doc = `Before ![ \t ](${src})![Chart](${src}) after.\n`;
+    const expected = `Before ![TODO: describe image](${src})![Chart](${src}) after.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![ \t ](${src})`);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("preserves an absolute image source and title when fixing whitespace-only alt text", () => {
     const doc =
       'See ![ \t ](https://example.com/image.png?size=2#preview "Image title") here.\n';
