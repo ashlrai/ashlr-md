@@ -8977,6 +8977,10 @@ fn export_text_keeps_escaped_opening_and_closing_brackets() {
             "An opening \\[ and a closing \\] bracket.\n",
             "An opening [ and a closing ] bracket.",
         ),
+        (
+            "Literal \\[label\\](/guide); real [label](/guide).\n",
+            "Literal [label](/guide); real label.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
