@@ -957,6 +957,28 @@ describe("rule:missing-alt-text", () => {
     expect(twice).toBe(once);
   });
 
+  it("keeps multiple empty-alt image fixes unchanged on a second default-rule pass", () => {
+    const doc =
+      "---\r\ntitle: Images\r\n---\r\n\r\n" +
+      "See ![](images/chart.png?size=2#preview) and ![A map](map.svg).\r\n" +
+      "Then see ![](images/graph.png) and [the guide](./guide.md).\r\n";
+    const violations = lintDocument(doc);
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      "---\r\ntitle: Images\r\n---\r\n\r\n" +
+        "See ![TODO: describe image](images/chart.png?size=2#preview) and ![A map](map.svg).\r\n" +
+        "Then see ![TODO: describe image](images/graph.png) and [the guide](./guide.md).\r\n",
+    );
+    const remaining = lintDocument(once);
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(once, remaining)).toBe(once);
+  });
+
   it.each([
     "   ",
     " \t ",
