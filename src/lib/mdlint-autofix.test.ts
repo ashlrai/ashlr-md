@@ -1827,6 +1827,34 @@ describe("rule:missing-alt-text", () => {
     const doc = "![My diagram](diagram.png)\n";
     expect(lintDocument(doc, { rules: [ruleMissingAltText] })).toHaveLength(0);
   });
+
+  it.each([
+    "\n",
+    "\r\n",
+  ])("inserts the documented placeholder into an invalid image followed by valid prose, line ending %j", (newline) => {
+    const prose =
+      "The chart above shows **quarterly** results; " +
+      "see [the report](./report.md) for details.";
+    const doc = ["![](images/chart.png?size=2#preview)", "", prose, ""].join(newline);
+    const expected = [
+      "![TODO: describe image](images/chart.png?size=2#preview)",
+      "",
+      prose,
+      "",
+    ].join(newline);
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed.endsWith(`${prose}${newline}`)).toBe(true);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
 });
 
 // ─── 4. Chained violations + multi-fix application ───────────────────────────
@@ -2234,6 +2262,36 @@ describe("chained violations and multi-line fixes", () => {
     const fixed = applyFix(doc, violations[0]);
     expect(fixed).toContain("[valid](https://example.com)");
     expect(fixed).toContain("[broken](TODO)");
+  });
+
+  it.each([
+    "?",
+    "#",
+    " \t ",
+  ])("applies the image fix over the link fix nested inside it for destination %j, preserving the prose", (destination) => {
+    const prose = "Closing prose with [a link](./report.md) stays.";
+    const doc = `![](${destination}) is a diagram.\n\n${prose}\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    // The link fix's range sits inside the image's, so the batch applies the
+    // wider image fix; the destination is repaired on the next pass.
+    const once = applyAllFixes(doc, violations);
+    expect(once).toBe(
+      `![TODO: describe image](${destination}) is a diagram.\n\n${prose}\n`,
+    );
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+    const twice = applyAllFixes(once, remaining);
+    expect(twice).toBe(`![TODO: describe image](TODO) is a diagram.\n\n${prose}\n`);
+    expect(lintDocument(twice, { rules })).toEqual([]);
   });
 });
 
