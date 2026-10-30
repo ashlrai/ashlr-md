@@ -152,13 +152,7 @@ export function reapplyHunks(oursText, patchText) {
     let best = -1;
     let bestDist = Infinity;
     for (let i = 0; i + h.pre.length <= ours.length; i++) {
-      let ok = true;
-      for (let j = 0; j < h.pre.length; j++)
-        if (ours[i + j] !== h.pre[j]) {
-          ok = false;
-          break;
-        }
-      if (!ok) continue;
+      if (!h.pre.every((line, j) => ours[i + j] === line)) continue;
       const d = Math.abs(i - want);
       if (d < bestDist) {
         bestDist = d;
