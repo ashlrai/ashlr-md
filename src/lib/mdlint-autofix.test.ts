@@ -1061,6 +1061,34 @@ describe("rule:missing-alt-text", () => {
     expect(violations).toHaveLength(2);
   });
 
+  it("fixes every empty alt when image targets repeat across lines", () => {
+    const repeated = "https://example.com/chart.png?size=2&lang=en#preview";
+    const other = "../assets/map%20one.svg";
+    const doc =
+      `Café: ![](${repeated}) and ![A map](${other}).\r\n` +
+      `Again ![](${repeated}) next to ![](${other}).\r\n`;
+    const expected =
+      `Café: ![TODO: describe image](${repeated}) and ![A map](${other}).\r\n` +
+      `Again ![TODO: describe image](${repeated}) next to ![TODO: describe image](${other}).\r\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual([`![](${repeated})`, `![](${repeated})`, `![](${other})`]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes distinct empty-alt images on separate lines while preserving their sources", () => {
     const first = "../assets/chart%20one.png?size=2#preview";
     const second = "images/写真.svg?theme=dark#detail";
