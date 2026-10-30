@@ -596,6 +596,33 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, violations)).toBe("First line.\nSee [link](TODO)");
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("preserves the document ending when fixing final destination %j", (destination) => {
+    const prefix = "Café 📚.\r\nKeep [guide](./guide.md).\n\nRead ";
+    const link = `[draft guide](${destination})`;
+    const rules = [ruleInvalidLinkTarget];
+
+    for (const ending of ["", "\n", "\r\n"]) {
+      const doc = `${prefix}${link}${ending}`;
+      const expected = `${prefix}[draft guide](TODO)${ending}`;
+      const violations = lintDocument(doc, { rules });
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].ruleId).toBe("invalid-link-target");
+      expect(violations[0].range?.from.offset).toBe(prefix.length);
+      expect(violations[0].range?.to.offset).toBe(prefix.length + link.length);
+      expect(violations[0].fix).not.toBeNull();
+      expect(applyFix(doc, violations[0])).toBe(expected);
+      const fixed = applyAllFixes(doc, violations);
+      expect(fixed).toBe(expected);
+      expect(lintDocument(fixed, { rules })).toEqual([]);
+    }
+  });
+
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
