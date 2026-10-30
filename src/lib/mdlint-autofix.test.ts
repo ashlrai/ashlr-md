@@ -1332,7 +1332,15 @@ describe("rule:missing-alt-text", () => {
       "![A cat](shared.png)![](shared.png)",
       "![A cat](shared.png)![TODO: describe image](shared.png)",
     ],
-  ])("fixes only the empty alt in adjacent images: %s", (doc, expected) => {
+    [
+      "![ \t ](shared.png)![A cat](shared.png)",
+      "![TODO: describe image](shared.png)![A cat](shared.png)",
+    ],
+    [
+      "![A cat](shared.png)![ \t ](shared.png)",
+      "![A cat](shared.png)![TODO: describe image](shared.png)",
+    ],
+  ])("fixes only the missing alt in adjacent images: %s", (doc, expected) => {
     const rules = [ruleMissingAltText];
     const violations = lintDocument(doc, { rules });
 
