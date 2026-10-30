@@ -138,4 +138,21 @@ describe("revealLine", () => {
       view.destroy();
     }
   });
+
+  it("reveals a line in an empty source document at offset zero", async () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: "" }),
+      parent: host,
+    });
+    try {
+      const dispatch = vi.spyOn(view, "dispatch");
+      revealLine(100);
+      await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+      expect(view.state.doc.toString()).toBe("");
+      expect(view.state.selection.main.anchor).toBe(0);
+      expect(view.state.selection.main.head).toBe(0);
+    } finally {
+      view.destroy();
+    }
+  });
 });
