@@ -1426,6 +1426,31 @@ describe("rule:missing-alt-text", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(fixed);
   });
 
+  it("fixes each adjacent empty-alt image when their sources are identical", () => {
+    const doc = "Before ![](images/chart.png)![](images/chart.png) after.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Before ![TODO: describe image](images/chart.png)![](images/chart.png) after.\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Before ![](images/chart.png)![TODO: describe image](images/chart.png) after.\n",
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      "Before ![TODO: describe image](images/chart.png)![TODO: describe image](images/chart.png) after.\n",
+    );
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it("autofixes multiple images on one line without changing sources or prose", () => {
     const doc =
       "Before ![](first.png) between ![   ](images/second.jpg?size=2) and ![Existing](third.svg) after.\n";
