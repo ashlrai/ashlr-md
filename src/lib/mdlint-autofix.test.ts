@@ -657,6 +657,29 @@ describe("rule:invalid-link-target", () => {
     expect(lintDocument(fixed, { rules: [ruleInvalidLinkTarget] })).toHaveLength(0);
   });
 
+  it("autofixes adjacent invalid links without changing surrounding text", () => {
+    const doc = "Before café [first]()[second](#) after.\r\nNext line.\n";
+    const expected = "Before café [first](TODO)[second](TODO) after.\r\nNext line.\n";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "invalid-link-target",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Before café [first](TODO)[second](#) after.\r\nNext line.\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Before café [first]()[second](TODO) after.\r\nNext line.\n",
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves intervening prose when fixing multiple links in either violation order", () => {
     const doc = "Before [first](      ) — café 😀, then [second](?) after.\n";
     const expected = "Before [first](TODO) — café 😀, then [second](TODO) after.\n";
