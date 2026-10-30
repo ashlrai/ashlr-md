@@ -9123,6 +9123,14 @@ fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
             "The notes say [first phrase][second phrase] here.",
         ),
         (
+            "Review [TODO][sic] before [the release](/release).\n",
+            "Review [TODO][sic] before the release.",
+        ),
+        (
+            "Keep [first][second] together.\n\n[first]: /guide\n",
+            "Keep [first][second] together.",
+        ),
+        (
             "Read [**first**][second *phrase*] together.\n",
             "Read [first][second phrase] together.",
         ),
