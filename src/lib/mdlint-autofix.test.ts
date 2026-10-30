@@ -1047,6 +1047,23 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it("preserves the complete query string when fixing an empty image alt", () => {
+    const doc =
+      "Before ![](https://example.com/chart.png?label=North%20%26%20South&size=2&size=4&empty=&view=full+detail) after.\n";
+    const expected =
+      "Before ![TODO: describe image](https://example.com/chart.png?label=North%20%26%20South&size=2&size=4&empty=&view=full+detail) after.\n";
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("preserves each relative image source when fixing multiple missing alts", () => {
     const doc =
       "See ![](./images/chart.png?size=2#preview) and ![ \t ](../assets/map%20one.svg).\n" +
