@@ -1085,6 +1085,30 @@ describe("rule:missing-alt-text", () => {
   it.each([
     true,
     false,
+  ])("fixes an empty-alt image next to a valid link (image first: %s)", (imageFirst) => {
+    const image = "![](images/chart.png?size=2#data)";
+    const repaired = "![TODO: describe image](images/chart.png?size=2#data)";
+    const link = '[guide](./guide.md?view=full#images "Guide")';
+    const doc = `See ${imageFirst ? image : link} ${imageFirst ? link : image}.\r\n`;
+    const expected = `See ${imageFirst ? repaired : link} ${imageFirst ? link : repaired}.\r\n`;
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+    ]);
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(image);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
+    true,
+    false,
   ])("preserves a described image sharing a source with an image needing a fix (described first: %s)", (describedFirst) => {
     const source = "images/caf%C3%A9.png?size=2#preview";
     const described = `![Café terrace at sunset](${source})`;
