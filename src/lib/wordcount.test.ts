@@ -6,6 +6,18 @@ describe("computeDocStats", () => {
     expect(computeDocStats("one two three four five").words).toBe(5);
   });
 
+  it.each([
+    ["leading spaces", "  ", ""],
+    ["trailing spaces", "", "  "],
+    ["leading and trailing blank lines", "\n\n", "\n\n"],
+    ["mixed whitespace on both sides", "\n \n  ", " \t\r\n\n"],
+    ["Unicode whitespace on both sides", "\u00a0", "\u2003"],
+  ])("does not change the prose word count with %s", (_description, prefix, suffix) => {
+    const prose = "one two three four five";
+    expect(computeDocStats(prose).words).toBe(5);
+    expect(computeDocStats(`${prefix}${prose}${suffix}`).words).toBe(5);
+  });
+
   it("counts accented words separated by Unicode whitespace", () => {
     expect(
       computeDocStats("café\u00a0mañana\u2003naïve\nre\u0301sume\u0301").words,
