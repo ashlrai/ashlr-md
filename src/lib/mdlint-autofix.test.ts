@@ -1932,6 +1932,29 @@ describe("chained violations and multi-line fixes", () => {
     expect(lintDocument(fixed, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    '"Café at sunset"',
+    "'Café at sunset'",
+    "(Café at sunset)",
+  ])("preserves a valid image with title %s while fixing neighboring violations", (title) => {
+    const image = `![A café garden](../images/cafe%20garden.png?size=2#preview ${title})`;
+    const doc = `Before [draft]() see ${image}, then ![](chart.png).\r\n`;
+    const expected = `Before [draft](TODO) see ${image}, then ![TODO: describe image](chart.png).\r\n`;
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(expected);
+  });
+
   it("fixes an empty image alt and invalid link on separate lines without changing other lines", () => {
     const doc =
       "Intro: café\tkeeps its spacing.\n\nSee ![](diagram.png) for context.\n" +
