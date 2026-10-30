@@ -1188,6 +1188,15 @@ describe("rule:missing-alt-text", () => {
 
     expect(violations).toHaveLength(2);
     expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(
+      violations.map(({ range }) => doc.slice(range!.from.offset, range!.to.offset)),
+    ).toEqual(["![](images/first.png)", "![](images/second.jpg?size=2#preview)"]);
+    expect(applyFix(doc, violations[0])).toBe(
+      "Café: ![TODO: describe image](images/first.png)![](images/second.jpg?size=2#preview).\n",
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      "Café: ![](images/first.png)![TODO: describe image](images/second.jpg?size=2#preview).\n",
+    );
     const fixed = applyAllFixes(doc, violations);
     expect(fixed).toBe(
       "Café: ![TODO: describe image](images/first.png)![TODO: describe image](images/second.jpg?size=2#preview).\n",
