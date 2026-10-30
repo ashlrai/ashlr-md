@@ -65,7 +65,7 @@ export function ShortcutSheet() {
           role="region"
           aria-label="Shortcuts"
           // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be focusable to scroll by keyboard
-          tabIndex={0}
+          tabIndex={0} // NOSONAR S6845: the named scroll region needs focus for keyboard scrolling in WebKit.
         >
           {groups.map((g) => (
             <section

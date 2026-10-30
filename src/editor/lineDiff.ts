@@ -30,7 +30,8 @@ export interface DiffOp {
 export function splitLines(text: string): string[] {
   const out: string[] = [];
   let start = 0;
-  for (let i = 0; i < text.length; i++) {
+  let i = 0;
+  while (i < text.length) {
     const c = text.charCodeAt(i);
     if (c === 10 /* \n */) {
       out.push(text.slice(start, i + 1));
@@ -39,8 +40,10 @@ export function splitLines(text: string): string[] {
       const end = text.charCodeAt(i + 1) === 10 ? i + 2 : i + 1;
       out.push(text.slice(start, end));
       start = end;
-      i = end - 1;
+      i = end;
+      continue;
     }
+    i++;
   }
   if (start < text.length) out.push(text.slice(start));
   return out;
