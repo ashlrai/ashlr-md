@@ -1373,6 +1373,41 @@ describe("chained violations and multi-line fixes", () => {
   });
 
   it.each([
+    ["> ```markdown", "> ", "> ```", "\n"],
+    ["- ~~~markdown", "  ", "  ~~~", "\r\n"],
+  ])("preserves link and image examples in a container fence starting %s", (open, prefix, close, newline) => {
+    const code = [open, `${prefix}[draft]() and ![](diagram.png)`, close].join(newline);
+    const doc = ["Before [draft]().", "", code, "", "After ![](diagram.png).", ""].join(
+      newline,
+    );
+    const rules = [ruleInvalidLinkTarget, ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "invalid-link-target",
+      "missing-alt-text",
+    ]);
+    expect(violations.map((violation) => violation.range?.from.offset)).toEqual([
+      doc.indexOf("[draft]()"),
+      doc.lastIndexOf("![](diagram.png)"),
+    ]);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      [
+        "Before [draft](TODO).",
+        "",
+        code,
+        "",
+        "After ![TODO: describe image](diagram.png).",
+        "",
+      ].join(newline),
+    );
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
+  it.each([
     ["```", "\n"],
     ["~~~", "\r\n"],
   ])("preserves link and image examples in an unclosed %s fence", (fence, newline) => {
