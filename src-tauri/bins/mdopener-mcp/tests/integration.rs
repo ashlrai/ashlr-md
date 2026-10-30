@@ -9116,6 +9116,16 @@ fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
 }
 
 #[test]
+fn export_text_keeps_punctuation_immediately_after_prose_brackets() {
+    let markdown = "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End.\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "Compare [sic],next; [TODO]:now; [1]!really; [x]?yes; [note].End."
+    );
+}
+
+#[test]
 fn export_text_keeps_adjacent_bracketed_phrases_in_order() {
     for (markdown, expected) in [
         (
