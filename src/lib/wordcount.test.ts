@@ -36,6 +36,16 @@ describe("computeDocStats", () => {
     expect(computeDocStats("   \n\n")).toEqual({ words: 0, minutes: 0 });
   });
 
+  it.each([
+    ["spaces", "   "],
+    ["tabs", "\t\t"],
+    ["newlines", "\n\n"],
+    ["mixed whitespace", " \t\n\r\n\t "],
+    ["Unicode whitespace", "\u00a0\u2003"],
+  ])("returns zero words and minutes for %s only", (_label, content) => {
+    expect(computeDocStats(content)).toEqual({ words: 0, minutes: 0 });
+  });
+
   it("rounds reading time up to at least one minute for short docs", () => {
     expect(computeDocStats("a few words").minutes).toBe(1);
   });
