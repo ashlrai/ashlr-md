@@ -179,20 +179,15 @@ export function ActivityDrawer() {
   // (also fires on startup if a folder was persisted).
   useEffect(() => {
     if (!watchedDir) return;
-    let cancelled = false;
-    watchDirectory(watchedDir).catch(() => {});
-    loadFiles();
-    return () => {
-      cancelled = true;
-      void cancelled;
-    };
+    void watchDirectory(watchedDir).catch(() => {});
+    void loadFiles();
   }, [watchedDir, loadFiles]);
 
   // Subscribe to live file activity for the lifetime of the component.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let active = true;
-    onActivityFile((ev) => applyEvent(ev)).then((fn) => {
+    void onActivityFile((ev) => applyEvent(ev)).then((fn) => {
       if (active) unlisten = fn;
       else fn();
     });

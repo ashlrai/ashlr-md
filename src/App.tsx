@@ -237,7 +237,7 @@ export default function App() {
   // Check for updates shortly after launch (no-op in dev / offline).
   useEffect(() => {
     const t = setTimeout(() => {
-      checkForUpdates();
+      void checkForUpdates();
     }, 3000);
     return () => clearTimeout(t);
   }, []);

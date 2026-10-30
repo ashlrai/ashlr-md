@@ -45,7 +45,7 @@ export function EmbedSection() {
   const [unreadNotice, setUnreadNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    embedStatus().then(setStatus);
+    void embedStatus().then(setStatus);
   }, []);
 
   async function reindex() {

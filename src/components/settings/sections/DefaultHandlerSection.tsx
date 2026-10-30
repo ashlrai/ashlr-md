@@ -13,7 +13,7 @@ export function DefaultHandlerSection() {
   useEffect(() => {
     let cancelled = false;
     const check = () => {
-      import("../../../lib/defaultHandler").then(({ defaultHandlerStatus }) =>
+      void import("../../../lib/defaultHandler").then(({ defaultHandlerStatus }) =>
         defaultHandlerStatus().then((s) => {
           if (!cancelled) setHandler(s);
         }),
