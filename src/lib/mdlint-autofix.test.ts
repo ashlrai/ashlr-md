@@ -1937,6 +1937,29 @@ describe("LinterToast violation history", () => {
     clearLintHistory();
   });
 
+  it("preserves a valid link and surrounding text while fixing images on both sides", () => {
+    const doc =
+      "Before ![](left.png), read [café guide](./guide.md?view=full#links) " +
+      "for details, then see ![](right.png) afterward.\n";
+    const rules = [ruleMissingAltText, ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe(
+      "Before ![TODO: describe image](left.png), read [café guide](./guide.md?view=full#links) " +
+        "for details, then see ![TODO: describe image](right.png) afterward.\n",
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+  });
+
   it.each([
     "\n",
     "\r\n",
