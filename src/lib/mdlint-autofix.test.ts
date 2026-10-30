@@ -2244,6 +2244,18 @@ describe("LinterToast violation history", () => {
     clearLintHistory();
   });
 
+  it("Fix all leaves an empty document empty and records no history", () => {
+    const doc = "";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(fixAllViolations(doc, violations)).toBe("");
+    expect(getLintHistory()).toEqual([]);
+  });
+
   it("preserves a valid link and surrounding text while fixing images on both sides", () => {
     const doc =
       "Before ![](left.png), read [café guide](./guide.md?view=full#links) " +
