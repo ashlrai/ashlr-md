@@ -8946,6 +8946,16 @@ fn export_text_keeps_bracketed_todo_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_literal_brackets_in_blockquote_prose() {
+    let markdown = "> See note [1] and the [guide](/guide).\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "See note [1] and the guide."
+    );
+}
+
+#[test]
 fn export_text_keeps_repeated_prose_brackets_in_order() {
     for (markdown, expected) in [
         (
