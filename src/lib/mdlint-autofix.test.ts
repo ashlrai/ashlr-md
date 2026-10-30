@@ -1596,6 +1596,35 @@ describe("rule:missing-alt-text", () => {
 
 describe("chained violations and multi-line fixes", () => {
   it.each([
+    ["```", "\n"],
+    ["~~~", "\r\n"],
+  ])("fixes identical links outside a %s fence while preserving the example", (fence, newline) => {
+    const code = [`${fence}markdown`, "[draft]() and [anchor](#)", fence].join(newline);
+    const doc = ["Before [draft]().", "", code, "", "After [draft]().", ""].join(
+      newline,
+    );
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map((violation) => violation.range?.from.offset)).toEqual([
+      doc.indexOf("[draft]()"),
+      doc.lastIndexOf("[draft]()"),
+    ]);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      ["Before [draft](TODO).", "", code, "", "After [draft]().", ""].join(newline),
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      ["Before [draft]().", "", code, "", "After [draft](TODO).", ""].join(newline),
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(
+      ["Before [draft](TODO).", "", code, "", "After [draft](TODO).", ""].join(newline),
+    );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it.each([
     "\n",
     "\r\n",
   ])("preserves a bracketed word at the end of a paragraph and its final newline %j", (newline) => {
