@@ -1931,6 +1931,37 @@ describe("LinterToast violation history", () => {
     expect(getLintHistory()).toEqual(historyAfterFirstPass);
   });
 
+  it("does not change text or record another fix on a second pass for an invalid href", () => {
+    const doc = "# First\n\n## Second\n\nRead [draft]() and [guide](./guide.md).   \n";
+    const rules = BUILTIN_RULES.filter((rule) =>
+      LINTER_DEFAULT_ENABLED_RULES.includes(rule.id),
+    );
+    const violations = lintDocument(doc, { rules });
+    expect(violations.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+
+    const once = fixAllViolations(doc, violations);
+    expect(once).toBe(
+      "# First\n\n## Second\n\nRead [draft](TODO) and [guide](./guide.md).\n",
+    );
+    const historyAfterFirstPass = [...getLintHistory()];
+    expect(historyAfterFirstPass.map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+      "no-trailing-spaces",
+    ]);
+
+    const remaining = lintDocument(once, { rules });
+    expect(remaining.map((violation) => violation.ruleId)).toEqual([
+      "orphaned-heading",
+    ]);
+    expect(remaining[0].fix).toBeNull();
+    expect(fixAllViolations(once, remaining)).toBe(once);
+    expect(getLintHistory()).toEqual(historyAfterFirstPass);
+  });
+
   it("getLintHistory returns an empty array initially", () => {
     expect(getLintHistory()).toHaveLength(0);
   });
