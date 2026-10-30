@@ -101,7 +101,7 @@ export default function App() {
       }
       const keptNote = restoreMessage(kept);
       if (keptNote) toast[keptNote.kind](keptNote.text);
-      if (!gone) keeping = startKeepingBuffers();
+      keeping = startKeepingBuffers();
       // Recents whose file was deleted or moved since are dropped, so the
       // Recent list and the agents' `list_recent` only offer real files.
       void useRecentStore.getState().pruneMissing();
