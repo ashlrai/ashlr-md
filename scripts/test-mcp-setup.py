@@ -49,13 +49,16 @@ class CommandTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX independent tokenizer")
     def test_actual_formatter_round_trips_paths_without_shell_execution(self):
+        # Hostile path components hang off the per-test TemporaryDirectory
+        # (mode 0700) — never a hard-coded publicly writable dir.
+        base = str(self.directory)
         for path in [
             "/Applications/Ashlr MD.app/Contents/Resources/mdopener-mcp",
-            "/tmp/O'Brien/文档/mdopener-mcp",
-            "/tmp/$HOME/`whoami`/$(id)/mdopener-mcp",
-            '/tmp/"double quotes"/mdopener-mcp',
-            "/tmp/semi;colon & pipe|/mdopener-mcp",
-            "/tmp/back\\slash/line\nbreak/mdopener-mcp",
+            f"{base}/O'Brien/文档/mdopener-mcp",
+            f"{base}/$HOME/`whoami`/$(id)/mdopener-mcp",
+            f'{base}/"double quotes"/mdopener-mcp',
+            f"{base}/semi;colon & pipe|/mdopener-mcp",
+            f"{base}/back\\slash/line\nbreak/mdopener-mcp",
         ]:
             with self.subTest(path=path):
                 command = subprocess.check_output([str(self.binary), path], text=True).removesuffix("\n")
@@ -63,9 +66,10 @@ class CommandTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX independent tokenizer")
     def test_actual_hook_command_round_trips_paths_without_shell_execution(self):
+        base = str(self.directory)
         for path in [
             "/Applications/Ashlr MD.app/Contents/Resources/mdopen",
-            "/tmp/O'Brien/$HOME/`whoami`/$(id)/mdopen",
+            f"{base}/O'Brien/$HOME/`whoami`/$(id)/mdopen",
             "C:\\Users\\me\\AppData\\Local\\Ashlr MD\\mdopen.exe",
         ]:
             with self.subTest(path=path):

@@ -18,6 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "../store/documentStore";
 import type { PasteImageTarget } from "../store/settingsStore";
 import { toast } from "../store/toastStore";
+import { randomBase36 } from "./uniqueId";
 
 /** MIME → file extension for the image types the backend allowlist accepts. */
 const MIME_TO_EXT: Record<string, string> = {
@@ -160,7 +161,6 @@ export function expectedSavePath(
  * when `token` is supplied, which is useful in tests.
  */
 export function pasteImageFilename(ext: string, token?: string): string {
-  const t =
-    token ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const t = token ?? `${Date.now()}-${randomBase36(4).toUpperCase()}`;
   return `image-${t}.${ext}`;
 }

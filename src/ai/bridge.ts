@@ -4,6 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { recordAbort, recordFailure, recordSuccess } from "../lib/telemetry";
+import { uniqueId } from "../lib/uniqueId";
 import { useAIStore } from "../store/aiStore";
 import type { AIMessage } from "./types";
 
@@ -167,7 +168,7 @@ export async function aiGenerateStream(
   signal?: AbortSignal,
 ): Promise<void> {
   // Unique ID so multiple concurrent requests don't collide on events.
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const requestId = uniqueId("", 12);
   const tier = PROVIDER_TIER[providerId] ?? 1;
   const startMs = Date.now();
 
@@ -260,7 +261,7 @@ export async function afmGenerateStream(
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const requestId = uniqueId("", 12);
   const providerId = "apple-fm";
   const tier = PROVIDER_TIER[providerId];
   const startMs = Date.now();

@@ -36,6 +36,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { toolPath } from './tool-path.mjs';
 
 const NPM_REGISTRY = 'registry.npmjs.org';
 const CRATES_SOURCES = new Set([
@@ -51,12 +52,19 @@ function run(cmd, args, { cwd, input } = {}) {
   return { status: r.status ?? 1, stdout: text(r.stdout), stderr: text(r.stderr) };
 }
 
+// Resolved to an absolute path on first use: a bare 'git' would let the OS
+// search PATH, where a writable early directory could shadow the real binary.
+let gitPath;
+function gitBin() {
+  return (gitPath ??= toolPath('git'));
+}
+
 function git(args, opts) {
-  return run('git', args, opts);
+  return run(gitBin(), args, opts);
 }
 
 function stageBuf(root, path, n) {
-  const r = spawnSync('git', ['show', `:${n}:${path}`], { cwd: root });
+  const r = spawnSync(gitBin(), ['show', `:${n}:${path}`], { cwd: root });
   return r.status === 0 ? r.stdout : null;
 }
 
@@ -205,12 +213,20 @@ function lockfileFlow(root, path, manifestName, verifyCmd, regenCmd, sourcesOk) 
   const ours = stageBuf(root, path, 2);
   if (ours === null) return 'ours side deleted — needs a human';
   if (dryRun) return `would regen via ${regenCmd.join(' ')}`;
+  let verifyBin;
+  let regenBin;
+  try {
+    verifyBin = toolPath(verifyCmd[0]);
+    regenBin = toolPath(regenCmd[0]);
+  } catch (err) {
+    return `${err.message} — needs a human`;
+  }
   writeFileSync(join(root, path), ours);
   const cwd = join(root, dir);
-  let r = run(verifyCmd[0], verifyCmd.slice(1), { cwd });
+  let r = run(verifyBin, verifyCmd.slice(1), { cwd });
   if (r.status !== 0) {
-    r = run(regenCmd[0], regenCmd.slice(1), { cwd });
-    if (r.status === 0) r = run(verifyCmd[0], verifyCmd.slice(1), { cwd });
+    r = run(regenBin, regenCmd.slice(1), { cwd });
+    if (r.status === 0) r = run(verifyBin, verifyCmd.slice(1), { cwd });
   }
   const fail = (why) => {
     writeFileSync(join(root, path), ours);
@@ -272,7 +288,13 @@ function classify(path) {
 }
 
 export function cli() {
-  const top = git(['rev-parse', '--show-toplevel']);
+  let top;
+  try {
+    top = git(['rev-parse', '--show-toplevel']);
+  } catch (err) {
+    console.error(err.message);
+    return 1;
+  }
   if (top.status !== 0) {
     console.error(`not inside a git worktree: ${top.stderr.trim()}`);
     return 1;

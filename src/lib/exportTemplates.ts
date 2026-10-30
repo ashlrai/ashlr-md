@@ -12,6 +12,8 @@
  * localStorage; they follow the same shape.
  */
 
+import { uniqueId } from "./uniqueId";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ExportTemplate {
@@ -1013,11 +1015,12 @@ export function validateTemplateCss(css: string): string | null {
 
 /**
  * Generate a new unique id for a user-created template.
- * Uses crypto.randomUUID when available, falls back to Date.now() + Math.random().
+ * Uses crypto.randomUUID when available, falls back to a timestamped
+ * CSPRNG token from {@link uniqueId}.
  */
 export function newTemplateId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `user-${crypto.randomUUID()}`;
   }
-  return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return uniqueId("user-", 6);
 }
