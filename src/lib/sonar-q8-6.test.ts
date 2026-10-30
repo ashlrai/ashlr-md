@@ -125,10 +125,19 @@ describe("newTemplateId", () => {
 
 describe("toolPath", () => {
   it("resolves repo-script tools to absolute paths", () => {
-    for (const name of ["git", "node"]) {
-      const p = toolPath(name);
-      expect(isAbsolute(p), `${name} → ${p}`).toBe(true);
-      expect(basename(p)).toBe(name);
+    const dir = mkdtempSync(join(tmpdir(), "tool-path-repo-"));
+    try {
+      for (const name of ["git", "node"]) {
+        const exe = join(dir, name);
+        writeFileSync(exe, "#!/bin/sh\nexit 0\n");
+        chmodSync(exe, 0o755);
+        // System tools may win; the fixture covers installs outside trusted dirs.
+        const p = toolPath(name, { PATH: dir });
+        expect(isAbsolute(p), `${name} → ${p}`).toBe(true);
+        expect(basename(p)).toBe(name);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
