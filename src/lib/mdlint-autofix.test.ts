@@ -264,6 +264,7 @@ describe("rule:invalid-link-target", () => {
 
   it.each([
     "   ",
+    "\t",
     "\t\t",
     "\u00a0",
   ])("autofix replaces a whitespace-only href %j while preserving link text and prose", (href) => {
