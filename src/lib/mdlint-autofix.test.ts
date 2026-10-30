@@ -939,6 +939,35 @@ describe("rule:missing-alt-text", () => {
     expect(fixed).toBe("Before ![TODO: describe image](img.png) after.\n");
   });
 
+  it("preserves the text before and after an empty-alt image exactly, metacharacters included", () => {
+    const before = "Costs $5 and $10; `![](decoy.png)` in code; wow! ";
+    const src = "img$&$'$`$1.png?x=$2#frag";
+    const after = " then $`tail$ and [x](y.md) stay.\n";
+    const doc = `${before}![](${src})${after}`;
+    const repaired = `![TODO: describe image](${src})`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${src})`);
+    expect(doc.slice(0, from.offset)).toBe(before);
+    expect(doc.slice(to.offset)).toBe(after);
+
+    const expected = `${before}${repaired}${after}`;
+    for (const fixed of [
+      applyFix(doc, violations[0]),
+      applyAllFixes(doc, violations),
+    ]) {
+      expect(fixed.slice(0, before.length)).toBe(before);
+      expect(fixed.slice(before.length + repaired.length)).toBe(after);
+      expect(fixed).toBe(expected);
+    }
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("preserves a Unicode image source and surrounding prose when fixing empty alt text", () => {
     const doc = "前置き 😀 ![](画像/星🌟-café.png?言語=日本語#詳細) 之后 café.\n";
     const expected =
