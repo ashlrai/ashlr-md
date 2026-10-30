@@ -1155,6 +1155,57 @@ describe("rule:missing-alt-text", () => {
     expect(lintDocument(expected, { rules })).toHaveLength(0);
   });
 
+  it.each([
+    // Composed (NFC) accents with a CJK directory, query and fragment.
+    "galerie/café-大学.png?größe=2#vorschau",
+    // The same file name decomposed (NFD), as macOS file systems store it.
+    "galerie/cafe\u0301-大学.png?gro\u0308ße=2#vorschau",
+    // An emoji ZWJ sequence and a right-to-left script in the path.
+    "相册/familie-👨‍👩‍👧‍👦-תמונה.webp#预览",
+    // A quoted Unicode title is part of the preserved destination.
+    'assets/星空.png?t=夜 "タイトル 🌃"',
+  ])("preserves a Unicode image source %j exactly when fixing an empty alt", (src) => {
+    const doc = `Résumé ☕ before ![](${src}) après.\n`;
+    const expected = `Résumé ☕ before ![TODO: describe image](${src}) après.\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("missing-alt-text");
+    expect(violations[0].fix).not.toBeNull();
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe(`![](${src})`);
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
+  it("keeps each normalization form when empty-alt sources differ only by composition", () => {
+    // macOS stores file names decomposed: the sources render identically but
+    // are different strings, and each fix must preserve its own bytes.
+    const nfc = "images/café.png";
+    const nfd = "images/cafe\u0301.png";
+    expect(nfd.normalize("NFC")).toBe(nfc);
+    const doc = `Twins ![](${nfc}) and ![](${nfd}).\n`;
+    const expected = `Twins ![TODO: describe image](${nfc}) and ![TODO: describe image](${nfd}).\n`;
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    expect(applyFix(doc, violations[0])).toBe(
+      `Twins ![TODO: describe image](${nfc}) and ![](${nfd}).\n`,
+    );
+    expect(applyFix(doc, violations[1])).toBe(
+      `Twins ![](${nfc}) and ![TODO: describe image](${nfd}).\n`,
+    );
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    const remaining = lintDocument(fixed, { rules });
+    expect(remaining).toEqual([]);
+    expect(applyAllFixes(fixed, remaining)).toBe(fixed);
+  });
+
   it("fixes an empty alt at the start of a later line without changing surrounding lines", () => {
     const doc =
       "Intro: café and 😀.\n\n![](images/chart.png?size=2#preview) explains the data.\n" +
