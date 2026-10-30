@@ -596,6 +596,42 @@ describe("rule:invalid-link-target", () => {
     expect(applyAllFixes(doc, violations)).toBe("First line.\nSee [link](TODO)");
   });
 
+  it.each([
+    "",
+    " \t ",
+    "#",
+    "?",
+  ])("fixes destination %j in a document with no newline at all", (destination) => {
+    const doc = `Read [draft](${destination}) for details`;
+    const expected = "Read [draft](TODO) for details";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    expect(violations[0].fix).not.toBeNull();
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(fixed).not.toContain("\n");
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
+  it("autofixes every invalid link when the last one ends the document without a newline", () => {
+    const doc = "Intro.\r\nSee [first]() and [second](#)";
+    const expected = "Intro.\r\nSee [first](TODO) and [second](TODO)";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(2);
+    expect(violations.every((violation) => violation.fix !== null)).toBe(true);
+    const fixed = applyAllFixes(doc, violations);
+    expect(fixed).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(fixed.endsWith("\n")).toBe(false);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("flags multiple invalid links in one document", () => {
     const doc = "[first]() and [second](#) and [valid](https://example.com).\n";
     const violations = lintDocument(doc, { rules: [ruleInvalidLinkTarget] });
@@ -1689,6 +1725,22 @@ describe("LinterToast violation history", () => {
     expect(fixed).toBe(
       "Read [docs](https://example.com/guide#links), then [draft](TODO).\n",
     );
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+    expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
+      "invalid-link-target",
+    ]);
+  });
+
+  it("Fix all repairs an invalid link at EOF without adding a trailing newline", () => {
+    const doc = "First line.\nRead [docs](./guide.md), then [draft](#)";
+    const rules = [ruleInvalidLinkTarget];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const fixed = fixAllViolations(doc, violations);
+    expect(fixed).toBe("First line.\nRead [docs](./guide.md), then [draft](TODO)");
+    expect(fixed.endsWith("\n")).toBe(false);
     expect(lintDocument(fixed, { rules })).toEqual([]);
     expect(getLintHistory().map((entry) => entry.ruleId)).toEqual([
       "invalid-link-target",
