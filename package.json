@@ -19,7 +19,8 @@
     "format": "biome format --write src",
     "fresh:sync": "node scripts/freshness/sync.mjs",
     "fresh:check": "node scripts/freshness/check.mjs",
-    "test:freshness": "node --test scripts/freshness/freshness.test.mjs"
+    "test:freshness": "node --test scripts/freshness/freshness.test.mjs",
+    "test:dispatch": "node --test scripts/ci/validate-dispatch.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
