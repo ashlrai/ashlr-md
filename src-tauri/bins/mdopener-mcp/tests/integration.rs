@@ -9034,6 +9034,52 @@ fn export_text_keeps_bracketed_prose_at_the_end_of_a_paragraph() {
     }
 }
 
+/// A `[...]` that opens a paragraph could be misread as a reference
+/// definition's label or a shortcut link, and one that closes a paragraph
+/// sits where a definition might start; with no matching definition both
+/// keep their brackets, as the page shows them.
+#[test]
+fn export_text_keeps_bracketed_prose_at_the_start_and_end_of_a_paragraph() {
+    for (markdown, expected) in [
+        // One bracketed phrase opens the paragraph, another closes it.
+        (
+            "[Draft] the finding was confirmed [1].\n",
+            "[Draft] the finding was confirmed [1].",
+        ),
+        // A bracket at the start only, and a paragraph that is nothing but
+        // a bracketed phrase (its start and end are the same brackets).
+        (
+            "[sic] is the annotation added to the quotation.\n",
+            "[sic] is the annotation added to the quotation.",
+        ),
+        ("[needs review]\n", "[needs review]"),
+        // A bracket ends one paragraph; the next paragraph opens with one.
+        (
+            "The quotation was accurate [sic]\n\n[TODO] recheck the source.\n",
+            "The quotation was accurate [sic]\n\n[TODO] recheck the source.",
+        ),
+        // The brackets sit at the first line's start and the last line's
+        // end of a paragraph spanning lines.
+        (
+            "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.\n",
+            "[one] wraps a paragraph\nspanning two lines [two]\n\n[three] opens the next.",
+        ),
+        // The prose brackets stay while an inline link between them reads
+        // its text, and a defined reference still resolves.
+        (
+            "[sic] see [the guide](/guide) for details [TODO].\n",
+            "[sic] see the guide for details [TODO].",
+        ),
+        (
+            "[sic] recheck [the guide] now.\n\n[the guide]: /guide\n",
+            "[sic] recheck the guide now.",
+        ),
+    ] {
+        let result = run_export_text_on(markdown);
+        assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
+    }
+}
+
 #[test]
 fn export_text_keeps_bracketed_sic_in_surrounding_prose() {
     let markdown = "The report says the result was 'definately [sic] confirmed' by [the authors](https://example.com).\n";
