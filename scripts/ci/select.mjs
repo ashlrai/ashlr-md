@@ -44,7 +44,7 @@ export function plan(event, files) {
       crates.add(bin && CRATES.includes(bin[1]) ? bin[1] : 'md-opener');
     }
   }
-  const rustArgs = crates.size === CRATES.length ? '--workspace' : [...crates].sort().map((c) => `-p ${c}`).join(' ');
+  const rustArgs = crates.size === CRATES.length ? '--workspace' : [...crates].sort((a, b) => a.localeCompare(b)).map((c) => `-p ${c}`).join(' ');
   return { mode: 'affected', js: files.some((f) => JS_IN.test(f)), rust: crates.size > 0, rustArgs };
 }
 

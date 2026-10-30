@@ -72,7 +72,7 @@ export default function App() {
     let unsubSave: (() => void) | undefined;
     let keeping: { stop: () => void } | undefined;
     let gone = false;
-    (async () => {
+    void (async () => {
       // The saved tabs, then every queued file (openPath dedupes); the last
       // stays active.
       launchOpen ??= (async () => {
@@ -116,7 +116,10 @@ export default function App() {
       // Listen for live opens, then open what arrived between the drain
       // above and the listener being registered.
       unlisten = await listenForOpenedFiles(openPath);
-    })();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not restore files or listen for file opens.");
+    });
     return () => {
       gone = true;
       unlisten?.();
@@ -128,7 +131,8 @@ export default function App() {
   // Native drag-and-drop of files onto the window.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await getCurrentWebview().onDragDropEvent((event) => {
         const p = event.payload;
         if (p.type === "over" || p.type === "enter") {
@@ -136,13 +140,22 @@ export default function App() {
         } else if (p.type === "drop") {
           setDragOver(false);
           const md = p.paths.find((path) => MD_EXT.test(path)) ?? p.paths[0];
-          if (md) openPath(md);
+          if (md)
+            void openPath(md).catch(() => {
+              toast.error("Could not open dropped file.");
+            });
         } else {
           setDragOver(false);
         }
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for dropped files.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, [openPath]);
 
   // Ask before closing the window with unsaved edits (Rust holds the close;
@@ -170,26 +183,40 @@ export default function App() {
   // React to external (on-disk) changes of the open file.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await listen<string>("file-changed", (e) => {
         // Re-read it, or flag it missing when it was deleted or moved: the
         // window used to show nothing, and the next save wrote it again.
         void useDocumentStore.getState().refreshFromDisk(e.payload);
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for file changes.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   // The open file was renamed on disk (where the platform reports both
   // names): the tab follows it, where it used to read as gone.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    (async () => {
+    let gone = false;
+    void (async () => {
       unlisten = await listen<{ from: string; to: string }>("file-renamed", (e) => {
         void useDocumentStore.getState().followRename(e.payload.from, e.payload.to);
       });
-    })();
-    return () => unlisten?.();
+      if (gone) unlisten();
+    })().catch(() => {
+      if (!gone) toast.error("Could not listen for file renames.");
+    });
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
   }, []);
 
   // A file changed, appeared or was renamed on disk: links resolve again, so

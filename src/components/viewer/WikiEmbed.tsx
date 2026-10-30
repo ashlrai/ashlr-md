@@ -67,7 +67,7 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
     if (!target) return;
     if (!isImage && depth >= MAX_EMBED_DEPTH) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       // Resolve the file part only — the `#fragment` is applied locally below.
       const path = await resolveWikilink(file, docPath);
       if (!path) {
@@ -95,7 +95,9 @@ export function WikiEmbed({ target, size }: WikiEmbedProps) {
       } catch {
         if (!cancelled) setResolved(null);
       }
-    })();
+    })().catch(() => {
+      if (!cancelled) setResolved(null);
+    });
     return () => {
       cancelled = true;
     };

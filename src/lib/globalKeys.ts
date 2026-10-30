@@ -7,6 +7,7 @@
  * command whose shortcut matches runs.
  */
 
+import { toast } from "../store/toastStore";
 import { useUiStore } from "../store/uiStore";
 import { getShortcutCommands } from "./commands";
 import { isDismissEscape, matchShortcut } from "./keymap";
@@ -24,7 +25,13 @@ export function handleGlobalKeyDown(e: KeyboardEvent): void {
     if (cmd.shortcut && matchShortcut(e, cmd.shortcut)) {
       if (cmd.when && !cmd.when()) return; // shortcut owned but unavailable
       e.preventDefault();
-      cmd.run();
+      try {
+        void Promise.resolve(cmd.run()).catch(() => {
+          toast.error("Could not run keyboard shortcut.");
+        });
+      } catch {
+        toast.error("Could not run keyboard shortcut.");
+      }
       return;
     }
   }

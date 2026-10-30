@@ -79,9 +79,13 @@ function NoteLink({ target, alias }: WikilinkProps) {
   useEffect(() => {
     void cacheVersion;
     let cancelled = false;
-    resolveWikilink(target, docPath).then((p) => {
-      if (!cancelled) setResolved(p);
-    });
+    void resolveWikilink(target, docPath)
+      .then((p) => {
+        if (!cancelled) setResolved(p);
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
     return () => {
       cancelled = true;
       cancelScrollRef.current?.();
@@ -106,6 +110,9 @@ function NoteLink({ target, alias }: WikilinkProps) {
           .then((error) => {
             if (error !== null) toast.error(linkOpenError(resolved, error));
             else if (fragment) cancelScrollRef.current = scrollToFragment(fragment);
+          })
+          .catch(() => {
+            toast.error("Could not open linked note.");
           });
       }}
       disabled={resolved === undefined || broken}
