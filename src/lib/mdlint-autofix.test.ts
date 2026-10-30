@@ -2695,6 +2695,34 @@ describe("LINTER_DEFAULT_ENABLED_RULES", () => {
 // ─── 8. Edge cases ────────────────────────────────────────────────────────────
 
 describe("edge cases", () => {
+  it.each([
+    "",
+    "\r\n",
+  ])("preserves a valid CRLF document byte for byte with ending %j", (ending) => {
+    const doc =
+      [
+        "---",
+        "title: Café guide",
+        "---",
+        "",
+        "# Café guide",
+        "",
+        "Read [the guide](./guide.md#details) and see ![A chart](chart.png).",
+        "",
+        "## Details",
+        "",
+        "Keep  internal spacing and Unicode: ☕.",
+        "",
+        "```md",
+        "Example content",
+        "```",
+      ].join("\r\n") + ending;
+    const violations = lintDocument(doc);
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+  });
+
   it("preserves a clean document through two autofix passes", () => {
     const doc =
       "---\ntitle: Guide\n---\n\nOrdinary prose with café and  internal spacing.\n\n" +
