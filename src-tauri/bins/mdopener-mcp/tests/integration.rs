@@ -9045,6 +9045,10 @@ fn export_text_keeps_bracketed_phrases_adjacent_to_punctuation() {
             "She wrote: '[exact wording]'; he agreed!\n",
             "She wrote: '[exact wording]'; he agreed!",
         ),
+        (
+            "Status:[**needs review**]?! See [the guide](/guide), then [sic]; done.\n",
+            "Status:[needs review]?! See the guide, then [sic]; done.",
+        ),
     ] {
         let result = run_export_text_on(markdown);
         assert_eq!(result["text"].as_str().unwrap(), expected, "{markdown:?}");
