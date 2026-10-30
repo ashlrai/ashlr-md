@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AIErrorInfo } from "../ai/errors";
 import type { AICapabilities } from "../ai/types";
+import { uniqueId } from "../lib/uniqueId";
 
 /** Keychain account label for the Anthropic key (see secrets.rs `SERVICE`). */
 const AI_KEY_ACCOUNT = "anthropic";
@@ -141,7 +142,7 @@ interface AIState {
 // ---------------------------------------------------------------------------
 
 function makeId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return uniqueId("", 6);
 }
 
 export const useAIStore = create<AIState>()(

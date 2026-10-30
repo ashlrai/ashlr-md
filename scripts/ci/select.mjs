@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { toolPath } from '../tool-path.mjs';
 
 // Workspace members of src-tauri/Cargo.toml, in declaration order.
 export const CRATES = ['md-opener', 'mdopen', 'mdopener-mcp'];
@@ -48,8 +49,12 @@ export function plan(event, files) {
   return { mode: 'affected', js: files.some((f) => JS_IN.test(f)), rust: crates.size > 0, rustArgs };
 }
 
+// Resolved lazily so a missing git stays a selection error (fall back to the
+// full suite) instead of an import-time crash.
+let gitPath;
 function changedFiles(base, head) {
-  const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
+  gitPath ??= toolPath('git');
+  const git = (args) => execFileSync(gitPath, args, { encoding: 'utf8' });
   const mergeBase = git(['merge-base', base, head]).trim();
   const files = git(['diff', '--name-only', mergeBase, head]).split('\n').filter(Boolean);
   return { files, mergeBase };
