@@ -278,6 +278,10 @@ prints local model setup steps and downloads and writes nothing. See the
 README's [repair guide](../README.md#repair-with-doctor---fix) for repair
 boundaries.
 
+The offline schema export sorts tools by name and preserves complete input
+schemas, including property descriptions, for companion-client compatibility.
+`tools/list` keeps the presentation order shown in the tool table below.
+
 The tool table below and the frontend event inventory are checked against
 source by `python3 scripts/check-docs.py`.
 
