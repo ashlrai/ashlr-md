@@ -9018,6 +9018,16 @@ fn export_text_keeps_numeric_citations_in_surrounding_prose() {
 }
 
 #[test]
+fn export_text_keeps_repeated_numeric_citations() {
+    let markdown = "The first finding [1] confirms the second [1].\n";
+    let result = run_export_text_on(markdown);
+    assert_eq!(
+        result["text"].as_str().unwrap(),
+        "The first finding [1] confirms the second [1]."
+    );
+}
+
+#[test]
 fn export_text_keeps_multiple_undefined_numbered_references() {
     let markdown = "Evidence [1], [23][24], and [1] supports the claim; see [42].\n";
     let result = run_export_text_on(markdown);
