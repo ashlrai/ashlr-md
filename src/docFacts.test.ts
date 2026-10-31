@@ -5,6 +5,7 @@
 // the Rust-side check in mdopener-mcp/tests/integration.rs does not gate PRs.
 
 import { describe, expect, it } from "vitest";
+import ciWorkflow from "../.github/workflows/ci.yml?raw";
 import releaseWorkflow from "../.github/workflows/release.yml?raw";
 import agentsDoc from "../docs/AGENTS.md?raw";
 import installDoc from "../docs/INSTALL.md?raw";
@@ -694,6 +695,38 @@ describe("doc facts: release asset names", () => {
     [`${productName}_${v}_x64_en-US.msi`, `${pub}_${v}_x64_en-US.msi`],
   ];
   const RELEASING = "docs/RELEASING.md";
+
+  it("keeps ARM release builds and their full-suite prerequisite on native ARM runners", () => {
+    const arm = releaseWorkflow.match(
+      /- platform: macos-15\n(?<config>(?:[ \t]+[^\n]*\n)+)/,
+    )?.groups?.config;
+    expect(arm).toBeDefined();
+    expect(arm).toContain("rust-target: aarch64-apple-darwin");
+    expect(arm).toContain('tauri-args: "--target aarch64-apple-darwin"');
+    expect(arm).toContain('build-sidecars: "bash scripts/build-sidecars.sh"');
+    expect(releaseWorkflow).not.toMatch(/platform: macos-14\b/);
+    const armDoc = releasingDoc
+      .split("\n")
+      .find((line) => line.startsWith("| macOS arm64 |"));
+    expect(armDoc).toContain("`macos-15`");
+    expect(ciWorkflow).toMatch(/macos-full:[\s\S]*?runs-on: macos-15\n/);
+    expect(ciWorkflow).not.toMatch(/runs-on: macos-14\b/);
+  });
+
+  it("builds Intel macOS bundles on the supported native Intel runner", () => {
+    const intel = releaseWorkflow.match(
+      /- platform: macos-15-intel\n(?<config>(?:[ \t]+[^\n]*\n)+)/,
+    )?.groups?.config;
+    expect(intel).toBeDefined();
+    expect(intel).toContain("rust-target: x86_64-apple-darwin");
+    expect(intel).toContain('tauri-args: "--target x86_64-apple-darwin"');
+    expect(intel).toContain('build-sidecars: "bash scripts/build-sidecars.sh"');
+    expect(releaseWorkflow).not.toMatch(/platform: macos-13\b/);
+    const intelDoc = releasingDoc
+      .split("\n")
+      .find((line) => line.startsWith("| macOS x86_64 |"));
+    expect(intelDoc).toContain("`macos-15-intel`");
+  });
 
   it("release.yml uploads the bundles as built and publishes nothing", () => {
     const steps = releaseWorkflow
