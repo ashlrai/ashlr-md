@@ -696,14 +696,65 @@ describe("doc facts: release asset names", () => {
   ];
   const RELEASING = "docs/RELEASING.md";
 
+  // Read only active, direct fields of this matrix entry, never comments or
+  // following entries. This deliberately handles our plain-scalar YAML subset.
+  function matrixFields(workflow: string, platform: string): Record<string, string> {
+    const lines = workflow.split("\n");
+    const start = lines.findIndex((line) => line.trim() === `- platform: ${platform}`);
+    if (start < 0) return {};
+    const indent = lines[start].length - lines[start].trimStart().length;
+    const fields: Record<string, string> = {};
+    for (const line of lines.slice(start + 1)) {
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      const depth = line.length - line.trimStart().length;
+      if (depth <= indent) break;
+      if (depth !== indent + 2) continue;
+      const field = line.trim().match(/^([\w-]+):\s*(.*)$/);
+      if (field) fields[field[1]] = field[2];
+    }
+    return fields;
+  }
+
+  it.each([
+    "macos-15",
+    "macos-15-intel",
+  ])("does not borrow %s matrix fields from comments or adjacent entries", (platform) => {
+    const fixture = `include:
+  - platform: ${platform}
+    rust-target: own-target
+    tauri-args: own-args
+    build-sidecars: own-build
+  - platform: other
+    rust-target: own-target
+    tauri-args: own-args
+    build-sidecars: own-build
+`;
+    expect(matrixFields(fixture, platform)).toEqual({
+      "rust-target": "own-target",
+      "tauri-args": "own-args",
+      "build-sidecars": "own-build",
+    });
+    for (const key of ["rust-target", "tauri-args", "build-sidecars"]) {
+      const line = fixture.split("\n").find((l) => l.startsWith(`    ${key}:`))!;
+      for (const replacement of ["", line.replace(key, `# ${key}`)]) {
+        expect(
+          matrixFields(fixture.replace(line, replacement), platform),
+        ).not.toHaveProperty(key);
+      }
+    }
+    expect(
+      matrixFields(
+        fixture.replace(`- platform: ${platform}`, `# - platform: ${platform}`),
+        platform,
+      ),
+    ).toEqual({});
+  });
+
   it("keeps ARM release builds and their full-suite prerequisite on native ARM runners", () => {
-    const arm = releaseWorkflow.match(
-      /- platform: macos-15\n(?<config>(?:[ \t]+[^\n]*\n)+)/,
-    )?.groups?.config;
-    expect(arm).toBeDefined();
-    expect(arm).toContain("rust-target: aarch64-apple-darwin");
-    expect(arm).toContain('tauri-args: "--target aarch64-apple-darwin"');
-    expect(arm).toContain('build-sidecars: "bash scripts/build-sidecars.sh"');
+    const arm = matrixFields(releaseWorkflow, "macos-15");
+    expect(arm["rust-target"]).toBe("aarch64-apple-darwin");
+    expect(arm["tauri-args"]).toBe('"--target aarch64-apple-darwin"');
+    expect(arm["build-sidecars"]).toBe('"bash scripts/build-sidecars.sh"');
     expect(releaseWorkflow).not.toMatch(/platform: macos-14\b/);
     const armDoc = releasingDoc
       .split("\n")
@@ -714,13 +765,10 @@ describe("doc facts: release asset names", () => {
   });
 
   it("builds Intel macOS bundles on the supported native Intel runner", () => {
-    const intel = releaseWorkflow.match(
-      /- platform: macos-15-intel\n(?<config>(?:[ \t]+[^\n]*\n)+)/,
-    )?.groups?.config;
-    expect(intel).toBeDefined();
-    expect(intel).toContain("rust-target: x86_64-apple-darwin");
-    expect(intel).toContain('tauri-args: "--target x86_64-apple-darwin"');
-    expect(intel).toContain('build-sidecars: "bash scripts/build-sidecars.sh"');
+    const intel = matrixFields(releaseWorkflow, "macos-15-intel");
+    expect(intel["rust-target"]).toBe("x86_64-apple-darwin");
+    expect(intel["tauri-args"]).toBe('"--target x86_64-apple-darwin"');
+    expect(intel["build-sidecars"]).toBe('"bash scripts/build-sidecars.sh"');
     expect(releaseWorkflow).not.toMatch(/platform: macos-13\b/);
     const intelDoc = releasingDoc
       .split("\n")
