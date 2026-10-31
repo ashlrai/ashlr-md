@@ -73,7 +73,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS arm64 (primary shipping target, Apple Silicon)
           # ------------------------------------------------------------------
-          - platform: macos-14
+          - platform: macos-15
             rust-target: aarch64-apple-darwin
             tauri-args: "--target aarch64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -82,7 +82,7 @@ jobs:
           # ------------------------------------------------------------------
           # macOS x86_64 (Intel Macs)
           # ------------------------------------------------------------------
-          - platform: macos-13
+          - platform: macos-15-intel
             rust-target: x86_64-apple-darwin
             tauri-args: "--target x86_64-apple-darwin"
             build-sidecars: "bash scripts/build-sidecars.sh"
@@ -125,21 +125,12 @@ jobs:
 
       # Select the latest available Xcode on macOS runners.
       # -----------------------------------------------------------------------
-      # WHY: The mdopener-afm Swift sidecar requires Xcode 26 / Swift 6.2+
-      # (macOS 26 SDK) to compile. setup-xcode@v1 with xcode-version: latest
-      # picks the newest Xcode installed on the runner image. GitHub-hosted
-      # macos-14 / macos-13 images lag Xcode releases by several weeks, so
-      # "latest" may resolve to Xcode 16.x until Apple releases Xcode 26 GM
-      # and GitHub updates their runner images.
-      #
-      # KNOWN RISK: If the runner image does not yet carry Xcode 26 (Swift 6.2+),
-      # the mdopener-afm sidecar build step inside scripts/build-sidecars.sh
-      # will fail or produce a binary missing macOS 26 SDK APIs. Monitor:
-      #   https://github.com/actions/runner-images/releases
-      # Once Xcode 26 is available on hosted runners, pin here:
-      #   xcode-version: "26.0"
-      # All other bundle artifacts (Rust sidecars, app bundle, DMG) are unaffected
-      # by this risk — only the Swift AFM sidecar depends on the Xcode version.
+      # mdopener-afm requires Xcode 26 / Swift 6.2+ and the macOS 26 SDK.
+      # Native macos-15 (ARM) and macos-15-intel images provide Xcode 26;
+      # "latest" avoids their older default Xcode. Keep each host native:
+      # build-sidecars.sh builds Rust and Swift helpers for the host architecture.
+      # Check each build's selected Xcode and sidecar output; resource
+      # reconciliation below preserves the existing best-effort Swift behavior.
       # -----------------------------------------------------------------------
       - name: Select latest Xcode (macOS only)
         if: matrix.os == 'macOS'
