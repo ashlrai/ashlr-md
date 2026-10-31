@@ -168,7 +168,7 @@ To use a local OpenAI-compatible server (Ollama, oMLX, a LiteLLM proxy), add a `
 ```
 
 - `provider` is `ollama` (default base URL `http://127.0.0.1:11434/v1`), `omlx` (`http://127.0.0.1:8000/v1`) or `openai-compat` (`baseUrl` required).
-- The model defaults to `qwen3.8:27b`. Other options from Phantom's docs/LOCAL-INFERENCE.md: `qwen3.6:27b`, `qwen3.6:35b`, `qwen3-coder:30b` (`ollama pull qwen3.8:27b`). Abliterated or uncensored models are refused.
+- The model defaults to `qwen3.8:27b`. Other options from Phantom's `docs/LOCAL-INFERENCE.md`: `qwen3.6:27b`, `qwen3.6:35b`, `qwen3-coder:30b` (`ollama pull qwen3.8:27b`). Abliterated or uncensored models are refused.
 - The URL must be loopback (`127.0.0.1`, `[::1]` or `localhost`, written exactly). A remote URL needs `allowRemote: true` and `https://`. Refusals use closed codes (`remote-not-allowed`, `remote-requires-https`, `host-not-canonical`, ...) and never repeat the URL.
 - No key is ever sent to this endpoint: no Authorization or x-api-key header, not your Anthropic key, not a `phm_` placeholder. If a gateway needs a key, run it through `phantom exec --` so the gateway holds the key itself.
 - When the block is valid, the sidebar uses it before any other provider. An invalid block is ignored and never routes anywhere.
@@ -299,10 +299,14 @@ bun run check:doc-links  # every relative link in the repo's Markdown resolves
 cargo check --workspace --manifest-path src-tauri/Cargo.toml
 ```
 
-`bun run check:doc-links` scans all Markdown in the repository (README, docs/,
-integrations/, samples/, ...) for relative links and `#anchors` that point
+`bun run check:doc-links` scans all Markdown in the repository (`README.md`, `docs/`,
+`integrations/`, `samples/`, ...) for relative links and `#anchors` that point
 nowhere; `--external` also probes remote URLs (needs the network):
 `node scripts/check-doc-links.mjs --external`.
+
+README command and path parity: `node --test scripts/check-readme-parity.test.mjs && node scripts/check-readme-parity.mjs`
+(add `--list` to the checker for its inventory). Installed paths, example documents,
+and references to other repositories are classified separately from repository paths.
 
 Source-only documentation drift check: `python3 scripts/check-docs.py`. It compares
 the tool table, CLI examples and frontend event inventory with the source.
