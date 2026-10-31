@@ -1,0 +1,19 @@
+{
+  "name": "ashlr-md",
+  "title": "Ashlr MD",
+  "description": "Find recent Markdown files and open them in Ashlr MD.",
+  "icon": "icon.png",
+  "author": "ashlr",
+  "license": "MIT",
+  "platforms": ["macOS"],
+  "categories": ["Productivity", "Developer Tools"],
+  "commands": [{ "name": "recent", "title": "Open Recent Markdown", "description": "Open recently modified Markdown files in Ashlr MD", "mode": "view" }],
+  "scripts": {
+    "dev": "ray develop",
+    "build": "ray build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src/deeplink.test.ts"
+  },
+  "dependencies": { "@raycast/api": "^1.103.0", "react": "^19.0.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "@types/react": "^19.0.0", "typescript": "~5.8.3" }
+}
