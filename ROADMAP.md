@@ -77,7 +77,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 
 **Integrations**
 - [ ] VS Code extension: open the active `.md` in Ashlr MD from the editor toolbar
-- [ ] Alfred / Raycast workflows for `mdopener://` quick-open
+- [x] Raycast workflow for `mdopener://` quick-open ([integration](integrations/raycast/README.md)); Alfred remains a future option
 
 **Obsidian**
 - [x] JSON Canvas editing (move/edit text nodes, write back; preserve unknown fields)
