@@ -30,6 +30,23 @@ describe("link and image autofix with no matches", () => {
     expect(applyAllFixes(fixed, lintDocument(fixed, { rules }))).toBe(doc);
   });
 
+  it("preserves an image with descriptive alt text when autofixing", () => {
+    const image = '![A red fox resting in snow](images/fox.png?size=2 "Fox")';
+    const rules = [ruleMissingAltText];
+    const doc = `Wildlife: ${image}.\r\n`;
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe(doc);
+
+    const withMissingAlt = `${doc}Another: ![](images/bird.png).\r\n`;
+    const pending = lintDocument(withMissingAlt, { rules });
+    expect(pending.map(({ ruleId }) => ruleId)).toEqual(["missing-alt-text"]);
+    const fixed = applyAllFixes(withMissingAlt, pending);
+    expect(fixed).toBe(`${doc}Another: ![TODO: describe image](images/bird.png).\r\n`);
+    expect(lintDocument(fixed, { rules })).toEqual([]);
+  });
+
   it("detects and fixes a broken link and an image missing alt text", () => {
     const doc = "Read [draft]() and see ![](chart.png).";
     const violations = lintDocument(doc, { rules });
