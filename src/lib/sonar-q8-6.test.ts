@@ -27,10 +27,15 @@ import { randomBase36, uniqueId } from "./uniqueId";
 // Keep real source reads while allowing scoped resolver filesystem fixtures.
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof fs>();
+  const statSync = vi.fn(original.statSync);
+  const accessSync = vi.fn(original.accessSync);
   return {
     ...original,
-    statSync: vi.fn(original.statSync),
-    accessSync: vi.fn(original.accessSync),
+    statSync,
+    accessSync,
+    // happy-dom transforms named builtin imports through the default export.
+    // Both forms must share the same fixtures, never the host filesystem.
+    default: { ...original, statSync, accessSync },
   };
 });
 
