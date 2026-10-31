@@ -2753,6 +2753,16 @@ describe("LINTER_DEFAULT_ENABLED_RULES", () => {
 // ─── 8. Edge cases ────────────────────────────────────────────────────────────
 
 describe("edge cases", () => {
+  it("leaves an empty document unchanged when applying default-rule fixes", () => {
+    const doc = "";
+    const violations = lintDocument(doc, {
+      rules: BUILTIN_RULES.filter((rule) => LINTER_DEFAULT_ENABLED_RULES.includes(rule.id)),
+    });
+
+    expect(violations).toEqual([]);
+    expect(applyAllFixes(doc, violations)).toBe("");
+  });
+
   it.each([
     "",
     "\r\n",
