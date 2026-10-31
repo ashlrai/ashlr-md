@@ -36,3 +36,32 @@ describe("autofix two images on one line", () => {
     expect(applyAllFixes(fixed, remaining)).toBe(expected);
   });
 });
+
+describe("autofix two images on separate lines", () => {
+  it.each(["\n", "\r\n"])("preserves both sources with line ending %j", (newline) => {
+    const doc = [
+      "Before images.",
+      "See ![](./images/chart%20one.png?size=2#preview).",
+      'Then ![  ](../assets/map.svg?view=full#north "Map").',
+      "After images.",
+    ].join(newline);
+    const expected = [
+      "Before images.",
+      "See ![TODO: describe image](./images/chart%20one.png?size=2#preview).",
+      'Then ![TODO: describe image](../assets/map.svg?view=full#north "Map").',
+      "After images.",
+    ].join(newline);
+    const rules = [ruleMissingAltText];
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations.map(({ ruleId }) => ruleId)).toEqual([
+      "missing-alt-text",
+      "missing-alt-text",
+    ]);
+    expect(violations.map(({ range }) => range?.from.line)).toEqual([2, 3]);
+    expect(violations.every(({ fix }) => fix !== null)).toBe(true);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(applyAllFixes(doc, [...violations].reverse())).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+});
