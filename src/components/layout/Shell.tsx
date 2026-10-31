@@ -114,7 +114,10 @@ export function Shell({ dragOver }: ShellProps) {
       }
       const back = switched && activeId ? readScroll.current.get(activeId) : undefined;
       el.scrollTo({ top: back ?? 0 });
-      el.focus({ preventScroll: true });
+      // Tab arrows activate a document while keeping focus in the tablist.
+      if (document.activeElement?.getAttribute("role") !== "tab") {
+        el.focus({ preventScroll: true });
+      }
     }
   }, [path, viewMode, reloadNonce, activeId]);
 
