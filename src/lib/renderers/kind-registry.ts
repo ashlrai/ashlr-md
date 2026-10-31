@@ -103,3 +103,10 @@ export function loadKindRegistry(json: string) {
 }
 
 export type KindRegistry = ReturnType<typeof loadKindRegistry>;
+
+/** Built-in frontmatter registrations; custom registries remain authoritative. */
+export const builtInKindRegistry = loadKindRegistry(
+  JSON.stringify([
+    { name: "plan", renderer: "plan", frontmatter: { kind: "plan" }, sections: {} },
+  ]),
+);
