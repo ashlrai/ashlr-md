@@ -45,7 +45,11 @@ import { type CalloutType, remarkCallouts } from "../../lib/remark-callouts";
 import { remarkComments } from "../../lib/remark-comments";
 import { remarkHighlights } from "../../lib/remark-highlights";
 import { remarkWikilinks } from "../../lib/remark-wikilinks";
-import type { KindRegistry } from "../../lib/renderers/kind-registry";
+import {
+  builtInKindRegistry,
+  type KindRegistry,
+} from "../../lib/renderers/kind-registry";
+import { PlanStatusRenderer } from "../../lib/renderers/plan-status-renderer";
 import { detectReviewDoc } from "../../lib/reviewDoc";
 import { SANITIZE_SCHEMA } from "../../lib/sanitizeSchema";
 import { useDocumentStore } from "../../store/documentStore";
@@ -579,8 +583,9 @@ export const Renderer = memo(function Renderer({
 }: RendererProps) {
   const info = useMemo(() => {
     const detected = detectDocKind(content);
-    if (!kindRegistry) return detected;
-    const { renderer } = kindRegistry.render(content);
+    if (!kindRegistry && builtInKindRegistry.render(content).renderer === "plain")
+      return detected;
+    const { renderer } = (kindRegistry ?? builtInKindRegistry).render(content);
     return { ...detected, kind: renderer === "plain" ? null : renderer };
   }, [content, kindRegistry]);
   // Bespoke summary for agent review / findings docs. null for ordinary docs,
@@ -625,6 +630,7 @@ export const Renderer = memo(function Renderer({
           />
         )
       )}
+      {info.kind === "plan" && <PlanStatusRenderer content={content} />}
       {hasBadges && <OtChangeBadgeLayer ops={pendingOps} />}
       {!embedded && <RemoteImagesBanner rootRef={rootRef} />}
       <TaskSourceContext.Provider value={content}>
