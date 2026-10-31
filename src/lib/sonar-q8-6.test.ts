@@ -13,16 +13,26 @@
  * reintroduces a flagged pattern fails CI even when Sonar is not running.
  */
 
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toolPath } from "../../scripts/tool-path.mjs";
 import { useConversationStore, useMemoryStore } from "../store/memoryStore";
 import { newTemplateId } from "./exportTemplates";
 import { pasteImageFilename } from "./pasteImage";
 import { randomBase36, uniqueId } from "./uniqueId";
+
+// Keep real source reads while allowing scoped resolver filesystem fixtures.
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof fs>();
+  return {
+    ...original,
+    statSync: vi.fn(original.statSync),
+    accessSync: vi.fn(original.accessSync),
+  };
+});
 
 // ─── uniqueId / randomBase36 (S2245) ──────────────────────────────────────────
 
@@ -124,50 +134,95 @@ describe("newTemplateId", () => {
 // ─── scripts/tool-path.mjs (S4036) ────────────────────────────────────────────
 
 describe("toolPath", () => {
+  const dir = join(tmpdir(), "tool-path-fixture");
+  const entries = new Map<string, { directory: boolean; mode: number }>();
+
+  beforeEach(() => {
+    // Real temporary files fail X_OK on Linux noexec mounts. Model lookup here
+    // so neither mount flags nor installed system tools determine the result.
+    entries.clear();
+    entries.set(dir, { directory: true, mode: 0o700 });
+    vi.mocked(fs.statSync).mockImplementation((path) => {
+      const entry = entries.get(String(path));
+      if (!entry) throw new Error("ENOENT");
+      return {
+        mode: entry.mode,
+        isDirectory: () => entry.directory,
+        isFile: () => !entry.directory,
+      } as fs.Stats;
+    });
+    vi.mocked(fs.accessSync).mockImplementation((path, mode) => {
+      expect(mode).toBe(fs.constants.X_OK);
+      const entry = entries.get(String(path));
+      if (!entry || (entry.mode & 0o111) === 0) throw new Error("EACCES");
+    });
+  });
+
+  afterEach(async () => {
+    const original = await vi.importActual<typeof fs>("node:fs");
+    vi.mocked(fs.statSync).mockReset().mockImplementation(original.statSync);
+    vi.mocked(fs.accessSync).mockReset().mockImplementation(original.accessSync);
+  });
+
   it("resolves repo-script tools to absolute paths", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tool-path-repo-"));
-    try {
-      for (const name of ["git", "node"]) {
-        const exe = join(dir, name);
-        writeFileSync(exe, "#!/bin/sh\nexit 0\n");
-        chmodSync(exe, 0o755);
-        // System tools may win; the fixture covers installs outside trusted dirs.
-        const p = toolPath(name, { PATH: dir });
-        expect(isAbsolute(p), `${name} → ${p}`).toBe(true);
-        expect(basename(p)).toBe(name);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+    for (const name of ["git", "node"]) {
+      const exe = join(dir, name);
+      entries.set(exe, { directory: false, mode: 0o755 });
+      const p = toolPath(name, { PATH: dir });
+      expect(isAbsolute(p), `${name} → ${p}`).toBe(true);
+      expect(basename(p)).toBe(name);
+      expect(p).toBe(exe);
     }
   });
 
   it("finds executables in a caller-provided PATH entry", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tool-path-ok-"));
-    try {
-      const exe = join(dir, "q8tool");
-      writeFileSync(exe, "#!/bin/sh\nexit 0\n");
-      chmodSync(exe, 0o755);
-      expect(toolPath("q8tool", { PATH: dir })).toBe(exe);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+    const exe = join(dir, "q8tool");
+    entries.set(exe, { directory: false, mode: 0o755 });
+    expect(toolPath("q8tool", { PATH: dir })).toBe(exe);
+  });
+
+  it("prefers trusted system directories over PATH shadows in fixed order", () => {
+    for (const path of ["/usr/bin", "/bin", dir]) {
+      entries.set(path, { directory: true, mode: 0o755 });
+      entries.set(join(path, "git"), { directory: false, mode: 0o755 });
     }
+    expect(toolPath("git", { PATH: [dir, "/bin"].join(delimiter) })).toBe(
+      join("/usr/bin", "git"),
+    );
+  });
+
+  it("rejects world-writable system directories too", () => {
+    entries.set("/usr/bin", { directory: true, mode: 0o777 });
+    entries.set(join("/usr/bin", "git"), { directory: false, mode: 0o755 });
+    entries.set(join(dir, "git"), { directory: false, mode: 0o755 });
+    expect(toolPath("git", { PATH: dir })).toBe(join(dir, "git"));
   });
 
   it("refuses executables inside a world-writable PATH entry", () => {
-    const dir = mkdtempSync(join(tmpdir(), "tool-path-ww-"));
-    chmodSync(dir, 0o777);
-    try {
-      const exe = join(dir, "q8tool");
-      writeFileSync(exe, "#!/bin/sh\nexit 0\n");
-      chmodSync(exe, 0o755);
-      expect(() => toolPath("q8tool", { PATH: dir })).toThrow(/not found/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    entries.set(dir, { directory: true, mode: 0o777 });
+    entries.set(join(dir, "q8tool"), { directory: false, mode: 0o755 });
+    expect(() => toolPath("q8tool", { PATH: dir })).toThrow(/not found/);
+    expect(fs.accessSync).not.toHaveBeenCalled();
   });
 
   it("ignores relative PATH entries and throws when nothing matches", () => {
+    entries.set(".", { directory: true, mode: 0o755 });
+    entries.set("missing-q8-tool", { directory: false, mode: 0o755 });
     expect(() => toolPath("missing-q8-tool", { PATH: "." })).toThrow(/not found/);
+    expect(fs.accessSync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { directory: true, mode: 0o755 },
+    { directory: false, mode: 0o644 },
+  ])("skips unusable candidates (%j) and continues along PATH", (entry) => {
+    entries.set(join(dir, "q8tool"), entry);
+    const fallback = join(dir, "fallback");
+    entries.set(fallback, { directory: true, mode: 0o755 });
+    entries.set(join(fallback, "q8tool"), { directory: false, mode: 0o755 });
+    expect(toolPath("q8tool", { PATH: [dir, fallback].join(delimiter) })).toBe(
+      join(fallback, "q8tool"),
+    );
   });
 });
 
@@ -184,7 +239,7 @@ describe("source guards", () => {
       "src/store/aiStore.ts",
       "src/ai/bridge.ts",
     ]) {
-      const src = readFileSync(join(repoRoot, rel), "utf8");
+      const src = fs.readFileSync(join(repoRoot, rel), "utf8");
       expect(src.includes("Math.random("), rel).toBe(false);
     }
   });
@@ -193,13 +248,13 @@ describe("source guards", () => {
     const bareLiteral =
       /(?<![.\w])(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|fork)\(\s*['"`]/;
     for (const rel of ["scripts/ci/select.mjs", "scripts/resolve-conflicts.mjs"]) {
-      const src = readFileSync(join(repoRoot, rel), "utf8");
+      const src = fs.readFileSync(join(repoRoot, rel), "utf8");
       expect(bareLiteral.test(src), rel).toBe(false);
     }
   });
 
   it("test-mcp-setup.py holds no publicly-writable-dir literals or TMP env reads", () => {
-    const src = readFileSync(join(repoRoot, "scripts/test-mcp-setup.py"), "utf8");
+    const src = fs.readFileSync(join(repoRoot, "scripts/test-mcp-setup.py"), "utf8");
     const publicDir =
       /["'](\/tmp|\/var\/tmp|\/usr\/tmp|\/dev\/shm|\/dev\/mqueue|\/run\/lock|\/var\/run\/lock|\/private\/tmp|\/private\/var\/tmp|\/library\/caches|\/users\/shared)\//i;
     const tmpEnv =
