@@ -122,6 +122,20 @@ describe("invalid link autofix with a whitespace-only href", () => {
     expect(lintDocument(expected, { rules })).toEqual([]);
   });
 
+  it("fixes mixed multiline whitespace without changing a neighboring nonempty destination", () => {
+    const doc = "Read [draft]( \t\n \t ) beside [draft]( ./guide.md ).\n";
+    const violations = lintDocument(doc, { rules });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ruleId).toBe("invalid-link-target");
+    const { from, to } = violations[0].range!;
+    expect(doc.slice(from.offset, to.offset)).toBe("[draft]( \t\n \t )");
+    const expected = "Read [draft](TODO) beside [draft]( ./guide.md ).\n";
+    expect(applyFix(doc, violations[0])).toBe(expected);
+    expect(applyAllFixes(doc, violations)).toBe(expected);
+    expect(lintDocument(expected, { rules })).toEqual([]);
+  });
+
   it("does not flag whitespace hrefs inside code spans or code blocks", () => {
     const doc = [
       "Inline `[x](  )` stays, fenced:",
