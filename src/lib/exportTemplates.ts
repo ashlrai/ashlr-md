@@ -12,6 +12,7 @@
  * localStorage; they follow the same shape.
  */
 
+import { ACADEMIC_THEME_CSS, EDITORIAL_THEME_CSS } from "./exportThemes";
 import { uniqueId } from "./uniqueId";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -105,45 +106,6 @@ th { background: var(--tpl-callout-bg); font-weight: 600; }
 th, td { border: 1px solid var(--tpl-border); padding: 8px 12px; text-align: left; }
 a { color: inherit; border-bottom: 1px solid var(--tpl-border); text-decoration: none; }
 a:hover { border-bottom-color: var(--tpl-secondary); }
-`.trim();
-
-/**
- * Academic paper style — strict serif typography, numbered-like look,
- * tight margins for print.
- */
-const ACADEMIC_TEMPLATE_CSS = `
-/* ── Academic Paper ── */
-:root {
-  --tpl-font: "Georgia", "Times New Roman", Times, serif;
-  --tpl-mono: "Courier New", Courier, monospace;
-  --tpl-text: #111111;
-  --tpl-secondary: #444444;
-  --tpl-bg: #ffffff;
-  --tpl-code-bg: #f4f4f4;
-  --tpl-border: #cccccc;
-}
-body {
-  font-family: var(--tpl-font);
-  font-size: 12pt;
-  line-height: 1.8;
-  color: var(--tpl-text);
-  background: var(--tpl-bg);
-}
-.reading-surface { max-width: 680px; padding: 60px 48px 80px; }
-h1 { font-size: 18pt; font-weight: bold; text-align: center; margin-bottom: 6pt; }
-h2 { font-size: 14pt; font-weight: bold; border-bottom: 1px solid var(--tpl-border); padding-bottom: 2pt; }
-h3 { font-size: 12pt; font-weight: bold; font-style: italic; }
-p { text-align: justify; text-indent: 1.5em; margin-bottom: 0; }
-p:first-child, h1 + p, h2 + p, h3 + p, blockquote + p { text-indent: 0; }
-code { font-family: var(--tpl-mono); font-size: 10pt; background: var(--tpl-code-bg); padding: 1px 4px; }
-pre { font-family: var(--tpl-mono); font-size: 10pt; background: var(--tpl-code-bg); border: 1px solid var(--tpl-border); padding: 10pt; overflow-x: auto; }
-pre code { background: none; padding: 0; }
-blockquote { border-left: 2px solid var(--tpl-border); font-style: italic; color: var(--tpl-secondary); padding-left: 16pt; margin: 8pt 0; }
-table { border-collapse: collapse; width: 100%; font-size: 11pt; margin: 12pt 0; }
-th { border-top: 2px solid var(--tpl-text); border-bottom: 1px solid var(--tpl-text); font-weight: bold; padding: 4pt 8pt; }
-td { border-bottom: 1px solid var(--tpl-border); padding: 4pt 8pt; }
-a { color: var(--tpl-text); text-decoration: underline; }
-@media print { body { font-size: 11pt; } .reading-surface { max-width: 100%; padding: 0; } }
 `.trim();
 
 /**
@@ -956,7 +918,13 @@ export const BUILTIN_TEMPLATES: readonly ExportTemplate[] = [
   {
     id: "builtin-academic",
     name: "Academic Paper",
-    css: ACADEMIC_TEMPLATE_CSS,
+    css: ACADEMIC_THEME_CSS,
+    builtin: true,
+  },
+  {
+    id: "builtin-editorial",
+    name: "Editorial",
+    css: EDITORIAL_THEME_CSS,
     builtin: true,
   },
   {
