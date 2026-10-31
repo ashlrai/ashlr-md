@@ -701,6 +701,23 @@ describe("doc facts: release asset names", () => {
   function matrixFields(workflow: string, platform: string): Record<string, string> {
     const lines = workflow.split("\n");
     const start = lines.findIndex((line) => line.trim() === `- platform: ${platform}`);
+    return directFields(lines, start);
+  }
+
+  function jobFields(workflow: string, job: string): Record<string, string> {
+    const lines = workflow.split("\n");
+    const jobs = lines.indexOf("jobs:");
+    if (jobs < 0) return {};
+    for (let i = jobs + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim() || line.trimStart().startsWith("#")) continue;
+      if (!line.startsWith(" ")) break;
+      if (line === `  ${job}:`) return directFields(lines, i);
+    }
+    return {};
+  }
+
+  function directFields(lines: string[], start: number): Record<string, string> {
     if (start < 0) return {};
     const indent = lines[start].length - lines[start].trimStart().length;
     const fields: Record<string, string> = {};
@@ -750,6 +767,31 @@ describe("doc facts: release asset names", () => {
     ).toEqual({});
   });
 
+  it("requires the active macos-full job's own runner", () => {
+    const fixture = `jobs:
+  macos-full:
+    runs-on: macos-15
+    steps:
+      - run: |
+          runs-on: macos-15
+  later:
+    runs-on: macos-15
+`;
+    expect(jobFields(fixture, "macos-full")["runs-on"]).toBe("macos-15");
+    for (const replacement of ["", "    # runs-on: macos-15"]) {
+      expect(
+        jobFields(fixture.replace("    runs-on: macos-15", replacement), "macos-full"),
+      ).not.toHaveProperty("runs-on");
+    }
+    expect(
+      jobFields(fixture.replace("  macos-full:", "  # macos-full:"), "macos-full"),
+    ).toEqual({});
+    expect(jobFields(fixture.replace("jobs:", "other:"), "macos-full")).toEqual({});
+    expect(
+      jobFields("jobs:\nother:\n  macos-full:\n    runs-on: macos-15\n", "macos-full"),
+    ).toEqual({});
+  });
+
   it("keeps ARM release builds and their full-suite prerequisite on native ARM runners", () => {
     const arm = matrixFields(releaseWorkflow, "macos-15");
     expect(arm["rust-target"]).toBe("aarch64-apple-darwin");
@@ -760,7 +802,7 @@ describe("doc facts: release asset names", () => {
       .split("\n")
       .find((line) => line.startsWith("| macOS arm64 |"));
     expect(armDoc).toContain("`macos-15`");
-    expect(ciWorkflow).toMatch(/macos-full:[\s\S]*?runs-on: macos-15\n/);
+    expect(jobFields(ciWorkflow, "macos-full")["runs-on"]).toBe("macos-15");
     expect(ciWorkflow).not.toMatch(/runs-on: macos-14\b/);
   });
 
