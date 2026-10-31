@@ -288,6 +288,29 @@ describe("resolveFromDocument on Windows paths", () => {
     expect(imageSource("../../../.hidden/pic.png", doc).kind).toBe("blocked");
   });
 
+  it("preserves the server and share in verbatim UNC document roots", () => {
+    const doc = String.raw`\\?\UNC\server\share\notes\doc.md`;
+    const root = String.raw`\\?\UNC\server\share`;
+    expect(resolveFromDocument(doc, "../../../../other.md")).toBe(
+      root + String.raw`\other.md`,
+    );
+    expect(resolveFromDocument(doc, "../../../..")).toBe(root);
+    expect(
+      resolveFromDocument(String.raw`\\?\unc/server/share/doc.md`, "../../other.md"),
+    ).toBe(String.raw`\\?\unc\server\share\other.md`);
+    expect(linkTarget("../../../other.md#part", doc)).toEqual({
+      kind: "document",
+      path: root + String.raw`\other.md`,
+      fragment: "part",
+    });
+    expect(imageSource("../../../images/pic.png", doc)).toEqual({
+      kind: "local",
+      path: root + String.raw`\images\pic.png`,
+    });
+    expect(linkTarget("../../../.hidden/other.md", doc).kind).toBe("blocked");
+    expect(imageSource("../../../.hidden/pic.png", doc).kind).toBe("blocked");
+  });
+
   it("joins with backslashes and keeps the drive", () => {
     expect(resolveFromDocument("C:\\v\\n\\doc.md", "../a/b.md")).toBe("C:\\v\\a\\b.md");
     expect(resolveFromDocument("C:\\doc.md", "../../x.md")).toBe("C:\\x.md");

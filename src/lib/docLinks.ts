@@ -79,10 +79,14 @@ export function resolveFromDocument(
       : ""
     : (parts[0] ?? "");
   const out = absolute ? [root] : parts;
-  // A UNC share is a root too: keep both leading separators, the server,
-  // and the share when resolving parents from a document on that share.
+  // Preserve UNC roots, including the extra ?/UNC components in verbatim
+  // Windows paths (\\?\UNC\server\share), before handling ordinary shares.
   const rootLength =
-    !absolute && /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(docPath ?? "") ? 4 : 1;
+    !absolute && /^\\\\\?\\UNC[\\/][^\\/]+[\\/][^\\/]+[\\/]/i.test(docPath ?? "")
+      ? 6
+      : !absolute && /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(docPath ?? "")
+        ? 4
+        : 1;
   const rest = absolute && root !== "" ? rel.slice(2) : rel;
   for (const seg of rest.split(/[\\/]/)) {
     if (seg === "" || seg === ".") continue;
