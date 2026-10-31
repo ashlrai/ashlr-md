@@ -79,10 +79,10 @@ export function resolveFromDocument(
       : ""
     : (parts[0] ?? "");
   const out = absolute ? [root] : parts;
-  // Preserve UNC roots, including the extra ?/UNC components in verbatim
-  // Windows paths (\\?\UNC\server\share), before handling ordinary shares.
+  // Preserve UNC roots, including the extra device/UNC components in DOS device
+  // Windows paths (both ? and . prefixes), before handling ordinary shares.
   const rootLength =
-    !absolute && /^\\\\\?\\UNC[\\/][^\\/]+[\\/][^\\/]+[\\/]/i.test(docPath ?? "")
+    !absolute && /^\\\\[?.]\\UNC[\\/][^\\/]+[\\/][^\\/]+[\\/]/i.test(docPath ?? "")
       ? 6
       : !absolute && /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(docPath ?? "")
         ? 4

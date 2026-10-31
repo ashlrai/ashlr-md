@@ -288,16 +288,26 @@ describe("resolveFromDocument on Windows paths", () => {
     expect(imageSource("../../../.hidden/pic.png", doc).kind).toBe("blocked");
   });
 
-  it("preserves the server and share in verbatim UNC document roots", () => {
-    const doc = String.raw`\\?\UNC\server\share\notes\doc.md`;
-    const root = String.raw`\\?\UNC\server\share`;
+  it.each(["?", "."])("preserves device UNC roots with the %s prefix", (prefix) => {
+    const doc = String.raw`\\${prefix}\UNC\server\share\notes\doc.md`;
+    const root = String.raw`\\${prefix}\UNC\server\share`;
     expect(resolveFromDocument(doc, "../../../../other.md")).toBe(
       root + String.raw`\other.md`,
     );
     expect(resolveFromDocument(doc, "../../../..")).toBe(root);
+    expect(resolveFromDocument(`${root}\\doc.md`, "../public/other.md")).toBe(
+      `${root}\\public\\other.md`,
+    );
+    const drive = String.raw`\\${prefix}\C:`;
+    expect(resolveFromDocument(`${drive}\\doc.md`, "../../other.md")).toBe(
+      `${drive}\\other.md`,
+    );
     expect(
-      resolveFromDocument(String.raw`\\?\unc/server/share/doc.md`, "../../other.md"),
-    ).toBe(String.raw`\\?\unc\server\share\other.md`);
+      resolveFromDocument(
+        String.raw`\\${prefix}\unc/server/share/doc.md`,
+        "../../other.md",
+      ),
+    ).toBe(String.raw`\\${prefix}\unc\server\share\other.md`);
     expect(linkTarget("../../../other.md#part", doc)).toEqual({
       kind: "document",
       path: root + String.raw`\other.md`,
