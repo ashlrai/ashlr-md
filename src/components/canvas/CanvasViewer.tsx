@@ -1,5 +1,5 @@
 /**
- * CanvasViewer.tsx — read-only renderer for Obsidian / JSON Canvas (`.canvas`).
+ * CanvasViewer.tsx — editor for Obsidian / JSON Canvas (`.canvas`).
  *
  * Renders the node-and-edge graph on a pannable, zoomable surface:
  *   - text nodes  → Markdown (via the same Renderer)
@@ -8,12 +8,12 @@
  *   - group nodes → a labelled rectangle behind its members
  *   - edges       → SVG connectors with optional arrowheads + labels
  *
- * Read-only: drag the background to pan, scroll to zoom, "Fit" to reset. Node
- * positions are never written back.
+ * Drag nodes to move, drag the background to pan, scroll to zoom. Text nodes
+ * have an explicit editor; changes use the document store’s guarded save.
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CanvasBounds,
   type CanvasEdge,
@@ -28,7 +28,9 @@ import {
   resolveCanvasColor,
   type ViewTransform,
 } from "../../lib/canvas";
+import { type CanvasEdit, editCanvas } from "../../lib/canvas-edit";
 import { linkOpenError } from "../../lib/docLinks";
+import { isActionEnter, isDismissEscape } from "../../lib/keymap";
 import { extractSection, isImageTarget } from "../../lib/transclude";
 import { resolveWikilink } from "../../lib/wikilink";
 import { useDocumentStore } from "../../store/documentStore";
@@ -60,21 +62,66 @@ function isSafeUrl(url: string): boolean {
 }
 
 export function CanvasViewer({ content }: { content: string }) {
+  const activeId = useDocumentStore((s) => s.activeId);
   const parsed = useMemo(() => parseCanvas(content), [content]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ViewTransform>({ scale: 1, offsetX: 0, offsetY: 0 });
-  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    ox: number;
+    oy: number;
+    scale: number;
+    node?: CanvasNode;
+    source: string;
+    tabId: string | null;
+  } | null>(null);
+  const [moving, setMoving] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
+  const commit = useCallback(
+    (edit: CanvasEdit, source: string, tabId: string | null) => {
+      const store = useDocumentStore.getState();
+      if (store.activeId !== tabId || store.content !== source) {
+        toast.error("Canvas changed during editing. Please try again.");
+        return false;
+      }
+      try {
+        const updated = editCanvas(source, edit);
+        if (updated === source) return true;
+        store.setContent(updated);
+        void store.save();
+        return true;
+      } catch (error) {
+        toast.error(`Could not edit canvas: ${String(error)}`);
+        return false;
+      }
+    },
+    [],
+  );
+
+  const editText = useCallback(
+    (id: string, text: string, source: string) =>
+      commit({ type: "edit_text", id, text }, source, activeId),
+    [commit, activeId],
+  );
 
   // Derive nodes/edges once, then memoize the bounds + id-index so neither is
   // recomputed on every pan tick (each pan fires setView → a full re-render).
-  const nodes = parsed.ok ? parsed.canvas.nodes : EMPTY_NODES;
+  const nodes = useMemo(() => {
+    const original = parsed.ok ? parsed.canvas.nodes : EMPTY_NODES;
+    return moving && drag.current?.tabId === activeId && drag.current.source === content
+      ? original.map((n) => (n.id === moving.id ? { ...n, ...moving } : n))
+      : original;
+  }, [parsed, moving, activeId, content]);
   const edges = parsed.ok ? parsed.canvas.edges : EMPTY_EDGES;
   const bounds = useMemo(() => canvasBounds(nodes), [nodes]);
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const notice = parsed.ok ? canvasSkippedNotice(parsed.skipped) : null;
 
   // Fit the whole canvas into view (used by the effect below and the Fit button).
-  const fit = useMemo(
+  const fitView = useMemo(
     () => () => {
       const el = containerRef.current;
       if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
@@ -83,27 +130,29 @@ export function CanvasViewer({ content }: { content: string }) {
     [bounds],
   );
 
-  // Auto-fit once per content, when the container actually has a size. In the
+  // Auto-fit once per document, when the container actually has a size. In the
   // Tauri webview clientWidth can be 0 on first mount, so we observe resize and
   // fit on the first non-zero layout instead of fitting to a 0-width box (which
   // would leave the canvas stuck at min zoom).
-  const fittedRef = useRef(false);
-  useEffect(() => {
-    fittedRef.current = false;
-  }, [content]);
+  const fittedRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const tryFit = () => {
-      if (fittedRef.current || el.clientWidth === 0 || el.clientHeight === 0) return;
-      fit();
-      fittedRef.current = true;
+      if (
+        fittedRef.current === activeId ||
+        el.clientWidth === 0 ||
+        el.clientHeight === 0
+      )
+        return;
+      fitView();
+      fittedRef.current = activeId;
     };
     tryFit();
     const ro = new ResizeObserver(tryFit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [fit, content]);
+  }, [fitView, activeId]);
 
   if (!parsed.ok) {
     return (
@@ -115,6 +164,7 @@ export function CanvasViewer({ content }: { content: string }) {
 
   // ── Pan / zoom handlers ────────────────────────────────────────────────────
   const onWheel = (e: React.WheelEvent) => {
+    if (drag.current || (e.target as HTMLElement).closest("textarea,input")) return;
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -130,14 +180,39 @@ export function CanvasViewer({ content }: { content: string }) {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Don't start a pan when interacting with a link/button inside a node.
-    if ((e.target as HTMLElement).closest("a,button")) return;
-    drag.current = { x: e.clientX, y: e.clientY, ox: view.offsetX, oy: view.offsetY };
+    if (
+      drag.current ||
+      e.button !== 0 ||
+      (e.target as HTMLElement).closest("a,button,input,textarea,select")
+    )
+      return;
+    const id = (e.target as HTMLElement).closest<HTMLElement>("[data-canvas-node]")
+      ?.dataset.canvasNode;
+    e.preventDefault();
+    drag.current = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      ox: view.offsetX,
+      oy: view.offsetY,
+      scale: view.scale,
+      node: nodeById.get(id ?? ""),
+      source: content,
+      tabId: activeId,
+    };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d) return;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (d.node) {
+      setMoving({
+        id: d.node.id,
+        x: d.node.x + (e.clientX - d.x) / d.scale,
+        y: d.node.y + (e.clientY - d.y) / d.scale,
+      });
+      return;
+    }
     setView((v) => ({
       ...v,
       offsetX: d.ox + (e.clientX - d.x),
@@ -145,8 +220,28 @@ export function CanvasViewer({ content }: { content: string }) {
     }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
     drag.current = null;
+    setMoving(null);
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (d.node && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 3) {
+      commit(
+        {
+          type: "move_node",
+          id: d.node.id,
+          x: d.node.x + (e.clientX - d.x) / d.scale,
+          y: d.node.y + (e.clientY - d.y) / d.scale,
+        },
+        d.source,
+        d.tabId,
+      );
+    }
+  };
+  const cancelDrag = (e: React.PointerEvent) => {
+    if (drag.current?.pointerId !== e.pointerId) return;
+    drag.current = null;
+    setMoving(null);
   };
 
   const zoomBy = (factor: number) => {
@@ -172,7 +267,7 @@ export function CanvasViewer({ content }: { content: string }) {
         <button type="button" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
           +
         </button>
-        <button type="button" onClick={fit} className="canvas-fit-btn">
+        <button type="button" onClick={fitView} className="canvas-fit-btn">
           Fit
         </button>
       </div>
@@ -181,7 +276,6 @@ export function CanvasViewer({ content }: { content: string }) {
           {notice}
         </div>
       )}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: pan surface */}
       <div
         ref={containerRef}
         className="canvas-surface"
@@ -189,7 +283,8 @@ export function CanvasViewer({ content }: { content: string }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={cancelDrag}
+        onLostPointerCapture={cancelDrag}
       >
         <div
           className="canvas-world"
@@ -199,7 +294,12 @@ export function CanvasViewer({ content }: { content: string }) {
         >
           <CanvasEdges nodes={nodeById} edges={edges} bounds={bounds} />
           {nodes.map((n) => (
-            <CanvasNodeView key={n.id} node={n} />
+            <CanvasNodeView
+              key={`${activeId}:${n.id}`}
+              node={n}
+              content={content}
+              onTextEdit={editText}
+            />
           ))}
         </div>
       </div>
@@ -302,7 +402,21 @@ function CanvasEdges({
 
 // Memoized: nodes don't change during a pan/zoom (only the world transform
 // does), so they never need to re-render on a pan tick.
-const CanvasNodeView = memo(function CanvasNodeView({ node }: { node: CanvasNode }) {
+const CanvasNodeView = memo(function CanvasNodeView({
+  node,
+  content,
+  onTextEdit,
+}: {
+  node: CanvasNode;
+  content: string;
+  onTextEdit: (id: string, text: string, source: string) => boolean;
+}) {
+  const [draft, setDraft] = useState<{ text: string; source: string } | null>(null);
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const editing = draft !== null;
+  useEffect(() => {
+    if (editing) editor.current?.focus();
+  }, [editing]);
   const color = resolveCanvasColor(node.color);
   const style: React.CSSProperties = {
     left: node.x,
@@ -331,9 +445,51 @@ const CanvasNodeView = memo(function CanvasNodeView({ node }: { node: CanvasNode
         style={style}
         data-canvas-node={node.id}
       >
-        <div className="canvas-node__scroll">
-          <Renderer content={node.text} />
-        </div>
+        {draft ? (
+          <form
+            className="canvas-text-editor"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (onTextEdit(node.id, draft.text, draft.source)) setDraft(null);
+            }}
+          >
+            <textarea
+              ref={editor}
+              aria-label="Node text"
+              value={draft.text}
+              onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+              onKeyDown={(e) => {
+                if (isDismissEscape(e)) {
+                  e.preventDefault();
+                  setDraft(null);
+                }
+                if (isActionEnter(e) && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <div>
+              <button type="submit">Save text</button>{" "}
+              <button type="button" onClick={() => setDraft(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="canvas-node__edit"
+              onClick={() => setDraft({ text: node.text, source: content })}
+            >
+              Edit text
+            </button>
+            <div className="canvas-node__scroll">
+              <Renderer content={node.text} />
+            </div>
+          </>
+        )}
       </div>
     );
   }

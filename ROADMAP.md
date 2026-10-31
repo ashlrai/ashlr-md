@@ -37,7 +37,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 **Obsidian**
 - **Reads your vault natively**: wikilinks, embeds, transclusion, highlights, comments, and math render the way Obsidian's Reading View shows them; no plugins, no export.
 - **Vault-aware link resolution**: auto-detects the vault root (`.obsidian/` or a Settings override) and resolves `[[wikilinks]]` vault-wide with deterministic closest-match.
-- **Read-only JSON Canvas viewer**: open `.canvas`, pan/zoom/Fit; `text`/`file`/`link`/`group` nodes and labelled edges render. Read-only (never written back).
+- **JSON Canvas viewer and editor**: open `.canvas`, pan/zoom/Fit; drag nodes to move and edit text with guarded write back. Unknown fields are preserved.
 - **Round-trip**: **Open in Obsidian** + the companion **Open in Ashlr MD** plugin (ribbon, commands, file/editor menus, settings).
 - **A respectful guest**: saving is refused inside any `.obsidian/` config folder (textual + symlink-resolved guard).
 
@@ -80,7 +80,7 @@ leaks data off-device without explicit consent. Quality over scope, every time.
 - [ ] Alfred / Raycast workflows for `mdopener://` quick-open
 
 **Obsidian**
-- [ ] JSON Canvas editing (currently read-only; move/edit nodes, write back)
+- [x] JSON Canvas editing (move/edit text nodes, write back; preserve unknown fields)
 
 **AI**
 - [ ] Premium hosted tier (the sustainability model), strictly opt-in, zero-retention
